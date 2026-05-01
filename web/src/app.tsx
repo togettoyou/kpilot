@@ -59,11 +59,16 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   };
 };
 
+// Tokyo Night dark palette
 const DARK_TOKENS = {
   token: {
-    colorBgLayout: '#161618',
-    colorBgContainer: '#1e1e22',
-    colorBgElevated: '#28282d',
+    colorBgLayout: '#1a1b26',
+    colorBgContainer: '#24283b',
+    colorBgElevated: '#292e42',
+    colorBgSpotlight: '#414868',
+    colorBorder: '#2a2b3d',
+    colorBorderSecondary: '#1f2335',
+    colorPrimary: '#7aa2f7',
   },
 };
 
