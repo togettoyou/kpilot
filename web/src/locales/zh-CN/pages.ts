@@ -19,6 +19,7 @@ export default {
   'pages.clusters.col.status': '状态',
   'pages.clusters.col.description': '描述',
   'pages.clusters.col.createdAt': '创建时间',
+  'pages.clusters.col.updatedAt': '更新时间',
   'pages.clusters.col.action': '操作',
   'pages.clusters.status.online': '在线',
   'pages.clusters.status.offline': '离线',

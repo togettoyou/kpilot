@@ -210,6 +210,12 @@ export default function ClustersPage() {
             render: (_, record) => new Date(record.created_at).toLocaleString(),
           },
           {
+            title: intl.formatMessage({ id: 'pages.clusters.col.updatedAt' }),
+            dataIndex: 'updated_at',
+            width: 180,
+            render: (_, record) => new Date(record.updated_at).toLocaleString(),
+          },
+          {
             title: intl.formatMessage({ id: 'pages.clusters.col.action' }),
             width: 160,
             render: (_, record) => (

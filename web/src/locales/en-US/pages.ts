@@ -19,6 +19,7 @@ export default {
   'pages.clusters.col.status': 'Status',
   'pages.clusters.col.description': 'Description',
   'pages.clusters.col.createdAt': 'Created',
+  'pages.clusters.col.updatedAt': 'Updated',
   'pages.clusters.col.action': 'Action',
   'pages.clusters.status.online': 'Online',
   'pages.clusters.status.offline': 'Offline',
