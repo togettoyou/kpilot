@@ -4,6 +4,8 @@
 
 核心架构：Server（中心控制面）+ Worker（集群侧 Operator），通过 gRPC 双向流连接。
 
+Go module：`github.com/togettoyou/kpilot`
+
 ---
 
 ## 架构原则
@@ -111,7 +113,7 @@ status:
 ### 2. 节点概览
 - 展示集群所有节点信息
 - 数据来源：Worker 读取 K8s Node 对象（标准字段 + HAMI 写入的 GPU 标签）
-- 字段：CPU（已用/总量）、内存（已用/总量）、GPU 型号、GPU 数量
+- 字段：CPU（可分配/总量）、内存（可分配/总量）、GPU 型号、GPU 数量
 
 ### 3. 工作负载管理
 - 通过 Worker 代理 K8s API，支持完整 CRUD
@@ -146,7 +148,10 @@ kpilot/
 │   └── worker/              # Worker 入口
 ├── pkg/
 │   ├── server/
-│   │   ├── api/             # HTTP 路由 + Handler（Gin）
+│   │   ├── api/
+│   │   │   ├── handler/     # Gin Handler（auth、cluster、node）
+│   │   │   ├── middleware/  # JWT 中间件
+│   │   │   └── router.go    # 路由注册
 │   │   ├── service/         # 业务逻辑层
 │   │   ├── store/           # PostgreSQL CRUD（GORM）
 │   │   └── gateway/         # gRPC Server 端逻辑
@@ -159,7 +164,7 @@ kpilot/
 │       ├── proto/           # protobuf 生成代码（不手动编辑）
 │       └── types/           # 共享类型
 ├── proto/                   # .proto 源文件
-├── web/                     # 前端（Ant Design Pro，React + TypeScript）
+├── web/                     # 前端（见下方前端规范）
 ├── deploy/
 │   ├── server/              # Server K8s manifests
 │   └── worker/              # Worker Helm Chart
@@ -178,7 +183,67 @@ kpilot/
 | ORM | GORM + PostgreSQL |
 | K8s SDK | controller-runtime + client-go |
 | Helm SDK | helm.sh/helm/v3 |
-| 前端 | React + TypeScript + Ant Design Pro |
+| 前端 | React + TypeScript + Ant Design Pro（UmiJS Max） |
+
+### 认证
+- JWT HS256，存储在 HTTP-only cookie `kpilot_token`，24h TTL
+- 单租户：用户名/密码来自 Server 配置文件
+
+---
+
+## 前端开发规范（web/）
+
+### 技术栈
+- UmiJS Max (`@umijs/max`) 作为框架
+- antd v6 基础组件，`@ant-design/pro-components` v3 高阶组件
+- Tailwind v4 布局，`antd-style` CSS-in-JS（需要主题 token 时用）
+- 国际化：zh-CN / en-US
+
+### 新增页面三步
+1. `src/pages/` 下新建组件
+2. `config/routes.ts` 加路由
+3. `src/locales/zh-CN/menu.ts` 和 `en-US/menu.ts` 加菜单翻译；页面内字符串加到对应的 `pages.ts`
+
+### 常用组件
+- 页面容器：`PageContainer`
+- 表格：`ProTable`
+- 表单：`ProForm` / antd `Form`
+- 详情：`ProDescriptions`
+- 卡片：`ProCard` / antd `Card`
+- 弹窗：antd `Modal`、`Drawer`
+
+查组件 props 用 `npx antd info <Component>`，获取示例用 `npx antd demo <Component> <name>`。
+
+### API 请求模式
+```ts
+// src/services/kpilot/xxx.ts
+export function listXxx() {
+  return request<XxxItem[]>('/api/v1/xxx', { method: 'GET' });
+}
+```
+```tsx
+// 页面组件
+const { data, loading } = useRequest(listXxx, { pollingInterval: 10000 });
+```
+- 所有路径使用相对路径，dev 环境通过 `config/proxy.ts` 代理到 `http://localhost:8080`
+- 认证依赖 HTTP-only cookie，不需要手动传 token
+
+### i18n
+所有用户可见字符串必须走 `useIntl().formatMessage({ id: '...' })`，不硬编码中文或英文。
+
+### 目录结构
+```
+web/src/
+├── pages/
+│   ├── user/login/          # 登录页
+│   ├── Clusters/            # 集群管理
+│   ├── ClusterDetail/Nodes/ # 节点概览
+│   └── exception/404/       # 404 页
+├── services/kpilot/         # API 服务（auth.ts、cluster.ts、node.ts）
+├── components/              # 公共组件（Footer、LangDropdown、AvatarDropdown）
+├── locales/                 # zh-CN / en-US（menu.ts、pages.ts）
+└── app.tsx                  # 全局布局、认证初始化
+```
 
 ---
 
@@ -186,8 +251,8 @@ kpilot/
 
 | 阶段 | 内容 | 状态 |
 |------|------|------|
-| P1 | 项目脚手架 + Proto 设计 + gRPC 连接/注册 + PostgreSQL schema | 待开始 |
-| P2 | 集群管理 UI + 节点概览（Worker 采集上报） | 待开始 |
+| P1 | 项目脚手架 + Proto 设计 + gRPC 连接/注册 + PostgreSQL schema + JWT 认证 | ✅ 完成 |
+| P2 | 集群管理 UI + 节点概览（Worker 采集上报） | ✅ 完成 |
 | P3 | 工作负载管理（K8s 资源 CRUD 代理） | 待开始 |
 | P4 | 插件系统（CRD + Helm + 状态同步） | 待开始 |
 | P5 | GPU 管理（HAMI 集成） | 待开始 |
