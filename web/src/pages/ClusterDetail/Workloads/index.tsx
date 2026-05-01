@@ -465,7 +465,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         dataSource={items}
         columns={columns}
         search={false}
-        pagination={false}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'] }}
         options={{ reload: false }}
         loading={loading}
       />
