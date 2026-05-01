@@ -56,6 +56,12 @@ export default {
   'pages.nodes.col.memory': '内存（可分配 / 总量）',
   'pages.nodes.col.gpuModel': 'GPU 型号',
   'pages.nodes.col.gpuCount': 'GPU 数量',
+  'pages.nodes.detail.ip': '内网 IP',
+  'pages.nodes.detail.podCIDR': 'Pod CIDR',
+  'pages.nodes.detail.os': 'OS 镜像',
+  'pages.nodes.detail.kernel': '内核版本',
+  'pages.nodes.detail.runtime': '容器运行时',
+  'pages.nodes.detail.kubelet': 'Kubelet 版本',
 
   // cluster detail sidebar
   'pages.cluster.nav.nodes': '节点概览',

@@ -18,6 +18,12 @@ type NodeResponse struct {
 	MemoryAllocatable int64             `json:"memory_allocatable"` // bytes
 	Labels            map[string]string `json:"labels"`
 	Annotations       map[string]string `json:"annotations"`
+	OSImage           string            `json:"os_image"`
+	KernelVersion     string            `json:"kernel_version"`
+	ContainerRuntime  string            `json:"container_runtime"`
+	KubeletVersion    string            `json:"kubelet_version"`
+	InternalIP        string            `json:"internal_ip"`
+	PodCIDR           string            `json:"pod_cidr"`
 }
 
 func ListNodes(gw *gateway.GatewayServer) gin.HandlerFunc {
@@ -53,5 +59,11 @@ func toNodeResponse(n *proto.NodeInfo) NodeResponse {
 		MemoryAllocatable: n.MemoryAllocatable,
 		Labels:            n.Labels,
 		Annotations:       annotations,
+		OSImage:           n.OsImage,
+		KernelVersion:     n.KernelVersion,
+		ContainerRuntime:  n.ContainerRuntime,
+		KubeletVersion:    n.KubeletVersion,
+		InternalIP:        n.InternalIp,
+		PodCIDR:           n.PodCidr,
 	}
 }

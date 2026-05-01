@@ -86,6 +86,14 @@ func toProtoNode(n *corev1.Node) *proto.NodeInfo {
 		annotations[k] = v
 	}
 
+	var internalIP string
+	for _, addr := range n.Status.Addresses {
+		if addr.Type == corev1.NodeInternalIP {
+			internalIP = addr.Address
+			break
+		}
+	}
+
 	return &proto.NodeInfo{
 		Name:              n.Name,
 		Status:            status,
@@ -95,5 +103,11 @@ func toProtoNode(n *corev1.Node) *proto.NodeInfo {
 		MemoryAllocatable: n.Status.Allocatable.Memory().Value(),
 		Labels:            labels,
 		Annotations:       annotations,
+		OsImage:           n.Status.NodeInfo.OSImage,
+		KernelVersion:     n.Status.NodeInfo.KernelVersion,
+		ContainerRuntime:  n.Status.NodeInfo.ContainerRuntimeVersion,
+		KubeletVersion:    n.Status.NodeInfo.KubeletVersion,
+		InternalIp:        internalIP,
+		PodCidr:           n.Spec.PodCIDR,
 	}
 }

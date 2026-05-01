@@ -9,6 +9,12 @@ export interface NodeInfo {
   memory_allocatable: number;
   labels: Record<string, string>;
   annotations: Record<string, string>;
+  os_image: string;
+  kernel_version: string;
+  container_runtime: string;
+  kubelet_version: string;
+  internal_ip: string;
+  pod_cidr: string;
 }
 
 export function listNodes(clusterId: string) {

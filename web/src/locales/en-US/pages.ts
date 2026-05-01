@@ -56,6 +56,12 @@ export default {
   'pages.nodes.col.memory': 'Memory (alloc / total)',
   'pages.nodes.col.gpuModel': 'GPU Model',
   'pages.nodes.col.gpuCount': 'GPU Count',
+  'pages.nodes.detail.ip': 'Internal IP',
+  'pages.nodes.detail.podCIDR': 'Pod CIDR',
+  'pages.nodes.detail.os': 'OS Image',
+  'pages.nodes.detail.kernel': 'Kernel Version',
+  'pages.nodes.detail.runtime': 'Container Runtime',
+  'pages.nodes.detail.kubelet': 'Kubelet Version',
 
   // cluster detail sidebar
   'pages.cluster.nav.nodes': 'Nodes',

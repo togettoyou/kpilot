@@ -104,13 +104,25 @@ export default function NodesPage() {
         <ProTable<NodeInfo>
           expandable={{
             expandedRowRender: (record) => (
-              <div className="p-4 grid grid-cols-2 gap-4">
-                <Descriptions title="Labels" size="small" column={1} bordered
-                  items={Object.entries(record.labels).map(([k, v]) => ({ key: k, label: k, children: v }))}
+              <div className="p-4 flex flex-col gap-4">
+                <Descriptions size="small" column={3} bordered
+                  items={[
+                    { key: 'ip',      label: intl.formatMessage({ id: 'pages.nodes.detail.ip' }),      children: record.internal_ip || '—' },
+                    { key: 'podCIDR', label: intl.formatMessage({ id: 'pages.nodes.detail.podCIDR' }), children: record.pod_cidr || '—' },
+                    { key: 'os',      label: intl.formatMessage({ id: 'pages.nodes.detail.os' }),      children: record.os_image || '—' },
+                    { key: 'kernel',  label: intl.formatMessage({ id: 'pages.nodes.detail.kernel' }),  children: record.kernel_version || '—' },
+                    { key: 'runtime', label: intl.formatMessage({ id: 'pages.nodes.detail.runtime' }), children: record.container_runtime || '—' },
+                    { key: 'kubelet', label: intl.formatMessage({ id: 'pages.nodes.detail.kubelet' }), children: record.kubelet_version || '—' },
+                  ]}
                 />
-                <Descriptions title="Annotations" size="small" column={1} bordered
-                  items={Object.entries(record.annotations ?? {}).map(([k, v]) => ({ key: k, label: k, children: v }))}
-                />
+                <div className="grid grid-cols-2 gap-4">
+                  <Descriptions title="Labels" size="small" column={1} bordered
+                    items={Object.entries(record.labels).map(([k, v]) => ({ key: k, label: k, children: v }))}
+                  />
+                  <Descriptions title="Annotations" size="small" column={1} bordered
+                    items={Object.entries(record.annotations ?? {}).map(([k, v]) => ({ key: k, label: k, children: v }))}
+                  />
+                </div>
               </div>
             ),
           }}

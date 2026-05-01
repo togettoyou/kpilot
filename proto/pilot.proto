@@ -45,9 +45,20 @@ message NodeInfo {
   int64 memory_capacity     = 5;
   int64 memory_allocatable  = 6;
 
-  // HAMI 写入的 Node labels（HAMI 未安装时为空）
   map<string, string> labels      = 7;
   map<string, string> annotations = 8;
+
+  // 来自 node.Status.NodeInfo
+  string os_image           = 9;  // e.g. "Ubuntu 24.04.4 LTS"
+  string kernel_version     = 10;
+  string container_runtime  = 11; // e.g. "containerd://2.2.1"
+  string kubelet_version    = 12;
+
+  // 来自 node.Status.Addresses
+  string internal_ip = 13;
+
+  // 来自 node.Spec
+  string pod_cidr = 14;
 }
 
 message ResourceResponse {

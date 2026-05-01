@@ -304,13 +304,21 @@ type NodeInfo struct {
 	Name   string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Status string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"` // Ready / NotReady / Unknown
 	// 来自 node.Status.Capacity / Allocatable（millicores / bytes）
-	CpuCapacity       int64 `protobuf:"varint,3,opt,name=cpu_capacity,json=cpuCapacity,proto3" json:"cpu_capacity,omitempty"`
-	CpuAllocatable    int64 `protobuf:"varint,4,opt,name=cpu_allocatable,json=cpuAllocatable,proto3" json:"cpu_allocatable,omitempty"`
-	MemoryCapacity    int64 `protobuf:"varint,5,opt,name=memory_capacity,json=memoryCapacity,proto3" json:"memory_capacity,omitempty"`
-	MemoryAllocatable int64 `protobuf:"varint,6,opt,name=memory_allocatable,json=memoryAllocatable,proto3" json:"memory_allocatable,omitempty"`
-	// HAMI 写入的 Node labels（HAMI 未安装时为空）
-	Labels        map[string]string `protobuf:"bytes,7,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Annotations   map[string]string `protobuf:"bytes,8,rep,name=annotations,proto3" json:"annotations,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	CpuCapacity       int64             `protobuf:"varint,3,opt,name=cpu_capacity,json=cpuCapacity,proto3" json:"cpu_capacity,omitempty"`
+	CpuAllocatable    int64             `protobuf:"varint,4,opt,name=cpu_allocatable,json=cpuAllocatable,proto3" json:"cpu_allocatable,omitempty"`
+	MemoryCapacity    int64             `protobuf:"varint,5,opt,name=memory_capacity,json=memoryCapacity,proto3" json:"memory_capacity,omitempty"`
+	MemoryAllocatable int64             `protobuf:"varint,6,opt,name=memory_allocatable,json=memoryAllocatable,proto3" json:"memory_allocatable,omitempty"`
+	Labels            map[string]string `protobuf:"bytes,7,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Annotations       map[string]string `protobuf:"bytes,8,rep,name=annotations,proto3" json:"annotations,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// 来自 node.Status.NodeInfo
+	OsImage          string `protobuf:"bytes,9,opt,name=os_image,json=osImage,proto3" json:"os_image,omitempty"` // e.g. "Ubuntu 24.04.4 LTS"
+	KernelVersion    string `protobuf:"bytes,10,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"`
+	ContainerRuntime string `protobuf:"bytes,11,opt,name=container_runtime,json=containerRuntime,proto3" json:"container_runtime,omitempty"` // e.g. "containerd://2.2.1"
+	KubeletVersion   string `protobuf:"bytes,12,opt,name=kubelet_version,json=kubeletVersion,proto3" json:"kubelet_version,omitempty"`
+	// 来自 node.Status.Addresses
+	InternalIp string `protobuf:"bytes,13,opt,name=internal_ip,json=internalIp,proto3" json:"internal_ip,omitempty"`
+	// 来自 node.Spec
+	PodCidr       string `protobuf:"bytes,14,opt,name=pod_cidr,json=podCidr,proto3" json:"pod_cidr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -399,6 +407,48 @@ func (x *NodeInfo) GetAnnotations() map[string]string {
 		return x.Annotations
 	}
 	return nil
+}
+
+func (x *NodeInfo) GetOsImage() string {
+	if x != nil {
+		return x.OsImage
+	}
+	return ""
+}
+
+func (x *NodeInfo) GetKernelVersion() string {
+	if x != nil {
+		return x.KernelVersion
+	}
+	return ""
+}
+
+func (x *NodeInfo) GetContainerRuntime() string {
+	if x != nil {
+		return x.ContainerRuntime
+	}
+	return ""
+}
+
+func (x *NodeInfo) GetKubeletVersion() string {
+	if x != nil {
+		return x.KubeletVersion
+	}
+	return ""
+}
+
+func (x *NodeInfo) GetInternalIp() string {
+	if x != nil {
+		return x.InternalIp
+	}
+	return ""
+}
+
+func (x *NodeInfo) GetPodCidr() string {
+	if x != nil {
+		return x.PodCidr
+	}
+	return ""
 }
 
 type ResourceResponse struct {
@@ -876,7 +926,7 @@ const file_pilot_proto_rawDesc = "" +
 	"\x10HeartbeatRequest\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"8\n" +
 	"\fNodeListPush\x12(\n" +
-	"\x05nodes\x18\x01 \x03(\v2\x12.pilot.v1.NodeInfoR\x05nodes\"\xd4\x03\n" +
+	"\x05nodes\x18\x01 \x03(\v2\x12.pilot.v1.NodeInfoR\x05nodes\"\xa8\x05\n" +
 	"\bNodeInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12!\n" +
@@ -885,7 +935,15 @@ const file_pilot_proto_rawDesc = "" +
 	"\x0fmemory_capacity\x18\x05 \x01(\x03R\x0ememoryCapacity\x12-\n" +
 	"\x12memory_allocatable\x18\x06 \x01(\x03R\x11memoryAllocatable\x126\n" +
 	"\x06labels\x18\a \x03(\v2\x1e.pilot.v1.NodeInfo.LabelsEntryR\x06labels\x12E\n" +
-	"\vannotations\x18\b \x03(\v2#.pilot.v1.NodeInfo.AnnotationsEntryR\vannotations\x1a9\n" +
+	"\vannotations\x18\b \x03(\v2#.pilot.v1.NodeInfo.AnnotationsEntryR\vannotations\x12\x19\n" +
+	"\bos_image\x18\t \x01(\tR\aosImage\x12%\n" +
+	"\x0ekernel_version\x18\n" +
+	" \x01(\tR\rkernelVersion\x12+\n" +
+	"\x11container_runtime\x18\v \x01(\tR\x10containerRuntime\x12'\n" +
+	"\x0fkubelet_version\x18\f \x01(\tR\x0ekubeletVersion\x12\x1f\n" +
+	"\vinternal_ip\x18\r \x01(\tR\n" +
+	"internalIp\x12\x19\n" +
+	"\bpod_cidr\x18\x0e \x01(\tR\apodCidr\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
