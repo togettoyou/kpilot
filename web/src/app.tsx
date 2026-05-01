@@ -1,12 +1,7 @@
 import type { Settings as LayoutSettings } from '@ant-design/pro-components';
-import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history } from '@umijs/max';
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
 import React from 'react';
-
-dayjs.extend(relativeTime);
 
 import { AvatarDropdown, Footer, LangDropdown } from '@/components';
 import { currentUser as queryCurrentUser } from '@/services/kpilot/auth';
@@ -18,9 +13,7 @@ const loginPath = '/user/login';
 export async function getInitialState(): Promise<{
   settings?: Partial<LayoutSettings>;
   currentUser?: { name: string; access: string; avatar?: string };
-  loading?: boolean;
   fetchUserInfo?: () => Promise<{ name: string; access: string; avatar?: string } | undefined>;
-  settingDrawerOpen?: boolean;
 }> {
   const fetchUserInfo = async () => {
     try {
@@ -38,21 +31,12 @@ export async function getInitialState(): Promise<{
   const { location } = history;
   if (location.pathname !== loginPath) {
     const currentUser = await fetchUserInfo();
-    return {
-      fetchUserInfo,
-      currentUser,
-      settings: defaultSettings as Partial<LayoutSettings>,
-      settingDrawerOpen: false,
-    };
+    return { fetchUserInfo, currentUser, settings: defaultSettings as Partial<LayoutSettings> };
   }
-  return {
-    fetchUserInfo,
-    settings: defaultSettings as Partial<LayoutSettings>,
-    settingDrawerOpen: false,
-  };
+  return { fetchUserInfo, settings: defaultSettings as Partial<LayoutSettings> };
 }
 
-export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
+export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   return {
     actionsRender: () => [<LangDropdown key="lang" />],
     avatarProps: {
@@ -72,25 +56,6 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
       }
     },
     menuHeaderRender: undefined,
-    childrenRender: (children) => {
-      return (
-        <>
-          {children}
-          <SettingDrawer
-            disableUrlParams
-            enableDarkTheme
-            collapse={initialState?.settingDrawerOpen}
-            onCollapseChange={(open) => {
-              setInitialState((s) => ({ ...s, settingDrawerOpen: open }));
-            }}
-            settings={initialState?.settings}
-            onSettingChange={(settings) => {
-              setInitialState((s) => ({ ...s, settings }));
-            }}
-          />
-        </>
-      );
-    },
     ...initialState?.settings,
   };
 };

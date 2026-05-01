@@ -1,8 +1,5 @@
-/**
- * @see https://umijs.org/docs/max/access#access
- * */
 export default function access(
-  initialState: { currentUser?: API.CurrentUser } | undefined,
+  initialState: { currentUser?: { name: string; access: string } } | undefined,
 ) {
   const { currentUser } = initialState ?? {};
   return {
