@@ -140,9 +140,6 @@ export default function ClustersPage() {
       });
       refresh();
     },
-    onError: () => {
-      message.error(intl.formatMessage({ id: 'pages.clusters.create.error' }));
-    },
   });
 
   const { run: doRegenerate } = useRequest(regenerateToken, {
