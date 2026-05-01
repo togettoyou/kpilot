@@ -6,7 +6,7 @@ import {
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import { history, useIntl, useParams, useRequest } from '@umijs/max';
-import { Button, Layout, Menu, Space, Tag, Typography } from 'antd';
+import { Button, Descriptions, Layout, Menu, Space, Tag, Typography } from 'antd';
 import React from 'react';
 import { listNodes, type NodeInfo } from '@/services/kpilot/node';
 
@@ -102,6 +102,18 @@ export default function NodesPage() {
 
       <Content className="p-6 bg-gray-50">
         <ProTable<NodeInfo>
+          expandable={{
+            expandedRowRender: (record) => (
+              <div className="p-4 grid grid-cols-2 gap-4">
+                <Descriptions title="Labels" size="small" column={1} bordered
+                  items={Object.entries(record.labels).map(([k, v]) => ({ key: k, label: k, children: v }))}
+                />
+                <Descriptions title="Annotations" size="small" column={1} bordered
+                  items={Object.entries(record.annotations ?? {}).map(([k, v]) => ({ key: k, label: k, children: v }))}
+                />
+              </div>
+            ),
+          }}
           headerTitle={
             <Space>
               <Text strong>{intl.formatMessage({ id: 'pages.nodes.title' })}</Text>

@@ -10,13 +10,14 @@ import (
 )
 
 type NodeResponse struct {
-	Name               string            `json:"name"`
-	Status             string            `json:"status"`
-	CPUCapacity        int64             `json:"cpu_capacity"`        // millicores
-	CPUAllocatable     int64             `json:"cpu_allocatable"`     // millicores
-	MemoryCapacity     int64             `json:"memory_capacity"`     // bytes
-	MemoryAllocatable  int64             `json:"memory_allocatable"`  // bytes
-	Labels             map[string]string `json:"labels"`
+	Name              string            `json:"name"`
+	Status            string            `json:"status"`
+	CPUCapacity       int64             `json:"cpu_capacity"`       // millicores
+	CPUAllocatable    int64             `json:"cpu_allocatable"`    // millicores
+	MemoryCapacity    int64             `json:"memory_capacity"`    // bytes
+	MemoryAllocatable int64             `json:"memory_allocatable"` // bytes
+	Labels            map[string]string `json:"labels"`
+	Annotations       map[string]string `json:"annotations"`
 }
 
 func ListNodes(gw *gateway.GatewayServer) gin.HandlerFunc {
@@ -31,7 +32,18 @@ func ListNodes(gw *gateway.GatewayServer) gin.HandlerFunc {
 	}
 }
 
+// noisyAnnotations are annotations that are too large or low-value to surface in the UI.
+var noisyAnnotations = map[string]bool{
+	"kubectl.kubernetes.io/last-applied-configuration": true,
+}
+
 func toNodeResponse(n *proto.NodeInfo) NodeResponse {
+	annotations := make(map[string]string, len(n.Annotations))
+	for k, v := range n.Annotations {
+		if !noisyAnnotations[k] {
+			annotations[k] = v
+		}
+	}
 	return NodeResponse{
 		Name:              n.Name,
 		Status:            n.Status,
@@ -40,5 +52,6 @@ func toNodeResponse(n *proto.NodeInfo) NodeResponse {
 		MemoryCapacity:    n.MemoryCapacity,
 		MemoryAllocatable: n.MemoryAllocatable,
 		Labels:            n.Labels,
+		Annotations:       annotations,
 	}
 }

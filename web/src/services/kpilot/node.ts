@@ -8,6 +8,7 @@ export interface NodeInfo {
   memory_capacity: number;
   memory_allocatable: number;
   labels: Record<string, string>;
+  annotations: Record<string, string>;
 }
 
 export function listNodes(clusterId: string) {

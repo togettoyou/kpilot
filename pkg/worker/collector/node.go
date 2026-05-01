@@ -81,6 +81,11 @@ func toProtoNode(n *corev1.Node) *proto.NodeInfo {
 		labels[k] = v
 	}
 
+	annotations := make(map[string]string, len(n.Annotations))
+	for k, v := range n.Annotations {
+		annotations[k] = v
+	}
+
 	return &proto.NodeInfo{
 		Name:              n.Name,
 		Status:            status,
@@ -89,5 +94,6 @@ func toProtoNode(n *corev1.Node) *proto.NodeInfo {
 		MemoryCapacity:    n.Status.Capacity.Memory().Value(),
 		MemoryAllocatable: n.Status.Allocatable.Memory().Value(),
 		Labels:            labels,
+		Annotations:       annotations,
 	}
 }
