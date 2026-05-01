@@ -6,19 +6,29 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/togettoyou/kpilot/pkg/server/api/handler"
+	"github.com/togettoyou/kpilot/pkg/server/api/middleware"
+	"github.com/togettoyou/kpilot/pkg/server/config"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
-func NewRouter(gw *gateway.GatewayServer) *gin.Engine {
+func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	v1 := r.Group("/api/v1")
+	api := r.Group("/api/v1")
 	{
-		clusters := v1.Group("/clusters")
+		auth := api.Group("/auth")
+		auth.POST("/login", handler.Login(cfg.AdminUsername, cfg.AdminPassword, cfg.JWTSecret))
+		auth.POST("/logout", handler.Logout())
+		auth.GET("/me", middleware.Auth(cfg.JWTSecret), handler.Me())
+	}
+
+	protected := api.Group("", middleware.Auth(cfg.JWTSecret))
+	{
+		clusters := protected.Group("/clusters")
 		clusters.POST("", handler.CreateCluster)
 		clusters.GET("", handler.ListClusters)
 		clusters.DELETE("/:id", handler.DeleteCluster)

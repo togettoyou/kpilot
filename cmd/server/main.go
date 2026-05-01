@@ -37,7 +37,7 @@ func main() {
 	}()
 
 	// HTTP server
-	router := api.NewRouter(gw)
+	router := api.NewRouter(cfg, gw)
 	log.Printf("HTTP listening on %s", cfg.HTTPAddr)
 	if err := router.Run(cfg.HTTPAddr); err != nil {
 		log.Fatalf("http serve: %v", err)
