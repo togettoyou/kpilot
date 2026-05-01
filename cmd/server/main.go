@@ -20,6 +20,9 @@ func main() {
 		log.Fatalf("db init: %v", err)
 	}
 	log.Println("database connected")
+	if err := store.ResetAllClustersOffline(); err != nil {
+		log.Fatalf("reset cluster status: %v", err)
+	}
 
 	// gRPC server
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)

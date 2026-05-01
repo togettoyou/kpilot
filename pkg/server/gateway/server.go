@@ -10,7 +10,10 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
-const heartbeatTimeout = 30 * time.Second
+const (
+	heartbeatTimeout  = 35 * time.Second // worker 每 10s 发一次心跳，3 次未收到即判定离线
+	heartbeatCheckInterval = 10 * time.Second
+)
 
 // ConnectedWorker 表示一个已连接的 Worker
 type ConnectedWorker struct {
@@ -86,7 +89,7 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 	log.Printf("[gateway] worker connected: cluster=%s", cluster.ID)
 
 	// 心跳超时检测
-	timer := time.NewTicker(10 * time.Second)
+	timer := time.NewTicker(heartbeatCheckInterval)
 	defer timer.Stop()
 
 	recvErr := make(chan error, 1)

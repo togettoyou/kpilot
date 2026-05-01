@@ -42,6 +42,10 @@ func UpdateClusterToken(id, token string) error {
 	return DB.Model(&Cluster{}).Where("id = ?", id).Update("token", token).Error
 }
 
+func ResetAllClustersOffline() error {
+	return DB.Model(&Cluster{}).Where("status = ?", ClusterStatusOnline).Update("status", ClusterStatusOffline).Error
+}
+
 func ClusterExists(name string) (bool, error) {
 	var count int64
 	if err := DB.Model(&Cluster{}).Where("name = ?", name).Count(&count).Error; err != nil {
