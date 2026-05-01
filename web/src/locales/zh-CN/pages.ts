@@ -82,6 +82,7 @@ export default {
   'pages.workloads.edit': '编辑',
   'pages.workloads.delete': '删除',
   'pages.workloads.delete.confirm': '确认删除 {name}？此操作不可撤销。',
+  'pages.workloads.refresh.off': '关闭',
   'pages.workloads.apply': '应用',
   'pages.workloads.apply.success': '已应用',
   'pages.workloads.delete.success': '已删除',

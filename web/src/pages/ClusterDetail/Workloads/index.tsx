@@ -1,10 +1,10 @@
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { App, Button, Drawer, Input, Popconfirm, Select, Space, Tag, Typography } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { App, Button, Drawer, Dropdown, Input, Popconfirm, Select, Space, Tag, Typography } from 'antd';
+import { DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import * as jsyaml from 'js-yaml';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ClusterLayout } from '../ClusterLayout';
 import type { WorkloadItem, WorkloadResourceType } from '@/services/kpilot/workload';
@@ -317,6 +317,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
   const intl = useIntl();
   const { message } = App.useApp();
   const [namespace, setNamespace] = useState('');
+  const [pollingInterval, setPollingInterval] = useState(0);
 
   // YAML drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -333,6 +334,12 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
       pollingWhenHidden: false,
     },
   );
+
+  useEffect(() => {
+    if (pollingInterval <= 0) return;
+    const timer = setInterval(refresh, pollingInterval);
+    return () => clearInterval(timer);
+  }, [pollingInterval, refresh]);
 
   const openEditor = async (item: WorkloadItem, ro = false) => {
     setEditingItem(item);
@@ -430,12 +437,28 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
             onChange={(v) => setNamespace(v ?? '')}
             options={namespaces.map((ns) => ({ label: ns, value: ns }))}
           />,
-          <Button
-            key="refresh"
-            icon={<ReloadOutlined />}
-            loading={loading}
-            onClick={refresh}
-          />,
+          <Space.Compact key="refresh">
+            <Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} />
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: [
+                  { key: '0', label: intl.formatMessage({ id: 'pages.workloads.refresh.off' }) },
+                  { type: 'divider' },
+                  { key: '5000', label: '5s' },
+                  { key: '10000', label: '10s' },
+                  { key: '30000', label: '30s' },
+                  { key: '60000', label: '60s' },
+                ],
+                selectedKeys: [String(pollingInterval)],
+                onClick: ({ key }) => setPollingInterval(Number(key)),
+              }}
+            >
+              <Button style={{ minWidth: 46 }}>
+                {pollingInterval > 0 ? `${pollingInterval / 1000}s` : <DownOutlined />}
+              </Button>
+            </Dropdown>
+          </Space.Compact>,
         ]}
         rowKey={(r) => `${r.namespace}/${r.name}`}
         dataSource={items}
