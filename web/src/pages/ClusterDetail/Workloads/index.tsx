@@ -1,6 +1,7 @@
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { Select, Space, Tag, Typography } from 'antd';
+import { Button, Select, Space, Tag, Typography } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
@@ -300,13 +301,19 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
             onChange={(v) => setNamespace(v ?? '')}
             options={namespaces.map((ns) => ({ label: ns, value: ns }))}
           />,
+          <Button
+            key="refresh"
+            icon={<ReloadOutlined />}
+            loading={loading}
+            onClick={refresh}
+          />,
         ]}
         rowKey={(r) => `${r.namespace}/${r.name}`}
         dataSource={items}
         columns={columns}
         search={false}
         pagination={false}
-        options={{ reload: refresh }}
+        options={false}
         loading={loading}
       />
     </div>
