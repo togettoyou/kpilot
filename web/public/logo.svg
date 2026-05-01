@@ -42,17 +42,37 @@
   <!-- Chip body -->
   <rect x="35" y="35" width="130" height="130" rx="12" fill="url(#g)"/>
 
-  <!-- Pin-1 notch (top-left corner indicator, like real chips) -->
-  <circle cx="50" cy="50" r="4" fill="none" stroke="white" stroke-width="1.5" stroke-opacity="0.4"/>
+  <!-- Pin-1 notch -->
+  <circle cx="50" cy="50" r="4" fill="none" stroke="white" stroke-width="1.5" stroke-opacity="0.35"/>
 
-  <!-- K letterform -->
-  <g stroke="white" stroke-width="18" stroke-linecap="round" fill="none">
-    <line x1="72" y1="62" x2="72" y2="138"/>
-    <line x1="72" y1="100" x2="128" y2="62"/>
-    <line x1="72" y1="100" x2="128" y2="138"/>
+  <!-- Divider between K and compass zones -->
+  <line x1="102" y1="52" x2="102" y2="148" stroke="white" stroke-width="1" stroke-opacity="0.18"/>
+
+  <!-- K letterform — left zone -->
+  <g stroke="white" stroke-width="15" stroke-linecap="round" fill="none">
+    <line x1="55" y1="63" x2="55" y2="137"/>
+    <line x1="55" y1="100" x2="91" y2="63"/>
+    <line x1="55" y1="100" x2="91" y2="137"/>
   </g>
 
-  <!-- Navigation waypoint at K junction (pilot reference) -->
-  <circle cx="72" cy="100" r="9" fill="white"/>
-  <circle cx="72" cy="100" r="5" fill="url(#g)"/>
+  <!-- Compass — right zone (Pilot reference) -->
+  <!-- Outer ring -->
+  <circle cx="131" cy="100" r="25" fill="none" stroke="white" stroke-width="2" stroke-opacity="0.4"/>
+  <!-- Cardinal tick marks -->
+  <g stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.5">
+    <line x1="131" y1="75"  x2="131" y2="81"/>
+    <line x1="156" y1="100" x2="150" y2="100"/>
+    <line x1="131" y1="125" x2="131" y2="119"/>
+    <line x1="106" y1="100" x2="112" y2="100"/>
+  </g>
+  <!-- North label dot (small, at N tick) -->
+  <circle cx="131" cy="78" r="2.5" fill="white" opacity="0.7"/>
+  <!-- Navigation needle pointing NE (1-2 o'clock) -->
+  <line x1="131" y1="100" x2="144" y2="86" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <!-- Arrowhead at NE tip -->
+  <polygon points="144,86 140,95 136,89" fill="white"/>
+  <!-- Tail (SW, dimmer) -->
+  <line x1="131" y1="100" x2="120" y2="113" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.35"/>
+  <!-- Center pivot dot -->
+  <circle cx="131" cy="100" r="3" fill="white" opacity="0.9"/>
 </svg>
