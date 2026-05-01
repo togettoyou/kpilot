@@ -1,15 +1,15 @@
 import { CheckOutlined, GlobalOutlined } from '@ant-design/icons';
-import { getAllLocales, getLocale, setLocale } from '@umijs/max';
+import { getLocale, setLocale } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Button } from 'antd';
 import { createStyles } from 'antd-style';
-import React, { useMemo } from 'react';
+import React from 'react';
 import HeaderDropdown from '../HeaderDropdown';
 
-const localeLabelMap: Record<string, { emoji: string; label: string }> = {
-  'zh-CN': { emoji: '🇨🇳', label: '简体中文' },
-  'en-US': { emoji: '🇺🇸', label: 'English' },
-};
+const LOCALES = [
+  { key: 'zh-CN', emoji: '🇨🇳', label: '简体中文' },
+  { key: 'en-US', emoji: '🇺🇸', label: 'English' },
+];
 
 const useStyles = createStyles(({ token, css }) => ({
   action: css`
@@ -26,34 +26,23 @@ const useStyles = createStyles(({ token, css }) => ({
 
 export const LangDropdown: React.FC = () => {
   const { styles } = useStyles();
-  const allLocales = useMemo(() => getAllLocales(), []);
   const currentLocale = getLocale();
-  const supportLocales = allLocales.filter((l) => l in localeLabelMap);
 
-  if (supportLocales.length <= 1) return null;
-
-  const langItems: MenuProps['items'] = supportLocales.map((locale) => ({
-    key: `lang-${locale}`,
-    icon:
-      locale === currentLocale ? (
-        <CheckOutlined style={{ color: '#52c41a' }} />
-      ) : (
-        <span style={{ display: 'inline-block', width: 14 }} />
-      ),
-    label: `${localeLabelMap[locale]?.emoji} ${localeLabelMap[locale]?.label}`,
+  const langItems: MenuProps['items'] = LOCALES.map(({ key, emoji, label }) => ({
+    key,
+    icon: key === currentLocale
+      ? <CheckOutlined style={{ color: '#52c41a' }} />
+      : <span style={{ display: 'inline-block', width: 14 }} />,
+    label: `${emoji} ${label}`,
   }));
-
-  const onLangClick: MenuProps['onClick'] = ({ key }) => {
-    if (key.startsWith('lang-')) setLocale(key.replace('lang-', ''), false);
-  };
 
   return (
     <HeaderDropdown
       placement="bottomRight"
       arrow
       menu={{
-        selectedKeys: [`lang-${currentLocale}`],
-        onClick: onLangClick,
+        selectedKeys: [currentLocale],
+        onClick: ({ key }) => setLocale(key, false),
         items: langItems,
         style: { minWidth: 160 },
       }}
