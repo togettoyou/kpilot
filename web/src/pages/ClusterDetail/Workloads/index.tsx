@@ -1,7 +1,7 @@
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
 import { App, Button, Drawer, Dropdown, Popconfirm, Select, Space, Tag, Typography } from 'antd';
-import { DownOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DownOutlined, LeftOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import * as jsyaml from 'js-yaml';
 import React, { useEffect, useState } from 'react';
@@ -314,7 +314,7 @@ function toEditableYaml(raw: any): string {
   return jsyaml.dump(obj, { lineWidth: -1 });
 }
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 5;
 
 function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: WorkloadsContentProps) {
   const intl = useIntl();
@@ -510,22 +510,27 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         pagination={false}
         options={{ reload: false }}
         loading={loading}
-        {...(pageIdx > 0 || hasMore
-          ? {
-              footer: () => (
-                <Space style={{ float: 'right' }}>
-                  <Button size="small" disabled={pageIdx === 0} onClick={() => setPageIdx((p) => p - 1)}>
-                    ‹ Prev
-                  </Button>
-                  <Text type="secondary">Page {pageIdx + 1}</Text>
-                  <Button size="small" disabled={!hasMore} onClick={() => setPageIdx((p) => p + 1)}>
-                    Next ›
-                  </Button>
-                </Space>
-              ),
-            }
-          : {})}
       />
+      {(pageIdx > 0 || hasMore) && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, padding: '12px 0' }}>
+          <Button
+            size="small"
+            icon={<LeftOutlined />}
+            disabled={pageIdx === 0}
+            onClick={() => setPageIdx((p) => p - 1)}
+          />
+          <Text type="secondary">
+            {intl.formatMessage({ id: 'pages.workloads.page' }, { n: pageIdx + 1 })}
+            {totalKnown != null && ` / ${totalKnown}`}
+          </Text>
+          <Button
+            size="small"
+            icon={<RightOutlined />}
+            disabled={!hasMore}
+            onClick={() => setPageIdx((p) => p + 1)}
+          />
+        </div>
+      )}
 
       <Drawer
         title={intl.formatMessage(

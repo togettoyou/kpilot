@@ -83,6 +83,7 @@ export default {
   'pages.workloads.delete': 'Delete',
   'pages.workloads.delete.confirm': 'Delete {name}? This cannot be undone.',
   'pages.workloads.refresh.off': 'Off',
+  'pages.workloads.page': 'Page {n}',
   'pages.workloads.apply': 'Apply',
   'pages.workloads.apply.success': 'Applied',
   'pages.workloads.delete.success': 'Deleted',
