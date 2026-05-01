@@ -57,20 +57,6 @@ const TokenModal: React.FC<{
   const { message } = App.useApp();
   const intl = useIntl();
 
-  const workerYaml = `apiVersion: v1
-kind: Namespace
-metadata:
-  name: kpilot-system
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: kpilot-worker-secret
-  namespace: kpilot-system
-stringData:
-  CLUSTER_TOKEN: "${result.token}"
-  SERVER_ADDR: "your-server-grpc-addr:9090"`;
-
   return (
     <Modal
       open
@@ -81,7 +67,7 @@ stringData:
           {intl.formatMessage({ id: 'pages.clusters.token.done' })}
         </Button>
       }
-      width={640}
+      width={520}
     >
       <Space direction="vertical" className="w-full" size="middle">
         <Text type="warning">
@@ -95,18 +81,6 @@ stringData:
             className="mt-1 break-all"
           >
             {result.token}
-          </Paragraph>
-        </div>
-        <div>
-          <Text strong>{intl.formatMessage({ id: 'pages.clusters.token.yamlLabel' })}</Text>
-          <Paragraph
-            copyable={{
-              text: workerYaml,
-              onCopy: () => message.success(intl.formatMessage({ id: 'pages.clusters.yamlCopied' })),
-            }}
-            className="mt-1"
-          >
-            <pre className="bg-gray-50 p-3 rounded text-xs overflow-auto max-h-48">{workerYaml}</pre>
           </Paragraph>
         </div>
       </Space>
