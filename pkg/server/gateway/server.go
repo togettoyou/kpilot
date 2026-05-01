@@ -115,6 +115,9 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 			}
 		case <-stream.Context().Done():
 			return stream.Context().Err()
+		case <-worker.done:
+			log.Printf("[gateway] worker kicked: cluster=%s", cluster.ID)
+			return nil
 		}
 	}
 }
@@ -150,6 +153,15 @@ func (g *GatewayServer) unregister(clusterID string) {
 	delete(g.workers, clusterID)
 	_ = store.UpdateClusterStatus(clusterID, store.ClusterStatusOffline)
 	log.Printf("[gateway] worker disconnected: cluster=%s", clusterID)
+}
+
+func (g *GatewayServer) KickWorker(clusterID string) {
+	g.mu.RLock()
+	w, ok := g.workers[clusterID]
+	g.mu.RUnlock()
+	if ok {
+		w.cancelOnce.Do(func() { close(w.done) })
+	}
 }
 
 func (g *GatewayServer) GetWorker(clusterID string) (*ConnectedWorker, bool) {

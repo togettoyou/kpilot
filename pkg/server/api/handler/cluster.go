@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/togettoyou/kpilot/pkg/server/gateway"
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
@@ -115,18 +116,21 @@ func UpdateCluster(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func RegenerateToken(c *gin.Context) {
-	id := c.Param("id")
-	token, err := generateToken()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+func RegenerateToken(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		token, err := generateToken()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if err = store.UpdateClusterToken(id, token); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		gw.KickWorker(id)
+		c.JSON(http.StatusOK, gin.H{"token": token})
 	}
-	if err = store.UpdateClusterToken(id, token); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"token": token})
 }
 
 func generateToken() (string, error) {

@@ -33,7 +33,7 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.GET("", handler.ListClusters)
 		clusters.PATCH("/:id", handler.UpdateCluster)
 		clusters.DELETE("/:id", handler.DeleteCluster)
-		clusters.POST("/:id/token", handler.RegenerateToken)
+		clusters.POST("/:id/token", handler.RegenerateToken(gw))
 		clusters.GET("/:id/nodes", handler.ListNodes(gw))
 	}
 
