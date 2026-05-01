@@ -1,43 +1,58 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 200">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
   <defs>
-    <linearGradient id="g" x1="20" y1="10" x2="200" y2="190" gradientUnits="userSpaceOnUse">
+    <linearGradient id="g" x1="30" y1="30" x2="170" y2="170" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#6366F1"/>
       <stop offset="50%" stop-color="#3B82F6"/>
       <stop offset="100%" stop-color="#06B6D4"/>
     </linearGradient>
   </defs>
 
-  <!-- GPU chip pins — left side -->
-  <g stroke="white" stroke-width="3.5" stroke-linecap="round" opacity="0.7">
-    <line x1="36" y1="72"  x2="20" y2="72"/>
-    <line x1="36" y1="92"  x2="20" y2="92"/>
-    <line x1="36" y1="112" x2="20" y2="112"/>
-    <line x1="36" y1="132" x2="20" y2="132"/>
+  <!-- Chip pins — top -->
+  <g stroke="#94A3B8" stroke-width="5" stroke-linecap="round">
+    <line x1="63"  y1="35" x2="63"  y2="18"/>
+    <line x1="83"  y1="35" x2="83"  y2="18"/>
+    <line x1="117" y1="35" x2="117" y2="18"/>
+    <line x1="137" y1="35" x2="137" y2="18"/>
   </g>
 
-  <!-- GPU chip pins — right side -->
-  <g stroke="white" stroke-width="3.5" stroke-linecap="round" opacity="0.7">
-    <line x1="188" y1="72"  x2="204" y2="72"/>
-    <line x1="188" y1="92"  x2="204" y2="92"/>
-    <line x1="188" y1="112" x2="204" y2="112"/>
-    <line x1="188" y1="132" x2="204" y2="132"/>
+  <!-- Chip pins — bottom -->
+  <g stroke="#94A3B8" stroke-width="5" stroke-linecap="round">
+    <line x1="63"  y1="165" x2="63"  y2="182"/>
+    <line x1="83"  y1="165" x2="83"  y2="182"/>
+    <line x1="117" y1="165" x2="117" y2="182"/>
+    <line x1="137" y1="165" x2="137" y2="182"/>
   </g>
 
-  <!-- Hexagon background (K8s reference) — centered in 224-wide canvas -->
-  <polygon points="112,12 188,56 188,144 112,188 36,144 36,56" fill="url(#g)"/>
+  <!-- Chip pins — left -->
+  <g stroke="#94A3B8" stroke-width="5" stroke-linecap="round">
+    <line x1="35" y1="63"  x2="18" y2="63"/>
+    <line x1="35" y1="83"  x2="18" y2="83"/>
+    <line x1="35" y1="117" x2="18" y2="117"/>
+    <line x1="35" y1="137" x2="18" y2="137"/>
+  </g>
 
-  <!-- Hex border highlight -->
-  <polygon points="112,12 188,56 188,144 112,188 36,144 36,56"
-           fill="none" stroke="white" stroke-width="1.5" stroke-opacity="0.2"/>
+  <!-- Chip pins — right -->
+  <g stroke="#94A3B8" stroke-width="5" stroke-linecap="round">
+    <line x1="165" y1="63"  x2="182" y2="63"/>
+    <line x1="165" y1="83"  x2="182" y2="83"/>
+    <line x1="165" y1="117" x2="182" y2="117"/>
+    <line x1="165" y1="137" x2="182" y2="137"/>
+  </g>
+
+  <!-- Chip body -->
+  <rect x="35" y="35" width="130" height="130" rx="12" fill="url(#g)"/>
+
+  <!-- Pin-1 notch (top-left corner indicator, like real chips) -->
+  <circle cx="50" cy="50" r="4" fill="none" stroke="white" stroke-width="1.5" stroke-opacity="0.4"/>
 
   <!-- K letterform -->
-  <g stroke="white" stroke-width="19" stroke-linecap="round" fill="none">
-    <line x1="84"  y1="54" x2="84"  y2="146"/>
-    <line x1="84"  y1="100" x2="148" y2="54"/>
-    <line x1="84"  y1="100" x2="148" y2="146"/>
+  <g stroke="white" stroke-width="18" stroke-linecap="round" fill="none">
+    <line x1="72" y1="62" x2="72" y2="138"/>
+    <line x1="72" y1="100" x2="128" y2="62"/>
+    <line x1="72" y1="100" x2="128" y2="138"/>
   </g>
 
   <!-- Navigation waypoint at K junction (pilot reference) -->
-  <circle cx="84" cy="100" r="10" fill="white"/>
-  <circle cx="84" cy="100" r="5.5" fill="url(#g)"/>
+  <circle cx="72" cy="100" r="9" fill="white"/>
+  <circle cx="72" cy="100" r="5" fill="url(#g)"/>
 </svg>
