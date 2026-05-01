@@ -51,6 +51,8 @@ const COL_I18N: Record<string, string> = {
   'Reclaim Policy': 'pages.workloads.col.reclaimPolicy',
   Claim: 'pages.workloads.col.claim',
   Reason: 'pages.workloads.col.reason',
+  VolumeMode: 'pages.workloads.col.volumeMode',
+  VolumeAttributesClass: 'pages.workloads.col.volumeAttributesClass',
 };
 
 const COL_WIDTHS: Record<string, number> = {

@@ -121,6 +121,8 @@ export default {
   'pages.workloads.col.reclaimPolicy': '回收策略',
   'pages.workloads.col.claim': '声明',
   'pages.workloads.col.reason': '原因',
+  'pages.workloads.col.volumeMode': '卷模式',
+  'pages.workloads.col.volumeAttributesClass': '卷属性类',
 
   // cluster detail sidebar
   'pages.cluster.nav.nodes': '节点概览',

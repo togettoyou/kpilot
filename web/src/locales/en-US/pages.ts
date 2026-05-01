@@ -121,6 +121,8 @@ export default {
   'pages.workloads.col.reclaimPolicy': 'Reclaim Policy',
   'pages.workloads.col.claim': 'Claim',
   'pages.workloads.col.reason': 'Reason',
+  'pages.workloads.col.volumeMode': 'Volume Mode',
+  'pages.workloads.col.volumeAttributesClass': 'Volume Attributes Class',
 
   // cluster detail sidebar
   'pages.cluster.nav.nodes': 'Nodes',
