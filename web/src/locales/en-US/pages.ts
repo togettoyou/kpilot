@@ -22,6 +22,8 @@ export default {
   'pages.clusters.col.action': 'Action',
   'pages.clusters.status.online': 'Online',
   'pages.clusters.status.offline': 'Offline',
+  'pages.clusters.edit.title': 'Edit Cluster',
+  'pages.clusters.edit.success': 'Saved',
   'pages.clusters.delete.title': 'Delete cluster "{name}"?',
   'pages.clusters.delete.content': 'This will disconnect the Worker and remove all cluster data.',
   'pages.clusters.delete.success': 'Cluster deleted',

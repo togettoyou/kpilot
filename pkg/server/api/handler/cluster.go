@@ -83,6 +83,38 @@ func DeleteCluster(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+type updateClusterRequest struct {
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
+}
+
+func UpdateCluster(c *gin.Context) {
+	id := c.Param("id")
+	var req updateClusterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	exists, err := store.ClusterExists(req.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if exists {
+		// 如果同名的是自己，允许通过（只改描述）
+		cluster, err := store.GetClusterByID(id)
+		if err != nil || cluster.Name != req.Name {
+			c.JSON(http.StatusConflict, gin.H{"error": "cluster name already exists"})
+			return
+		}
+	}
+	if err = store.UpdateCluster(id, req.Name, req.Description); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func RegenerateToken(c *gin.Context) {
 	id := c.Param("id")
 	token, err := generateToken()

@@ -1,6 +1,10 @@
 package store
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 func CreateCluster(cluster *Cluster) error {
 	return DB.Create(cluster).Error
@@ -36,6 +40,14 @@ func DeleteCluster(id string) error {
 
 func UpdateClusterStatus(id string, status ClusterStatus) error {
 	return DB.Model(&Cluster{}).Where("id = ?", id).Update("status", status).Error
+}
+
+func UpdateCluster(id, name, description string) error {
+	return DB.Model(&Cluster{}).Where("id = ?", id).Updates(map[string]any{
+		"name":        name,
+		"description": description,
+		"updated_at":  time.Now(),
+	}).Error
 }
 
 func UpdateClusterToken(id, token string) error {

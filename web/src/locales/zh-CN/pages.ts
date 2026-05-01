@@ -22,6 +22,8 @@ export default {
   'pages.clusters.col.action': '操作',
   'pages.clusters.status.online': '在线',
   'pages.clusters.status.offline': '离线',
+  'pages.clusters.edit.title': '编辑集群',
+  'pages.clusters.edit.success': '保存成功',
   'pages.clusters.delete.title': '删除集群 "{name}"？',
   'pages.clusters.delete.content': '此操作将断开 Worker 连接并删除所有集群数据。',
   'pages.clusters.delete.success': '集群已删除',

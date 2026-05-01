@@ -31,6 +31,10 @@ export function createCluster(data: CreateClusterParams) {
   });
 }
 
+export function updateCluster(id: string, data: CreateClusterParams) {
+  return request(`/api/v1/clusters/${id}`, { method: 'PATCH', data });
+}
+
 export function deleteCluster(id: string) {
   return request(`/api/v1/clusters/${id}`, { method: 'DELETE' });
 }

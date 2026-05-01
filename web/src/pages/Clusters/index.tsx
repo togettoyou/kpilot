@@ -2,6 +2,7 @@ import {
   CheckCircleOutlined,
   ClusterOutlined,
   DeleteOutlined,
+  EditOutlined,
   KeyOutlined,
   MinusCircleOutlined,
   PlusOutlined,
@@ -25,6 +26,7 @@ import {
   deleteCluster,
   listClusters,
   regenerateToken,
+  updateCluster,
   type Cluster,
   type CreateClusterResult,
 } from '@/services/kpilot/cluster';
@@ -93,8 +95,10 @@ export default function ClustersPage() {
   const { modal, message } = App.useApp();
   const intl = useIntl();
   const [createVisible, setCreateVisible] = useState(false);
+  const [editingCluster, setEditingCluster] = useState<Cluster | null>(null);
   const [tokenResult, setTokenResult] = useState<{ token: string; title: string; warning: string } | null>(null);
   const [form] = Form.useForm();
+  const [editForm] = Form.useForm();
 
   const { data: clusters, loading, refresh } = useRequest(listClusters, {
     pollingInterval: 10000,
@@ -113,6 +117,17 @@ export default function ClustersPage() {
         title: intl.formatMessage({ id: 'pages.clusters.token.title' }),
         warning: intl.formatMessage({ id: 'pages.clusters.token.warning' }),
       });
+      refresh();
+    },
+  });
+
+  const { loading: editing, run: doEdit } = useRequest(updateCluster, {
+    manual: true,
+    formatResult: (res) => res,
+    onSuccess: () => {
+      setEditingCluster(null);
+      editForm.resetFields();
+      message.success(intl.formatMessage({ id: 'pages.clusters.edit.success' }));
       refresh();
     },
   });
@@ -196,9 +211,18 @@ export default function ClustersPage() {
           },
           {
             title: intl.formatMessage({ id: 'pages.clusters.col.action' }),
-            width: 120,
+            width: 160,
             render: (_, record) => (
               <Space>
+                <Button
+                  type="text"
+                  icon={<EditOutlined />}
+                  title={intl.formatMessage({ id: 'pages.clusters.edit.title' })}
+                  onClick={() => {
+                    setEditingCluster(record);
+                    editForm.setFieldsValue({ name: record.name, description: record.description });
+                  }}
+                />
                 <Button
                   type="text"
                   icon={<KeyOutlined />}
@@ -237,6 +261,33 @@ export default function ClustersPage() {
           </Form.Item>
           <Form.Item name="description" label={intl.formatMessage({ id: 'pages.clusters.modal.description' })}>
             <Input.TextArea rows={2} placeholder={intl.formatMessage({ id: 'pages.clusters.modal.descPlaceholder' })} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={intl.formatMessage({ id: 'pages.clusters.edit.title' })}
+        open={!!editingCluster}
+        onCancel={() => { setEditingCluster(null); editForm.resetFields(); }}
+        onOk={() => editForm.submit()}
+        confirmLoading={editing}
+        okText={intl.formatMessage({ id: 'pages.clusters.modal.create' })}
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={(values) => doEdit(editingCluster!.id, values)}
+          className="mt-4"
+        >
+          <Form.Item
+            name="name"
+            label={intl.formatMessage({ id: 'pages.clusters.modal.name' })}
+            rules={[{ required: true, message: intl.formatMessage({ id: 'pages.clusters.modal.nameRequired' }) }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label={intl.formatMessage({ id: 'pages.clusters.modal.description' })}>
+            <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
       </Modal>
