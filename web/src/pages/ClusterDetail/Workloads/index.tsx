@@ -4,7 +4,7 @@ import { App, Button, Drawer, Dropdown, Popconfirm, Select, Space, Tag, Typograp
 import { DownOutlined, LeftOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import * as jsyaml from 'js-yaml';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ClusterLayout } from '../ClusterLayout';
 import { YamlEditor } from './YamlEditor';
@@ -123,7 +123,6 @@ function parseTableResponse(res: any): { items: WorkloadItem[]; colDefs: any[] }
     const item: WorkloadItem = {
       name: meta.name ?? cells[allNames.indexOf('Name')] ?? '',
       namespace: meta.namespace ?? '',
-      age: '',
     };
     for (const col of colDefs) {
       const idx = allNames.indexOf(col.name);
@@ -226,7 +225,8 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
   const { data: pageData, loading, refresh } = useRequest(
     () => listWorkloads(clusterId, resourceType, namespace, PAGE_SIZE, currentToken),
     {
-      refreshDeps: [namespace, currentToken],
+      refreshDeps: [namespace, currentToken, pollingInterval],
+      pollingInterval: pollingInterval > 0 ? pollingInterval : undefined,
       formatResult: (res: any) => {
         const { items, colDefs } = parseTableResponse(res);
         return {
@@ -259,22 +259,22 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     });
   }, [nextToken, pageIdx]);
 
-  useEffect(() => {
-    if (pollingInterval <= 0) return;
-    const timer = setInterval(refresh, pollingInterval);
-    return () => clearInterval(timer);
-  }, [pollingInterval, refresh]);
+  // Sequence counter to discard stale openEditor responses on fast clicks.
+  const editorSeqRef = useRef(0);
 
   const openEditor = async (item: WorkloadItem, ro = false) => {
+    const seq = ++editorSeqRef.current;
     setEditingItem(item);
     setReadOnly(ro);
     setYamlText('');
     setDrawerOpen(true);
     try {
       const raw = await getWorkload(clusterId, resourceType, item.name, item.namespace ?? '');
+      if (seq !== editorSeqRef.current) return;
       setYamlText(toEditableYaml(raw));
     } catch {
-      message.error('Failed to load resource');
+      if (seq !== editorSeqRef.current) return;
+      message.error(intl.formatMessage({ id: 'pages.workloads.loadError' }));
       setDrawerOpen(false);
     }
   };
@@ -305,44 +305,41 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     }
   };
 
-  const actionsColumn: ProColumns<WorkloadItem> = {
-    title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
-    valueType: 'option',
-    width: 120,
-    render: (_, record) => {
-      const isProtected = (record.namespace ?? '').startsWith('kube-');
-      if (isProtected) {
-        return [
-          <Button key="view" type="link" size="small" onClick={() => openEditor(record, true)}>
-            {intl.formatMessage({ id: 'pages.workloads.view' })}
-          </Button>,
-        ];
-      }
-      return [
-        <Button key="edit" type="link" size="small" onClick={() => openEditor(record)}>
-          {intl.formatMessage({ id: 'pages.workloads.edit' })}
-        </Button>,
-        <Popconfirm
-          key="delete"
-          title={intl.formatMessage({ id: 'pages.workloads.delete.confirm' }, { name: record.name })}
-          onConfirm={() => handleDelete(record)}
-          okType="danger"
-        >
-          <Button type="link" size="small" danger>
-            {intl.formatMessage({ id: 'pages.workloads.delete' })}
-          </Button>
-        </Popconfirm>,
-      ];
-    },
-  };
-
   const isClusterScoped = CLUSTER_SCOPED.has(resourceType);
 
-  const columns = useMemo(
-    () => [...buildColumns(colDefs, intl, isClusterScoped), actionsColumn],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [colDefs, intl, isClusterScoped],
-  );
+  const columns = useMemo((): ProColumns<WorkloadItem>[] => {
+    const actionsColumn: ProColumns<WorkloadItem> = {
+      title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
+      valueType: 'option',
+      width: 120,
+      render: (_, record) => {
+        const isProtected = (record.namespace ?? '').startsWith('kube-');
+        if (isProtected) {
+          return [
+            <Button key="view" type="link" size="small" onClick={() => openEditor(record, true)}>
+              {intl.formatMessage({ id: 'pages.workloads.view' })}
+            </Button>,
+          ];
+        }
+        return [
+          <Button key="edit" type="link" size="small" onClick={() => openEditor(record)}>
+            {intl.formatMessage({ id: 'pages.workloads.edit' })}
+          </Button>,
+          <Popconfirm
+            key="delete"
+            title={intl.formatMessage({ id: 'pages.workloads.delete.confirm' }, { name: record.name })}
+            onConfirm={() => handleDelete(record)}
+            okType="danger"
+          >
+            <Button type="link" size="small" danger>
+              {intl.formatMessage({ id: 'pages.workloads.delete' })}
+            </Button>
+          </Popconfirm>,
+        ];
+      },
+    };
+    return [...buildColumns(colDefs, intl, isClusterScoped), actionsColumn];
+  }, [colDefs, intl, isClusterScoped, openEditor, handleDelete]);
 
   return (
     <div className="p-6">
@@ -419,7 +416,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         width={680}
         footer={
           <Space style={{ float: 'right' }}>
-            <Button onClick={() => setDrawerOpen(false)}>Cancel</Button>
+            <Button onClick={() => setDrawerOpen(false)}>{intl.formatMessage({ id: 'pages.workloads.cancel' })}</Button>
             {!readOnly && (
               <Button type="primary" loading={applying} onClick={handleApply}>
                 {intl.formatMessage({ id: 'pages.workloads.apply' })}
@@ -429,7 +426,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         }
       >
         {yamlText === '' ? (
-          <div style={{ padding: 16, color: '#888' }}>Loading…</div>
+          <div style={{ padding: 16, color: '#888' }}>{intl.formatMessage({ id: 'pages.workloads.loading' })}</div>
         ) : (
           <YamlEditor value={yamlText} onChange={setYamlText} readOnly={readOnly} />
         )}

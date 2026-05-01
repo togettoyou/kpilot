@@ -17,6 +17,7 @@ import (
 )
 
 const workerTimeout = 30 * time.Second
+const maxBodySize = 1 << 20 // 1 MB — sufficient for any K8s manifest
 
 type gvkInfo struct {
 	group, version, kind string
@@ -44,7 +45,9 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 		continueToken := c.Query("continue")
 		var limit int64
 		if s := c.Query("limit"); s != "" {
-			limit, _ = strconv.ParseInt(s, 10, 64)
+			if v, err := strconv.ParseInt(s, 10, 64); err == nil && v > 0 {
+				limit = v
+			}
 		}
 
 		gvk, ok := resourceGVK[resourceType]
@@ -133,7 +136,7 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		body, err := io.ReadAll(c.Request.Body)
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBodySize))
 		if err != nil || len(body) == 0 {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return

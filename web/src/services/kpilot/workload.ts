@@ -8,7 +8,6 @@ export type WorkloadResourceType =
 export interface WorkloadItem {
   name: string;
   namespace: string;
-  age: string;
   [key: string]: any;
 }
 
@@ -35,7 +34,7 @@ export function getWorkload(
   clusterId: string,
   type: WorkloadResourceType,
   name: string,
-  namespace: string,
+  namespace = '',
 ) {
   return request<any>(`/api/v1/clusters/${clusterId}/workloads/${type}/${name}`, {
     method: 'GET',

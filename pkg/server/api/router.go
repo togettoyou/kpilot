@@ -14,13 +14,24 @@ import (
 func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 	r := gin.Default()
 
+	// Build origin lookup set once.
+	allowedOrigins := make(map[string]struct{}, len(cfg.CORSOrigins))
+	for _, o := range cfg.CORSOrigins {
+		allowedOrigins[o] = struct{}{}
+	}
+	devMode := len(allowedOrigins) == 0
+
 	r.Use(func(c *gin.Context) {
-		if origin := c.GetHeader("Origin"); origin != "" {
-			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Access-Control-Allow-Credentials", "true")
-			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			c.Header("Access-Control-Max-Age", "86400")
+		origin := c.GetHeader("Origin")
+		if origin != "" {
+			_, allowed := allowedOrigins[origin]
+			if devMode || allowed {
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Access-Control-Allow-Credentials", "true")
+				c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				c.Header("Access-Control-Max-Age", "86400")
+			}
 		}
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)

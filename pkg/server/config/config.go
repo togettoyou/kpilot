@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -14,6 +15,7 @@ type Config struct {
 	AdminUsername string
 	AdminPassword string
 	JWTSecret     string
+	CORSOrigins   []string // allowed origins; empty = dev permissive mode
 }
 
 func Load() *Config {
@@ -29,6 +31,15 @@ func Load() *Config {
 		log.Println("[config] ADMIN_PASSWORD not set, using default: admin123")
 	}
 
+	var corsOrigins []string
+	if v := os.Getenv("CORS_ORIGINS"); v != "" {
+		for _, o := range strings.Split(v, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				corsOrigins = append(corsOrigins, o)
+			}
+		}
+	}
+
 	return &Config{
 		HTTPAddr:      envOr("HTTP_ADDR", ":8080"),
 		GRPCAddr:      envOr("GRPC_ADDR", ":9090"),
@@ -36,6 +47,7 @@ func Load() *Config {
 		AdminUsername: envOr("ADMIN_USERNAME", "admin"),
 		AdminPassword: adminPassword,
 		JWTSecret:     jwtSecret,
+		CORSOrigins:   corsOrigins,
 	}
 }
 

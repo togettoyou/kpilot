@@ -29,7 +29,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("grpc listen %s: %v", cfg.GRPCAddr, err)
 	}
-	grpcSrv := grpc.NewServer()
+	const grpcMaxMsgSize = 32 << 20 // 32 MB — large clusters can have big Table API responses
+	grpcSrv := grpc.NewServer(
+		grpc.MaxRecvMsgSize(grpcMaxMsgSize),
+		grpc.MaxSendMsgSize(grpcMaxMsgSize),
+	)
 	gw := gateway.NewGatewayServer()
 	proto.RegisterPilotServiceServer(grpcSrv, gw)
 	log.Printf("gRPC listening on %s", cfg.GRPCAddr)

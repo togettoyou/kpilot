@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
@@ -109,7 +110,7 @@ func (p *Proxy) listTable(ctx context.Context, mapping *apimeta.RESTMapping, nam
 
 	var resourcePath string
 	if namespace != "" {
-		resourcePath = fmt.Sprintf("%s/namespaces/%s/%s", apiPrefix, namespace, mapping.Resource.Resource)
+		resourcePath = fmt.Sprintf("%s/namespaces/%s/%s", apiPrefix, url.PathEscape(namespace), mapping.Resource.Resource)
 	} else {
 		resourcePath = fmt.Sprintf("%s/%s", apiPrefix, mapping.Resource.Resource)
 	}
@@ -171,17 +172,20 @@ func (p *Proxy) apply(ctx context.Context, mapping *apimeta.RESTMapping, namespa
 	if name == "" {
 		return fail("name is required for apply")
 	}
-	obj := &unstructured.Unstructured{}
-	if err := json.Unmarshal(body, obj); err != nil {
-		return fail("invalid body: " + err.Error())
+	// Validate JSON before sending to K8s.
+	if !json.Valid(body) {
+		return fail("invalid body: not valid JSON")
 	}
+	// Server-Side Apply: declarative, idempotent, no resourceVersion required.
+	forceTrue := true
+	opts := metav1.PatchOptions{FieldManager: "kpilot", Force: &forceTrue}
 	ri := p.dyn.Resource(mapping.Resource)
 	var result *unstructured.Unstructured
 	var err error
 	if namespace != "" {
-		result, err = ri.Namespace(namespace).Update(ctx, obj, metav1.UpdateOptions{})
+		result, err = ri.Namespace(namespace).Patch(ctx, name, k8stypes.ApplyPatchType, body, opts)
 	} else {
-		result, err = ri.Update(ctx, obj, metav1.UpdateOptions{})
+		result, err = ri.Patch(ctx, name, k8stypes.ApplyPatchType, body, opts)
 	}
 	if err != nil {
 		return fail(err.Error())
