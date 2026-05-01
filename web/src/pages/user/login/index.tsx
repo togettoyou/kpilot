@@ -50,7 +50,7 @@ export default function LoginPage() {
         const redirect = new URLSearchParams(window.location.search).get('redirect');
         history.push(getSafeRedirectUrl(redirect));
       } else {
-        setError(result.message || intl.formatMessage({ id: 'pages.login.error.incorrect' }));
+        setError(intl.formatMessage({ id: `errors.${result.code}`, defaultMessage: intl.formatMessage({ id: 'pages.login.error.incorrect' }) }));
       }
     } catch {
       message.error(intl.formatMessage({ id: 'pages.login.error.failed' }));

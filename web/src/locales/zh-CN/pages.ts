@@ -1,6 +1,14 @@
 export default {
   'pages.layouts.userLayout.title': 'Kubernetes-native GPU 算力编排平台',
 
+  // api error codes
+  'errors.INVALID_REQUEST': '请求参数错误',
+  'errors.INTERNAL_ERROR': '服务器内部错误',
+  'errors.CLUSTER_NOT_FOUND': '集群不存在',
+  'errors.CLUSTER_NAME_EXISTS': '集群名称已存在',
+  'errors.LOGIN_INCORRECT': '用户名或密码错误',
+  'errors.NETWORK_ERROR': '网络错误，请稍后重试',
+
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU 算力编排',
   'pages.login.username.placeholder': '用户名',

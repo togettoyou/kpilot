@@ -1,6 +1,14 @@
 export default {
   'pages.layouts.userLayout.title': 'Kubernetes-native GPU Orchestration Platform',
 
+  // api error codes
+  'errors.INVALID_REQUEST': 'Invalid request',
+  'errors.INTERNAL_ERROR': 'Internal server error',
+  'errors.CLUSTER_NOT_FOUND': 'Cluster not found',
+  'errors.CLUSTER_NAME_EXISTS': 'Cluster name already exists',
+  'errors.LOGIN_INCORRECT': 'Incorrect username or password',
+  'errors.NETWORK_ERROR': 'Network error, please try again',
+
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',
   'pages.login.username.placeholder': 'Username',

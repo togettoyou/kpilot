@@ -1,5 +1,12 @@
 import type { RequestConfig } from '@umijs/max';
+import { getIntl } from '@umijs/max';
 import { message } from 'antd';
+
+function translateCode(code: string, status: number): string {
+  const intl = getIntl();
+  const translated = intl.formatMessage({ id: `errors.${code}`, defaultMessage: '' });
+  return translated || code || `HTTP ${status}`;
+}
 
 export const errorConfig: RequestConfig = {
   errorConfig: {
@@ -7,10 +14,13 @@ export const errorConfig: RequestConfig = {
       if (opts?.skipErrorHandler) throw error;
       if (error.response) {
         const { status, data } = error.response;
-        const msg = data?.error || data?.message || `HTTP ${status}`;
+        const msg = data?.code
+          ? translateCode(data.code, status)
+          : `HTTP ${status}`;
         message.error(msg);
       } else if (error.request) {
-        message.error('Network error, please retry.');
+        const intl = getIntl();
+        message.error(intl.formatMessage({ id: 'errors.NETWORK_ERROR', defaultMessage: 'Network error' }));
       }
     },
   },

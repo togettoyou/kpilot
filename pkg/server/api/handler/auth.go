@@ -17,16 +17,17 @@ func Login(adminUser, adminPass, jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req loginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
 		if req.Username != adminUser || req.Password != adminPass {
-			c.JSON(http.StatusOK, gin.H{"status": "error", "message": "incorrect username or password"})
+			// Login page handles this 200-level error directly; keep existing shape.
+			c.JSON(http.StatusOK, gin.H{"status": "error", "code": "LOGIN_INCORRECT"})
 			return
 		}
 		token, err := middleware.IssueToken(jwtSecret, req.Username)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue token"})
+			apiErrInternal(c, err)
 			return
 		}
 		middleware.SetCookie(c, token)

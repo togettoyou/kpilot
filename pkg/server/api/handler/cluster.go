@@ -21,23 +21,23 @@ type createClusterRequest struct {
 func CreateCluster(c *gin.Context) {
 	var req createClusterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 		return
 	}
 
 	exists, err := store.ClusterExists(req.Name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apiErrInternal(c, err)
 		return
 	}
 	if exists {
-		c.JSON(http.StatusConflict, gin.H{"error": "cluster name already exists"})
+		apiErr(c, http.StatusConflict, CodeClusterNameExists)
 		return
 	}
 
 	token, err := generateToken()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apiErrInternal(c, err)
 		return
 	}
 
@@ -51,14 +51,14 @@ func CreateCluster(c *gin.Context) {
 		UpdatedAt:   time.Now(),
 	}
 	if err = store.CreateCluster(cluster); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apiErrInternal(c, err)
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"id":          cluster.ID,
 		"name":        cluster.Name,
-		"token":       token, // 只在创建时返回一次
+		"token":       token,
 		"status":      cluster.Status,
 		"description": cluster.Description,
 		"created_at":  cluster.CreatedAt,
@@ -69,7 +69,7 @@ func CreateCluster(c *gin.Context) {
 func ListClusters(c *gin.Context) {
 	clusters, err := store.ListClusters()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apiErrInternal(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, clusters)
@@ -78,7 +78,7 @@ func ListClusters(c *gin.Context) {
 func DeleteCluster(c *gin.Context) {
 	id := c.Param("id")
 	if err := store.DeleteCluster(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apiErrInternal(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -93,48 +93,27 @@ func UpdateCluster(c *gin.Context) {
 	id := c.Param("id")
 	var req updateClusterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 		return
 	}
 	exists, err := store.ClusterExists(req.Name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apiErrInternal(c, err)
 		return
 	}
 	if exists {
-		// 如果同名的是自己，允许通过（只改描述）
+		// Allow updating to the same name (e.g. only changing description).
 		cluster, err := store.GetClusterByID(id)
 		if err != nil || cluster.Name != req.Name {
-			c.JSON(http.StatusConflict, gin.H{"error": "cluster name already exists"})
+			apiErr(c, http.StatusConflict, CodeClusterNameExists)
 			return
 		}
 	}
 	if err = store.UpdateCluster(id, req.Name, req.Description); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apiErrInternal(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
-}
-
-func RegenerateToken(gw *gateway.GatewayServer) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		if _, err := store.GetClusterByID(id); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "cluster not found"})
-			return
-		}
-		token, err := generateToken()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if err = store.UpdateClusterToken(id, token); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		gw.KickWorker(id)
-		c.JSON(http.StatusOK, gin.H{"token": token})
-	}
 }
 
 func generateToken() (string, error) {
@@ -143,4 +122,25 @@ func generateToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func RegenerateToken(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		if _, err := store.GetClusterByID(id); err != nil {
+			apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+			return
+		}
+		token, err := generateToken()
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+		if err = store.UpdateClusterToken(id, token); err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+		gw.KickWorker(id)
+		c.JSON(http.StatusOK, gin.H{"token": token})
+	}
 }
