@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -20,6 +21,11 @@ const (
 	heartbeatInterval  = 10 * time.Second
 	workerVersion      = "v0.1.0"
 )
+
+// ErrTokenRejected is returned when the server explicitly rejects the cluster
+// token. This is a fatal condition — retrying is pointless until the token is
+// reconfigured, so the worker should exit.
+var ErrTokenRejected = errors.New("token rejected by server")
 
 type Client struct {
 	serverAddr   string
@@ -59,18 +65,21 @@ func (c *Client) PushNodes(nodes []*proto.NodeInfo) {
 	})
 }
 
-// Run 阻塞运行，自动断线重连
-func (c *Client) Run(ctx context.Context) {
+// Run 阻塞运行，自动断线重连。若 Token 被拒绝则返回 ErrTokenRejected，调用方应退出进程。
+func (c *Client) Run(ctx context.Context) error {
 	delay := reconnectBaseDelay
 	for {
 		if err := c.connect(ctx); err != nil {
 			if ctx.Err() != nil {
-				return
+				return nil
+			}
+			if errors.Is(err, ErrTokenRejected) {
+				return err
 			}
 			log.Printf("[tunnel] disconnected: %v, retry in %s", err, delay)
 			select {
 			case <-ctx.Done():
-				return
+				return nil
 			case <-time.After(delay):
 			}
 			delay = min(delay*2, reconnectMaxDelay)
@@ -124,7 +133,7 @@ func (c *Client) connect(ctx context.Context) error {
 			msg = regAck.RegisterAck.Message
 		}
 		log.Printf("[tunnel] register rejected: %s", msg)
-		return fmt.Errorf("register rejected: %s", msg)
+		return fmt.Errorf("%w: %s", ErrTokenRejected, msg)
 	}
 	log.Printf("[tunnel] registered: cluster=%s", regAck.RegisterAck.ClusterId)
 

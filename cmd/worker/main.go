@@ -60,7 +60,9 @@ func main() {
 		}()
 	}
 
-	tunnelClient.Run(ctx)
+	if err := tunnelClient.Run(ctx); err != nil {
+		log.Fatalf("[tunnel] fatal: %v", err)
+	}
 
 	log.Println("worker stopped")
 }
