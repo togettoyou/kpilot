@@ -83,6 +83,20 @@ func DeleteCluster(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func RegenerateToken(c *gin.Context) {
+	id := c.Param("id")
+	token, err := generateToken()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err = store.UpdateClusterToken(id, token); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
 func generateToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {

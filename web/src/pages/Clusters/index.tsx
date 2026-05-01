@@ -2,6 +2,7 @@ import {
   CheckCircleOutlined,
   ClusterOutlined,
   DeleteOutlined,
+  KeyOutlined,
   MinusCircleOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
@@ -23,6 +24,7 @@ import {
   createCluster,
   deleteCluster,
   listClusters,
+  regenerateToken,
   type Cluster,
   type CreateClusterResult,
 } from '@/services/kpilot/cluster';
@@ -46,9 +48,12 @@ const StatusBadge: React.FC<{ status: Cluster['status']; onlineLabel: string; of
   );
 };
 
-const TokenModal: React.FC<{ result: CreateClusterResult; onClose: () => void }> = ({
-  result, onClose,
-}) => {
+const TokenModal: React.FC<{
+  result: { token: string };
+  title: string;
+  warning: string;
+  onClose: () => void;
+}> = ({ result, title, warning, onClose }) => {
   const { message } = App.useApp();
   const intl = useIntl();
 
@@ -69,7 +74,7 @@ stringData:
   return (
     <Modal
       open
-      title={intl.formatMessage({ id: 'pages.clusters.token.title' })}
+      title={title}
       onCancel={onClose}
       footer={
         <Button type="primary" onClick={onClose}>
@@ -80,7 +85,7 @@ stringData:
     >
       <Space direction="vertical" className="w-full" size="middle">
         <Text type="warning">
-          ⚠️ {intl.formatMessage({ id: 'pages.clusters.token.warning' })}
+          ⚠️ {warning}
         </Text>
         <div>
           <Text strong>{intl.formatMessage({ id: 'pages.clusters.token.label' })}</Text>
@@ -113,7 +118,7 @@ export default function ClustersPage() {
   const { modal, message } = App.useApp();
   const intl = useIntl();
   const [createVisible, setCreateVisible] = useState(false);
-  const [tokenResult, setTokenResult] = useState<CreateClusterResult | null>(null);
+  const [tokenResult, setTokenResult] = useState<{ token: string; title: string; warning: string } | null>(null);
   const [form] = Form.useForm();
 
   const { data: clusters, loading, refresh } = useRequest(listClusters, {
@@ -128,11 +133,27 @@ export default function ClustersPage() {
     onSuccess: (result) => {
       setCreateVisible(false);
       form.resetFields();
-      setTokenResult(result as CreateClusterResult);
+      setTokenResult({
+        token: (result as CreateClusterResult).token,
+        title: intl.formatMessage({ id: 'pages.clusters.token.title' }),
+        warning: intl.formatMessage({ id: 'pages.clusters.token.warning' }),
+      });
       refresh();
     },
     onError: () => {
       message.error(intl.formatMessage({ id: 'pages.clusters.create.error' }));
+    },
+  });
+
+  const { run: doRegenerate } = useRequest(regenerateToken, {
+    manual: true,
+    formatResult: (res) => res,
+    onSuccess: (result) => {
+      setTokenResult({
+        token: (result as { token: string }).token,
+        title: intl.formatMessage({ id: 'pages.clusters.token.regenerateTitle' }),
+        warning: intl.formatMessage({ id: 'pages.clusters.token.regenerateWarning' }),
+      });
     },
   });
 
@@ -203,9 +224,17 @@ export default function ClustersPage() {
           },
           {
             title: intl.formatMessage({ id: 'pages.clusters.col.action' }),
-            width: 80,
+            width: 120,
             render: (_, record) => (
-              <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
+              <Space>
+                <Button
+                  type="text"
+                  icon={<KeyOutlined />}
+                  title={intl.formatMessage({ id: 'pages.clusters.token.regenerate' })}
+                  onClick={() => doRegenerate(record.id)}
+                />
+                <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
+              </Space>
             ),
           },
         ]}
@@ -234,7 +263,12 @@ export default function ClustersPage() {
       </Modal>
 
       {tokenResult && (
-        <TokenModal result={tokenResult} onClose={() => setTokenResult(null)} />
+        <TokenModal
+          result={tokenResult}
+          title={tokenResult.title}
+          warning={tokenResult.warning}
+          onClose={() => setTokenResult(null)}
+        />
       )}
     </PageContainer>
   );

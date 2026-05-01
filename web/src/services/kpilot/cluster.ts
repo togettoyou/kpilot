@@ -34,3 +34,7 @@ export function createCluster(data: CreateClusterParams) {
 export function deleteCluster(id: string) {
   return request(`/api/v1/clusters/${id}`, { method: 'DELETE' });
 }
+
+export function regenerateToken(id: string) {
+  return request<{ token: string }>(`/api/v1/clusters/${id}/token`, { method: 'POST' });
+}

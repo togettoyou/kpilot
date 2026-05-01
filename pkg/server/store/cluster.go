@@ -38,6 +38,10 @@ func UpdateClusterStatus(id string, status ClusterStatus) error {
 	return DB.Model(&Cluster{}).Where("id = ?", id).Update("status", status).Error
 }
 
+func UpdateClusterToken(id, token string) error {
+	return DB.Model(&Cluster{}).Where("id = ?", id).Update("token", token).Error
+}
+
 func ClusterExists(name string) (bool, error) {
 	var count int64
 	if err := DB.Model(&Cluster{}).Where("name = ?", name).Count(&count).Error; err != nil {

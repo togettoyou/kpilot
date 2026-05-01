@@ -40,6 +40,9 @@ export default {
   'pages.clusters.token.done': 'Done',
   'pages.clusters.copied': 'Copied!',
   'pages.clusters.yamlCopied': 'YAML copied!',
+  'pages.clusters.token.regenerate': 'Regenerate Token',
+  'pages.clusters.token.regenerateTitle': 'Regenerate Token',
+  'pages.clusters.token.regenerateWarning': 'A new token has been generated. The old token is immediately invalidated — save this now.',
 
   // nodes
   'pages.nodes.title': 'Nodes',
