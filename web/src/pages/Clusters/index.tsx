@@ -103,6 +103,7 @@ export default function ClustersPage() {
   const { data: clusters, loading, refresh } = useRequest(listClusters, {
     pollingInterval: 10000,
     formatResult: (res) => res,
+    pollingWhenHidden: false,
   });
   const clusterList: Cluster[] = Array.isArray(clusters) ? clusters : [];
 
