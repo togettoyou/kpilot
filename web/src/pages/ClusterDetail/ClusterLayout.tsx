@@ -58,19 +58,19 @@ export function ClusterLayout({ selectedKey, children }: ClusterLayoutProps) {
       ],
     },
     {
-      key: 'config-group',
-      label: intl.formatMessage({ id: 'pages.cluster.nav.config' }),
-      children: [
-        { key: 'configmaps', label: 'ConfigMaps', onClick: () => go('workloads/configmaps') },
-        { key: 'secrets', label: 'Secrets', onClick: () => go('workloads/secrets') },
-      ],
-    },
-    {
       key: 'storage-group',
       label: intl.formatMessage({ id: 'pages.cluster.nav.storage' }),
       children: [
         { key: 'persistentvolumeclaims', label: 'PersistentVolumeClaims', onClick: () => go('workloads/persistentvolumeclaims') },
         { key: 'persistentvolumes', label: 'PersistentVolumes', onClick: () => go('workloads/persistentvolumes') },
+      ],
+    },
+    {
+      key: 'config-group',
+      label: intl.formatMessage({ id: 'pages.cluster.nav.config' }),
+      children: [
+        { key: 'configmaps', label: 'ConfigMaps', onClick: () => go('workloads/configmaps') },
+        { key: 'secrets', label: 'Secrets', onClick: () => go('workloads/secrets') },
       ],
     },
     { key: 'plugins',    label: intl.formatMessage({ id: 'pages.cluster.nav.plugins' }),    disabled: true },
