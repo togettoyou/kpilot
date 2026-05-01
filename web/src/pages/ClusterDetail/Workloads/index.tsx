@@ -12,6 +12,40 @@ import { applyWorkload, deleteWorkload, getWorkload, listNamespaces, listWorkloa
 
 const { Text } = Typography;
 
+// ─── Pod status helper (mirrors kubectl's STATUS computation) ─────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function computePodStatus(item: any): string {
+  if (item.metadata?.deletionTimestamp) return 'Terminating';
+
+  const phase: string = item.status?.phase ?? 'Unknown';
+  if (phase === 'Succeeded') return 'Completed';
+
+  // Init containers — show Init:<reason> or Init:<i>/<total>
+  const initStatuses: any[] = item.status?.initContainerStatuses ?? [];
+  const initTotal: number = item.spec?.initContainers?.length ?? 0;
+  for (let i = 0; i < initStatuses.length; i++) {
+    const cs = initStatuses[i];
+    if (cs.state?.terminated?.exitCode === 0) continue;
+    if (cs.state?.terminated) return cs.state.terminated.reason || 'Init:Error';
+    if (cs.state?.waiting?.reason && cs.state.waiting.reason !== 'PodInitializing') {
+      return `Init:${cs.state.waiting.reason}`;
+    }
+    return `Init:${i}/${initTotal}`;
+  }
+
+  // Regular containers — surface waiting/terminated reasons
+  const csList: any[] = item.status?.containerStatuses ?? [];
+  for (const cs of csList) {
+    if (cs.state?.waiting?.reason) return cs.state.waiting.reason;
+    if (cs.state?.terminated) {
+      if (cs.state.terminated.exitCode !== 0) return cs.state.terminated.reason || 'Error';
+    }
+  }
+
+  return phase;
+}
+
 // ─── Age helper ───────────────────────────────────────────────────────────────
 
 function formatAge(ts: string): string {
@@ -63,19 +97,10 @@ const PARSERS: Record<WorkloadResourceType, (items: K8sItem[]) => WorkloadItem[]
     items.map((item) => {
       const csList: K8sItem[] = item.status?.containerStatuses ?? [];
       const restarts = csList.reduce((n: number, cs: K8sItem) => n + (cs.restartCount ?? 0), 0);
-      let phase: string = item.status?.phase ?? 'Unknown';
-      if (phase === 'Running') {
-        for (const cs of csList) {
-          if (cs.state?.waiting?.reason === 'CrashLoopBackOff') {
-            phase = 'CrashLoopBackOff';
-            break;
-          }
-        }
-      }
       return {
         name: item.metadata.name,
         namespace: item.metadata.namespace,
-        phase,
+        phase: computePodStatus(item),
         restarts,
         node: item.spec?.nodeName ?? '',
         age: formatAge(item.metadata.creationTimestamp),
@@ -140,12 +165,23 @@ function readyCell(ready: string | undefined) {
   return <Text type="warning">{ready}</Text>;
 }
 
-const podPhaseColor: Record<string, string> = {
-  Running: 'success',
-  Pending: 'warning',
-  Succeeded: 'processing',
-  Failed: 'error',
-};
+function podStatusColor(status: string): string {
+  if (status === 'Running' || status === 'Completed') return 'success';
+  if (status === 'Pending' || status.startsWith('Init:')) return 'warning';
+  if (
+    status === 'Failed' ||
+    status === 'Error' ||
+    status === 'OOMKilled' ||
+    status === 'CrashLoopBackOff' ||
+    status === 'ErrImagePull' ||
+    status === 'ImagePullBackOff' ||
+    status === 'CreateContainerError' ||
+    status === 'InvalidImageName'
+  )
+    return 'error';
+  if (status === 'Terminating') return 'default';
+  return 'default';
+}
 
 const svcTypeColor: Record<string, string> = {
   ClusterIP: 'default',
@@ -205,7 +241,7 @@ const COLUMNS: Record<WorkloadResourceType, ColFn> = {
       title: intl.formatMessage({ id: 'pages.workloads.col.status' }),
       dataIndex: 'phase',
       width: 160,
-      render: (_, r) => <Tag color={podPhaseColor[r.phase] ?? 'default'}>{r.phase}</Tag>,
+      render: (_, r) => <Tag color={podStatusColor(r.phase)}>{r.phase}</Tag>,
     },
     {
       title: intl.formatMessage({ id: 'pages.workloads.col.restarts' }),
