@@ -26,7 +26,7 @@ Server (Go + PostgreSQL)
   │  gRPC 双向流（Worker 主动连入）
   ▼
 Worker (K8s Operator, Go)
-  │  client-go
+  │  controller-runtime (Watch)
   ▼
 K8s Cluster
 ```
@@ -50,7 +50,7 @@ K8s Cluster
 **Worker → Server（WorkerMessage）：**
 - `Register`（携带 Token）
 - `Heartbeat`
-- `NodeListPush`（周期性主动上报节点信息）
+- `NodeListPush`（Node 变更事件驱动上报；重连注册成功后立即推送一次全量）
 - `ResourceListResponse / ResourceGetResponse / ResourceApplyResponse / ResourceDeleteResponse`
 - `PluginStatusPush`
 
@@ -60,7 +60,7 @@ K8s Cluster
 - `PluginEnable / PluginDisable` 命令
 
 两种通信模式：
-- **Push**：Worker 周期性上报（`request_id` 为空）
+- **Push**：Worker 主动上报（`request_id` 为空），由事件驱动（如 Node 变更）或重连触发
 - **Request-Response**：Server 带 `request_id` 发请求，Worker echo 回去
 
 ---
