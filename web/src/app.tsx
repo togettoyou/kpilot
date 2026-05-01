@@ -59,11 +59,30 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   };
 };
 
+const DARK_TOKENS = {
+  token: {
+    colorBgLayout: '#161618',
+    colorBgContainer: '#1e1e22',
+    colorBgElevated: '#28282d',
+  },
+};
+
 export function rootContainer(container: React.ReactNode) {
-  const saved = localStorage.getItem('kpilot-theme') as 'light' | 'dark' | null;
+  // Guard against SSR / build-time environments where localStorage is unavailable.
+  const saved =
+    typeof window !== 'undefined'
+      ? (localStorage.getItem('kpilot-theme') as 'light' | 'dark' | null)
+      : null;
+  const initialTheme = saved ?? 'light';
+
   return (
     <ThemeProvider
-      defaultAppearance={saved ?? 'light'}
+      // defaultThemeMode must match defaultAppearance — antd-style's ThemeObserver
+      // calls setAppearance(themeMode) on mount, which would reset the appearance to
+      // 'light' (the useMergeValue default) if only defaultAppearance is set.
+      defaultAppearance={initialTheme}
+      defaultThemeMode={initialTheme}
+      theme={(appearance) => (appearance === 'dark' ? DARK_TOKENS : {})}
       onAppearanceChange={(a) => localStorage.setItem('kpilot-theme', a)}
     >
       {container}

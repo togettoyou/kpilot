@@ -1,6 +1,7 @@
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { history, useIntl, useParams } from '@umijs/max';
-import { Button, Layout, Menu } from 'antd';
+import { Button, Layout, Menu, theme as antdTheme } from 'antd';
+import { useThemeMode } from 'antd-style';
 import React from 'react';
 
 const { Sider, Content } = Layout;
@@ -24,6 +25,8 @@ interface ClusterLayoutProps {
 export function ClusterLayout({ selectedKey, children }: ClusterLayoutProps) {
   const { id: clusterId } = useParams<{ id: string }>();
   const intl = useIntl();
+  const { isDarkMode } = useThemeMode();
+  const { token } = antdTheme.useToken();
 
   const go = (path: string) => history.push(`/clusters/${clusterId}/${path}`);
   const defaultOpenKeys = parentKeyMap[selectedKey] ? [parentKeyMap[selectedKey]] : [];
@@ -68,9 +71,22 @@ export function ClusterLayout({ selectedKey, children }: ClusterLayoutProps) {
   ];
 
   return (
-    <Layout className="h-screen overflow-hidden">
-      <Sider width={200} theme="light" className="border-r border-gray-100 h-full overflow-y-auto flex-shrink-0">
-        <div className="p-4 border-b border-gray-100">
+    <Layout className="h-screen overflow-hidden" style={{ background: token.colorBgLayout }}>
+      <Sider
+        width={200}
+        theme={isDarkMode ? 'dark' : 'light'}
+        style={{
+          borderRight: `1px solid ${token.colorBorderSecondary}`,
+          background: token.colorBgContainer,
+        }}
+        className="h-full overflow-y-auto flex-shrink-0"
+      >
+        <div
+          style={{
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            padding: '16px',
+          }}
+        >
           <Button
             type="text"
             icon={<ArrowLeftOutlined />}
@@ -83,13 +99,14 @@ export function ClusterLayout({ selectedKey, children }: ClusterLayoutProps) {
         <Menu
           key={selectedKey}
           mode="inline"
+          theme={isDarkMode ? 'dark' : 'light'}
           selectedKeys={[selectedKey]}
           defaultOpenKeys={defaultOpenKeys}
           items={items}
-          className="border-0"
+          style={{ border: 0, background: 'transparent' }}
         />
       </Sider>
-      <Content className="bg-gray-50 overflow-y-auto">
+      <Content style={{ background: token.colorBgLayout }} className="overflow-y-auto">
         {children}
       </Content>
     </Layout>
