@@ -269,7 +269,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
   const intl = useIntl();
   const [namespace, setNamespace] = useState('');
 
-  const { data: items = [], loading } = useRequest(
+  const { data: items = [], loading, refresh } = useRequest(
     () => listWorkloads(clusterId, resourceType, namespace),
     {
       refreshDeps: [namespace],
@@ -306,7 +306,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         columns={columns}
         search={false}
         pagination={false}
-        options={{ reload: false }}
+        options={{ reload: refresh }}
         loading={loading}
       />
     </div>
