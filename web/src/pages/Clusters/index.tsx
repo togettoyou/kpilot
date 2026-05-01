@@ -6,7 +6,7 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
-import { history, useRequest } from '@umijs/max';
+import { history, useIntl, useRequest } from '@umijs/max';
 import {
   App,
   Badge,
@@ -29,28 +29,28 @@ import {
 
 const { Text, Paragraph } = Typography;
 
-const StatusBadge: React.FC<{ status: Cluster['status'] }> = ({ status }) => {
+const StatusBadge: React.FC<{ status: Cluster['status']; onlineLabel: string; offlineLabel: string }> = ({
+  status, onlineLabel, offlineLabel,
+}) => {
   if (status === 'online') {
     return (
-      <Badge
-        status="success"
-        text={<Tag icon={<CheckCircleOutlined />} color="success">Online</Tag>}
-      />
+      <Badge status="success" text={
+        <Tag icon={<CheckCircleOutlined />} color="success">{onlineLabel}</Tag>
+      } />
     );
   }
   return (
-    <Badge
-      status="default"
-      text={<Tag icon={<MinusCircleOutlined />} color="default">Offline</Tag>}
-    />
+    <Badge status="default" text={
+      <Tag icon={<MinusCircleOutlined />} color="default">{offlineLabel}</Tag>
+    } />
   );
 };
 
-const TokenModal: React.FC<{
-  result: CreateClusterResult;
-  onClose: () => void;
-}> = ({ result, onClose }) => {
+const TokenModal: React.FC<{ result: CreateClusterResult; onClose: () => void }> = ({
+  result, onClose,
+}) => {
   const { message } = App.useApp();
+  const intl = useIntl();
 
   const workerYaml = `apiVersion: v1
 kind: Namespace
@@ -69,19 +69,23 @@ stringData:
   return (
     <Modal
       open
-      title="Cluster Created"
+      title={intl.formatMessage({ id: 'pages.clusters.token.title' })}
       onCancel={onClose}
-      footer={<Button type="primary" onClick={onClose}>Done</Button>}
+      footer={
+        <Button type="primary" onClick={onClose}>
+          {intl.formatMessage({ id: 'pages.clusters.token.done' })}
+        </Button>
+      }
       width={640}
     >
       <Space direction="vertical" className="w-full" size="middle">
         <Text type="warning">
-          ⚠️ Save this token now — it will <strong>not</strong> be shown again.
+          ⚠️ {intl.formatMessage({ id: 'pages.clusters.token.warning' })}
         </Text>
         <div>
-          <Text strong>Cluster Token</Text>
+          <Text strong>{intl.formatMessage({ id: 'pages.clusters.token.label' })}</Text>
           <Paragraph
-            copyable={{ onCopy: () => message.success('Copied!') }}
+            copyable={{ onCopy: () => message.success(intl.formatMessage({ id: 'pages.clusters.copied' })) }}
             code
             className="mt-1 break-all"
           >
@@ -89,17 +93,15 @@ stringData:
           </Paragraph>
         </div>
         <div>
-          <Text strong>Worker Deployment YAML</Text>
+          <Text strong>{intl.formatMessage({ id: 'pages.clusters.token.yamlLabel' })}</Text>
           <Paragraph
             copyable={{
               text: workerYaml,
-              onCopy: () => message.success('YAML copied!'),
+              onCopy: () => message.success(intl.formatMessage({ id: 'pages.clusters.yamlCopied' })),
             }}
             className="mt-1"
           >
-            <pre className="bg-gray-50 p-3 rounded text-xs overflow-auto max-h-48">
-              {workerYaml}
-            </pre>
+            <pre className="bg-gray-50 p-3 rounded text-xs overflow-auto max-h-48">{workerYaml}</pre>
           </Paragraph>
         </div>
       </Space>
@@ -109,6 +111,7 @@ stringData:
 
 export default function ClustersPage() {
   const { modal, message } = App.useApp();
+  const intl = useIntl();
   const [createVisible, setCreateVisible] = useState(false);
   const [tokenResult, setTokenResult] = useState<CreateClusterResult | null>(null);
   const [form] = Form.useForm();
@@ -116,7 +119,6 @@ export default function ClustersPage() {
   const { data: clusters, loading, refresh } = useRequest(listClusters, {
     pollingInterval: 10000,
   });
-
   const clusterList: Cluster[] = Array.isArray(clusters) ? clusters : [];
 
   const { loading: creating, run: doCreate } = useRequest(createCluster, {
@@ -127,34 +129,36 @@ export default function ClustersPage() {
       setTokenResult(result as CreateClusterResult);
       refresh();
     },
-    onError: (err) => {
-      message.error(err.message || 'Failed to create cluster');
+    onError: () => {
+      message.error(intl.formatMessage({ id: 'pages.clusters.create.error' }));
     },
   });
 
   const handleDelete = (record: Cluster) => {
     modal.confirm({
-      title: `Delete cluster "${record.name}"?`,
-      content: 'This will disconnect the Worker and remove all cluster data.',
+      title: intl.formatMessage({ id: 'pages.clusters.delete.title' }, { name: record.name }),
+      content: intl.formatMessage({ id: 'pages.clusters.delete.content' }),
       okType: 'danger',
       onOk: async () => {
         await deleteCluster(record.id);
-        message.success('Cluster deleted');
+        message.success(intl.formatMessage({ id: 'pages.clusters.delete.success' }));
         refresh();
       },
     });
   };
 
+  const onlineLabel = intl.formatMessage({ id: 'pages.clusters.status.online' });
+  const offlineLabel = intl.formatMessage({ id: 'pages.clusters.status.offline' });
+
   return (
     <PageContainer
-      header={{ title: 'Clusters', subTitle: 'Manage your Kubernetes clusters' }}
+      header={{
+        title: intl.formatMessage({ id: 'pages.clusters.title' }),
+        subTitle: intl.formatMessage({ id: 'pages.clusters.subtitle' }),
+      }}
       extra={
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setCreateVisible(true)}
-        >
-          Add Cluster
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateVisible(true)}>
+          {intl.formatMessage({ id: 'pages.clusters.addCluster' })}
         </Button>
       }
     >
@@ -167,7 +171,7 @@ export default function ClustersPage() {
         pagination={false}
         columns={[
           {
-            title: 'Name',
+            title: intl.formatMessage({ id: 'pages.clusters.col.name' }),
             dataIndex: 'name',
             render: (_, record) => (
               <a onClick={() => history.push(`/clusters/${record.id}/nodes`)}>
@@ -177,69 +181,58 @@ export default function ClustersPage() {
             ),
           },
           {
-            title: 'Status',
+            title: intl.formatMessage({ id: 'pages.clusters.col.status' }),
             dataIndex: 'status',
             width: 140,
-            render: (_, record) => <StatusBadge status={record.status} />,
+            render: (_, record) => (
+              <StatusBadge status={record.status} onlineLabel={onlineLabel} offlineLabel={offlineLabel} />
+            ),
           },
           {
-            title: 'Description',
+            title: intl.formatMessage({ id: 'pages.clusters.col.description' }),
             dataIndex: 'description',
             ellipsis: true,
           },
           {
-            title: 'Created',
+            title: intl.formatMessage({ id: 'pages.clusters.col.createdAt' }),
             dataIndex: 'created_at',
             width: 180,
             render: (_, record) => new Date(record.created_at).toLocaleString(),
           },
           {
-            title: 'Action',
+            title: intl.formatMessage({ id: 'pages.clusters.col.action' }),
             width: 80,
             render: (_, record) => (
-              <Button
-                type="text"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => handleDelete(record)}
-              />
+              <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
             ),
           },
         ]}
       />
 
       <Modal
-        title="Add Cluster"
+        title={intl.formatMessage({ id: 'pages.clusters.modal.add' })}
         open={createVisible}
         onCancel={() => { setCreateVisible(false); form.resetFields(); }}
         onOk={() => form.submit()}
         confirmLoading={creating}
-        okText="Create"
+        okText={intl.formatMessage({ id: 'pages.clusters.modal.create' })}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={(values) => doCreate(values)}
-          className="mt-4"
-        >
+        <Form form={form} layout="vertical" onFinish={(values) => doCreate(values)} className="mt-4">
           <Form.Item
             name="name"
-            label="Cluster Name"
-            rules={[{ required: true, message: 'Please enter cluster name' }]}
+            label={intl.formatMessage({ id: 'pages.clusters.modal.name' })}
+            rules={[{ required: true, message: intl.formatMessage({ id: 'pages.clusters.modal.nameRequired' }) }]}
           >
-            <Input placeholder="e.g. prod-cluster-01" />
+            <Input placeholder={intl.formatMessage({ id: 'pages.clusters.modal.namePlaceholder' })} />
           </Form.Item>
-          <Form.Item name="description" label="Description">
-            <Input.TextArea rows={2} placeholder="Optional description" />
+          <Form.Item name="description" label={intl.formatMessage({ id: 'pages.clusters.modal.description' })}>
+            <Input.TextArea rows={2} placeholder={intl.formatMessage({ id: 'pages.clusters.modal.descPlaceholder' })} />
           </Form.Item>
         </Form>
       </Modal>
 
       {tokenResult && (
-        <TokenModal
-          result={tokenResult}
-          onClose={() => setTokenResult(null)}
-        />
+        <TokenModal result={tokenResult} onClose={() => setTokenResult(null)} />
       )}
     </PageContainer>
   );

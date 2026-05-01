@@ -5,7 +5,7 @@ import {
   QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
-import { history, useParams, useRequest } from '@umijs/max';
+import { history, useIntl, useParams, useRequest } from '@umijs/max';
 import { Button, Layout, Menu, Space, Tag, Typography } from 'antd';
 import React from 'react';
 import { listNodes, type NodeInfo } from '@/services/kpilot/node';
@@ -48,22 +48,22 @@ function getGPUInfo(labels: Record<string, string>) {
 
 export default function NodesPage() {
   const { id: clusterId } = useParams<{ id: string }>();
+  const intl = useIntl();
 
   const { data, loading } = useRequest(
     () => listNodes(clusterId!),
     { pollingInterval: 15000 },
   );
-
   const nodes: NodeInfo[] = Array.isArray(data) ? data : [];
 
   const sideMenuItems = [
-    { key: 'nodes', label: 'Nodes' },
-    { key: 'workloads', label: 'Workloads', disabled: true },
-    { key: 'plugins', label: 'Plugins', disabled: true },
-    { key: 'gpu', label: 'GPU', disabled: true },
-    { key: 'models', label: 'Models', disabled: true },
-    { key: 'monitoring', label: 'Monitoring', disabled: true },
-    { key: 'logging', label: 'Logging', disabled: true },
+    { key: 'nodes',      label: intl.formatMessage({ id: 'pages.cluster.nav.nodes' }) },
+    { key: 'workloads',  label: intl.formatMessage({ id: 'pages.cluster.nav.workloads' }),  disabled: true },
+    { key: 'plugins',    label: intl.formatMessage({ id: 'pages.cluster.nav.plugins' }),    disabled: true },
+    { key: 'gpu',        label: intl.formatMessage({ id: 'pages.cluster.nav.gpu' }),        disabled: true },
+    { key: 'models',     label: intl.formatMessage({ id: 'pages.cluster.nav.models' }),     disabled: true },
+    { key: 'monitoring', label: intl.formatMessage({ id: 'pages.cluster.nav.monitoring' }), disabled: true },
+    { key: 'logging',    label: intl.formatMessage({ id: 'pages.cluster.nav.logging' }),    disabled: true },
   ];
 
   return (
@@ -76,22 +76,17 @@ export default function NodesPage() {
             onClick={() => history.push('/clusters')}
             size="small"
           >
-            Clusters
+            {intl.formatMessage({ id: 'pages.cluster.back' })}
           </Button>
         </div>
-        <Menu
-          mode="inline"
-          selectedKeys={['nodes']}
-          items={sideMenuItems}
-          className="border-0"
-        />
+        <Menu mode="inline" selectedKeys={['nodes']} items={sideMenuItems} className="border-0" />
       </Sider>
 
       <Content className="p-6 bg-gray-50">
         <ProTable<NodeInfo>
           headerTitle={
             <Space>
-              <Text strong>Nodes</Text>
+              <Text strong>{intl.formatMessage({ id: 'pages.nodes.title' })}</Text>
               <Text type="secondary">({nodes.length})</Text>
             </Space>
           }
@@ -103,40 +98,36 @@ export default function NodesPage() {
           options={{ reload: false }}
           columns={[
             {
-              title: 'Name',
+              title: intl.formatMessage({ id: 'pages.nodes.col.name' }),
               dataIndex: 'name',
               width: 200,
             },
             {
-              title: 'Status',
+              title: intl.formatMessage({ id: 'pages.nodes.col.status' }),
               dataIndex: 'status',
               width: 110,
               render: (_, record) => <NodeStatus status={record.status} />,
             },
             {
-              title: 'CPU (alloc / total)',
-              width: 160,
-              render: (_, r) =>
-                `${formatCPU(r.cpu_allocatable)} / ${formatCPU(r.cpu_capacity)}`,
-            },
-            {
-              title: 'Memory (alloc / total)',
+              title: intl.formatMessage({ id: 'pages.nodes.col.cpu' }),
               width: 180,
-              render: (_, r) =>
-                `${formatMemory(r.memory_allocatable)} / ${formatMemory(r.memory_capacity)}`,
+              render: (_, r) => `${formatCPU(r.cpu_allocatable)} / ${formatCPU(r.cpu_capacity)}`,
             },
             {
-              title: 'GPU Model',
+              title: intl.formatMessage({ id: 'pages.nodes.col.memory' }),
+              width: 200,
+              render: (_, r) => `${formatMemory(r.memory_allocatable)} / ${formatMemory(r.memory_capacity)}`,
+            },
+            {
+              title: intl.formatMessage({ id: 'pages.nodes.col.gpuModel' }),
               width: 180,
               render: (_, r) => {
                 const { model } = getGPUInfo(r.labels);
-                return model
-                  ? <Tag color="purple">{model}</Tag>
-                  : <Text type="secondary">—</Text>;
+                return model ? <Tag color="purple">{model}</Tag> : <Text type="secondary">—</Text>;
               },
             },
             {
-              title: 'GPU Count',
+              title: intl.formatMessage({ id: 'pages.nodes.col.gpuCount' }),
               width: 100,
               render: (_, r) => {
                 const { count } = getGPUInfo(r.labels);
