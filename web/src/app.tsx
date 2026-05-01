@@ -1,8 +1,9 @@
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history } from '@umijs/max';
+import { ThemeProvider } from 'antd-style';
 import React from 'react';
 
-import { AvatarDropdown, Footer, LangDropdown } from '@/components';
+import { AvatarDropdown, Footer, LangDropdown, ThemeToggle } from '@/components';
 import { currentUser as queryCurrentUser } from '@/services/kpilot/auth';
 import { errorConfig } from './requestErrorConfig';
 
@@ -35,7 +36,7 @@ export async function getInitialState(): Promise<{
 
 export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   return {
-    actionsRender: () => [<LangDropdown key="lang" />],
+    actionsRender: () => [<ThemeToggle key="theme" />, <LangDropdown key="lang" />],
     avatarProps: {
       src: initialState?.currentUser?.avatar,
       title: initialState?.currentUser?.name ?? 'Admin',
@@ -55,6 +56,18 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
     menuHeaderRender: undefined,
   };
 };
+
+export function rootContainer(container: React.ReactNode) {
+  const saved = localStorage.getItem('kpilot-theme') as 'light' | 'dark' | null;
+  return (
+    <ThemeProvider
+      defaultAppearance={saved ?? 'light'}
+      onAppearanceChange={(a) => localStorage.setItem('kpilot-theme', a)}
+    >
+      {container}
+    </ThemeProvider>
+  );
+}
 
 export const request: RequestConfig = {
   baseURL: '',

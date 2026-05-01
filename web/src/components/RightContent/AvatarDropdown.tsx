@@ -1,4 +1,4 @@
-import { LogoutOutlined, SkinOutlined } from '@ant-design/icons';
+import { LogoutOutlined } from '@ant-design/icons';
 import { history, useModel } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Spin } from 'antd';
@@ -21,10 +21,6 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({ children }) =
       });
       await logout();
       history.replace('/user/login');
-      return;
-    }
-    if (key === 'theme') {
-      setInitialState((s) => ({ ...s, settingDrawerOpen: true }));
     }
   };
 
@@ -33,12 +29,6 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({ children }) =
   }
 
   const menuItems: MenuProps['items'] = [
-    {
-      key: 'theme',
-      icon: <SkinOutlined />,
-      label: '主题设置',
-    },
-    { type: 'divider' },
     {
       key: 'logout',
       icon: <LogoutOutlined />,

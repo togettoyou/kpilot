@@ -1,8 +1,8 @@
-import { CheckOutlined, GlobalOutlined } from '@ant-design/icons';
+import { CheckOutlined, GlobalOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
 import { getLocale, setLocale } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Button } from 'antd';
-import { createStyles } from 'antd-style';
+import { createStyles, useThemeMode } from 'antd-style';
 import React from 'react';
 import HeaderDropdown from '../HeaderDropdown';
 
@@ -23,6 +23,20 @@ const useStyles = createStyles(({ token, css }) => ({
     border-radius: ${token.borderRadius}px !important;
   `,
 }));
+
+export const ThemeToggle: React.FC = () => {
+  const { styles } = useStyles();
+  const { isDarkMode, setAppearance } = useThemeMode();
+  return (
+    <Button
+      type="text"
+      className={styles.action}
+      aria-label="Toggle theme"
+      onClick={() => setAppearance(isDarkMode ? 'light' : 'dark')}
+      icon={isDarkMode ? <SunOutlined /> : <MoonOutlined />}
+    />
+  );
+};
 
 export const LangDropdown: React.FC = () => {
   const { styles } = useStyles();
