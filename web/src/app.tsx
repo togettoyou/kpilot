@@ -59,16 +59,16 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   };
 };
 
-// Tokyo Night dark palette
+// Catppuccin Mocha dark palette
 const DARK_TOKENS = {
   token: {
-    colorBgLayout: '#1a1b26',
-    colorBgContainer: '#24283b',
-    colorBgElevated: '#292e42',
-    colorBgSpotlight: '#414868',
-    colorBorder: '#2a2b3d',
-    colorBorderSecondary: '#1f2335',
-    colorPrimary: '#7aa2f7',
+    colorBgLayout: '#181825',
+    colorBgContainer: '#1e1e2e',
+    colorBgElevated: '#313244',
+    colorBgSpotlight: '#45475a',
+    colorBorder: '#45475a',
+    colorBorderSecondary: '#313244',
+    colorPrimary: '#89b4fa',
   },
 };
 
