@@ -203,7 +203,14 @@ export default function ClustersPage() {
                   type="text"
                   icon={<KeyOutlined />}
                   title={intl.formatMessage({ id: 'pages.clusters.token.regenerate' })}
-                  onClick={() => doRegenerate(record.id)}
+                  onClick={() =>
+                    modal.confirm({
+                      title: intl.formatMessage({ id: 'pages.clusters.token.regenerate' }),
+                      content: intl.formatMessage({ id: 'pages.clusters.token.regenerateConfirm' }),
+                      okType: 'danger',
+                      onOk: () => doRegenerate(record.id),
+                    })
+                  }
                 />
                 <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
               </Space>

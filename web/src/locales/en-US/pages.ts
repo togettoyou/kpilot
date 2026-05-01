@@ -39,6 +39,7 @@ export default {
   'pages.clusters.token.done': 'Done',
   'pages.clusters.copied': 'Copied!',
   'pages.clusters.token.regenerate': 'Regenerate Token',
+  'pages.clusters.token.regenerateConfirm': 'The old token will be immediately invalidated and any deployed Workers will disconnect. Continue?',
   'pages.clusters.token.regenerateTitle': 'Regenerate Token',
   'pages.clusters.token.regenerateWarning': 'A new token has been generated. The old token is immediately invalidated — save this now.',
 

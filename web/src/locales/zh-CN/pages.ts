@@ -39,6 +39,7 @@ export default {
   'pages.clusters.token.done': '完成',
   'pages.clusters.copied': '已复制',
   'pages.clusters.token.regenerate': '重新生成 Token',
+  'pages.clusters.token.regenerateConfirm': '重新生成后旧 Token 立即失效，已部署的 Worker 将断开连接，需重新部署。确认继续？',
   'pages.clusters.token.regenerateTitle': '重新生成 Token',
   'pages.clusters.token.regenerateWarning': '新 Token 已生成，旧 Token 立即失效，请立即保存。',
 
