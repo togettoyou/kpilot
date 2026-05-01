@@ -313,7 +313,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         columns={columns}
         search={false}
         pagination={false}
-        options={false}
+        options={{ reload: false }}
         loading={loading}
       />
     </div>
