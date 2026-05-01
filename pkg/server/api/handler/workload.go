@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,11 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 		clusterID := c.Param("id")
 		resourceType := c.Param("type")
 		namespace := c.Query("namespace")
+		continueToken := c.Query("continue")
+		var limit int64
+		if s := c.Query("limit"); s != "" {
+			limit, _ = strconv.ParseInt(s, 10, 64)
+		}
 
 		gvk, ok := resourceGVK[resourceType]
 		if !ok {
@@ -49,11 +55,13 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
-			Action:    "list",
-			Group:     gvk.group,
-			Version:   gvk.version,
-			Kind:      gvk.kind,
-			Namespace: namespace,
+			Action:        "list",
+			Group:         gvk.group,
+			Version:       gvk.version,
+			Kind:          gvk.kind,
+			Namespace:     namespace,
+			Limit:         limit,
+			ContinueToken: continueToken,
 		})
 		if err != nil {
 			handleWorkerErr(c, err)

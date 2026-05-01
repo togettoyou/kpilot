@@ -59,7 +59,7 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 
 	switch req.Action {
 	case "list":
-		return p.list(ctx, mapping, req.Namespace)
+		return p.list(ctx, mapping, req.Namespace, req.Limit, req.ContinueToken)
 	case "get":
 		return p.get(ctx, mapping, req.Namespace, req.Name)
 	case "apply":
@@ -71,15 +71,22 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 	}
 }
 
-func (p *Proxy) list(ctx context.Context, mapping *apimeta.RESTMapping, namespace string) *proto.ResourceResponse {
+func (p *Proxy) list(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, limit int64, continueToken string) *proto.ResourceResponse {
+	opts := metav1.ListOptions{}
+	if limit > 0 {
+		opts.Limit = limit
+	}
+	if continueToken != "" {
+		opts.Continue = continueToken
+	}
 	ri := p.dyn.Resource(mapping.Resource)
 	var result interface{}
 	var err error
 	if namespace != "" {
-		result, err = ri.Namespace(namespace).List(ctx, metav1.ListOptions{})
+		result, err = ri.Namespace(namespace).List(ctx, opts)
 	} else {
 		// Empty namespace → all namespaces (cluster-scoped resources also work here).
-		result, err = ri.List(ctx, metav1.ListOptions{})
+		result, err = ri.List(ctx, opts)
 	}
 	if err != nil {
 		return fail(err.Error())

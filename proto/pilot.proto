@@ -99,6 +99,10 @@ message ResourceRequest {
   string namespace = 5; // 空表示 cluster-scoped
   string name      = 6; // list 时为空
   bytes  body      = 7; // apply 时为 JSON manifest
+
+  // list 分页：0 表示不限制，非空 continue_token 表示取下一页
+  int64  limit          = 8;
+  string continue_token = 9;
 }
 
 message PluginCommand {

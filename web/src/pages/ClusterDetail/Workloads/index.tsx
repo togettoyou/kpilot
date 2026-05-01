@@ -314,11 +314,27 @@ function toEditableYaml(raw: any): string {
   return jsyaml.dump(obj, { lineWidth: -1 });
 }
 
+const PAGE_SIZE = 100;
+
 function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
   const [namespace, setNamespace] = useState('');
   const [pollingInterval, setPollingInterval] = useState(0);
+
+  // Server-side cursor pagination.
+  // pageTokens[i] = the continue token used to fetch page i.
+  // pageTokens[0] is always '' (first page). pageTokens[i+1] is saved from
+  // page i's response so the user can go forward without re-fetching.
+  const [pageTokens, setPageTokens] = useState<string[]>(['']);
+  const [pageIdx, setPageIdx] = useState(0);
+  const currentToken = pageTokens[pageIdx] ?? '';
+
+  // Reset to page 1 whenever the namespace filter changes.
+  useEffect(() => {
+    setPageIdx(0);
+    setPageTokens(['']);
+  }, [namespace]);
 
   // YAML drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -327,14 +343,38 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
   const [applying, setApplying] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
 
-  const { data: items = [], loading, refresh } = useRequest(
-    () => listWorkloads(clusterId, resourceType, namespace),
+  const { data: pageData, loading, refresh } = useRequest(
+    () => listWorkloads(clusterId, resourceType, namespace, PAGE_SIZE, currentToken),
     {
-      refreshDeps: [namespace],
-      formatResult: (res: any) => PARSERS[resourceType](res?.items ?? []),
+      refreshDeps: [namespace, currentToken],
+      formatResult: (res: any) => ({
+        items: PARSERS[resourceType](res?.items ?? []) as WorkloadItem[],
+        nextToken: (res?.metadata?.continue as string) ?? '',
+        remaining: res?.metadata?.remainingItemCount as number | undefined,
+      }),
       pollingWhenHidden: false,
     },
   );
+
+  const items = pageData?.items ?? [];
+  const nextToken = pageData?.nextToken ?? '';
+  const hasMore = !!nextToken;
+  // Approximate total: items seen so far + remaining (if K8s reports it).
+  const totalKnown =
+    pageData?.remaining != null
+      ? pageIdx * PAGE_SIZE + items.length + pageData.remaining
+      : undefined;
+
+  // Cache the next-page token so the user can navigate forward.
+  useEffect(() => {
+    if (!nextToken) return;
+    setPageTokens((prev) => {
+      if (prev[pageIdx + 1]) return prev; // already cached
+      const next = [...prev];
+      next[pageIdx + 1] = nextToken;
+      return next;
+    });
+  }, [nextToken, pageIdx]);
 
   useEffect(() => {
     if (pollingInterval <= 0) return;
@@ -424,7 +464,9 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         headerTitle={
           <Space>
             <Text strong>{resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}</Text>
-            <Text type="secondary">({items.length})</Text>
+            <Text type="secondary">
+              {totalKnown != null ? `(${totalKnown})` : `(${items.length}${hasMore ? '+' : ''})`}
+            </Text>
           </Space>
         }
         toolBarRender={() => [
@@ -465,9 +507,22 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         dataSource={items}
         columns={columns}
         search={false}
-        pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'] }}
+        pagination={false}
         options={{ reload: false }}
         loading={loading}
+        footer={() =>
+          pageIdx > 0 || hasMore ? (
+            <Space style={{ float: 'right' }}>
+              <Button size="small" disabled={pageIdx === 0} onClick={() => setPageIdx((p) => p - 1)}>
+                ‹ Prev
+              </Button>
+              <Text type="secondary">Page {pageIdx + 1}</Text>
+              <Button size="small" disabled={!hasMore} onClick={() => setPageIdx((p) => p + 1)}>
+                Next ›
+              </Button>
+            </Space>
+          ) : null
+        }
       />
 
       <Drawer

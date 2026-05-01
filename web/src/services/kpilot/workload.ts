@@ -12,10 +12,21 @@ export interface WorkloadItem {
 }
 
 // Returns raw K8s list JSON — caller must parse items.
-export function listWorkloads(clusterId: string, type: WorkloadResourceType, namespace = '') {
+// Pass limit > 0 and continueToken for server-side pagination.
+export function listWorkloads(
+  clusterId: string,
+  type: WorkloadResourceType,
+  namespace = '',
+  limit = 0,
+  continueToken = '',
+) {
+  const params: Record<string, string | number> = {};
+  if (namespace) params.namespace = namespace;
+  if (limit > 0) params.limit = limit;
+  if (continueToken) params.continue = continueToken;
   return request<any>(`/api/v1/clusters/${clusterId}/workloads/${type}`, {
     method: 'GET',
-    params: namespace ? { namespace } : {},
+    params,
   });
 }
 

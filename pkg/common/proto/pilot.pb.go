@@ -746,14 +746,17 @@ func (x *RegisterAck) GetMessage() string {
 }
 
 type ResourceRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Action        string                 `protobuf:"bytes,1,opt,name=action,proto3" json:"action,omitempty"`       // list / get / apply / delete
-	Group         string                 `protobuf:"bytes,2,opt,name=group,proto3" json:"group,omitempty"`         // apps / "" / ...
-	Version       string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`     // v1 / v1beta1 / ...
-	Kind          string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`           // Deployment / Pod / Service / ...
-	Namespace     string                 `protobuf:"bytes,5,opt,name=namespace,proto3" json:"namespace,omitempty"` // 空表示 cluster-scoped
-	Name          string                 `protobuf:"bytes,6,opt,name=name,proto3" json:"name,omitempty"`           // list 时为空
-	Body          []byte                 `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`           // apply 时为 JSON manifest
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Action    string                 `protobuf:"bytes,1,opt,name=action,proto3" json:"action,omitempty"`       // list / get / apply / delete
+	Group     string                 `protobuf:"bytes,2,opt,name=group,proto3" json:"group,omitempty"`         // apps / "" / ...
+	Version   string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`     // v1 / v1beta1 / ...
+	Kind      string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`           // Deployment / Pod / Service / ...
+	Namespace string                 `protobuf:"bytes,5,opt,name=namespace,proto3" json:"namespace,omitempty"` // 空表示 cluster-scoped
+	Name      string                 `protobuf:"bytes,6,opt,name=name,proto3" json:"name,omitempty"`           // list 时为空
+	Body      []byte                 `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`           // apply 时为 JSON manifest
+	// list 分页：0 表示不限制，非空 continue_token 表示取下一页
+	Limit         int64  `protobuf:"varint,8,opt,name=limit,proto3" json:"limit,omitempty"`
+	ContinueToken string `protobuf:"bytes,9,opt,name=continue_token,json=continueToken,proto3" json:"continue_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -835,6 +838,20 @@ func (x *ResourceRequest) GetBody() []byte {
 		return x.Body
 	}
 	return nil
+}
+
+func (x *ResourceRequest) GetLimit() int64 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ResourceRequest) GetContinueToken() string {
+	if x != nil {
+		return x.ContinueToken
+	}
+	return ""
 }
 
 type PluginCommand struct {
@@ -974,7 +991,7 @@ const file_pilot_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x02 \x01(\tR\tclusterId\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xb3\x01\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\xf0\x01\n" +
 	"\x0fResourceRequest\x12\x16\n" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x14\n" +
 	"\x05group\x18\x02 \x01(\tR\x05group\x12\x18\n" +
@@ -982,7 +999,9 @@ const file_pilot_proto_rawDesc = "" +
 	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x1c\n" +
 	"\tnamespace\x18\x05 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x06 \x01(\tR\x04name\x12\x12\n" +
-	"\x04body\x18\a \x01(\fR\x04body\"z\n" +
+	"\x04body\x18\a \x01(\fR\x04body\x12\x14\n" +
+	"\x05limit\x18\b \x01(\x03R\x05limit\x12%\n" +
+	"\x0econtinue_token\x18\t \x01(\tR\rcontinueToken\"z\n" +
 	"\rPluginCommand\x12\x16\n" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x1f\n" +
 	"\vplugin_type\x18\x02 \x01(\tR\n" +
