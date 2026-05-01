@@ -50,6 +50,8 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.DELETE("/:id", handler.DeleteCluster)
 		clusters.POST("/:id/token", handler.RegenerateToken(gw))
 		clusters.GET("/:id/nodes", handler.ListNodes(gw))
+		clusters.GET("/:id/namespaces", handler.ListNamespaces(gw))
+		clusters.GET("/:id/workloads/:type", handler.ListWorkloads(gw))
 	}
 
 	return r

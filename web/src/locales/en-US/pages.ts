@@ -8,6 +8,9 @@ export default {
   'errors.CLUSTER_NAME_EXISTS': 'Cluster name already exists',
   'errors.LOGIN_INCORRECT': 'Incorrect username or password',
   'errors.NETWORK_ERROR': 'Network error, please try again',
+  'errors.CLUSTER_NOT_CONNECTED': 'Cluster not connected — Worker may be offline',
+  'errors.WORKER_TIMEOUT': 'Cluster timed out, please try again',
+  'errors.WORKER_ERROR': 'Worker returned an error',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',
@@ -72,6 +75,7 @@ export default {
   'pages.nodes.detail.kubelet': 'Kubelet Version',
 
   // workloads
+  'pages.workloads.allNamespaces': 'All namespaces',
   'pages.workloads.col.name': 'Name',
   'pages.workloads.col.namespace': 'Namespace',
   'pages.workloads.col.age': 'Age',

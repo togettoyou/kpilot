@@ -9,10 +9,13 @@ import (
 
 // API error codes — must stay in sync with frontend locales errors.* keys.
 const (
-	CodeInvalidRequest    = "INVALID_REQUEST"
-	CodeInternalError     = "INTERNAL_ERROR"
-	CodeClusterNotFound   = "CLUSTER_NOT_FOUND"
-	CodeClusterNameExists = "CLUSTER_NAME_EXISTS"
+	CodeInvalidRequest      = "INVALID_REQUEST"
+	CodeInternalError       = "INTERNAL_ERROR"
+	CodeClusterNotFound     = "CLUSTER_NOT_FOUND"
+	CodeClusterNameExists   = "CLUSTER_NAME_EXISTS"
+	CodeClusterNotConnected = "CLUSTER_NOT_CONNECTED"
+	CodeWorkerError         = "WORKER_ERROR"
+	CodeWorkerTimeout       = "WORKER_TIMEOUT"
 )
 
 // apiErr writes a JSON error response with the given code.

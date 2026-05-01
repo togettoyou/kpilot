@@ -14,6 +14,7 @@ import (
 
 	"github.com/togettoyou/kpilot/pkg/worker/collector"
 	"github.com/togettoyou/kpilot/pkg/worker/config"
+	"github.com/togettoyou/kpilot/pkg/worker/proxy"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
 )
 
@@ -50,8 +51,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("[worker] failed to setup node reconciler: %v", err)
 		}
-		// Push full node list immediately after each gRPC registration.
 		tunnelClient.SetOnConnected(nc.Sync)
+
+		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper(), tunnelClient.SendResourceResponse)
+		if err != nil {
+			log.Fatalf("[worker] failed to create proxy: %v", err)
+		}
+		tunnelClient.SetResourceHandler(p.Handle)
 
 		go func() {
 			if err := mgr.Start(ctx); err != nil {

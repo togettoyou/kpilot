@@ -8,6 +8,9 @@ export default {
   'errors.CLUSTER_NAME_EXISTS': '集群名称已存在',
   'errors.LOGIN_INCORRECT': '用户名或密码错误',
   'errors.NETWORK_ERROR': '网络错误，请稍后重试',
+  'errors.CLUSTER_NOT_CONNECTED': '集群未连接，Worker 可能已离线',
+  'errors.WORKER_TIMEOUT': '集群响应超时，请稍后重试',
+  'errors.WORKER_ERROR': 'Worker 执行出错',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU 算力编排',
@@ -72,6 +75,7 @@ export default {
   'pages.nodes.detail.kubelet': 'Kubelet 版本',
 
   // workloads
+  'pages.workloads.allNamespaces': '全部命名空间',
   'pages.workloads.col.name': '名称',
   'pages.workloads.col.namespace': '命名空间',
   'pages.workloads.col.age': '存活时间',

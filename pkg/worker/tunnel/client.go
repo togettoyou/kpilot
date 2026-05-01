@@ -65,6 +65,23 @@ func (c *Client) safeSend(s proto.PilotService_ConnectClient, msg *proto.WorkerM
 	return s.Send(msg)
 }
 
+// SendResourceResponse sends a ResourceResponse back to the Server after
+// the proxy has finished executing a K8s operation.
+func (c *Client) SendResourceResponse(requestID string, resp *proto.ResourceResponse) {
+	c.mu.Lock()
+	s := c.stream
+	c.mu.Unlock()
+	if s == nil {
+		return
+	}
+	_ = c.safeSend(s, &proto.WorkerMessage{
+		RequestId: requestID,
+		Payload: &proto.WorkerMessage_ResourceResp{
+			ResourceResp: resp,
+		},
+	})
+}
+
 // PushNodes is called by the collector to push node info on the active stream.
 func (c *Client) PushNodes(nodes []*proto.NodeInfo) {
 	c.mu.Lock()

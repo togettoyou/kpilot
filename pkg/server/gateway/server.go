@@ -26,6 +26,7 @@ type ConnectedWorker struct {
 	LastSeen   time.Time
 	cancelOnce sync.Once
 	done       chan struct{}
+	sendMu     sync.Mutex // serializes concurrent Send calls; gRPC streams are not thread-safe for Send
 }
 
 type GatewayServer struct {
@@ -215,12 +216,15 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 		g.pendingMu.Unlock()
 	}()
 
-	if err := w.Stream.Send(&proto.ServerMessage{
+	w.sendMu.Lock()
+	err := w.Stream.Send(&proto.ServerMessage{
 		RequestId: requestID,
 		Payload: &proto.ServerMessage_ResourceReq{
 			ResourceReq: req,
 		},
-	}); err != nil {
+	})
+	w.sendMu.Unlock()
+	if err != nil {
 		return nil, fmt.Errorf("send to worker: %w", err)
 	}
 

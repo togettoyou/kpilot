@@ -11,8 +11,16 @@ export interface WorkloadItem {
   [key: string]: any;
 }
 
-export function listWorkloads(clusterId: string, type: WorkloadResourceType) {
-  return request<WorkloadItem[]>(`/api/v1/clusters/${clusterId}/workloads/${type}`, {
+// Returns raw K8s list JSON — caller must parse items.
+export function listWorkloads(clusterId: string, type: WorkloadResourceType, namespace = '') {
+  return request<any>(`/api/v1/clusters/${clusterId}/workloads/${type}`, {
+    method: 'GET',
+    params: namespace ? { namespace } : {},
+  });
+}
+
+export function listNamespaces(clusterId: string) {
+  return request<string[]>(`/api/v1/clusters/${clusterId}/namespaces`, {
     method: 'GET',
   });
 }
