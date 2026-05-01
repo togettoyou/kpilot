@@ -50,6 +50,8 @@ export default {
   'pages.nodes.title': 'Nodes',
   'pages.nodes.col.name': 'Name',
   'pages.nodes.col.status': 'Status',
+  'pages.nodes.col.role': 'Role',
+  'pages.nodes.col.osArch': 'OS / Arch',
   'pages.nodes.col.cpu': 'CPU (alloc / total)',
   'pages.nodes.col.memory': 'Memory (alloc / total)',
   'pages.nodes.col.gpuModel': 'GPU Model',

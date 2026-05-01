@@ -32,6 +32,24 @@ const NodeStatus: React.FC<{ status: NodeInfo['status'] }> = ({ status }) => {
   return <Tag icon={<QuestionCircleOutlined />} color="default">Unknown</Tag>;
 };
 
+function getNodeRole(labels: Record<string, string>): 'control-plane' | 'worker' {
+  if (
+    labels['node-role.kubernetes.io/control-plane'] === 'true' ||
+    labels['node-role.kubernetes.io/master'] === 'true'
+  ) {
+    return 'control-plane';
+  }
+  return 'worker';
+}
+
+function getArch(labels: Record<string, string>): string {
+  return labels['kubernetes.io/arch'] || labels['beta.kubernetes.io/arch'] || '';
+}
+
+function getOS(labels: Record<string, string>): string {
+  return labels['kubernetes.io/os'] || labels['beta.kubernetes.io/os'] || '';
+}
+
 function getGPUInfo(labels: Record<string, string>) {
   const model =
     labels['nvidia.com/gpu.product'] ||
@@ -107,6 +125,26 @@ export default function NodesPage() {
               dataIndex: 'status',
               width: 110,
               render: (_, record) => <NodeStatus status={record.status} />,
+            },
+            {
+              title: intl.formatMessage({ id: 'pages.nodes.col.role' }),
+              width: 130,
+              render: (_, record) => {
+                const role = getNodeRole(record.labels);
+                return role === 'control-plane'
+                  ? <Tag color="blue">control-plane</Tag>
+                  : <Tag color="default">worker</Tag>;
+              },
+            },
+            {
+              title: intl.formatMessage({ id: 'pages.nodes.col.osArch' }),
+              width: 130,
+              render: (_, record) => {
+                const os = getOS(record.labels);
+                const arch = getArch(record.labels);
+                if (!os && !arch) return <Text type="secondary">—</Text>;
+                return <Text>{[os, arch].filter(Boolean).join(' / ')}</Text>;
+              },
             },
             {
               title: intl.formatMessage({ id: 'pages.nodes.col.cpu' }),

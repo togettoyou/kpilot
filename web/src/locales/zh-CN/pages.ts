@@ -50,6 +50,8 @@ export default {
   'pages.nodes.title': '节点',
   'pages.nodes.col.name': '名称',
   'pages.nodes.col.status': '状态',
+  'pages.nodes.col.role': '角色',
+  'pages.nodes.col.osArch': 'OS / 架构',
   'pages.nodes.col.cpu': 'CPU（可分配 / 总量）',
   'pages.nodes.col.memory': '内存（可分配 / 总量）',
   'pages.nodes.col.gpuModel': 'GPU 型号',
