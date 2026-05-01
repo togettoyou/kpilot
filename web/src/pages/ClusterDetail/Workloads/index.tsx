@@ -321,8 +321,8 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
       message.success(intl.formatMessage({ id: 'pages.workloads.apply.success' }));
       setDrawerOpen(false);
       refresh();
-    } catch (e: any) {
-      message.error(e?.message ?? 'Apply failed');
+    } catch {
+      // global error handler in requestErrorConfig already shows the toast
     } finally {
       setApplying(false);
     }
@@ -333,8 +333,8 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
       await deleteWorkload(clusterId, resourceType, item.name, item.namespace ?? '');
       message.success(intl.formatMessage({ id: 'pages.workloads.delete.success' }));
       refresh();
-    } catch (e: any) {
-      message.error(e?.message ?? 'Delete failed');
+    } catch {
+      // global error handler in requestErrorConfig already shows the toast
     }
   };
 

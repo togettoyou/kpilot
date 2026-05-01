@@ -14,9 +14,8 @@ export const errorConfig: RequestConfig = {
       if (opts?.skipErrorHandler) throw error;
       if (error.response) {
         const { status, data } = error.response;
-        const msg = data?.code
-          ? translateCode(data.code, status)
-          : `HTTP ${status}`;
+        const msg = data?.message
+          || (data?.code ? translateCode(data.code, status) : `HTTP ${status}`);
         message.error(msg);
       } else if (error.request) {
         const intl = getIntl();

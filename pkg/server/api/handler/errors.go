@@ -30,3 +30,10 @@ func apiErrInternal(c *gin.Context, err error) {
 	log.Printf("[handler] internal error: %v", err)
 	c.JSON(http.StatusInternalServerError, gin.H{"code": CodeInternalError})
 }
+
+// apiErrWorker returns a 400 with the worker's error message surfaced to the
+// client. Worker errors are operation failures (K8s validation, conflicts, etc.)
+// and are safe to expose.
+func apiErrWorker(c *gin.Context, errMsg string) {
+	c.JSON(http.StatusBadRequest, gin.H{"code": CodeWorkerError, "message": errMsg})
+}

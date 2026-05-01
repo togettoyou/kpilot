@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -61,7 +60,7 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
-			apiErrInternal(c, fmt.Errorf("worker: %s", resp.Error))
+			apiErrWorker(c, resp.Error)
 			return
 		}
 
@@ -99,7 +98,7 @@ func GetWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
-			apiErrInternal(c, fmt.Errorf("worker: %s", resp.Error))
+			apiErrWorker(c, resp.Error)
 			return
 		}
 		c.Data(http.StatusOK, "application/json", resp.Data)
@@ -147,7 +146,7 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
-			apiErrInternal(c, fmt.Errorf("worker: %s", resp.Error))
+			apiErrWorker(c, resp.Error)
 			return
 		}
 		c.Data(http.StatusOK, "application/json", resp.Data)
@@ -188,7 +187,7 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
-			apiErrInternal(c, fmt.Errorf("worker: %s", resp.Error))
+			apiErrWorker(c, resp.Error)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{})
@@ -212,7 +211,7 @@ func ListNamespaces(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
-			apiErrInternal(c, fmt.Errorf("worker: %s", resp.Error))
+			apiErrWorker(c, resp.Error)
 			return
 		}
 
