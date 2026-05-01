@@ -4,11 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
@@ -19,12 +24,18 @@ import (
 
 const opTimeout = 30 * time.Second
 
+// tableAccept is the Accept header that asks K8s to return a server-side Table
+// instead of the full object list — same as kubectl's default display mode.
+const tableAccept = "application/json;as=Table;v=meta.k8s.io/v1,application/json"
+
 // Proxy executes K8s resource operations on behalf of the Server.
 // It is wired to the tunnel client via SetResourceHandler.
 type Proxy struct {
-	dyn    dynamic.Interface
-	mapper apimeta.RESTMapper
-	sendFn func(requestID string, resp *proto.ResourceResponse)
+	cfg        *rest.Config
+	httpClient *http.Client // reused for Table API list requests
+	dyn        dynamic.Interface
+	mapper     apimeta.RESTMapper
+	sendFn     func(requestID string, resp *proto.ResourceResponse)
 }
 
 // New creates a Proxy. sendFn is called after each operation to return the
@@ -34,7 +45,13 @@ func New(cfg *rest.Config, mapper apimeta.RESTMapper, sendFn func(string, *proto
 	if err != nil {
 		return nil, fmt.Errorf("dynamic client: %w", err)
 	}
-	return &Proxy{dyn: dyn, mapper: mapper, sendFn: sendFn}, nil
+	// rest.HTTPClientFor builds an *http.Client with the TLS/auth transport
+	// from the rest.Config (bearer token, client cert, CA, etc.).
+	httpClient, err := rest.HTTPClientFor(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("http client: %w", err)
+	}
+	return &Proxy{cfg: cfg, httpClient: httpClient, dyn: dyn, mapper: mapper, sendFn: sendFn}, nil
 }
 
 // Handle satisfies the tunnel.Client.SetResourceHandler signature.
@@ -59,7 +76,7 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 
 	switch req.Action {
 	case "list":
-		return p.list(ctx, mapping, req.Namespace, req.Limit, req.ContinueToken)
+		return p.listTable(ctx, mapping, req.Namespace, req.Limit, req.ContinueToken)
 	case "get":
 		return p.get(ctx, mapping, req.Namespace, req.Name)
 	case "apply":
@@ -71,27 +88,59 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 	}
 }
 
-func (p *Proxy) list(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, limit int64, continueToken string) *proto.ResourceResponse {
-	opts := metav1.ListOptions{}
+// listTable uses the K8s Table API (same as kubectl default display).
+// The API server computes display cells server-side; only cell values and
+// object metadata are returned — spec/status are NOT transferred.
+func (p *Proxy) listTable(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, limit int64, continueToken string) *proto.ResourceResponse {
+	gv := mapping.Resource.GroupVersion()
+
+	var apiPrefix string
+	if gv.Group == "" {
+		apiPrefix = fmt.Sprintf("/api/%s", gv.Version)
+	} else {
+		apiPrefix = fmt.Sprintf("/apis/%s/%s", gv.Group, gv.Version)
+	}
+
+	var resourcePath string
+	if namespace != "" {
+		resourcePath = fmt.Sprintf("%s/namespaces/%s/%s", apiPrefix, namespace, mapping.Resource.Resource)
+	} else {
+		resourcePath = fmt.Sprintf("%s/%s", apiPrefix, mapping.Resource.Resource)
+	}
+
+	params := url.Values{}
+	// Metadata only — name/namespace/resourceVersion for actions, no spec/status.
+	params.Set("includeObject", "Metadata")
 	if limit > 0 {
-		opts.Limit = limit
+		params.Set("limit", strconv.FormatInt(limit, 10))
 	}
 	if continueToken != "" {
-		opts.Continue = continueToken
+		params.Set("continue", continueToken)
 	}
-	ri := p.dyn.Resource(mapping.Resource)
-	var result interface{}
-	var err error
-	if namespace != "" {
-		result, err = ri.Namespace(namespace).List(ctx, opts)
-	} else {
-		// Empty namespace → all namespaces (cluster-scoped resources also work here).
-		result, err = ri.List(ctx, opts)
-	}
+
+	rawURL := strings.TrimRight(p.cfg.Host, "/") + resourcePath + "?" + params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return fail(err.Error())
+		return fail(fmt.Sprintf("build request: %v", err))
 	}
-	return marshal(result)
+	req.Header.Set("Accept", tableAccept)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return fail(fmt.Sprintf("table request: %v", err))
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fail(fmt.Sprintf("read body: %v", err))
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fail(fmt.Sprintf("K8s API %d: %s", resp.StatusCode, string(data)))
+	}
+
+	return &proto.ResourceResponse{Success: true, Data: data}
 }
 
 func (p *Proxy) get(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {

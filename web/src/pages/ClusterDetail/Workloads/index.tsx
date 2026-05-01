@@ -4,7 +4,7 @@ import { App, Button, Drawer, Dropdown, Popconfirm, Select, Space, Tag, Typograp
 import { DownOutlined, LeftOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import * as jsyaml from 'js-yaml';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ClusterLayout } from '../ClusterLayout';
 import { YamlEditor } from './YamlEditor';
@@ -13,298 +13,136 @@ import { applyWorkload, deleteWorkload, getWorkload, listNamespaces, listWorkloa
 
 const { Text } = Typography;
 
-// ─── Pod status helper (mirrors kubectl's STATUS computation) ─────────────────
+// ─── Table API helpers ────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function computePodStatus(item: any): string {
-  if (item.metadata?.deletionTimestamp) return 'Terminating';
-
-  const phase: string = item.status?.phase ?? 'Unknown';
-  if (phase === 'Succeeded') return 'Completed';
-
-  // Init containers — show Init:<reason> or Init:<i>/<total>
-  const initStatuses: any[] = item.status?.initContainerStatuses ?? [];
-  const initTotal: number = item.spec?.initContainers?.length ?? 0;
-  for (let i = 0; i < initStatuses.length; i++) {
-    const cs = initStatuses[i];
-    if (cs.state?.terminated?.exitCode === 0) continue;
-    if (cs.state?.terminated) return cs.state.terminated.reason || 'Init:Error';
-    if (cs.state?.waiting?.reason && cs.state.waiting.reason !== 'PodInitializing') {
-      return `Init:${cs.state.waiting.reason}`;
-    }
-    return `Init:${i}/${initTotal}`;
-  }
-
-  // Regular containers — surface waiting/terminated reasons
-  const csList: any[] = item.status?.containerStatuses ?? [];
-  for (const cs of csList) {
-    if (cs.state?.waiting?.reason) return cs.state.waiting.reason;
-    if (cs.state?.terminated) {
-      if (cs.state.terminated.exitCode !== 0) return cs.state.terminated.reason || 'Error';
-    }
-  }
-
-  return phase;
-}
-
-// ─── Age helper ───────────────────────────────────────────────────────────────
-
-function formatAge(ts: string): string {
-  const secs = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.floor(hrs / 24)}d`;
-}
-
-// ─── K8s JSON → WorkloadItem parsers ─────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type K8sItem = any;
-
-const PARSERS: Record<WorkloadResourceType, (items: K8sItem[]) => WorkloadItem[]> = {
-  deployments: (items) =>
-    items.map((item) => ({
-      name: item.metadata.name,
-      namespace: item.metadata.namespace,
-      ready: `${item.status?.readyReplicas ?? 0}/${item.spec?.replicas ?? 0}`,
-      upToDate: item.status?.updatedReplicas ?? 0,
-      available: item.status?.availableReplicas ?? 0,
-      age: formatAge(item.metadata.creationTimestamp),
-    })),
-
-  statefulsets: (items) =>
-    items.map((item) => ({
-      name: item.metadata.name,
-      namespace: item.metadata.namespace,
-      ready: `${item.status?.readyReplicas ?? 0}/${item.spec?.replicas ?? 0}`,
-      age: formatAge(item.metadata.creationTimestamp),
-    })),
-
-  daemonsets: (items) =>
-    items.map((item) => ({
-      name: item.metadata.name,
-      namespace: item.metadata.namespace,
-      desired: item.status?.desiredNumberScheduled ?? 0,
-      current: item.status?.currentNumberScheduled ?? 0,
-      ready: item.status?.numberReady ?? 0,
-      upToDate: item.status?.updatedNumberScheduled ?? 0,
-      age: formatAge(item.metadata.creationTimestamp),
-    })),
-
-  pods: (items) =>
-    items.map((item) => {
-      const csList: K8sItem[] = item.status?.containerStatuses ?? [];
-      const restarts = csList.reduce((n: number, cs: K8sItem) => n + (cs.restartCount ?? 0), 0);
-      return {
-        name: item.metadata.name,
-        namespace: item.metadata.namespace,
-        phase: computePodStatus(item),
-        restarts,
-        node: item.spec?.nodeName ?? '',
-        age: formatAge(item.metadata.creationTimestamp),
-      };
-    }),
-
-  services: (items) =>
-    items.map((item) => ({
-      name: item.metadata.name,
-      namespace: item.metadata.namespace,
-      type: item.spec?.type ?? 'ClusterIP',
-      clusterIP: item.spec?.clusterIP ?? '',
-      ports: (item.spec?.ports ?? [])
-        .map((p: K8sItem) =>
-          p.nodePort ? `${p.port}:${p.nodePort}/${p.protocol}` : `${p.port}/${p.protocol}`,
-        )
-        .join(', '),
-      age: formatAge(item.metadata.creationTimestamp),
-    })),
-
-  ingresses: (items) =>
-    items.map((item) => ({
-      name: item.metadata.name,
-      namespace: item.metadata.namespace,
-      hosts:
-        (item.spec?.rules ?? []).map((r: K8sItem) => r.host ?? '*').join(', ') || '—',
-      address: (item.status?.loadBalancer?.ingress ?? [])
-        .map((i: K8sItem) => i.ip ?? i.hostname ?? '')
-        .filter(Boolean)
-        .join(', '),
-      age: formatAge(item.metadata.creationTimestamp),
-    })),
-
-  configmaps: (items) =>
-    items.map((item) => ({
-      name: item.metadata.name,
-      namespace: item.metadata.namespace,
-      dataCount:
-        Object.keys(item.data ?? {}).length + Object.keys(item.binaryData ?? {}).length,
-      age: formatAge(item.metadata.creationTimestamp),
-    })),
-
-  secrets: (items) =>
-    items.map((item) => ({
-      name: item.metadata.name,
-      namespace: item.metadata.namespace,
-      secretType: item.type ?? 'Opaque',
-      age: formatAge(item.metadata.creationTimestamp),
-    })),
+// Maps K8s Table API column names → our i18n keys.
+const COL_I18N: Record<string, string> = {
+  Name: 'pages.workloads.col.name',
+  Namespace: 'pages.workloads.col.namespace',
+  Age: 'pages.workloads.col.age',
+  Status: 'pages.workloads.col.status',
+  Restarts: 'pages.workloads.col.restarts',
+  Node: 'pages.workloads.col.node',
+  Type: 'pages.workloads.col.type',
+  'Port(s)': 'pages.workloads.col.ports',
+  Hosts: 'pages.workloads.col.hosts',
+  Address: 'pages.workloads.col.address',
+  Data: 'pages.workloads.col.data',
 };
 
-// ─── Column configs ────────────────────────────────────────────────────────
+const COL_WIDTHS: Record<string, number> = {
+  Name: 200, Namespace: 130, Age: 80, Status: 150, Ready: 90,
+  Restarts: 90, Node: 150, Type: 110, 'Cluster-IP': 130,
+  'External-IP': 130, 'Port(s)': 170, Hosts: 200, Address: 150,
+  Data: 70, 'Up-to-date': 100, Available: 90, Desired: 80, Current: 80,
+};
 
-type ColFn = (intl: ReturnType<typeof useIntl>) => ProColumns<WorkloadItem>[];
+const SVC_TYPE_COLOR: Record<string, string> = {
+  ClusterIP: 'default', NodePort: 'blue', LoadBalancer: 'green',
+};
 
-// Defensive: ready may be stale/undefined during type transitions.
-function readyCell(ready: string | undefined) {
-  if (!ready || !ready.includes('/')) return <Text>{ready ?? '—'}</Text>;
-  const [cur, total] = ready.split('/').map(Number);
-  if (cur === total) return <Text type="success">{ready}</Text>;
-  if (cur === 0) return <Text type="danger">{ready}</Text>;
-  return <Text type="warning">{ready}</Text>;
-}
-
-function podStatusColor(status: string): string {
-  if (status === 'Running' || status === 'Completed') return 'success';
-  if (status === 'Pending' || status.startsWith('Init:')) return 'warning';
-  if (
-    status === 'Failed' ||
-    status === 'Error' ||
-    status === 'OOMKilled' ||
-    status === 'CrashLoopBackOff' ||
-    status === 'ErrImagePull' ||
-    status === 'ImagePullBackOff' ||
-    status === 'CreateContainerError' ||
-    status === 'InvalidImageName'
-  )
-    return 'error';
-  if (status === 'Terminating') return 'default';
+function podStatusColor(s: string): string {
+  if (s === 'Running' || s === 'Completed') return 'success';
+  if (s === 'Pending' || s.startsWith('Init:')) return 'warning';
+  if (['Failed', 'Error', 'OOMKilled', 'CrashLoopBackOff',
+       'ErrImagePull', 'ImagePullBackOff', 'CreateContainerError',
+       'InvalidImageName'].includes(s)) return 'error';
   return 'default';
 }
 
-const svcTypeColor: Record<string, string> = {
-  ClusterIP: 'default',
-  NodePort: 'blue',
-  LoadBalancer: 'green',
-};
-
-const nameNsColumns = (intl: ReturnType<typeof useIntl>): ProColumns<WorkloadItem>[] => [
-  { title: intl.formatMessage({ id: 'pages.workloads.col.name' }), dataIndex: 'name', width: 200 },
-  {
-    title: intl.formatMessage({ id: 'pages.workloads.col.namespace' }),
-    dataIndex: 'namespace',
-    width: 130,
-  },
-];
-
-const ageColumn = (intl: ReturnType<typeof useIntl>): ProColumns<WorkloadItem> => ({
-  title: intl.formatMessage({ id: 'pages.workloads.col.age' }),
-  dataIndex: 'age',
-  width: 80,
-});
-
-const COLUMNS: Record<WorkloadResourceType, ColFn> = {
-  deployments: (intl) => [
-    ...nameNsColumns(intl),
-    { title: 'Ready', dataIndex: 'ready', width: 90, render: (_, r) => readyCell(r.ready) },
-    { title: 'Up-to-date', dataIndex: 'upToDate', width: 100 },
-    { title: 'Available', dataIndex: 'available', width: 90 },
-    ageColumn(intl),
-  ],
-  statefulsets: (intl) => [
-    ...nameNsColumns(intl),
-    { title: 'Ready', dataIndex: 'ready', width: 90, render: (_, r) => readyCell(r.ready) },
-    ageColumn(intl),
-  ],
-  daemonsets: (intl) => [
-    ...nameNsColumns(intl),
-    { title: 'Desired', dataIndex: 'desired', width: 80 },
-    { title: 'Current', dataIndex: 'current', width: 80 },
-    {
-      title: 'Ready',
-      dataIndex: 'ready',
-      width: 80,
-      render: (_, r) =>
-        r.ready === r.desired ? (
-          <Text type="success">{r.ready}</Text>
-        ) : (
-          <Text type="warning">{r.ready}</Text>
-        ),
-    },
-    { title: 'Up-to-date', dataIndex: 'upToDate', width: 100 },
-    ageColumn(intl),
-  ],
-  pods: (intl) => [
-    ...nameNsColumns(intl),
-    {
-      title: intl.formatMessage({ id: 'pages.workloads.col.status' }),
-      dataIndex: 'phase',
-      width: 160,
-      render: (_, r) => <Tag color={podStatusColor(r.phase)}>{r.phase}</Tag>,
-    },
-    {
-      title: intl.formatMessage({ id: 'pages.workloads.col.restarts' }),
-      dataIndex: 'restarts',
-      width: 90,
-      render: (_, r) =>
-        r.restarts > 0 ? (
-          <Text type={r.restarts >= 5 ? 'danger' : 'warning'}>{r.restarts}</Text>
-        ) : (
-          r.restarts
-        ),
-    },
-    { title: intl.formatMessage({ id: 'pages.workloads.col.node' }), dataIndex: 'node', width: 120 },
-    ageColumn(intl),
-  ],
-  services: (intl) => [
-    ...nameNsColumns(intl),
-    {
-      title: intl.formatMessage({ id: 'pages.workloads.col.type' }),
-      dataIndex: 'type',
-      width: 130,
-      render: (_, r) => <Tag color={svcTypeColor[r.type] ?? 'default'}>{r.type}</Tag>,
-    },
-    { title: 'Cluster IP', dataIndex: 'clusterIP', width: 130 },
-    { title: intl.formatMessage({ id: 'pages.workloads.col.ports' }), dataIndex: 'ports', width: 150 },
-    ageColumn(intl),
-  ],
-  ingresses: (intl) => [
-    ...nameNsColumns(intl),
-    { title: intl.formatMessage({ id: 'pages.workloads.col.hosts' }), dataIndex: 'hosts', width: 200 },
-    {
-      title: intl.formatMessage({ id: 'pages.workloads.col.address' }),
-      dataIndex: 'address',
-      width: 150,
-      render: (_, r) => r.address || <Text type="secondary">—</Text>,
-    },
-    ageColumn(intl),
-  ],
-  configmaps: (intl) => [
-    ...nameNsColumns(intl),
-    { title: intl.formatMessage({ id: 'pages.workloads.col.data' }), dataIndex: 'dataCount', width: 80 },
-    ageColumn(intl),
-  ],
-  secrets: (intl) => [
-    ...nameNsColumns(intl),
-    { title: intl.formatMessage({ id: 'pages.workloads.col.type' }), dataIndex: 'secretType', width: 280 },
-    ageColumn(intl),
-  ],
-};
-
-const VALID_TYPES = new Set<string>(Object.keys(COLUMNS));
-
-// ─── Inner component — remounts on resourceType change via key prop ────────
-
-interface WorkloadsContentProps {
-  clusterId: string;
-  resourceType: WorkloadResourceType;
-  namespaces: string[];
-  nsLoading: boolean;
+function renderCell(colName: string, value: string): React.ReactNode {
+  const v = value ?? '';
+  if (!v || v === '<none>' || v === '<unknown>') {
+    return <Text type="secondary">{v || '—'}</Text>;
+  }
+  switch (colName) {
+    case 'Status':
+      return <Tag color={podStatusColor(v)}>{v}</Tag>;
+    case 'Ready': {
+      if (!v.includes('/')) return <>{v}</>;
+      const [cur, total] = v.split('/').map(Number);
+      if (cur === total) return <Text type="success">{v}</Text>;
+      if (cur === 0) return <Text type="danger">{v}</Text>;
+      return <Text type="warning">{v}</Text>;
+    }
+    case 'Restarts': {
+      const n = parseInt(v, 10);
+      if (isNaN(n) || n === 0) return <>{v}</>;
+      return <Text type={n >= 5 ? 'danger' : 'warning'}>{v}</Text>;
+    }
+    case 'Type':
+      return <Tag color={SVC_TYPE_COLOR[v] ?? 'default'}>{v}</Tag>;
+    default:
+      return <>{v}</>;
+  }
 }
 
-// Strip managedFields for readability; resourceVersion is kept for optimistic locking.
+// Parse a K8s Table API response into WorkloadItems + column definitions.
+// Only priority=0 columns are kept (same as kubectl default, no "-o wide").
+// Name and Namespace are always sourced from object.metadata instead.
+function parseTableResponse(res: any): { items: WorkloadItem[]; colDefs: any[] } {
+  if (res?.kind !== 'Table') return { items: [], colDefs: [] };
+
+  const allColDefs: any[] = res.columnDefinitions ?? [];
+  const allNames = allColDefs.map((c: any) => c.name as string);
+
+  // Keep only priority=0 columns; skip Name/Namespace (we handle those separately).
+  const colDefs = allColDefs.filter(
+    (c: any) => c.priority === 0 && c.name !== 'Name' && c.name !== 'Namespace',
+  );
+
+  const items: WorkloadItem[] = (res.rows ?? []).map((row: any) => {
+    const cells: any[] = row.cells ?? [];
+    const meta = row.object?.metadata ?? {};
+    const item: WorkloadItem = {
+      name: meta.name ?? cells[allNames.indexOf('Name')] ?? '',
+      namespace: meta.namespace ?? '',
+      age: '',
+    };
+    for (const col of colDefs) {
+      const idx = allNames.indexOf(col.name);
+      item[col.name] = idx >= 0 ? (cells[idx] ?? '') : '';
+    }
+    return item;
+  });
+
+  return { items, colDefs };
+}
+
+// ─── Dynamic column builder ───────────────────────────────────────────────────
+
+function buildColumns(
+  colDefs: any[],
+  intl: ReturnType<typeof useIntl>,
+): ProColumns<WorkloadItem>[] {
+  const fixed: ProColumns<WorkloadItem>[] = [
+    {
+      title: intl.formatMessage({ id: 'pages.workloads.col.name' }),
+      dataIndex: 'name',
+      width: 200,
+    },
+    {
+      title: intl.formatMessage({ id: 'pages.workloads.col.namespace' }),
+      dataIndex: 'namespace',
+      width: 130,
+    },
+  ];
+
+  const dynamic: ProColumns<WorkloadItem>[] = colDefs.map((col: any) => ({
+    title: COL_I18N[col.name]
+      ? intl.formatMessage({ id: COL_I18N[col.name] })
+      : col.name,
+    dataIndex: col.name,
+    width: COL_WIDTHS[col.name] ?? 120,
+    render: (_, record) => renderCell(col.name, record[col.name]),
+  }));
+
+  return [...fixed, ...dynamic];
+}
+
+// ─── YAML editor helpers ──────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toEditableYaml(raw: any): string {
   const obj = { ...raw };
   if (obj.metadata) {
@@ -313,6 +151,22 @@ function toEditableYaml(raw: any): string {
   }
   return jsyaml.dump(obj, { lineWidth: -1 });
 }
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+const VALID_TYPES = new Set<string>([
+  'deployments', 'statefulsets', 'daemonsets', 'pods',
+  'services', 'ingresses', 'configmaps', 'secrets',
+]);
+
+interface WorkloadsContentProps {
+  clusterId: string;
+  resourceType: WorkloadResourceType;
+  namespaces: string[];
+  nsLoading: boolean;
+}
+
+// ─── Inner component — remounts on resourceType change via key prop ────────
 
 const PAGE_SIZE = 100;
 
@@ -323,14 +177,10 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
   const [pollingInterval, setPollingInterval] = useState(0);
 
   // Server-side cursor pagination.
-  // pageTokens[i] = the continue token used to fetch page i.
-  // pageTokens[0] is always '' (first page). pageTokens[i+1] is saved from
-  // page i's response so the user can go forward without re-fetching.
   const [pageTokens, setPageTokens] = useState<string[]>(['']);
   const [pageIdx, setPageIdx] = useState(0);
   const currentToken = pageTokens[pageIdx] ?? '';
 
-  // Reset to page 1 whenever the namespace filter changes.
   useEffect(() => {
     setPageIdx(0);
     setPageTokens(['']);
@@ -347,29 +197,32 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     () => listWorkloads(clusterId, resourceType, namespace, PAGE_SIZE, currentToken),
     {
       refreshDeps: [namespace, currentToken],
-      formatResult: (res: any) => ({
-        items: PARSERS[resourceType](res?.items ?? []) as WorkloadItem[],
-        nextToken: (res?.metadata?.continue as string) ?? '',
-        remaining: res?.metadata?.remainingItemCount as number | undefined,
-      }),
+      formatResult: (res: any) => {
+        const { items, colDefs } = parseTableResponse(res);
+        return {
+          items,
+          colDefs,
+          nextToken: (res?.metadata?.continue as string) ?? '',
+          remaining: res?.metadata?.remainingItemCount as number | undefined,
+        };
+      },
       pollingWhenHidden: false,
     },
   );
 
   const items = pageData?.items ?? [];
+  const colDefs = pageData?.colDefs ?? [];
   const nextToken = pageData?.nextToken ?? '';
   const hasMore = !!nextToken;
-  // Approximate total: items seen so far + remaining (if K8s reports it).
   const totalKnown =
     pageData?.remaining != null
       ? pageIdx * PAGE_SIZE + items.length + pageData.remaining
       : undefined;
 
-  // Cache the next-page token so the user can navigate forward.
   useEffect(() => {
     if (!nextToken) return;
     setPageTokens((prev) => {
-      if (prev[pageIdx + 1]) return prev; // already cached
+      if (prev[pageIdx + 1]) return prev;
       const next = [...prev];
       next[pageIdx + 1] = nextToken;
       return next;
@@ -441,10 +294,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         </Button>,
         <Popconfirm
           key="delete"
-          title={intl.formatMessage(
-            { id: 'pages.workloads.delete.confirm' },
-            { name: record.name },
-          )}
+          title={intl.formatMessage({ id: 'pages.workloads.delete.confirm' }, { name: record.name })}
           onConfirm={() => handleDelete(record)}
           okType="danger"
         >
@@ -456,7 +306,11 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     },
   };
 
-  const columns = [...COLUMNS[resourceType](intl), actionsColumn];
+  const columns = useMemo(
+    () => [...buildColumns(colDefs, intl), actionsColumn],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [colDefs, intl],
+  );
 
   return (
     <div className="p-6">
@@ -513,21 +367,11 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
       />
       {(pageIdx > 0 || hasMore) && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, padding: '12px 0' }}>
-          <Button
-            size="small"
-            icon={<LeftOutlined />}
-            disabled={pageIdx === 0}
-            onClick={() => setPageIdx((p) => p - 1)}
-          />
+          <Button size="small" icon={<LeftOutlined />} disabled={pageIdx === 0} onClick={() => setPageIdx((p) => p - 1)} />
           <Text type="secondary">
             {intl.formatMessage({ id: 'pages.workloads.page' }, { n: pageIdx + 1 })}
           </Text>
-          <Button
-            size="small"
-            icon={<RightOutlined />}
-            disabled={!hasMore}
-            onClick={() => setPageIdx((p) => p + 1)}
-          />
+          <Button size="small" icon={<RightOutlined />} disabled={!hasMore} onClick={() => setPageIdx((p) => p + 1)} />
         </div>
       )}
 
@@ -568,7 +412,6 @@ export default function WorkloadsPage() {
   const isValidType = !!type && VALID_TYPES.has(type);
   const resourceType = (isValidType ? type : 'deployments') as WorkloadResourceType;
 
-  // Fetch namespaces once per cluster, shared across all type switches.
   const { data: namespaces = [], loading: nsLoading } = useRequest(
     () => listNamespaces(clusterId!),
     {
@@ -584,8 +427,6 @@ export default function WorkloadsPage() {
 
   return (
     <ClusterLayout selectedKey={resourceType}>
-      {/* key forces a full remount when resourceType changes, preventing stale data
-          from a previous type being rendered with the new type's columns. */}
       <WorkloadsContent
         key={resourceType}
         clusterId={clusterId!}
