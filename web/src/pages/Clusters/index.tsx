@@ -61,6 +61,7 @@ const TokenModal: React.FC<{
     <Modal
       open
       title={title}
+      maskClosable={false}
       onCancel={onClose}
       footer={
         <Button type="primary" onClick={onClose}>
