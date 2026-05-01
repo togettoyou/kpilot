@@ -119,6 +119,10 @@ func UpdateCluster(c *gin.Context) {
 func RegenerateToken(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		if _, err := store.GetClusterByID(id); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "cluster not found"})
+			return
+		}
 		token, err := generateToken()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -8,6 +8,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// sameSite is applied before every SetCookie call to protect against CSRF.
+const sameSite = http.SameSiteLaxMode
+
 const cookieName = "kpilot_token"
 const tokenTTL = 24 * time.Hour
 
@@ -58,9 +61,11 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 }
 
 func SetCookie(c *gin.Context, token string) {
+	c.SetSameSite(sameSite)
 	c.SetCookie(cookieName, token, int(tokenTTL.Seconds()), "/", "", false, true)
 }
 
 func ClearCookie(c *gin.Context) {
+	c.SetSameSite(sameSite)
 	c.SetCookie(cookieName, "", -1, "/", "", false, true)
 }

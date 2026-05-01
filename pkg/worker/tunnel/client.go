@@ -19,6 +19,7 @@ const (
 	reconnectBaseDelay = 3 * time.Second
 	reconnectMaxDelay  = 60 * time.Second
 	heartbeatInterval  = 10 * time.Second
+	connectTimeout     = 15 * time.Second
 	workerVersion      = "v0.1.0"
 )
 
@@ -28,12 +29,14 @@ const (
 var ErrTokenRejected = errors.New("token rejected by server")
 
 type Client struct {
-	serverAddr   string
-	clusterToken string
-	onConnected  func(context.Context) // called in a goroutine after each successful registration
+	serverAddr      string
+	clusterToken    string
+	onConnected     func(context.Context) // called in a goroutine after each successful registration
+	resourceHandler func(requestID string, req *proto.ResourceRequest)
 
 	mu     sync.Mutex
-	stream proto.PilotService_ConnectClient // 当前活跃的流，断线时为 nil
+	sendMu sync.Mutex // serializes concurrent Send calls on the active stream
+	stream proto.PilotService_ConnectClient
 }
 
 func NewClient(serverAddr, clusterToken string) *Client {
@@ -43,14 +46,26 @@ func NewClient(serverAddr, clusterToken string) *Client {
 	}
 }
 
-// SetOnConnected registers a callback that is invoked (in a new goroutine) each
-// time the Worker successfully registers with the Server. Use this to trigger an
-// immediate node push after every reconnect.
+// SetOnConnected registers a callback invoked (in a new goroutine) each time
+// the Worker successfully registers with the Server.
 func (c *Client) SetOnConnected(fn func(context.Context)) {
 	c.onConnected = fn
 }
 
-// PushNodes 由 collector 调用，通过当前流上报节点信息
+// SetResourceHandler registers a callback invoked (in a new goroutine) when
+// the Server sends a ResourceRequest. Used by the P3 proxy layer.
+func (c *Client) SetResourceHandler(fn func(requestID string, req *proto.ResourceRequest)) {
+	c.resourceHandler = fn
+}
+
+// safeSend serializes concurrent Send calls; gRPC streams are not thread-safe for Send.
+func (c *Client) safeSend(s proto.PilotService_ConnectClient, msg *proto.WorkerMessage) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	return s.Send(msg)
+}
+
+// PushNodes is called by the collector to push node info on the active stream.
 func (c *Client) PushNodes(nodes []*proto.NodeInfo) {
 	c.mu.Lock()
 	s := c.stream
@@ -58,14 +73,15 @@ func (c *Client) PushNodes(nodes []*proto.NodeInfo) {
 	if s == nil {
 		return
 	}
-	_ = s.Send(&proto.WorkerMessage{
+	_ = c.safeSend(s, &proto.WorkerMessage{
 		Payload: &proto.WorkerMessage_NodeList{
 			NodeList: &proto.NodeListPush{Nodes: nodes},
 		},
 	})
 }
 
-// Run 阻塞运行，自动断线重连。若 Token 被拒绝则返回 ErrTokenRejected，调用方应退出进程。
+// Run blocks and reconnects automatically. Returns ErrTokenRejected on fatal
+// token rejection; callers should exit the process.
 func (c *Client) Run(ctx context.Context) error {
 	delay := reconnectBaseDelay
 	for {
@@ -97,6 +113,9 @@ func (c *Client) connect(ctx context.Context) error {
 			Timeout:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			MinConnectTimeout: connectTimeout,
+		}),
 	)
 	if err != nil {
 		return err
@@ -110,7 +129,7 @@ func (c *Client) connect(ctx context.Context) error {
 	}
 
 	// 发送 Register
-	if err = stream.Send(&proto.WorkerMessage{
+	if err = c.safeSend(stream, &proto.WorkerMessage{
 		Payload: &proto.WorkerMessage_Register{
 			Register: &proto.RegisterRequest{
 				ClusterToken:  c.clusterToken,
@@ -169,23 +188,28 @@ func (c *Client) heartbeat(ctx context.Context, stream proto.PilotService_Connec
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = stream.Send(&proto.WorkerMessage{
+			if err := c.safeSend(stream, &proto.WorkerMessage{
 				Payload: &proto.WorkerMessage_Heartbeat{
 					Heartbeat: &proto.HeartbeatRequest{
 						Timestamp: time.Now().Unix(),
 					},
 				},
-			})
+			}); err != nil {
+				return
+			}
 		}
 	}
 }
 
 func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
-	switch msg.Payload.(type) {
+	switch p := msg.Payload.(type) {
 	case *proto.ServerMessage_ResourceReq:
-		// TODO P3
+		if c.resourceHandler != nil {
+			go c.resourceHandler(msg.RequestId, p.ResourceReq)
+		}
 	case *proto.ServerMessage_PluginCmd:
 		// TODO P4
+		_ = p
 	}
 }
 

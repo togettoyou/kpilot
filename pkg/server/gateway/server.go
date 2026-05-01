@@ -1,21 +1,25 @@
 package gateway
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
 const (
-	heartbeatTimeout  = 35 * time.Second // worker 每 10s 发一次心跳，3 次未收到即判定离线
+	heartbeatTimeout       = 35 * time.Second // worker 每 10s 发一次心跳，3 次未收到即判定离线
 	heartbeatCheckInterval = 10 * time.Second
 )
 
-// ConnectedWorker 表示一个已连接的 Worker
+// ConnectedWorker represents a live Worker connection.
 type ConnectedWorker struct {
 	ClusterID  string
 	Stream     proto.PilotService_ConnectServer
@@ -28,14 +32,19 @@ type GatewayServer struct {
 	proto.UnimplementedPilotServiceServer
 
 	mu        sync.RWMutex
-	workers   map[string]*ConnectedWorker  // clusterID → worker
-	nodeCache map[string][]*proto.NodeInfo // clusterID → nodes
+	workers   map[string]*ConnectedWorker
+	nodeCache map[string][]*proto.NodeInfo
+
+	// pendingMu guards the pending request-response map used by P3.
+	pendingMu sync.Mutex
+	pending   map[string]chan *proto.ResourceResponse
 }
 
 func NewGatewayServer() *GatewayServer {
 	return &GatewayServer{
 		workers:   make(map[string]*ConnectedWorker),
 		nodeCache: make(map[string][]*proto.NodeInfo),
+		pending:   make(map[string]chan *proto.ResourceResponse),
 	}
 }
 
@@ -88,7 +97,6 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 
 	log.Printf("[gateway] worker connected: cluster=%s", cluster.ID)
 
-	// 心跳超时检测
 	timer := time.NewTicker(heartbeatCheckInterval)
 	defer timer.Stop()
 
@@ -132,11 +140,16 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 		g.nodeCache[w.ClusterID] = p.NodeList.Nodes
 		g.mu.Unlock()
 	case *proto.WorkerMessage_PluginStatus:
-		// TODO P4: 更新插件状态
+		// TODO P4
 		_ = p
 	case *proto.WorkerMessage_ResourceResp:
-		// TODO P3: 路由响应到等待中的 HTTP 请求
-		_ = p
+		resp := p.ResourceResp
+		g.pendingMu.Lock()
+		ch, ok := g.pending[msg.RequestId]
+		g.pendingMu.Unlock()
+		if ok {
+			ch <- resp
+		}
 	}
 }
 
@@ -144,14 +157,18 @@ func (g *GatewayServer) register(w *ConnectedWorker) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.workers[w.ClusterID] = w
-	_ = store.UpdateClusterStatus(w.ClusterID, store.ClusterStatusOnline)
+	if err := store.UpdateClusterStatus(w.ClusterID, store.ClusterStatusOnline); err != nil {
+		log.Printf("[gateway] update cluster online failed: cluster=%s err=%v", w.ClusterID, err)
+	}
 }
 
 func (g *GatewayServer) unregister(clusterID string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	delete(g.workers, clusterID)
-	_ = store.UpdateClusterStatus(clusterID, store.ClusterStatusOffline)
+	if err := store.UpdateClusterStatus(clusterID, store.ClusterStatusOffline); err != nil {
+		log.Printf("[gateway] update cluster offline failed: cluster=%s err=%v", clusterID, err)
+	}
 	log.Printf("[gateway] worker disconnected: cluster=%s", clusterID)
 }
 
@@ -175,4 +192,42 @@ func (g *GatewayServer) GetNodes(clusterID string) []*proto.NodeInfo {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.nodeCache[clusterID]
+}
+
+// SendResourceRequest sends a ResourceRequest to the connected Worker for the
+// given cluster and blocks until the Worker responds or ctx is cancelled.
+// This is the primary entry point for P3 workload operations.
+func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID string, req *proto.ResourceRequest) (*proto.ResourceResponse, error) {
+	w, ok := g.GetWorker(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+
+	requestID := uuid.New().String()
+	ch := make(chan *proto.ResourceResponse, 1)
+
+	g.pendingMu.Lock()
+	g.pending[requestID] = ch
+	g.pendingMu.Unlock()
+	defer func() {
+		g.pendingMu.Lock()
+		delete(g.pending, requestID)
+		g.pendingMu.Unlock()
+	}()
+
+	if err := w.Stream.Send(&proto.ServerMessage{
+		RequestId: requestID,
+		Payload: &proto.ServerMessage_ResourceReq{
+			ResourceReq: req,
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("send to worker: %w", err)
+	}
+
+	select {
+	case resp := <-ch:
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
