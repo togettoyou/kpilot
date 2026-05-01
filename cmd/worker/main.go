@@ -6,6 +6,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	"github.com/togettoyou/kpilot/pkg/worker/collector"
 	"github.com/togettoyou/kpilot/pkg/worker/config"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
@@ -23,15 +28,37 @@ func main() {
 
 	log.Printf("worker starting, server=%s", cfg.ServerAddr)
 
-	client := tunnel.NewClient(cfg.ServerAddr, cfg.ClusterToken)
+	tunnelClient := tunnel.NewClient(cfg.ServerAddr, cfg.ClusterToken)
 
-	// 节点采集器（无 kubeconfig 时自动跳过）
-	nc := collector.NewNodeCollector(client.PushNodes)
-	if nc != nil {
-		go nc.Run(ctx)
+	// Set up controller-runtime Manager for node watching.
+	// Skipped gracefully when no kubeconfig is available (e.g. local dev without a cluster).
+	k8sCfg, err := ctrlcfg.GetConfig()
+	if err != nil {
+		log.Printf("[worker] no kubeconfig available, node collection disabled: %v", err)
+	} else {
+		mgr, err := ctrl.NewManager(k8sCfg, ctrl.Options{
+			Metrics:                metricsserver.Options{BindAddress: "0"},
+			HealthProbeBindAddress: "0",
+		})
+		if err != nil {
+			log.Fatalf("[worker] failed to create manager: %v", err)
+		}
+
+		nc, err := collector.SetupNodeReconciler(mgr, tunnelClient.PushNodes)
+		if err != nil {
+			log.Fatalf("[worker] failed to setup node reconciler: %v", err)
+		}
+		// Push full node list immediately after each gRPC registration.
+		tunnelClient.SetOnConnected(nc.Sync)
+
+		go func() {
+			if err := mgr.Start(ctx); err != nil {
+				log.Printf("[worker] manager error: %v", err)
+			}
+		}()
 	}
 
-	client.Run(ctx)
+	tunnelClient.Run(ctx)
 
 	log.Println("worker stopped")
 }

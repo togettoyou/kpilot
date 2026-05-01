@@ -3,65 +3,64 @@ package collector
 import (
 	"context"
 	"log"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	proto "github.com/togettoyou/kpilot/pkg/common/proto"
 )
 
-const collectInterval = 30 * time.Second
-
-// NodeCollector 周期采集 K8s 节点信息并通过 pushFn 上报
-type NodeCollector struct {
+// NodeReconciler watches Node objects and pushes the full node list to Server
+// whenever any node changes. Reads from the controller-runtime cache (no direct
+// API server calls after initial sync).
+type NodeReconciler struct {
 	client client.Client
 	pushFn func([]*proto.NodeInfo)
 }
 
-// NewNodeCollector 创建采集器；若无法读取 kubeconfig 则返回 nil
-func NewNodeCollector(pushFn func([]*proto.NodeInfo)) *NodeCollector {
-	cfg, err := config.GetConfig()
-	if err != nil {
-		log.Printf("[collector] no kubeconfig available, node collection disabled: %v", err)
-		return nil
+var _ reconcile.Reconciler = &NodeReconciler{}
+
+// SetupNodeReconciler registers the reconciler with the Manager and returns it
+// so the caller can invoke Sync after gRPC reconnects.
+func SetupNodeReconciler(mgr ctrl.Manager, pushFn func([]*proto.NodeInfo)) (*NodeReconciler, error) {
+	r := &NodeReconciler{
+		client: mgr.GetClient(),
+		pushFn: pushFn,
 	}
-	c, err := client.New(cfg, client.Options{})
-	if err != nil {
-		log.Printf("[collector] failed to create k8s client: %v", err)
-		return nil
-	}
-	return &NodeCollector{client: c, pushFn: pushFn}
+	err := ctrl.NewControllerManagedBy(mgr).
+		Named("node-collector").
+		For(&corev1.Node{}).
+		Complete(r)
+	return r, err
 }
 
-// Run 阻塞运行直到 ctx 取消
-func (nc *NodeCollector) Run(ctx context.Context) {
-	nc.collect(ctx)
-	ticker := time.NewTicker(collectInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			nc.collect(ctx)
-		}
+// Reconcile is called by the framework when any Node changes.
+// We ignore the specific node in the request and always push the full list.
+func (r *NodeReconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconcile.Result, error) {
+	return reconcile.Result{}, r.pushAll(ctx)
+}
+
+// Sync pushes the current full node list immediately.
+// Called by the tunnel client right after a successful gRPC registration.
+func (r *NodeReconciler) Sync(ctx context.Context) {
+	if err := r.pushAll(ctx); err != nil {
+		log.Printf("[collector] sync nodes: %v", err)
 	}
 }
 
-func (nc *NodeCollector) collect(ctx context.Context) {
-	var nodeList corev1.NodeList
-	if err := nc.client.List(ctx, &nodeList); err != nil {
-		log.Printf("[collector] list nodes: %v", err)
-		return
+func (r *NodeReconciler) pushAll(ctx context.Context) error {
+	var list corev1.NodeList
+	if err := r.client.List(ctx, &list); err != nil {
+		return err
 	}
-
-	nodes := make([]*proto.NodeInfo, 0, len(nodeList.Items))
-	for _, n := range nodeList.Items {
-		nodes = append(nodes, toProtoNode(&n))
+	nodes := make([]*proto.NodeInfo, 0, len(list.Items))
+	for i := range list.Items {
+		nodes = append(nodes, toProtoNode(&list.Items[i]))
 	}
-	nc.pushFn(nodes)
+	r.pushFn(nodes)
+	return nil
 }
 
 func toProtoNode(n *corev1.Node) *proto.NodeInfo {
@@ -77,11 +76,6 @@ func toProtoNode(n *corev1.Node) *proto.NodeInfo {
 		}
 	}
 
-	cpuCap := n.Status.Capacity.Cpu().MilliValue()
-	cpuAlloc := n.Status.Allocatable.Cpu().MilliValue()
-	memCap := n.Status.Capacity.Memory().Value()
-	memAlloc := n.Status.Allocatable.Memory().Value()
-
 	labels := make(map[string]string, len(n.Labels))
 	for k, v := range n.Labels {
 		labels[k] = v
@@ -90,10 +84,10 @@ func toProtoNode(n *corev1.Node) *proto.NodeInfo {
 	return &proto.NodeInfo{
 		Name:              n.Name,
 		Status:            status,
-		CpuCapacity:       cpuCap,
-		CpuAllocatable:    cpuAlloc,
-		MemoryCapacity:    memCap,
-		MemoryAllocatable: memAlloc,
+		CpuCapacity:       n.Status.Capacity.Cpu().MilliValue(),
+		CpuAllocatable:    n.Status.Allocatable.Cpu().MilliValue(),
+		MemoryCapacity:    n.Status.Capacity.Memory().Value(),
+		MemoryAllocatable: n.Status.Allocatable.Memory().Value(),
 		Labels:            labels,
 	}
 }

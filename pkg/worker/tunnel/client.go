@@ -23,6 +23,7 @@ const (
 type Client struct {
 	serverAddr   string
 	clusterToken string
+	onConnected  func(context.Context) // called in a goroutine after each successful registration
 
 	mu     sync.Mutex
 	stream proto.PilotService_ConnectClient // 当前活跃的流，断线时为 nil
@@ -33,6 +34,13 @@ func NewClient(serverAddr, clusterToken string) *Client {
 		serverAddr:   serverAddr,
 		clusterToken: clusterToken,
 	}
+}
+
+// SetOnConnected registers a callback that is invoked (in a new goroutine) each
+// time the Worker successfully registers with the Server. Use this to trigger an
+// immediate node push after every reconnect.
+func (c *Client) SetOnConnected(fn func(context.Context)) {
+	c.onConnected = fn
 }
 
 // PushNodes 由 collector 调用，通过当前流上报节点信息
@@ -122,6 +130,10 @@ func (c *Client) connect(ctx context.Context) error {
 	c.mu.Lock()
 	c.stream = stream
 	c.mu.Unlock()
+
+	if c.onConnected != nil {
+		go c.onConnected(ctx)
+	}
 	defer func() {
 		c.mu.Lock()
 		c.stream = nil
