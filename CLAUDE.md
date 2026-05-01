@@ -120,8 +120,17 @@ status:
 - 字段：CPU（可分配/总量）、内存（可分配/总量）、GPU 型号、GPU 数量
 
 ### 3. 工作负载管理
-- 通过 Worker 代理 K8s API，支持完整 CRUD
-- P0 资源：Deployment、StatefulSet、DaemonSet、Pod、Service、ConfigMap、Secret、Ingress
+- 通过 Worker 代理 K8s API，支持完整 CRUD（列表、查看 YAML、编辑、删除）
+- 工作负载：Deployment、StatefulSet、DaemonSet、Pod
+- 网络：Service、Ingress
+- 存储：PersistentVolumeClaim、PersistentVolume（集群级，无命名空间）
+- 配置：ConfigMap、Secret
+- 列表使用 K8s Table API（同 kubectl 默认展示，server 端计算列，仅传输元数据+单元格值，不传输完整 YAML）
+- 展示全部列（含 wide 列，等价于 `kubectl -o wide`）
+- 服务端游标分页（limit + continue token），支持前后翻页
+- 工具栏：命名空间筛选、手动刷新 + 定时刷新（5s/10s/30s/60s）
+- kube-* 命名空间只读（前端隐藏操作按钮，后端返回 403）
+- YAML 编辑器：CodeMirror 6，有语法高亮，status 区块视觉变暗（不可改）
 
 ### 4. 插件管理
 - 查看可用插件列表及安装状态
@@ -153,7 +162,7 @@ kpilot/
 ├── pkg/
 │   ├── server/
 │   │   ├── api/
-│   │   │   ├── handler/     # Gin Handler（auth、cluster、node）
+│   │   │   ├── handler/     # Gin Handler（auth、cluster、node、workload）
 │   │   │   ├── middleware/  # JWT 中间件
 │   │   │   └── router.go    # 路由注册
 │   │   ├── service/         # 业务逻辑层（待实现）
@@ -162,7 +171,7 @@ kpilot/
 │   ├── worker/
 │   │   ├── controller/      # K8s Controller（Plugin CRD 等，待实现）
 │   │   ├── collector/       # 节点信息采集（controller-runtime Watch）
-│   │   ├── proxy/           # K8s 资源代理（待实现）
+│   │   ├── proxy/           # K8s 资源代理（Table API list、get、apply、delete）
 │   │   └── tunnel/          # gRPC Client（注册、心跳、消息收发）
 │   └── common/
 │       ├── proto/           # protobuf 生成代码（不手动编辑）
@@ -245,15 +254,25 @@ const { data, loading } = useRequest(listXxx, {
 ```
 web/src/
 ├── pages/
-│   ├── user/login/          # 登录页
-│   ├── Clusters/            # 集群管理
-│   ├── ClusterDetail/Nodes/ # 节点概览
-│   └── exception/404/       # 404 页
-├── services/kpilot/         # API 服务（auth.ts、cluster.ts、node.ts）
-├── components/              # 公共组件（Footer、LangDropdown、AvatarDropdown）
-├── locales/                 # zh-CN / en-US（menu.ts、pages.ts）
-└── app.tsx                  # 全局布局、认证初始化
+│   ├── user/login/              # 登录页
+│   ├── Clusters/                # 集群管理
+│   ├── ClusterDetail/
+│   │   ├── ClusterLayout.tsx    # 集群详情侧边栏布局
+│   │   ├── Nodes/               # 节点概览
+│   │   └── Workloads/           # 工作负载（含 YamlEditor）
+│   └── exception/404/           # 404 页
+├── services/kpilot/             # API 服务（auth.ts、cluster.ts、node.ts、workload.ts）
+├── components/                  # 公共组件（Footer、LangDropdown、AvatarDropdown）
+├── locales/                     # zh-CN / en-US（menu.ts、pages.ts）
+└── app.tsx                      # 全局布局、认证初始化
 ```
+
+### 工作负载页关键设计说明
+
+- **Table API**：`listWorkloads` 使用 `Accept: application/json;as=Table;v=v1;g=meta.k8s.io`，Worker 的 `proxy.listTable` 通过 `rest.HTTPClientFor(cfg)` 构建带认证的 HTTP 客户端直接请求 K8s API Server。`includeObject=Metadata` 确保只传输元数据。
+- **列定义**：前端动态解析 Table API 的 `columnDefinitions`，所有列（含 priority>0 wide 列）均展示。列名通过 `COL_I18N` 映射到 i18n key。
+- **集群级资源**：`CLUSTER_SCOPED` 集合（目前含 `persistentvolumes`）控制是否显示命名空间列和命名空间筛选器。
+- **错误透传**：K8s 操作失败用 `apiErrWorker`（HTTP 400，code=WORKER_ERROR，message=K8s 原始错误），区别于服务器内部错误（500）。
 
 ---
 
@@ -263,7 +282,7 @@ web/src/
 |------|------|------|
 | P1 | 项目脚手架 + Proto 设计 + gRPC 连接/注册 + PostgreSQL schema + JWT 认证 | ✅ 完成 |
 | P2 | 集群管理 UI + 节点概览（Worker 采集上报） | ✅ 完成 |
-| P3 | 工作负载管理（K8s 资源 CRUD 代理） | 待开始 |
+| P3 | 工作负载管理（K8s 资源 CRUD 代理） | ✅ 完成 |
 | P4 | 插件系统（CRD + Helm + 状态同步） | 待开始 |
 | P5 | GPU 管理（HAMI 集成） | 待开始 |
 | P6 | 监控中心 + 日志中心 | 待开始 |
