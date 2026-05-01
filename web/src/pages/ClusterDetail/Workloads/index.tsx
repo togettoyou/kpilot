@@ -225,8 +225,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
   const { data: pageData, loading, refresh } = useRequest(
     () => listWorkloads(clusterId, resourceType, namespace, PAGE_SIZE, currentToken),
     {
-      refreshDeps: [namespace, currentToken, pollingInterval],
-      pollingInterval: pollingInterval > 0 ? pollingInterval : undefined,
+      refreshDeps: [namespace, currentToken],
       formatResult: (res: any) => {
         const { items, colDefs } = parseTableResponse(res);
         return {
@@ -258,6 +257,12 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
       return next;
     });
   }, [nextToken, pageIdx]);
+
+  useEffect(() => {
+    if (pollingInterval <= 0) return;
+    const timer = setInterval(refresh, pollingInterval);
+    return () => clearInterval(timer);
+  }, [pollingInterval, refresh]);
 
   // Sequence counter to discard stale openEditor responses on fast clicks.
   const editorSeqRef = useRef(0);
