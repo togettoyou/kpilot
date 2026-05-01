@@ -1,17 +1,14 @@
-import type { Settings as LayoutSettings } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history } from '@umijs/max';
 import React from 'react';
 
 import { AvatarDropdown, Footer, LangDropdown } from '@/components';
 import { currentUser as queryCurrentUser } from '@/services/kpilot/auth';
-import defaultSettings from '../config/defaultSettings';
 import { errorConfig } from './requestErrorConfig';
 
 const loginPath = '/user/login';
 
 export async function getInitialState(): Promise<{
-  settings?: Partial<LayoutSettings>;
   currentUser?: { name: string; access: string; avatar?: string };
   fetchUserInfo?: () => Promise<{ name: string; access: string; avatar?: string } | undefined>;
 }> {
@@ -31,9 +28,9 @@ export async function getInitialState(): Promise<{
   const { location } = history;
   if (location.pathname !== loginPath) {
     const currentUser = await fetchUserInfo();
-    return { fetchUserInfo, currentUser, settings: defaultSettings as Partial<LayoutSettings> };
+    return { fetchUserInfo, currentUser };
   }
-  return { fetchUserInfo, settings: defaultSettings as Partial<LayoutSettings> };
+  return { fetchUserInfo };
 }
 
 export const layout: RunTimeLayoutConfig = ({ initialState }) => {
@@ -56,7 +53,6 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
       }
     },
     menuHeaderRender: undefined,
-    ...initialState?.settings,
   };
 };
 

@@ -1,6 +1,5 @@
 import { join } from 'node:path';
 import { defineConfig } from '@umijs/max';
-import defaultSettings from './defaultSettings';
 import proxy from './proxy';
 import routes from './routes';
 
@@ -18,7 +17,11 @@ export default defineConfig({
   title: 'KPilot',
   layout: {
     locale: true,
-    ...defaultSettings,
+    title: 'KPilot',
+    logo: '/logo.svg',
+    navTheme: 'light',
+    layout: 'mix',
+    fixSiderbar: true,
   },
   moment2dayjs: {
     preset: 'antd',
