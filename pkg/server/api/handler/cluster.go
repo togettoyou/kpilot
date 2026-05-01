@@ -58,8 +58,10 @@ func CreateCluster(c *gin.Context) {
 		"id":          cluster.ID,
 		"name":        cluster.Name,
 		"token":       token, // 只在创建时返回一次
+		"status":      cluster.Status,
 		"description": cluster.Description,
 		"created_at":  cluster.CreatedAt,
+		"updated_at":  cluster.UpdatedAt,
 	})
 }
 
