@@ -15,6 +15,7 @@ export default defineConfig({
   model: {},
   initialState: {},
   title: 'KPilot',
+  favicons: ['/favicon.svg'],
   layout: {
     locale: true,
     title: 'KPilot',
