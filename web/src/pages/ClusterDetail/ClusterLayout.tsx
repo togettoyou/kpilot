@@ -15,6 +15,8 @@ const parentKeyMap: Record<string, string> = {
   ingresses: 'network-group',
   configmaps: 'config-group',
   secrets: 'config-group',
+  persistentvolumeclaims: 'storage-group',
+  persistentvolumes: 'storage-group',
 };
 
 interface ClusterLayoutProps {
@@ -61,6 +63,14 @@ export function ClusterLayout({ selectedKey, children }: ClusterLayoutProps) {
       children: [
         { key: 'configmaps', label: 'ConfigMaps', onClick: () => go('workloads/configmaps') },
         { key: 'secrets', label: 'Secrets', onClick: () => go('workloads/secrets') },
+      ],
+    },
+    {
+      key: 'storage-group',
+      label: intl.formatMessage({ id: 'pages.cluster.nav.storage' }),
+      children: [
+        { key: 'persistentvolumeclaims', label: 'PersistentVolumeClaims', onClick: () => go('workloads/persistentvolumeclaims') },
+        { key: 'persistentvolumes', label: 'PersistentVolumes', onClick: () => go('workloads/persistentvolumes') },
       ],
     },
     { key: 'plugins',    label: intl.formatMessage({ id: 'pages.cluster.nav.plugins' }),    disabled: true },

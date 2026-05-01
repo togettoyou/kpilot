@@ -24,14 +24,16 @@ type gvkInfo struct {
 
 // resourceGVK maps the URL :type segment to Kubernetes GVK.
 var resourceGVK = map[string]gvkInfo{
-	"deployments":  {"apps", "v1", "Deployment"},
-	"statefulsets": {"apps", "v1", "StatefulSet"},
-	"daemonsets":   {"apps", "v1", "DaemonSet"},
-	"pods":         {"", "v1", "Pod"},
-	"services":     {"", "v1", "Service"},
-	"ingresses":    {"networking.k8s.io", "v1", "Ingress"},
-	"configmaps":   {"", "v1", "ConfigMap"},
-	"secrets":      {"", "v1", "Secret"},
+	"deployments":             {"apps", "v1", "Deployment"},
+	"statefulsets":            {"apps", "v1", "StatefulSet"},
+	"daemonsets":              {"apps", "v1", "DaemonSet"},
+	"pods":                    {"", "v1", "Pod"},
+	"services":                {"", "v1", "Service"},
+	"ingresses":               {"networking.k8s.io", "v1", "Ingress"},
+	"configmaps":              {"", "v1", "ConfigMap"},
+	"secrets":                 {"", "v1", "Secret"},
+	"persistentvolumeclaims":  {"", "v1", "PersistentVolumeClaim"},
+	"persistentvolumes":       {"", "v1", "PersistentVolume"},
 }
 
 func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {

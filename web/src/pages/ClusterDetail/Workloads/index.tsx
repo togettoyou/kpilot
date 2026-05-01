@@ -44,6 +44,13 @@ const COL_I18N: Record<string, string> = {
   Class: 'pages.workloads.col.class',
   'Cluster-IP': 'pages.workloads.col.clusterIp',
   'External-IP': 'pages.workloads.col.externalIp',
+  Volume: 'pages.workloads.col.volume',
+  Capacity: 'pages.workloads.col.capacity',
+  'Access Modes': 'pages.workloads.col.accessModes',
+  StorageClass: 'pages.workloads.col.storageClass',
+  'Reclaim Policy': 'pages.workloads.col.reclaimPolicy',
+  Claim: 'pages.workloads.col.claim',
+  Reason: 'pages.workloads.col.reason',
 };
 
 const COL_WIDTHS: Record<string, number> = {
@@ -174,6 +181,7 @@ function toEditableYaml(raw: any): string {
 const VALID_TYPES = new Set<string>([
   'deployments', 'statefulsets', 'daemonsets', 'pods',
   'services', 'ingresses', 'configmaps', 'secrets',
+  'persistentvolumeclaims', 'persistentvolumes',
 ]);
 
 interface WorkloadsContentProps {
