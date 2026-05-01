@@ -37,6 +37,7 @@ export async function getInitialState(): Promise<{
 export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   return {
     layout: 'mix',
+    logo: '/logo.svg',
     actionsRender: () => [<ThemeToggle key="theme" />, <LangDropdown key="lang" />],
     avatarProps: {
       src: initialState?.currentUser?.avatar,
