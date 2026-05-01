@@ -36,8 +36,8 @@ K8s Cluster
 ## Worker 注册流程
 
 1. 管理员在 Server UI 创建集群条目
-2. Server 生成唯一 ClusterToken
-3. 管理员使用 Server 生成的 YAML（内嵌 ClusterToken + Server gRPC 地址）在目标集群部署 Worker
+2. Server 生成唯一 ClusterToken（只展示一次，可在 UI 重新生成）
+3. 管理员将 ClusterToken + Server gRPC 地址配置到目标集群，部署 Worker（部署 YAML 待补充）
 4. Worker 启动，携带 Token 发起 gRPC 连接
 5. Server 验证 Token，将连接与集群绑定，标记集群 Online
 
@@ -107,8 +107,11 @@ status:
 ## 功能模块
 
 ### 1. 集群管理
-- 创建集群条目，生成 Worker 部署 YAML（含 Token）
-- 查看集群列表、在线状态、基本信息
+- 创建集群条目，生成并展示 ClusterToken（仅创建时显示一次）
+- 查看集群列表（名称、在线状态、描述、创建/更新时间）
+- 编辑集群名称和描述
+- 重新生成 Token（旧 Token 立即失效）
+- 删除集群
 
 ### 2. 节点概览
 - 展示集群所有节点信息
@@ -152,14 +155,14 @@ kpilot/
 │   │   │   ├── handler/     # Gin Handler（auth、cluster、node）
 │   │   │   ├── middleware/  # JWT 中间件
 │   │   │   └── router.go    # 路由注册
-│   │   ├── service/         # 业务逻辑层
+│   │   ├── service/         # 业务逻辑层（待实现）
 │   │   ├── store/           # PostgreSQL CRUD（GORM）
-│   │   └── gateway/         # gRPC Server 端逻辑
+│   │   └── gateway/         # gRPC Server 端（Worker 连接管理、节点缓存）
 │   ├── worker/
-│   │   ├── controller/      # K8s Controller（监听 Plugin CRD 等）
-│   │   ├── collector/       # 节点信息采集上报
-│   │   ├── proxy/           # K8s 资源代理
-│   │   └── tunnel/          # gRPC Client 端逻辑
+│   │   ├── controller/      # K8s Controller（Plugin CRD 等，待实现）
+│   │   ├── collector/       # 节点信息采集（controller-runtime Watch）
+│   │   ├── proxy/           # K8s 资源代理（待实现）
+│   │   └── tunnel/          # gRPC Client（注册、心跳、消息收发）
 │   └── common/
 │       ├── proto/           # protobuf 生成代码（不手动编辑）
 │       └── types/           # 共享类型
@@ -222,8 +225,14 @@ export function listXxx() {
 }
 ```
 ```tsx
-// 页面组件
-const { data, loading } = useRequest(listXxx, { pollingInterval: 10000 });
+// 页面组件 —— 必须加 formatResult: (res) => res
+// @umijs/max 的 useRequest 默认会做 result?.data 提取，
+// 而我们的 API 直接返回数组/对象（不是 { success, data } 包装格式），
+// 不加这个选项数据会永远是 undefined。
+const { data, loading } = useRequest(listXxx, {
+  pollingInterval: 10000,
+  formatResult: (res) => res,
+});
 ```
 - 所有路径使用相对路径，dev 环境通过 `config/proxy.ts` 代理到 `http://localhost:8080`
 - 认证依赖 HTTP-only cookie，不需要手动传 token
