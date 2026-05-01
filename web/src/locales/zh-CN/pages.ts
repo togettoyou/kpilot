@@ -76,6 +76,14 @@ export default {
 
   // workloads
   'pages.workloads.allNamespaces': '全部命名空间',
+  'pages.workloads.col.actions': '操作',
+  'pages.workloads.edit': '编辑',
+  'pages.workloads.delete': '删除',
+  'pages.workloads.delete.confirm': '确认删除 {name}？此操作不可撤销。',
+  'pages.workloads.apply': '应用',
+  'pages.workloads.apply.success': '已应用',
+  'pages.workloads.delete.success': '已删除',
+  'pages.workloads.editor.title': '编辑 {type} / {name}',
   'pages.workloads.col.name': '名称',
   'pages.workloads.col.namespace': '命名空间',
   'pages.workloads.col.age': '存活时间',

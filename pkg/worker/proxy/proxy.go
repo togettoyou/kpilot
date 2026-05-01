@@ -9,6 +9,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
@@ -61,6 +62,10 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 		return p.list(ctx, mapping, req.Namespace)
 	case "get":
 		return p.get(ctx, mapping, req.Namespace, req.Name)
+	case "apply":
+		return p.apply(ctx, mapping, req.Namespace, req.Name, req.Body)
+	case "delete":
+		return p.delete(ctx, mapping, req.Namespace, req.Name)
 	default:
 		return fail("unsupported action: " + req.Action)
 	}
@@ -98,6 +103,45 @@ func (p *Proxy) get(ctx context.Context, mapping *apimeta.RESTMapping, namespace
 		return fail(err.Error())
 	}
 	return marshal(result)
+}
+
+func (p *Proxy) apply(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string, body []byte) *proto.ResourceResponse {
+	if name == "" {
+		return fail("name is required for apply")
+	}
+	obj := &unstructured.Unstructured{}
+	if err := json.Unmarshal(body, obj); err != nil {
+		return fail("invalid body: " + err.Error())
+	}
+	ri := p.dyn.Resource(mapping.Resource)
+	var result *unstructured.Unstructured
+	var err error
+	if namespace != "" {
+		result, err = ri.Namespace(namespace).Update(ctx, obj, metav1.UpdateOptions{})
+	} else {
+		result, err = ri.Update(ctx, obj, metav1.UpdateOptions{})
+	}
+	if err != nil {
+		return fail(err.Error())
+	}
+	return marshal(result)
+}
+
+func (p *Proxy) delete(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {
+	if name == "" {
+		return fail("name is required for delete")
+	}
+	ri := p.dyn.Resource(mapping.Resource)
+	var err error
+	if namespace != "" {
+		err = ri.Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	} else {
+		err = ri.Delete(ctx, name, metav1.DeleteOptions{})
+	}
+	if err != nil {
+		return fail(err.Error())
+	}
+	return &proto.ResourceResponse{Success: true}
 }
 
 func marshal(v interface{}) *proto.ResourceResponse {

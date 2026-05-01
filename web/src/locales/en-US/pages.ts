@@ -76,6 +76,14 @@ export default {
 
   // workloads
   'pages.workloads.allNamespaces': 'All namespaces',
+  'pages.workloads.col.actions': 'Actions',
+  'pages.workloads.edit': 'Edit',
+  'pages.workloads.delete': 'Delete',
+  'pages.workloads.delete.confirm': 'Delete {name}? This cannot be undone.',
+  'pages.workloads.apply': 'Apply',
+  'pages.workloads.apply.success': 'Applied',
+  'pages.workloads.delete.success': 'Deleted',
+  'pages.workloads.editor.title': 'Edit {type} / {name}',
   'pages.workloads.col.name': 'Name',
   'pages.workloads.col.namespace': 'Namespace',
   'pages.workloads.col.age': 'Age',

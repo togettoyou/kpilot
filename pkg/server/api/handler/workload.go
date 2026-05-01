@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -65,6 +66,121 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		// Pass raw K8s JSON through — frontend parses it.
 		c.Data(http.StatusOK, "application/json", resp.Data)
+	}
+}
+
+func GetWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		resourceType := c.Param("type")
+		name := c.Param("name")
+		namespace := c.Query("namespace")
+
+		gvk, ok := resourceGVK[resourceType]
+		if !ok {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:    "get",
+			Group:     gvk.group,
+			Version:   gvk.version,
+			Kind:      gvk.kind,
+			Namespace: namespace,
+			Name:      name,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			apiErrInternal(c, fmt.Errorf("worker: %s", resp.Error))
+			return
+		}
+		c.Data(http.StatusOK, "application/json", resp.Data)
+	}
+}
+
+func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		resourceType := c.Param("type")
+		name := c.Param("name")
+		namespace := c.Query("namespace")
+
+		gvk, ok := resourceGVK[resourceType]
+		if !ok {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil || len(body) == 0 {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:    "apply",
+			Group:     gvk.group,
+			Version:   gvk.version,
+			Kind:      gvk.kind,
+			Namespace: namespace,
+			Name:      name,
+			Body:      body,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			apiErrInternal(c, fmt.Errorf("worker: %s", resp.Error))
+			return
+		}
+		c.Data(http.StatusOK, "application/json", resp.Data)
+	}
+}
+
+func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		resourceType := c.Param("type")
+		name := c.Param("name")
+		namespace := c.Query("namespace")
+
+		gvk, ok := resourceGVK[resourceType]
+		if !ok {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:    "delete",
+			Group:     gvk.group,
+			Version:   gvk.version,
+			Kind:      gvk.kind,
+			Namespace: namespace,
+			Name:      name,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			apiErrInternal(c, fmt.Errorf("worker: %s", resp.Error))
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{})
 	}
 }
 

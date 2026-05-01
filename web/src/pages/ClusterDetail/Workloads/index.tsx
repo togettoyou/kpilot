@@ -1,13 +1,14 @@
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { Button, Select, Space, Tag, Typography } from 'antd';
+import { App, Button, Drawer, Input, Popconfirm, Select, Space, Tag, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
+import * as jsyaml from 'js-yaml';
 import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ClusterLayout } from '../ClusterLayout';
 import type { WorkloadItem, WorkloadResourceType } from '@/services/kpilot/workload';
-import { listNamespaces, listWorkloads } from '@/services/kpilot/workload';
+import { applyWorkload, deleteWorkload, getWorkload, listNamespaces, listWorkloads } from '@/services/kpilot/workload';
 
 const { Text } = Typography;
 
@@ -266,9 +267,26 @@ interface WorkloadsContentProps {
   nsLoading: boolean;
 }
 
+// Strip managedFields for readability; resourceVersion is kept for optimistic locking.
+function toEditableYaml(raw: any): string {
+  const obj = { ...raw };
+  if (obj.metadata) {
+    const { managedFields: _, ...rest } = obj.metadata;
+    obj.metadata = rest;
+  }
+  return jsyaml.dump(obj, { lineWidth: -1 });
+}
+
 function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: WorkloadsContentProps) {
   const intl = useIntl();
+  const { message } = App.useApp();
   const [namespace, setNamespace] = useState('');
+
+  // YAML drawer state
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<WorkloadItem | null>(null);
+  const [yamlText, setYamlText] = useState('');
+  const [applying, setApplying] = useState(false);
 
   const { data: items = [], loading, refresh } = useRequest(
     () => listWorkloads(clusterId, resourceType, namespace),
@@ -279,7 +297,70 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     },
   );
 
-  const columns = COLUMNS[resourceType](intl);
+  const openEditor = async (item: WorkloadItem) => {
+    setEditingItem(item);
+    setYamlText('');
+    setDrawerOpen(true);
+    try {
+      const raw = await getWorkload(clusterId, resourceType, item.name, item.namespace ?? '');
+      setYamlText(toEditableYaml(raw));
+    } catch {
+      message.error('Failed to load resource');
+      setDrawerOpen(false);
+    }
+  };
+
+  const handleApply = async () => {
+    if (!editingItem) return;
+    setApplying(true);
+    try {
+      const obj = jsyaml.load(yamlText) as object;
+      await applyWorkload(clusterId, resourceType, editingItem.name, editingItem.namespace ?? '', obj);
+      message.success(intl.formatMessage({ id: 'pages.workloads.apply.success' }));
+      setDrawerOpen(false);
+      refresh();
+    } catch (e: any) {
+      message.error(e?.message ?? 'Apply failed');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleDelete = async (item: WorkloadItem) => {
+    try {
+      await deleteWorkload(clusterId, resourceType, item.name, item.namespace ?? '');
+      message.success(intl.formatMessage({ id: 'pages.workloads.delete.success' }));
+      refresh();
+    } catch (e: any) {
+      message.error(e?.message ?? 'Delete failed');
+    }
+  };
+
+  const actionsColumn: ProColumns<WorkloadItem> = {
+    title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
+    valueType: 'option',
+    width: 120,
+    render: (_, record) => [
+      <Button key="edit" type="link" size="small" onClick={() => openEditor(record)}>
+        {intl.formatMessage({ id: 'pages.workloads.edit' })}
+      </Button>,
+      <Popconfirm
+        key="delete"
+        title={intl.formatMessage(
+          { id: 'pages.workloads.delete.confirm' },
+          { name: record.name },
+        )}
+        onConfirm={() => handleDelete(record)}
+        okType="danger"
+      >
+        <Button type="link" size="small" danger>
+          {intl.formatMessage({ id: 'pages.workloads.delete' })}
+        </Button>
+      </Popconfirm>,
+    ],
+  };
+
+  const columns = [...COLUMNS[resourceType](intl), actionsColumn];
 
   return (
     <div className="p-6">
@@ -316,6 +397,32 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         options={{ reload: false }}
         loading={loading}
       />
+
+      <Drawer
+        title={intl.formatMessage(
+          { id: 'pages.workloads.editor.title' },
+          { type: resourceType, name: editingItem?.name ?? '' },
+        )}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        width={680}
+        footer={
+          <Space style={{ float: 'right' }}>
+            <Button onClick={() => setDrawerOpen(false)}>Cancel</Button>
+            <Button type="primary" loading={applying} onClick={handleApply}>
+              {intl.formatMessage({ id: 'pages.workloads.apply' })}
+            </Button>
+          </Space>
+        }
+      >
+        <Input.TextArea
+          value={yamlText}
+          onChange={(e) => setYamlText(e.target.value)}
+          autoSize={{ minRows: 20 }}
+          style={{ fontFamily: 'monospace', fontSize: 13 }}
+          placeholder={yamlText === '' ? 'Loading...' : undefined}
+        />
+      </Drawer>
     </div>
   );
 }
