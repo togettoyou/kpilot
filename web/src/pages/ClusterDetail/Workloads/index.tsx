@@ -66,8 +66,8 @@ function podStatusColor(s: string): string {
   return 'default';
 }
 
-function renderCell(colName: string, value: string): React.ReactNode {
-  const v = value ?? '';
+function renderCell(colName: string, value: any): React.ReactNode {
+  const v = value != null ? String(value) : '';
   if (!v || v === '<none>' || v === '<unknown>') {
     return <Text type="secondary">{v || '—'}</Text>;
   }
