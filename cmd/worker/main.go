@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/go-logr/logr"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -26,6 +27,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	ctrl.SetLogger(logr.Discard())
 	log.Printf("worker starting, server=%s", cfg.ServerAddr)
 
 	tunnelClient := tunnel.NewClient(cfg.ServerAddr, cfg.ClusterToken)
