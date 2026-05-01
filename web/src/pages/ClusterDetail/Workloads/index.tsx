@@ -140,6 +140,7 @@ function parseTableResponse(res: any): { items: WorkloadItem[]; colDefs: any[] }
 function buildColumns(
   colDefs: any[],
   intl: ReturnType<typeof useIntl>,
+  clusterScoped = false,
 ): ProColumns<WorkloadItem>[] {
   const fixed: ProColumns<WorkloadItem>[] = [
     {
@@ -147,11 +148,11 @@ function buildColumns(
       dataIndex: 'name',
       width: 200,
     },
-    {
+    ...(!clusterScoped ? [{
       title: intl.formatMessage({ id: 'pages.workloads.col.namespace' }),
       dataIndex: 'namespace',
       width: 130,
-    },
+    } as ProColumns<WorkloadItem>] : []),
   ];
 
   const dynamic: ProColumns<WorkloadItem>[] = colDefs.map((col: any) => ({
@@ -185,6 +186,8 @@ const VALID_TYPES = new Set<string>([
   'services', 'ingresses', 'configmaps', 'secrets',
   'persistentvolumeclaims', 'persistentvolumes',
 ]);
+
+const CLUSTER_SCOPED = new Set<string>(['persistentvolumes']);
 
 interface WorkloadsContentProps {
   clusterId: string;
@@ -333,10 +336,12 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     },
   };
 
+  const isClusterScoped = CLUSTER_SCOPED.has(resourceType);
+
   const columns = useMemo(
-    () => [...buildColumns(colDefs, intl), actionsColumn],
+    () => [...buildColumns(colDefs, intl, isClusterScoped), actionsColumn],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [colDefs, intl],
+    [colDefs, intl, isClusterScoped],
   );
 
   return (
@@ -351,16 +356,18 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
           </Space>
         }
         toolBarRender={() => [
-          <Select
-            key="ns"
-            loading={nsLoading}
-            allowClear
-            placeholder={intl.formatMessage({ id: 'pages.workloads.allNamespaces' })}
-            style={{ width: 200 }}
-            value={namespace || undefined}
-            onChange={(v) => setNamespace(v ?? '')}
-            options={namespaces.map((ns) => ({ label: ns, value: ns }))}
-          />,
+          !isClusterScoped && (
+            <Select
+              key="ns"
+              loading={nsLoading}
+              allowClear
+              placeholder={intl.formatMessage({ id: 'pages.workloads.allNamespaces' })}
+              style={{ width: 200 }}
+              value={namespace || undefined}
+              onChange={(v) => setNamespace(v ?? '')}
+              options={namespaces.map((ns) => ({ label: ns, value: ns }))}
+            />
+          ),
           <Space.Compact key="refresh">
             <Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} />
             <Dropdown
