@@ -1,6 +1,6 @@
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { LoginForm, ProFormText } from '@ant-design/pro-components';
-import { Helmet, useModel } from '@umijs/max';
+import { Helmet, useIntl, useModel } from '@umijs/max';
 import { Alert, App } from 'antd';
 import { createStyles } from 'antd-style';
 import React, { useState } from 'react';
@@ -34,6 +34,7 @@ export default function LoginPage() {
   const { initialState, setInitialState } = useModel('@@initialState');
   const { styles } = useStyles();
   const { message } = App.useApp();
+  const intl = useIntl();
 
   const handleSubmit = async (values: { username: string; password: string }) => {
     setError('');
@@ -49,10 +50,10 @@ export default function LoginPage() {
         const redirect = new URL(window.location.href).searchParams.get('redirect');
         window.location.href = getSafeRedirectUrl(redirect);
       } else {
-        setError(result.message || 'Incorrect username or password');
+        setError(result.message || intl.formatMessage({ id: 'pages.login.error.incorrect' }));
       }
     } catch {
-      message.error('Login failed, please try again');
+      message.error(intl.formatMessage({ id: 'pages.login.error.failed' }));
     }
   };
 
@@ -69,31 +70,26 @@ export default function LoginPage() {
           contentStyle={{ minWidth: 280, maxWidth: '75vw' }}
           logo={<img alt="KPilot" src="/logo.svg" />}
           title="KPilot"
-          subTitle="Kubernetes-native GPU Orchestration"
-          submitter={{ searchConfig: { submitText: 'Login' } }}
+          subTitle={intl.formatMessage({ id: 'pages.login.subtitle' })}
+          submitter={{ searchConfig: { submitText: intl.formatMessage({ id: 'pages.login.submit' }) } }}
           onFinish={async (values) => {
             await handleSubmit(values as { username: string; password: string });
           }}
         >
           {error && (
-            <Alert
-              message={error}
-              type="error"
-              showIcon
-              style={{ marginBottom: 24 }}
-            />
+            <Alert message={error} type="error" showIcon style={{ marginBottom: 24 }} />
           )}
           <ProFormText
             name="username"
             fieldProps={{ size: 'large', prefix: <UserOutlined /> }}
-            placeholder="Username"
-            rules={[{ required: true, message: 'Please enter your username' }]}
+            placeholder={intl.formatMessage({ id: 'pages.login.username.placeholder' })}
+            rules={[{ required: true, message: intl.formatMessage({ id: 'pages.login.username.required' }) }]}
           />
           <ProFormText.Password
             name="password"
             fieldProps={{ size: 'large', prefix: <LockOutlined /> }}
-            placeholder="Password"
-            rules={[{ required: true, message: 'Please enter your password' }]}
+            placeholder={intl.formatMessage({ id: 'pages.login.password.placeholder' })}
+            rules={[{ required: true, message: intl.formatMessage({ id: 'pages.login.password.required' }) }]}
           />
         </LoginForm>
       </div>
