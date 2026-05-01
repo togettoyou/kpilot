@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package pilot.v1;
+
+option go_package = "github.com/togettoyou/kpilot/pkg/common/proto;proto";
+
+service PilotService {
+  // Worker 主动连接 Server，建立双向流
+  rpc Connect(stream WorkerMessage) returns (stream ServerMessage);
+}
+
+// ─── Worker → Server ─────────────────────────────────────────────────────────
+
+message WorkerMessage {
+  string request_id = 1; // 空字符串表示 Push，非空表示 Response
+  oneof payload {
+    RegisterRequest    register        = 10;
+    HeartbeatRequest   heartbeat       = 11;
+    NodeListPush       node_list       = 20;
+    ResourceResponse   resource_resp   = 30;
+    PluginStatusPush   plugin_status   = 40;
+  }
+}
+
+message RegisterRequest {
+  string cluster_token  = 1;
+  string worker_version = 2;
+}
+
+message HeartbeatRequest {
+  int64 timestamp = 1; // unix seconds
+}
+
+message NodeListPush {
+  repeated NodeInfo nodes = 1;
+}
+
+message NodeInfo {
+  string name   = 1;
+  string status = 2; // Ready / NotReady / Unknown
+
+  // 来自 node.Status.Capacity / Allocatable（millicores / bytes）
+  int64 cpu_capacity        = 3;
+  int64 cpu_allocatable     = 4;
+  int64 memory_capacity     = 5;
+  int64 memory_allocatable  = 6;
+
+  // HAMI 写入的 Node labels（HAMI 未安装时为空）
+  map<string, string> labels      = 7;
+  map<string, string> annotations = 8;
+}
+
+message ResourceResponse {
+  string request_id = 1;
+  bool   success    = 2;
+  string error      = 3;
+  bytes  data       = 4; // JSON 编码的 K8s 资源对象
+}
+
+message PluginStatusPush {
+  string plugin_type = 1; // hami / victoria-metrics / victoria-logs / ...
+  string phase       = 2; // Pending / Installing / Running / Failed
+  string message     = 3;
+}
+
+// ─── Server → Worker ─────────────────────────────────────────────────────────
+
+message ServerMessage {
+  string request_id = 1;
+  oneof payload {
+    RegisterAck     register_ack     = 10;
+    ResourceRequest resource_req     = 20;
+    PluginCommand   plugin_cmd       = 30;
+  }
+}
+
+message RegisterAck {
+  bool   success    = 1;
+  string cluster_id = 2;
+  string message    = 3;
+}
+
+message ResourceRequest {
+  string action    = 1; // list / get / apply / delete
+  string group     = 2; // apps / "" / ...
+  string version   = 3; // v1 / v1beta1 / ...
+  string kind      = 4; // Deployment / Pod / Service / ...
+  string namespace = 5; // 空表示 cluster-scoped
+  string name      = 6; // list 时为空
+  bytes  body      = 7; // apply 时为 JSON manifest
+}
+
+message PluginCommand {
+  string action      = 1; // enable / disable
+  string plugin_type = 2; // hami / victoria-metrics / victoria-logs / ...
+  string version     = 3;
+  bytes  values      = 4; // JSON 编码的 Helm values
+}
