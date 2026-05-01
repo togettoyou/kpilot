@@ -225,21 +225,25 @@ func ListNamespaces(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		// Extract names from K8s NamespaceList.
+		// Extract names from K8s Table API response (rows[].object.metadata.name).
 		var raw struct {
-			Items []struct {
-				Metadata struct {
-					Name string `json:"name"`
-				} `json:"metadata"`
-			} `json:"items"`
+			Rows []struct {
+				Object struct {
+					Metadata struct {
+						Name string `json:"name"`
+					} `json:"metadata"`
+				} `json:"object"`
+			} `json:"rows"`
 		}
 		if err := json.Unmarshal(resp.Data, &raw); err != nil {
 			apiErrInternal(c, err)
 			return
 		}
-		names := make([]string, 0, len(raw.Items))
-		for _, item := range raw.Items {
-			names = append(names, item.Metadata.Name)
+		names := make([]string, 0, len(raw.Rows))
+		for _, row := range raw.Rows {
+			if n := row.Object.Metadata.Name; n != "" {
+				names = append(names, n)
+			}
 		}
 		c.JSON(http.StatusOK, names)
 	}
