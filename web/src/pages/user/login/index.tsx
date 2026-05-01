@@ -5,7 +5,7 @@ import { Alert, App } from 'antd';
 import { createStyles } from 'antd-style';
 import React, { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { Footer } from '@/components';
+import { Footer, LangDropdown } from '@/components';
 import { login } from '@/services/kpilot/auth';
 
 const useStyles = createStyles(({ token }) => ({
@@ -61,6 +61,9 @@ export default function LoginPage() {
       <Helmet>
         <title>Login · KPilot</title>
       </Helmet>
+      <div style={{ position: 'fixed', top: 12, right: 16 }}>
+        <LangDropdown />
+      </div>
       <div style={{ flex: 1, padding: '32px 0' }}>
         <LoginForm
           contentStyle={{ minWidth: 280, maxWidth: '75vw' }}
