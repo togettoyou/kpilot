@@ -86,9 +86,10 @@ function parseTableResponse(res: any): { items: WorkloadItem[]; colDefs: any[] }
   const allColDefs: any[] = res.columnDefinitions ?? [];
   const allNames = allColDefs.map((c: any) => c.name as string);
 
-  // Keep only priority=0 columns; skip Name/Namespace (we handle those separately).
+  // Skip Name/Namespace — always sourced from object.metadata instead.
+  // Keep all columns including priority>0 (wide columns like IP, Node, Images).
   const colDefs = allColDefs.filter(
-    (c: any) => c.priority === 0 && c.name !== 'Name' && c.name !== 'Namespace',
+    (c: any) => c.name !== 'Name' && c.name !== 'Namespace',
   );
 
   const items: WorkloadItem[] = (res.rows ?? []).map((row: any) => {

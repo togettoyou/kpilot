@@ -24,9 +24,15 @@ import (
 
 const opTimeout = 30 * time.Second
 
-// tableAccept is the Accept header that asks K8s to return a server-side Table
-// instead of the full object list — same as kubectl's default display mode.
-const tableAccept = "application/json;as=Table;v=meta.k8s.io/v1,application/json"
+// tableAccept mirrors kubectl's exact Accept header for table requests.
+// Format from k8s.io/kubectl source:
+//
+//	application/json;as=Table;v=v1;g=meta.k8s.io   (GA, K8s ≥ 1.23)
+//	application/json;as=Table;v=v1beta1;g=meta.k8s.io (beta, K8s ≥ 1.10)
+//	application/json                                  (fallback)
+const tableAccept = "application/json;as=Table;v=v1;g=meta.k8s.io," +
+	"application/json;as=Table;v=v1beta1;g=meta.k8s.io," +
+	"application/json"
 
 // Proxy executes K8s resource operations on behalf of the Server.
 // It is wired to the tunnel client via SetResourceHandler.
