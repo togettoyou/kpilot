@@ -521,7 +521,6 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
           />
           <Text type="secondary">
             {intl.formatMessage({ id: 'pages.workloads.page' }, { n: pageIdx + 1 })}
-            {totalKnown != null && ` / ${totalKnown}`}
           </Text>
           <Button
             size="small"
