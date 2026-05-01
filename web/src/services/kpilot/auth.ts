@@ -7,7 +7,7 @@ export interface CurrentUser {
 }
 
 export function login(params: { username: string; password: string }) {
-  return request<{ status: 'ok' | 'error'; message?: string }>(
+  return request<{ status: 'ok' | 'error'; code?: string; message?: string }>(
     '/api/v1/auth/login',
     { method: 'POST', data: params },
   );

@@ -71,9 +71,24 @@ export default {
   'pages.nodes.detail.runtime': 'Container Runtime',
   'pages.nodes.detail.kubelet': 'Kubelet Version',
 
+  // workloads
+  'pages.workloads.col.name': 'Name',
+  'pages.workloads.col.namespace': 'Namespace',
+  'pages.workloads.col.age': 'Age',
+  'pages.workloads.col.status': 'Status',
+  'pages.workloads.col.restarts': 'Restarts',
+  'pages.workloads.col.node': 'Node',
+  'pages.workloads.col.type': 'Type',
+  'pages.workloads.col.ports': 'Port(s)',
+  'pages.workloads.col.hosts': 'Hosts',
+  'pages.workloads.col.address': 'Address',
+  'pages.workloads.col.data': 'Data',
+
   // cluster detail sidebar
   'pages.cluster.nav.nodes': 'Nodes',
   'pages.cluster.nav.workloads': 'Workloads',
+  'pages.cluster.nav.network': 'Network',
+  'pages.cluster.nav.config': 'Config',
   'pages.cluster.nav.plugins': 'Plugins',
   'pages.cluster.nav.gpu': 'GPU',
   'pages.cluster.nav.models': 'Models',

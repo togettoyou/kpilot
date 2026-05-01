@@ -71,9 +71,24 @@ export default {
   'pages.nodes.detail.runtime': '容器运行时',
   'pages.nodes.detail.kubelet': 'Kubelet 版本',
 
+  // workloads
+  'pages.workloads.col.name': '名称',
+  'pages.workloads.col.namespace': '命名空间',
+  'pages.workloads.col.age': '存活时间',
+  'pages.workloads.col.status': '状态',
+  'pages.workloads.col.restarts': '重启次数',
+  'pages.workloads.col.node': '节点',
+  'pages.workloads.col.type': '类型',
+  'pages.workloads.col.ports': '端口',
+  'pages.workloads.col.hosts': '域名',
+  'pages.workloads.col.address': '地址',
+  'pages.workloads.col.data': '数据',
+
   // cluster detail sidebar
   'pages.cluster.nav.nodes': '节点概览',
   'pages.cluster.nav.workloads': '工作负载',
+  'pages.cluster.nav.network': '网络',
+  'pages.cluster.nav.config': '配置',
   'pages.cluster.nav.plugins': '插件管理',
   'pages.cluster.nav.gpu': 'GPU 管理',
   'pages.cluster.nav.models': '模型管理',

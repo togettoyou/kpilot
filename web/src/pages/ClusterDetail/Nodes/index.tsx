@@ -1,16 +1,15 @@
 import {
-  ArrowLeftOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
-import { history, useIntl, useParams, useRequest } from '@umijs/max';
-import { Button, Descriptions, Layout, Menu, Space, Tag, Typography } from 'antd';
+import { useIntl, useParams, useRequest } from '@umijs/max';
+import { Descriptions, Space, Tag, Typography } from 'antd';
 import React from 'react';
+import { ClusterLayout } from '../ClusterLayout';
 import { listNodes, type NodeInfo } from '@/services/kpilot/node';
 
-const { Sider, Content } = Layout;
 const { Text } = Typography;
 
 function formatCPU(millicores: number): string {
@@ -74,33 +73,9 @@ export default function NodesPage() {
   );
   const nodes: NodeInfo[] = Array.isArray(data) ? data : [];
 
-  const sideMenuItems = [
-    { key: 'nodes',      label: intl.formatMessage({ id: 'pages.cluster.nav.nodes' }) },
-    { key: 'workloads',  label: intl.formatMessage({ id: 'pages.cluster.nav.workloads' }),  disabled: true },
-    { key: 'plugins',    label: intl.formatMessage({ id: 'pages.cluster.nav.plugins' }),    disabled: true },
-    { key: 'gpu',        label: intl.formatMessage({ id: 'pages.cluster.nav.gpu' }),        disabled: true },
-    { key: 'models',     label: intl.formatMessage({ id: 'pages.cluster.nav.models' }),     disabled: true },
-    { key: 'monitoring', label: intl.formatMessage({ id: 'pages.cluster.nav.monitoring' }), disabled: true },
-    { key: 'logging',    label: intl.formatMessage({ id: 'pages.cluster.nav.logging' }),    disabled: true },
-  ];
-
   return (
-    <Layout className="h-screen overflow-hidden">
-      <Sider width={200} theme="light" className="border-r border-gray-100 h-full overflow-y-auto">
-        <div className="p-4 border-b border-gray-100">
-          <Button
-            type="text"
-            icon={<ArrowLeftOutlined />}
-            onClick={() => history.push('/clusters')}
-            size="small"
-          >
-            {intl.formatMessage({ id: 'pages.cluster.back' })}
-          </Button>
-        </div>
-        <Menu mode="inline" selectedKeys={['nodes']} items={sideMenuItems} className="border-0" />
-      </Sider>
-
-      <Content className="p-6 bg-gray-50 overflow-y-auto">
+    <ClusterLayout selectedKey="nodes">
+      <div className="p-6">
         <ProTable<NodeInfo>
           expandable={{
             expandedRowRender: (record) => (
@@ -198,7 +173,7 @@ export default function NodesPage() {
             },
           ]}
         />
-      </Content>
-    </Layout>
+      </div>
+    </ClusterLayout>
   );
 }

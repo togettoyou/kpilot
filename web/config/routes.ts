@@ -30,8 +30,15 @@ export default [
       },
       {
         path: '/clusters/:id/nodes',
-        name: 'nodes',
         component: './ClusterDetail/Nodes/index',
+      },
+      {
+        path: '/clusters/:id/workloads',
+        redirect: '/clusters/:id/workloads/deployments',
+      },
+      {
+        path: '/clusters/:id/workloads/:type',
+        component: './ClusterDetail/Workloads/index',
       },
     ],
   },
