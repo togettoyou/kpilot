@@ -129,7 +129,9 @@ const PARSERS: Record<WorkloadResourceType, (items: K8sItem[]) => WorkloadItem[]
 
 type ColFn = (intl: ReturnType<typeof useIntl>) => ProColumns<WorkloadItem>[];
 
-function readyCell(ready: string) {
+// Defensive: ready may be stale/undefined during type transitions.
+function readyCell(ready: string | undefined) {
+  if (!ready || !ready.includes('/')) return <Text>{ready ?? '—'}</Text>;
   const [cur, total] = ready.split('/').map(Number);
   if (cur === total) return <Text type="success">{ready}</Text>;
   if (cur === 0) return <Text type="danger">{ready}</Text>;
@@ -254,16 +256,72 @@ const COLUMNS: Record<WorkloadResourceType, ColFn> = {
 
 const VALID_TYPES = new Set<string>(Object.keys(COLUMNS));
 
+// ─── Inner component — remounts on resourceType change via key prop ────────
+
+interface WorkloadsContentProps {
+  clusterId: string;
+  resourceType: WorkloadResourceType;
+  namespaces: string[];
+  nsLoading: boolean;
+}
+
+function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: WorkloadsContentProps) {
+  const intl = useIntl();
+  const [namespace, setNamespace] = useState('');
+
+  const { data: items = [], loading } = useRequest(
+    () => listWorkloads(clusterId, resourceType, namespace),
+    {
+      refreshDeps: [namespace],
+      formatResult: (res: any) => PARSERS[resourceType](res?.items ?? []),
+      pollingWhenHidden: false,
+    },
+  );
+
+  const columns = COLUMNS[resourceType](intl);
+
+  return (
+    <div className="p-6">
+      <ProTable<WorkloadItem>
+        headerTitle={
+          <Space>
+            <Text strong>{resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}</Text>
+            <Text type="secondary">({items.length})</Text>
+          </Space>
+        }
+        toolBarRender={() => [
+          <Select
+            key="ns"
+            loading={nsLoading}
+            allowClear
+            placeholder={intl.formatMessage({ id: 'pages.workloads.allNamespaces' })}
+            style={{ width: 200 }}
+            value={namespace || undefined}
+            onChange={(v) => setNamespace(v ?? '')}
+            options={namespaces.map((ns) => ({ label: ns, value: ns }))}
+          />,
+        ]}
+        rowKey={(r) => `${r.namespace}/${r.name}`}
+        dataSource={items}
+        columns={columns}
+        search={false}
+        pagination={false}
+        options={{ reload: false }}
+        loading={loading}
+      />
+    </div>
+  );
+}
+
 // ─── Page ──────────────────────────────────────────────────────────────────
 
 export default function WorkloadsPage() {
   const { id: clusterId, type } = useParams<{ id: string; type: string }>();
-  const intl = useIntl();
-  const [namespace, setNamespace] = useState('');
 
   const isValidType = !!type && VALID_TYPES.has(type);
   const resourceType = (isValidType ? type : 'deployments') as WorkloadResourceType;
 
+  // Fetch namespaces once per cluster, shared across all type switches.
   const { data: namespaces = [], loading: nsLoading } = useRequest(
     () => listNamespaces(clusterId!),
     {
@@ -273,52 +331,21 @@ export default function WorkloadsPage() {
     },
   );
 
-  const { data: items = [], loading } = useRequest(
-    () => listWorkloads(clusterId!, resourceType, namespace),
-    {
-      refreshDeps: [clusterId, resourceType, namespace],
-      formatResult: (res: any) => PARSERS[resourceType](res?.items ?? []),
-      pollingWhenHidden: false,
-    },
-  );
-
   if (!isValidType) {
     return <Navigate to={`/clusters/${clusterId}/workloads/deployments`} replace />;
   }
 
-  const columns = COLUMNS[resourceType](intl);
-
   return (
     <ClusterLayout selectedKey={resourceType}>
-      <div className="p-6">
-        <ProTable<WorkloadItem>
-          headerTitle={
-            <Space>
-              <Text strong>{resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}</Text>
-              <Text type="secondary">({items.length})</Text>
-            </Space>
-          }
-          toolBarRender={() => [
-            <Select
-              key="ns"
-              loading={nsLoading}
-              allowClear
-              placeholder={intl.formatMessage({ id: 'pages.workloads.allNamespaces' })}
-              style={{ width: 200 }}
-              value={namespace || undefined}
-              onChange={(v) => setNamespace(v ?? '')}
-              options={(namespaces as string[]).map((ns) => ({ label: ns, value: ns }))}
-            />,
-          ]}
-          rowKey={(r) => `${r.namespace}/${r.name}`}
-          dataSource={items}
-          columns={columns}
-          search={false}
-          pagination={false}
-          options={{ reload: false }}
-          loading={loading}
-        />
-      </div>
+      {/* key forces a full remount when resourceType changes, preventing stale data
+          from a previous type being rendered with the new type's columns. */}
+      <WorkloadsContent
+        key={resourceType}
+        clusterId={clusterId!}
+        resourceType={resourceType}
+        namespaces={namespaces as string[]}
+        nsLoading={nsLoading}
+      />
     </ClusterLayout>
   );
 }
