@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -123,7 +124,7 @@ func (c *Client) connect(ctx context.Context) error {
 			msg = regAck.RegisterAck.Message
 		}
 		log.Printf("[tunnel] register rejected: %s", msg)
-		return nil
+		return fmt.Errorf("register rejected: %s", msg)
 	}
 	log.Printf("[tunnel] registered: cluster=%s", regAck.RegisterAck.ClusterId)
 

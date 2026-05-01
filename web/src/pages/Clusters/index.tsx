@@ -118,11 +118,13 @@ export default function ClustersPage() {
 
   const { data: clusters, loading, refresh } = useRequest(listClusters, {
     pollingInterval: 10000,
+    formatResult: (res) => res,
   });
   const clusterList: Cluster[] = Array.isArray(clusters) ? clusters : [];
 
   const { loading: creating, run: doCreate } = useRequest(createCluster, {
     manual: true,
+    formatResult: (res) => res,
     onSuccess: (result) => {
       setCreateVisible(false);
       form.resetFields();

@@ -52,7 +52,7 @@ export default function NodesPage() {
 
   const { data, loading } = useRequest(
     () => listNodes(clusterId!),
-    { pollingInterval: 15000 },
+    { pollingInterval: 15000, formatResult: (res) => res },
   );
   const nodes: NodeInfo[] = Array.isArray(data) ? data : [];
 
