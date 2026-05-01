@@ -314,7 +314,7 @@ function toEditableYaml(raw: any): string {
   return jsyaml.dump(obj, { lineWidth: -1 });
 }
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 100;
 
 function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: WorkloadsContentProps) {
   const intl = useIntl();
