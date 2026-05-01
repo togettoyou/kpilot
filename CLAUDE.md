@@ -202,6 +202,21 @@ kpilot/
 - JWT HS256，存储在 HTTP-only cookie `kpilot_token`，24h TTL
 - 单租户：用户名/密码来自 Server 配置文件
 
+### Server 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `HTTP_ADDR` | `:8080` | HTTP 监听地址 |
+| `GRPC_ADDR` | `:9090` | gRPC 监听地址 |
+| `DSN` | `postgres://...` | PostgreSQL 连接串 |
+| `ADMIN_USERNAME` | `admin` | 管理员用户名 |
+| `ADMIN_PASSWORD` | `admin123` | 管理员密码 |
+| `JWT_SECRET` | 随机 | JWT 签名密钥，未设置则每次重启失效 |
+| `CORS_ORIGINS` | 空（开发宽松模式） | 生产环境设置前端域名，逗号分隔，如 `https://kpilot.example.com` |
+
+### gRPC 配置
+- Server 最大消息收发均为 **32 MB**（默认 4 MB 不够大集群 Table API 响应）
+
 ---
 
 ## 前端开发规范（web/）
@@ -240,10 +255,18 @@ export function listXxx() {
 // 而我们的 API 直接返回数组/对象（不是 { success, data } 包装格式），
 // 不加这个选项数据会永远是 undefined。
 const { data, loading } = useRequest(listXxx, {
-  pollingInterval: 10000,
   formatResult: (res) => res,
 });
 ```
+
+> ⚠️ **动态轮询**：`useRequest` 的 `pollingInterval` 在初始化后不响应 state 变更，不能用于运行时切换间隔。需要动态轮询时用 `useEffect + setInterval`：
+> ```tsx
+> useEffect(() => {
+>   if (interval <= 0) return;
+>   const t = setInterval(refresh, interval);
+>   return () => clearInterval(t);
+> }, [interval, refresh]);
+> ```
 - 所有路径使用相对路径，dev 环境通过 `config/proxy.ts` 代理到 `http://localhost:8080`
 - 认证依赖 HTTP-only cookie，不需要手动传 token
 
@@ -272,6 +295,7 @@ web/src/
 - **Table API**：`listWorkloads` 使用 `Accept: application/json;as=Table;v=v1;g=meta.k8s.io`，Worker 的 `proxy.listTable` 通过 `rest.HTTPClientFor(cfg)` 构建带认证的 HTTP 客户端直接请求 K8s API Server。`includeObject=Metadata` 确保只传输元数据。
 - **列定义**：前端动态解析 Table API 的 `columnDefinitions`，所有列（含 priority>0 wide 列）均展示。列名通过 `COL_I18N` 映射到 i18n key。
 - **集群级资源**：`CLUSTER_SCOPED` 集合（目前含 `persistentvolumes`）控制是否显示命名空间列和命名空间筛选器。
+- **编辑（Apply）**：使用 K8s **Server-Side Apply**（`Patch` + `ApplyPatchType`，`fieldManager=kpilot`，`force=true`），幂等、无需携带 `resourceVersion`，不会因并发更新产生 409 冲突。
 - **错误透传**：K8s 操作失败用 `apiErrWorker`（HTTP 400，code=WORKER_ERROR，message=K8s 原始错误），区别于服务器内部错误（500）。
 
 ---
