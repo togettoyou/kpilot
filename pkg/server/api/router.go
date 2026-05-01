@@ -6,9 +6,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/togettoyou/kpilot/pkg/server/api/handler"
+	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
-func NewRouter() *gin.Engine {
+func NewRouter(gw *gateway.GatewayServer) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/health", func(c *gin.Context) {
@@ -21,6 +22,7 @@ func NewRouter() *gin.Engine {
 		clusters.POST("", handler.CreateCluster)
 		clusters.GET("", handler.ListClusters)
 		clusters.DELETE("/:id", handler.DeleteCluster)
+		clusters.GET("/:id/nodes", handler.ListNodes(gw))
 	}
 
 	return r

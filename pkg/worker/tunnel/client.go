@@ -3,6 +3,7 @@ package tunnel
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -22,6 +23,9 @@ const (
 type Client struct {
 	serverAddr   string
 	clusterToken string
+
+	mu     sync.Mutex
+	stream proto.PilotService_ConnectClient // 当前活跃的流，断线时为 nil
 }
 
 func NewClient(serverAddr, clusterToken string) *Client {
@@ -29,6 +33,21 @@ func NewClient(serverAddr, clusterToken string) *Client {
 		serverAddr:   serverAddr,
 		clusterToken: clusterToken,
 	}
+}
+
+// PushNodes 由 collector 调用，通过当前流上报节点信息
+func (c *Client) PushNodes(nodes []*proto.NodeInfo) {
+	c.mu.Lock()
+	s := c.stream
+	c.mu.Unlock()
+	if s == nil {
+		return
+	}
+	_ = s.Send(&proto.WorkerMessage{
+		Payload: &proto.WorkerMessage_NodeList{
+			NodeList: &proto.NodeListPush{Nodes: nodes},
+		},
+	})
 }
 
 // Run 阻塞运行，自动断线重连
@@ -66,8 +85,8 @@ func (c *Client) connect(ctx context.Context) error {
 	}
 	defer conn.Close()
 
-	client := proto.NewPilotServiceClient(conn)
-	stream, err := client.Connect(ctx)
+	grpcClient := proto.NewPilotServiceClient(conn)
+	stream, err := grpcClient.Connect(ctx)
 	if err != nil {
 		return err
 	}
@@ -96,14 +115,21 @@ func (c *Client) connect(ctx context.Context) error {
 			msg = regAck.RegisterAck.Message
 		}
 		log.Printf("[tunnel] register rejected: %s", msg)
-		return nil // 不重试无效 token
+		return nil
 	}
 	log.Printf("[tunnel] registered: cluster=%s", regAck.RegisterAck.ClusterId)
 
-	// 心跳
+	c.mu.Lock()
+	c.stream = stream
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.stream = nil
+		c.mu.Unlock()
+	}()
+
 	go c.heartbeat(ctx, stream)
 
-	// 接收 Server 命令（P3/P4 再实现具体处理）
 	for {
 		msg, err := stream.Recv()
 		if err != nil {

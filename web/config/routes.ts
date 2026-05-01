@@ -1,0 +1,46 @@
+export default [
+  {
+    path: '/user',
+    layout: false,
+    routes: [
+      {
+        path: '/user/login',
+        name: 'login',
+        component: './user/login',
+      },
+      {
+        path: '/user',
+        redirect: '/user/login',
+      },
+    ],
+  },
+  {
+    path: '/clusters',
+    name: 'clusters',
+    icon: 'cluster',
+    component: './Clusters/index',
+  },
+  {
+    path: '/clusters/:id',
+    layout: false,
+    routes: [
+      {
+        path: '/clusters/:id',
+        redirect: '/clusters/:id/nodes',
+      },
+      {
+        path: '/clusters/:id/nodes',
+        name: 'nodes',
+        component: './ClusterDetail/Nodes/index',
+      },
+    ],
+  },
+  {
+    path: '/',
+    redirect: '/clusters',
+  },
+  {
+    component: './exception/404',
+    path: '/*',
+  },
+];

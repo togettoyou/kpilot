@@ -27,7 +27,8 @@ func main() {
 		log.Fatalf("grpc listen %s: %v", cfg.GRPCAddr, err)
 	}
 	grpcSrv := grpc.NewServer()
-	proto.RegisterPilotServiceServer(grpcSrv, gateway.NewGatewayServer())
+	gw := gateway.NewGatewayServer()
+	proto.RegisterPilotServiceServer(grpcSrv, gw)
 	log.Printf("gRPC listening on %s", cfg.GRPCAddr)
 	go func() {
 		if err := grpcSrv.Serve(lis); err != nil {
@@ -36,7 +37,7 @@ func main() {
 	}()
 
 	// HTTP server
-	router := api.NewRouter()
+	router := api.NewRouter(gw)
 	log.Printf("HTTP listening on %s", cfg.HTTPAddr)
 	if err := router.Run(cfg.HTTPAddr); err != nil {
 		log.Fatalf("http serve: %v", err)

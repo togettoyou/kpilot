@@ -24,13 +24,15 @@ type ConnectedWorker struct {
 type GatewayServer struct {
 	proto.UnimplementedPilotServiceServer
 
-	mu      sync.RWMutex
-	workers map[string]*ConnectedWorker // clusterID → worker
+	mu        sync.RWMutex
+	workers   map[string]*ConnectedWorker  // clusterID → worker
+	nodeCache map[string][]*proto.NodeInfo // clusterID → nodes
 }
 
 func NewGatewayServer() *GatewayServer {
 	return &GatewayServer{
-		workers: make(map[string]*ConnectedWorker),
+		workers:   make(map[string]*ConnectedWorker),
+		nodeCache: make(map[string][]*proto.NodeInfo),
 	}
 }
 
@@ -120,8 +122,9 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 		w.LastSeen = time.Now()
 		_ = p
 	case *proto.WorkerMessage_NodeList:
-		// TODO P2: 持久化 / 缓存节点列表
-		_ = p
+		g.mu.Lock()
+		g.nodeCache[w.ClusterID] = p.NodeList.Nodes
+		g.mu.Unlock()
 	case *proto.WorkerMessage_PluginStatus:
 		// TODO P4: 更新插件状态
 		_ = p
@@ -151,4 +154,10 @@ func (g *GatewayServer) GetWorker(clusterID string) (*ConnectedWorker, bool) {
 	defer g.mu.RUnlock()
 	w, ok := g.workers[clusterID]
 	return w, ok
+}
+
+func (g *GatewayServer) GetNodes(clusterID string) []*proto.NodeInfo {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.nodeCache[clusterID]
 }
