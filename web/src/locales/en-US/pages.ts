@@ -11,6 +11,7 @@ export default {
   'errors.CLUSTER_NOT_CONNECTED': 'Cluster not connected — Worker may be offline',
   'errors.WORKER_TIMEOUT': 'Cluster timed out, please try again',
   'errors.WORKER_ERROR': 'Worker returned an error',
+  'errors.NAMESPACE_PROTECTED': 'This namespace is read-only (kube-* namespaces cannot be modified)',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',
@@ -77,6 +78,7 @@ export default {
   // workloads
   'pages.workloads.allNamespaces': 'All namespaces',
   'pages.workloads.col.actions': 'Actions',
+  'pages.workloads.view': 'View',
   'pages.workloads.edit': 'Edit',
   'pages.workloads.delete': 'Delete',
   'pages.workloads.delete.confirm': 'Delete {name}? This cannot be undone.',

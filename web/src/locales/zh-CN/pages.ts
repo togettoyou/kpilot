@@ -11,6 +11,7 @@ export default {
   'errors.CLUSTER_NOT_CONNECTED': '集群未连接，Worker 可能已离线',
   'errors.WORKER_TIMEOUT': '集群响应超时，请稍后重试',
   'errors.WORKER_ERROR': 'Worker 执行出错',
+  'errors.NAMESPACE_PROTECTED': '该命名空间为只读（kube-* 命名空间不允许修改）',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU 算力编排',
@@ -77,6 +78,7 @@ export default {
   // workloads
   'pages.workloads.allNamespaces': '全部命名空间',
   'pages.workloads.col.actions': '操作',
+  'pages.workloads.view': '查看',
   'pages.workloads.edit': '编辑',
   'pages.workloads.delete': '删除',
   'pages.workloads.delete.confirm': '确认删除 {name}？此操作不可撤销。',

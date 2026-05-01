@@ -16,6 +16,7 @@ const (
 	CodeClusterNotConnected = "CLUSTER_NOT_CONNECTED"
 	CodeWorkerError         = "WORKER_ERROR"
 	CodeWorkerTimeout       = "WORKER_TIMEOUT"
+	CodeNamespaceProtected  = "NAMESPACE_PROTECTED"
 )
 
 // apiErr writes a JSON error response with the given code.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -118,6 +119,11 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
+		if strings.HasPrefix(namespace, "kube-") {
+			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
+			return
+		}
+
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil || len(body) == 0 {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
@@ -158,6 +164,11 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		gvk, ok := resourceGVK[resourceType]
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		if strings.HasPrefix(namespace, "kube-") {
+			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
 			return
 		}
 

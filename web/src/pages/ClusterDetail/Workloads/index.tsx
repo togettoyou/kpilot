@@ -287,6 +287,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
   const [editingItem, setEditingItem] = useState<WorkloadItem | null>(null);
   const [yamlText, setYamlText] = useState('');
   const [applying, setApplying] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
 
   const { data: items = [], loading, refresh } = useRequest(
     () => listWorkloads(clusterId, resourceType, namespace),
@@ -297,8 +298,9 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     },
   );
 
-  const openEditor = async (item: WorkloadItem) => {
+  const openEditor = async (item: WorkloadItem, ro = false) => {
     setEditingItem(item);
+    setReadOnly(ro);
     setYamlText('');
     setDrawerOpen(true);
     try {
@@ -340,24 +342,34 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
     valueType: 'option',
     width: 120,
-    render: (_, record) => [
-      <Button key="edit" type="link" size="small" onClick={() => openEditor(record)}>
-        {intl.formatMessage({ id: 'pages.workloads.edit' })}
-      </Button>,
-      <Popconfirm
-        key="delete"
-        title={intl.formatMessage(
-          { id: 'pages.workloads.delete.confirm' },
-          { name: record.name },
-        )}
-        onConfirm={() => handleDelete(record)}
-        okType="danger"
-      >
-        <Button type="link" size="small" danger>
-          {intl.formatMessage({ id: 'pages.workloads.delete' })}
-        </Button>
-      </Popconfirm>,
-    ],
+    render: (_, record) => {
+      const isProtected = (record.namespace ?? '').startsWith('kube-');
+      if (isProtected) {
+        return [
+          <Button key="view" type="link" size="small" onClick={() => openEditor(record, true)}>
+            {intl.formatMessage({ id: 'pages.workloads.view' })}
+          </Button>,
+        ];
+      }
+      return [
+        <Button key="edit" type="link" size="small" onClick={() => openEditor(record)}>
+          {intl.formatMessage({ id: 'pages.workloads.edit' })}
+        </Button>,
+        <Popconfirm
+          key="delete"
+          title={intl.formatMessage(
+            { id: 'pages.workloads.delete.confirm' },
+            { name: record.name },
+          )}
+          onConfirm={() => handleDelete(record)}
+          okType="danger"
+        >
+          <Button type="link" size="small" danger>
+            {intl.formatMessage({ id: 'pages.workloads.delete' })}
+          </Button>
+        </Popconfirm>,
+      ];
+    },
   };
 
   const columns = [...COLUMNS[resourceType](intl), actionsColumn];
@@ -400,7 +412,7 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
 
       <Drawer
         title={intl.formatMessage(
-          { id: 'pages.workloads.editor.title' },
+          { id: readOnly ? 'pages.workloads.view' : 'pages.workloads.editor.title' },
           { type: resourceType, name: editingItem?.name ?? '' },
         )}
         open={drawerOpen}
@@ -409,15 +421,18 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         footer={
           <Space style={{ float: 'right' }}>
             <Button onClick={() => setDrawerOpen(false)}>Cancel</Button>
-            <Button type="primary" loading={applying} onClick={handleApply}>
-              {intl.formatMessage({ id: 'pages.workloads.apply' })}
-            </Button>
+            {!readOnly && (
+              <Button type="primary" loading={applying} onClick={handleApply}>
+                {intl.formatMessage({ id: 'pages.workloads.apply' })}
+              </Button>
+            )}
           </Space>
         }
       >
         <Input.TextArea
           value={yamlText}
-          onChange={(e) => setYamlText(e.target.value)}
+          onChange={(e) => !readOnly && setYamlText(e.target.value)}
+          readOnly={readOnly}
           autoSize={{ minRows: 20 }}
           style={{ fontFamily: 'monospace', fontSize: 13 }}
           placeholder={yamlText === '' ? 'Loading...' : undefined}
