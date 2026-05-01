@@ -94,13 +94,13 @@ status:
 ```
 
 **支持的插件：**
-| 插件 | 用途 |
-|------|------|
-| HAMI | GPU 虚拟化，给 Node 打 GPU 标签，支持 vGPU 管理 |
-| VictoriaMetrics | 集群监控 |
-| VictoriaLogs | 容器日志收集 |
-| Gateway | 网关（暂定） |
-| KServe | 模型推理服务（暂定） |
+| 插件            | 用途                                   |
+|-----------------|----------------------------------------|
+| HAMI            | GPU 虚拟化，给 Node 打 GPU 标签，支持 vGPU 管理 |
+| VictoriaMetrics | 集群监控                               |
+| VictoriaLogs    | 容器日志收集                           |
+| Gateway         | 网关（暂定）                           |
+| KServe          | 模型推理服务（暂定）                   |
 
 ---
 
