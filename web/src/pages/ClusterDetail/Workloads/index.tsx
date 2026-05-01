@@ -510,19 +510,21 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         pagination={false}
         options={{ reload: false }}
         loading={loading}
-        footer={() =>
-          pageIdx > 0 || hasMore ? (
-            <Space style={{ float: 'right' }}>
-              <Button size="small" disabled={pageIdx === 0} onClick={() => setPageIdx((p) => p - 1)}>
-                ‹ Prev
-              </Button>
-              <Text type="secondary">Page {pageIdx + 1}</Text>
-              <Button size="small" disabled={!hasMore} onClick={() => setPageIdx((p) => p + 1)}>
-                Next ›
-              </Button>
-            </Space>
-          ) : null
-        }
+        {...(pageIdx > 0 || hasMore
+          ? {
+              footer: () => (
+                <Space style={{ float: 'right' }}>
+                  <Button size="small" disabled={pageIdx === 0} onClick={() => setPageIdx((p) => p - 1)}>
+                    ‹ Prev
+                  </Button>
+                  <Text type="secondary">Page {pageIdx + 1}</Text>
+                  <Button size="small" disabled={!hasMore} onClick={() => setPageIdx((p) => p + 1)}>
+                    Next ›
+                  </Button>
+                </Space>
+              ),
+            }
+          : {})}
       />
 
       <Drawer
