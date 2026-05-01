@@ -1,12 +1,13 @@
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { App, Button, Drawer, Dropdown, Input, Popconfirm, Select, Space, Tag, Typography } from 'antd';
+import { App, Button, Drawer, Dropdown, Popconfirm, Select, Space, Tag, Typography } from 'antd';
 import { DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import * as jsyaml from 'js-yaml';
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ClusterLayout } from '../ClusterLayout';
+import { YamlEditor } from './YamlEditor';
 import type { WorkloadItem, WorkloadResourceType } from '@/services/kpilot/workload';
 import { applyWorkload, deleteWorkload, getWorkload, listNamespaces, listWorkloads } from '@/services/kpilot/workload';
 
@@ -488,14 +489,11 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
           </Space>
         }
       >
-        <Input.TextArea
-          value={yamlText}
-          onChange={(e) => !readOnly && setYamlText(e.target.value)}
-          readOnly={readOnly}
-          autoSize={{ minRows: 20 }}
-          style={{ fontFamily: 'monospace', fontSize: 13 }}
-          placeholder={yamlText === '' ? 'Loading...' : undefined}
-        />
+        {yamlText === '' ? (
+          <div style={{ padding: 16, color: '#888' }}>Loading…</div>
+        ) : (
+          <YamlEditor value={yamlText} onChange={setYamlText} readOnly={readOnly} />
+        )}
       </Drawer>
     </div>
   );
