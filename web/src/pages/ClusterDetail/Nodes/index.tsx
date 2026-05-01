@@ -85,8 +85,8 @@ export default function NodesPage() {
   ];
 
   return (
-    <Layout className="min-h-screen">
-      <Sider width={200} theme="light" className="border-r border-gray-100">
+    <Layout className="h-screen overflow-hidden">
+      <Sider width={200} theme="light" className="border-r border-gray-100 h-full overflow-y-auto">
         <div className="p-4 border-b border-gray-100">
           <Button
             type="text"
@@ -100,7 +100,7 @@ export default function NodesPage() {
         <Menu mode="inline" selectedKeys={['nodes']} items={sideMenuItems} className="border-0" />
       </Sider>
 
-      <Content className="p-6 bg-gray-50">
+      <Content className="p-6 bg-gray-50 overflow-y-auto">
         <ProTable<NodeInfo>
           expandable={{
             expandedRowRender: (record) => (
