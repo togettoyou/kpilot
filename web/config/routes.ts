@@ -18,12 +18,11 @@ export default [
     path: '/clusters',
     name: 'clusters',
     icon: 'cluster',
-    component: './Clusters/index',
-  },
-  {
-    path: '/clusters/:id',
-    layout: false,
     routes: [
+      {
+        path: '/clusters',
+        component: './Clusters/index',
+      },
       {
         path: '/clusters/:id',
         redirect: '/clusters/:id/nodes',

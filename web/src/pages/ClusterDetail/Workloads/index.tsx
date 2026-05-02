@@ -1,15 +1,38 @@
+import {
+  DownOutlined,
+  LeftOutlined,
+  ReloadOutlined,
+  RightOutlined,
+} from '@ant-design/icons';
+import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { App, Button, Drawer, Dropdown, Popconfirm, Select, Space, Tag, Typography } from 'antd';
-import { DownOutlined, LeftOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons';
-import type { ProColumns } from '@ant-design/pro-components';
+import {
+  App,
+  Button,
+  Drawer,
+  Dropdown,
+  Popconfirm,
+  Select,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
 import * as jsyaml from 'js-yaml';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { ClusterLayout } from '../ClusterLayout';
+import type {
+  WorkloadItem,
+  WorkloadResourceType,
+} from '@/services/kpilot/workload';
+import {
+  applyWorkload,
+  deleteWorkload,
+  getWorkload,
+  listNamespaces,
+  listWorkloads,
+} from '@/services/kpilot/workload';
 import { YamlEditor } from './YamlEditor';
-import type { WorkloadItem, WorkloadResourceType } from '@/services/kpilot/workload';
-import { applyWorkload, deleteWorkload, getWorkload, listNamespaces, listWorkloads } from '@/services/kpilot/workload';
 
 const { Text } = Typography;
 
@@ -56,22 +79,48 @@ const COL_I18N: Record<string, string> = {
 };
 
 const COL_WIDTHS: Record<string, number> = {
-  Name: 200, Namespace: 130, Age: 80, Status: 150, Ready: 90,
-  Restarts: 90, Node: 150, Type: 110, 'Cluster-IP': 130,
-  'External-IP': 130, 'Port(s)': 170, Hosts: 200, Address: 150,
-  Data: 70, 'Up-to-date': 100, Available: 90, Desired: 80, Current: 80,
+  Name: 200,
+  Namespace: 130,
+  Age: 80,
+  Status: 150,
+  Ready: 90,
+  Restarts: 90,
+  Node: 150,
+  Type: 110,
+  'Cluster-IP': 130,
+  'External-IP': 130,
+  'Port(s)': 170,
+  Hosts: 200,
+  Address: 150,
+  Data: 70,
+  'Up-to-date': 100,
+  Available: 90,
+  Desired: 80,
+  Current: 80,
 };
 
 const SVC_TYPE_COLOR: Record<string, string> = {
-  ClusterIP: 'default', NodePort: 'blue', LoadBalancer: 'green',
+  ClusterIP: 'default',
+  NodePort: 'blue',
+  LoadBalancer: 'green',
 };
 
 function podStatusColor(s: string): string {
   if (s === 'Running' || s === 'Completed') return 'success';
   if (s === 'Pending' || s.startsWith('Init:')) return 'warning';
-  if (['Failed', 'Error', 'OOMKilled', 'CrashLoopBackOff',
-       'ErrImagePull', 'ImagePullBackOff', 'CreateContainerError',
-       'InvalidImageName'].includes(s)) return 'error';
+  if (
+    [
+      'Failed',
+      'Error',
+      'OOMKilled',
+      'CrashLoopBackOff',
+      'ErrImagePull',
+      'ImagePullBackOff',
+      'CreateContainerError',
+      'InvalidImageName',
+    ].includes(s)
+  )
+    return 'error';
   return 'default';
 }
 
@@ -105,7 +154,10 @@ function renderCell(colName: string, value: any): React.ReactNode {
 // Parse a K8s Table API response into WorkloadItems + column definitions.
 // Only priority=0 columns are kept (same as kubectl default, no "-o wide").
 // Name and Namespace are always sourced from object.metadata instead.
-function parseTableResponse(res: any): { items: WorkloadItem[]; colDefs: any[] } {
+function parseTableResponse(res: any): {
+  items: WorkloadItem[];
+  colDefs: any[];
+} {
   if (res?.kind !== 'Table') return { items: [], colDefs: [] };
 
   const allColDefs: any[] = res.columnDefinitions ?? [];
@@ -147,11 +199,15 @@ function buildColumns(
       dataIndex: 'name',
       width: 200,
     },
-    ...(!clusterScoped ? [{
-      title: intl.formatMessage({ id: 'pages.workloads.col.namespace' }),
-      dataIndex: 'namespace',
-      width: 130,
-    } as ProColumns<WorkloadItem>] : []),
+    ...(!clusterScoped
+      ? [
+          {
+            title: intl.formatMessage({ id: 'pages.workloads.col.namespace' }),
+            dataIndex: 'namespace',
+            width: 130,
+          } as ProColumns<WorkloadItem>,
+        ]
+      : []),
   ];
 
   const dynamic: ProColumns<WorkloadItem>[] = colDefs.map((col: any) => ({
@@ -181,9 +237,16 @@ function toEditableYaml(raw: any): string {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 const VALID_TYPES = new Set<string>([
-  'deployments', 'statefulsets', 'daemonsets', 'pods',
-  'services', 'ingresses', 'configmaps', 'secrets',
-  'persistentvolumeclaims', 'persistentvolumes',
+  'deployments',
+  'statefulsets',
+  'daemonsets',
+  'pods',
+  'services',
+  'ingresses',
+  'configmaps',
+  'secrets',
+  'persistentvolumeclaims',
+  'persistentvolumes',
 ]);
 
 const CLUSTER_SCOPED = new Set<string>(['persistentvolumes']);
@@ -199,7 +262,12 @@ interface WorkloadsContentProps {
 
 const PAGE_SIZE = 100;
 
-function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: WorkloadsContentProps) {
+function WorkloadsContent({
+  clusterId,
+  resourceType,
+  namespaces,
+  nsLoading,
+}: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
   const [namespace, setNamespace] = useState('');
@@ -222,8 +290,19 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
   const [applying, setApplying] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
 
-  const { data: pageData, loading, refresh } = useRequest(
-    () => listWorkloads(clusterId, resourceType, namespace, PAGE_SIZE, currentToken),
+  const {
+    data: pageData,
+    loading,
+    refresh,
+  } = useRequest(
+    () =>
+      listWorkloads(
+        clusterId,
+        resourceType,
+        namespace,
+        PAGE_SIZE,
+        currentToken,
+      ),
     {
       refreshDeps: [namespace, currentToken],
       formatResult: (res: any) => {
@@ -274,7 +353,12 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     setYamlText('');
     setDrawerOpen(true);
     try {
-      const raw = await getWorkload(clusterId, resourceType, item.name, item.namespace ?? '');
+      const raw = await getWorkload(
+        clusterId,
+        resourceType,
+        item.name,
+        item.namespace ?? '',
+      );
       if (seq !== editorSeqRef.current) return;
       setYamlText(toEditableYaml(raw));
     } catch {
@@ -289,8 +373,16 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
     setApplying(true);
     try {
       const obj = jsyaml.load(yamlText) as object;
-      await applyWorkload(clusterId, resourceType, editingItem.name, editingItem.namespace ?? '', obj);
-      message.success(intl.formatMessage({ id: 'pages.workloads.apply.success' }));
+      await applyWorkload(
+        clusterId,
+        resourceType,
+        editingItem.name,
+        editingItem.namespace ?? '',
+        obj,
+      );
+      message.success(
+        intl.formatMessage({ id: 'pages.workloads.apply.success' }),
+      );
       setDrawerOpen(false);
       refresh();
     } catch {
@@ -302,8 +394,15 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
 
   const handleDelete = async (item: WorkloadItem) => {
     try {
-      await deleteWorkload(clusterId, resourceType, item.name, item.namespace ?? '');
-      message.success(intl.formatMessage({ id: 'pages.workloads.delete.success' }));
+      await deleteWorkload(
+        clusterId,
+        resourceType,
+        item.name,
+        item.namespace ?? '',
+      );
+      message.success(
+        intl.formatMessage({ id: 'pages.workloads.delete.success' }),
+      );
       refresh();
     } catch {
       // global error handler in requestErrorConfig already shows the toast
@@ -321,18 +420,31 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         const isProtected = (record.namespace ?? '').startsWith('kube-');
         if (isProtected) {
           return [
-            <Button key="view" type="link" size="small" onClick={() => openEditor(record, true)}>
+            <Button
+              key="view"
+              type="link"
+              size="small"
+              onClick={() => openEditor(record, true)}
+            >
               {intl.formatMessage({ id: 'pages.workloads.view' })}
             </Button>,
           ];
         }
         return [
-          <Button key="edit" type="link" size="small" onClick={() => openEditor(record)}>
+          <Button
+            key="edit"
+            type="link"
+            size="small"
+            onClick={() => openEditor(record)}
+          >
             {intl.formatMessage({ id: 'pages.workloads.edit' })}
           </Button>,
           <Popconfirm
             key="delete"
-            title={intl.formatMessage({ id: 'pages.workloads.delete.confirm' }, { name: record.name })}
+            title={intl.formatMessage(
+              { id: 'pages.workloads.delete.confirm' },
+              { name: record.name },
+            )}
             onConfirm={() => handleDelete(record)}
             okType="danger"
           >
@@ -351,9 +463,13 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
       <ProTable<WorkloadItem>
         headerTitle={
           <Space>
-            <Text strong>{resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}</Text>
+            <Text strong>
+              {resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}
+            </Text>
             <Text type="secondary">
-              {totalKnown != null ? `(${totalKnown})` : `(${items.length}${hasMore ? '+' : ''})`}
+              {totalKnown != null
+                ? `(${totalKnown})`
+                : `(${items.length}${hasMore ? '+' : ''})`}
             </Text>
           </Space>
         }
@@ -363,7 +479,9 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
               key="ns"
               loading={nsLoading}
               allowClear
-              placeholder={intl.formatMessage({ id: 'pages.workloads.allNamespaces' })}
+              placeholder={intl.formatMessage({
+                id: 'pages.workloads.allNamespaces',
+              })}
               style={{ width: 200 }}
               value={namespace || undefined}
               onChange={(v) => setNamespace(v ?? '')}
@@ -371,12 +489,21 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
             />
           ),
           <Space.Compact key="refresh">
-            <Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} />
+            <Button
+              icon={<ReloadOutlined />}
+              loading={loading}
+              onClick={refresh}
+            />
             <Dropdown
               trigger={['click']}
               menu={{
                 items: [
-                  { key: '0', label: intl.formatMessage({ id: 'pages.workloads.refresh.off' }) },
+                  {
+                    key: '0',
+                    label: intl.formatMessage({
+                      id: 'pages.workloads.refresh.off',
+                    }),
+                  },
                   { type: 'divider' },
                   { key: '5000', label: '5s' },
                   { key: '10000', label: '10s' },
@@ -388,7 +515,11 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
               }}
             >
               <Button style={{ minWidth: 46 }}>
-                {pollingInterval > 0 ? `${pollingInterval / 1000}s` : <DownOutlined />}
+                {pollingInterval > 0 ? (
+                  `${pollingInterval / 1000}s`
+                ) : (
+                  <DownOutlined />
+                )}
               </Button>
             </Dropdown>
           </Space.Compact>,
@@ -402,18 +533,43 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         loading={loading}
       />
       {(pageIdx > 0 || hasMore) && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, padding: '12px 0' }}>
-          <Button size="small" icon={<LeftOutlined />} disabled={pageIdx === 0} onClick={() => setPageIdx((p) => p - 1)} />
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: 8,
+            padding: '12px 0',
+          }}
+        >
+          <Button
+            size="small"
+            icon={<LeftOutlined />}
+            disabled={pageIdx === 0}
+            onClick={() => setPageIdx((p) => p - 1)}
+          />
           <Text type="secondary">
-            {intl.formatMessage({ id: 'pages.workloads.page' }, { n: pageIdx + 1 })}
+            {intl.formatMessage(
+              { id: 'pages.workloads.page' },
+              { n: pageIdx + 1 },
+            )}
           </Text>
-          <Button size="small" icon={<RightOutlined />} disabled={!hasMore} onClick={() => setPageIdx((p) => p + 1)} />
+          <Button
+            size="small"
+            icon={<RightOutlined />}
+            disabled={!hasMore}
+            onClick={() => setPageIdx((p) => p + 1)}
+          />
         </div>
       )}
 
       <Drawer
         title={intl.formatMessage(
-          { id: readOnly ? 'pages.workloads.view' : 'pages.workloads.editor.title' },
+          {
+            id: readOnly
+              ? 'pages.workloads.view'
+              : 'pages.workloads.editor.title',
+          },
           { type: resourceType, name: editingItem?.name ?? '' },
         )}
         open={drawerOpen}
@@ -421,7 +577,9 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         width={680}
         footer={
           <Space style={{ float: 'right' }}>
-            <Button onClick={() => setDrawerOpen(false)}>{intl.formatMessage({ id: 'pages.workloads.cancel' })}</Button>
+            <Button onClick={() => setDrawerOpen(false)}>
+              {intl.formatMessage({ id: 'pages.workloads.cancel' })}
+            </Button>
             {!readOnly && (
               <Button type="primary" loading={applying} onClick={handleApply}>
                 {intl.formatMessage({ id: 'pages.workloads.apply' })}
@@ -431,9 +589,15 @@ function WorkloadsContent({ clusterId, resourceType, namespaces, nsLoading }: Wo
         }
       >
         {yamlText === '' ? (
-          <div style={{ padding: 16, color: '#888' }}>{intl.formatMessage({ id: 'pages.workloads.loading' })}</div>
+          <div style={{ padding: 16, color: '#888' }}>
+            {intl.formatMessage({ id: 'pages.workloads.loading' })}
+          </div>
         ) : (
-          <YamlEditor value={yamlText} onChange={setYamlText} readOnly={readOnly} />
+          <YamlEditor
+            value={yamlText}
+            onChange={setYamlText}
+            readOnly={readOnly}
+          />
         )}
       </Drawer>
     </div>
@@ -446,7 +610,9 @@ export default function WorkloadsPage() {
   const { id: clusterId, type } = useParams<{ id: string; type: string }>();
 
   const isValidType = !!type && VALID_TYPES.has(type);
-  const resourceType = (isValidType ? type : 'deployments') as WorkloadResourceType;
+  const resourceType = (
+    isValidType ? type : 'deployments'
+  ) as WorkloadResourceType;
 
   const { data: namespaces = [], loading: nsLoading } = useRequest(
     () => listNamespaces(clusterId!),
@@ -458,18 +624,18 @@ export default function WorkloadsPage() {
   );
 
   if (!isValidType) {
-    return <Navigate to={`/clusters/${clusterId}/workloads/deployments`} replace />;
+    return (
+      <Navigate to={`/clusters/${clusterId}/workloads/deployments`} replace />
+    );
   }
 
   return (
-    <ClusterLayout selectedKey={resourceType}>
-      <WorkloadsContent
-        key={resourceType}
-        clusterId={clusterId!}
-        resourceType={resourceType}
-        namespaces={namespaces as string[]}
-        nsLoading={nsLoading}
-      />
-    </ClusterLayout>
+    <WorkloadsContent
+      key={resourceType}
+      clusterId={clusterId!}
+      resourceType={resourceType}
+      namespaces={namespaces as string[]}
+      nsLoading={nsLoading}
+    />
   );
 }
