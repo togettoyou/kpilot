@@ -148,6 +148,13 @@ func (m *ExecManager) Resize(sessionID string, cols, rows uint32) {
 	if !ok {
 		return
 	}
+	// Hold closeMu to prevent racing with closeSession which closes resizeCh
+	// — sending on a closed channel panics.
+	sess.closeMu.Lock()
+	defer sess.closeMu.Unlock()
+	if sess.closed {
+		return
+	}
 	select {
 	case sess.resizeCh <- remotecommand.TerminalSize{Width: uint16(cols), Height: uint16(rows)}:
 	default:

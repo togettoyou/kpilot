@@ -45,7 +45,6 @@ export function PodExecDrawer({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const sessionKey = useRef(0);
 
   // Fetch pod spec to enumerate containers when drawer opens.
@@ -111,7 +110,6 @@ export function PodExecDrawer({
     });
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
 
     ws.onmessage = (e) => {
       if (myKey !== sessionKey.current) return;

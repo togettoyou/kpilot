@@ -171,13 +171,8 @@ func (g *GatewayServer) routeStreamMessage(msg *proto.WorkerMessage) {
 		// Session already closed by the WS side — silently drop late frames.
 		return
 	}
-	select {
-	case s.msgCh <- msg:
-	default:
-		// Buffer full → consumer too slow. Drop this frame and log; for logs
-		// this means a brief gap, for exec it means the terminal lags.
-		log.Printf("[gateway] stream buffer full, dropping frame: session=%s", msg.RequestId)
-	}
+	// deliver internally guards against send-on-closed-channel.
+	s.deliver(msg)
 }
 
 func (g *GatewayServer) register(w *ConnectedWorker) {
@@ -191,12 +186,29 @@ func (g *GatewayServer) register(w *ConnectedWorker) {
 
 func (g *GatewayServer) unregister(clusterID string) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	delete(g.workers, clusterID)
+	g.mu.Unlock()
 	if err := store.UpdateClusterStatus(clusterID, store.ClusterStatusOffline); err != nil {
 		log.Printf("[gateway] update cluster offline failed: cluster=%s err=%v", clusterID, err)
 	}
+	// Close any active streams (Pod logs / exec) bound to this worker so the
+	// WS handlers unblock from <-stream.Recv() instead of hanging forever.
+	g.closeClusterStreams(clusterID)
 	log.Printf("[gateway] worker disconnected: cluster=%s", clusterID)
+}
+
+func (g *GatewayServer) closeClusterStreams(clusterID string) {
+	g.streamMu.Lock()
+	victims := make([]*Stream, 0)
+	for _, s := range g.streams {
+		if s.clusterID == clusterID {
+			victims = append(victims, s)
+		}
+	}
+	g.streamMu.Unlock()
+	for _, s := range victims {
+		s.Close()
+	}
 }
 
 func (g *GatewayServer) KickWorker(clusterID string) {

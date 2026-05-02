@@ -86,12 +86,28 @@ func (s *Stream) Close() {
 		return
 	}
 	s.closed = true
+	close(s.msgCh)
 	s.closeMu.Unlock()
 
 	s.gateway.streamMu.Lock()
 	delete(s.gateway.streams, s.sessionID)
 	s.gateway.streamMu.Unlock()
-	close(s.msgCh)
+}
+
+// deliver pushes an inbound worker frame into the session's recv channel.
+// Holds closeMu so that concurrent Close() can't race the channel send into
+// a panic on a closed channel. Drops the frame if the consumer is too slow
+// (buffer full) — for logs that's a brief gap, for exec the terminal lags.
+func (s *Stream) deliver(msg *proto.WorkerMessage) {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	if s.closed {
+		return
+	}
+	select {
+	case s.msgCh <- msg:
+	default:
+	}
 }
 
 // OpenStream allocates a new session id and registers it. Returns an error

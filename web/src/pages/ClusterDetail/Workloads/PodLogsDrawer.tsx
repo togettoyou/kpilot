@@ -57,9 +57,9 @@ export function PodLogsDrawer({
   const [, forceTick] = useState(0); // trigger re-render when buffer changes
 
   const linesRef = useRef<string[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
   const preRef = useRef<HTMLPreElement | null>(null);
   const sessionKey = useRef(0);
+  const flushScheduledRef = useRef(false);
 
   // Fetch pod spec to enumerate containers when drawer opens.
   useEffect(() => {
@@ -109,9 +109,20 @@ export function PodLogsDrawer({
       previous,
     });
     const ws = new WebSocket(url);
-    wsRef.current = ws;
 
     let pending = ''; // accumulate partial lines across binary frames
+
+    // Throttle React re-renders to one per animation frame. With chatty pods
+    // logs can arrive at >1k lines/sec; without batching, every chunk would
+    // trigger a re-render + full <pre> reflow and freeze the UI.
+    const scheduleFlush = () => {
+      if (flushScheduledRef.current) return;
+      flushScheduledRef.current = true;
+      requestAnimationFrame(() => {
+        flushScheduledRef.current = false;
+        forceTick((t) => t + 1);
+      });
+    };
 
     ws.onmessage = (e) => {
       if (myKey !== sessionKey.current) return;
@@ -128,7 +139,7 @@ export function PodLogsDrawer({
             linesRef.current.length - MAX_LINES,
           );
         }
-        forceTick((t) => t + 1);
+        scheduleFlush();
       }
     };
     ws.onerror = () => {
@@ -141,7 +152,7 @@ export function PodLogsDrawer({
       if (pending) {
         linesRef.current = linesRef.current.concat([pending]);
         pending = '';
-        forceTick((t) => t + 1);
+        scheduleFlush();
       }
     };
 
