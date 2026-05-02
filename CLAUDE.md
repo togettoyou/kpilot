@@ -280,15 +280,29 @@ web/src/
 │   ├── user/login/              # 登录页
 │   ├── Clusters/                # 集群管理
 │   ├── ClusterDetail/
-│   │   ├── ClusterLayout.tsx    # 集群详情侧边栏布局
 │   │   ├── Nodes/               # 节点概览
 │   │   └── Workloads/           # 工作负载（含 YamlEditor）
+│   ├── Plugins/                 # 插件管理（占位）
 │   └── exception/404/           # 404 页
 ├── services/kpilot/             # API 服务（auth.ts、cluster.ts、node.ts、workload.ts）
 ├── components/                  # 公共组件（Footer、LangDropdown、AvatarDropdown）
 ├── locales/                     # zh-CN / en-US（menu.ts、pages.ts）
-└── app.tsx                      # 全局布局、认证初始化
+├── global.less                  # 全局样式 + ProLayout CSS 覆盖
+└── app.tsx                      # 全局布局、动态菜单注入、认证初始化
 ```
+
+### 集群详情导航（动态菜单）
+
+集群详情页（`/clusters/:id/*`）**不使用独立 Layout**，而是复用全局 ProLayout 框架。
+进入某个集群时，把"节点 / 工作负载 / 网络 / 存储 / 配置"动态注入到顶部"集群管理"菜单的 children，路径里带真实 cluster id：
+
+- `app.tsx` 在 `@@initialState` 里跟踪 `currentClusterId`，`onPageChange` 监听 location 变化更新它
+- `menuDataRender` 读 `currentClusterId`，有值就调用 `buildClusterSubMenu(id)` 注入子菜单
+- ProLayout 配置：`splitMenus: true`（顶栏只显示一层）+ `suppressSiderWhenMenuEmpty: true`（无子菜单时侧边栏自动隐藏，比如集群列表页）
+- 菜单 i18n：name 字段会自动拼接父级 locale → `menu.clusters.{name}`，比如 `name: 'nodes'` 解析为 `menu.clusters.nodes`
+- PVC/PV 这种长资源名用 kubectl 标准缩写（i18n value 直接写 `PVC`/`PV`）
+
+`menuItemRender` 也在 app.tsx 里 override 了：始终用 `<Link>` 包裹 `defaultDom`，避免 Umi 默认实现给选中项跳过 Link 包裹导致的 DOM 嵌套不一致（会引起切换 tab 时 1px 抖动）。
 
 ### 工作负载页关键设计说明
 
