@@ -10,10 +10,63 @@ import {
   Tag,
   theme as antdTheme,
 } from 'antd';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import type { WorkloadResourceType } from '@/services/kpilot/workload';
 import { describeWorkload } from '@/services/kpilot/workload';
+
+// Colors come from antd tokens (theme-aware), not hardcoded.
+interface Palette {
+  key: string;
+  good: string; // Events Type=Normal
+  warn: string; // Events Type=Warning
+}
+
+// Two highlight rules only — keep it minimal and predictable:
+//   1. Lines shaped like "key: value" → color the key.
+//   2. Inside the Events section, color the Type column (Normal/Warning).
+// Everything else is rendered verbatim.
+
+function highlightLine(
+  line: string,
+  p: Palette,
+  inEvents: boolean,
+): React.ReactNode {
+  // Inside Events, the data rows look like "  Normal  Reason  Age  From  Msg".
+  // Match Type as the first whitespace-separated token after indent.
+  if (inEvents) {
+    const em = line.match(/^(\s+)(Normal|Warning)(\b.*)$/);
+    if (em) {
+      const [, indent, type, rest] = em;
+      const color = type === 'Normal' ? p.good : p.warn;
+      return (
+        <>
+          {indent}
+          <span style={{ color }}>{type}</span>
+          {rest}
+        </>
+      );
+    }
+  }
+
+  // key: value — color the key. Allows multi-word keys like "Service Account".
+  // Lookahead requires the colon be followed by whitespace or EOL so that
+  // values like `node.kubernetes.io/unreachable:NoExecute` (taint expressions
+  // in Tolerations) don't get misread as a key.
+  const m = line.match(/^(\s*)([^:\s][^:]*?):(?=\s|$)(\s*)(.*)$/);
+  if (m) {
+    const [, indent, key, gap, rest] = m;
+    return (
+      <>
+        {indent}
+        <span style={{ color: p.key }}>{key}:</span>
+        {gap}
+        {rest}
+      </>
+    );
+  }
+  return line;
+}
 
 interface DescribeDrawerProps {
   open: boolean;
@@ -39,6 +92,31 @@ export function DescribeDrawer({
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const palette: Palette = useMemo(
+    () => ({
+      key: token.colorPrimary,
+      good: token.colorSuccess,
+      warn: token.colorWarning,
+    }),
+    [token],
+  );
+
+  const highlighted = useMemo(() => {
+    if (!text) return null;
+    // Events: is always at the bottom of kubectl describe output, so once
+    // we hit it everything after is the events table.
+    let inEvents = false;
+    return text.split('\n').map((line, i) => {
+      if (/^Events:\s*$/.test(line)) inEvents = true;
+      return (
+        <React.Fragment key={i}>
+          {highlightLine(line, palette, inEvents)}
+          {'\n'}
+        </React.Fragment>
+      );
+    });
+  }, [text, palette]);
 
   useEffect(() => {
     if (!open) return;
@@ -131,7 +209,7 @@ export function DescribeDrawer({
             whiteSpace: 'pre',
           }}
         >
-          {text}
+          {highlighted}
         </pre>
       )}
     </Drawer>
