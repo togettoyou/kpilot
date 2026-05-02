@@ -11,6 +11,7 @@ import { useIntl, useParams, useRequest } from '@umijs/max';
 import {
   App,
   Button,
+  Divider,
   Drawer,
   Dropdown,
   Popconfirm,
@@ -541,6 +542,29 @@ function WorkloadsContent({
               value={namespace || undefined}
               onChange={(v) => setNamespace(v ?? '')}
               options={namespaces.map((ns) => ({ label: ns, value: ns }))}
+              // Add a refresh action inside the dropdown so namespaces
+              // created externally (kubectl, another UI) can be picked up
+              // without reloading the browser. popupRender is the v5.25+
+              // replacement for dropdownRender.
+              popupRender={(menu) => (
+                <>
+                  {menu}
+                  <Divider style={{ margin: '4px 0' }} />
+                  <Button
+                    type="text"
+                    size="small"
+                    block
+                    icon={<ReloadOutlined />}
+                    loading={nsLoading}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      refreshNamespaces();
+                    }}
+                  >
+                    {intl.formatMessage({ id: 'pages.workloads.refresh.namespaces' })}
+                  </Button>
+                </>
+              )}
             />
           ),
           <Space.Compact key="refresh">
