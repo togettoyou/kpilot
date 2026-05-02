@@ -216,7 +216,7 @@ export function PodExecDrawer({
       }
       open={open}
       onClose={onClose}
-      width={'70vw'}
+      size="70vw"
       destroyOnHidden
       extra={
         <Space>

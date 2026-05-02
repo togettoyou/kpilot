@@ -176,6 +176,7 @@ export default function NodesPage() {
         rowKey="name"
         loading={loading}
         dataSource={nodes}
+        scroll={{ x: 'max-content' }}
         search={false}
         pagination={false}
         options={{ reload: false }}

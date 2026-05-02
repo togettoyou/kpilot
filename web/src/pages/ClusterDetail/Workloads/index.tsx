@@ -557,6 +557,10 @@ function WorkloadsContent({
         rowKey={(r) => `${r.namespace}/${r.name}`}
         dataSource={items}
         columns={columns}
+        // Honor explicit column widths and scroll horizontally when the sum
+        // exceeds the container — otherwise antd squeezes columns and Chinese
+        // headers wrap one character per line.
+        scroll={{ x: 'max-content' }}
         search={false}
         pagination={false}
         options={{ reload: false }}
@@ -604,7 +608,7 @@ function WorkloadsContent({
         )}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={680}
+        size={680}
         footer={
           <Space style={{ float: 'right' }}>
             <Button onClick={() => setDrawerOpen(false)}>
