@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -56,25 +57,32 @@ func PodLogs(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		rawConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			stream.Close()
 			return
 		}
-		defer conn.Close()
+		conn := newWSConn(rawConn)
+		defer rawConn.Close()
 		defer stream.Close()
+
+		hbCtx, hbCancel := context.WithCancel(c.Request.Context())
+		defer hbCancel()
+		conn.startHeartbeat(hbCtx)
 
 		if err := stream.Send(req); err != nil {
 			_ = conn.WriteMessage(websocket.TextMessage, []byte("[error] "+err.Error()))
 			return
 		}
 
-		// Goroutine: detect client disconnect → cancel worker side.
+		// Goroutine: detect client disconnect or read-deadline timeout (no pong)
+		// → cancel worker side. The read deadline is refreshed by the pong
+		// handler, so a healthy peer keeps NextReader blocked indefinitely.
 		clientGone := make(chan struct{})
 		go func() {
 			defer close(clientGone)
 			for {
-				if _, _, err := conn.NextReader(); err != nil {
+				if _, _, err := rawConn.NextReader(); err != nil {
 					return
 				}
 			}
@@ -160,13 +168,18 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		rawConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			stream.Close()
 			return
 		}
-		defer conn.Close()
+		conn := newWSConn(rawConn)
+		defer rawConn.Close()
 		defer stream.Close()
+
+		hbCtx, hbCancel := context.WithCancel(c.Request.Context())
+		defer hbCancel()
+		conn.startHeartbeat(hbCtx)
 
 		if err := stream.Send(req); err != nil {
 			_ = conn.WriteMessage(websocket.BinaryMessage, append([]byte{3}, []byte(err.Error())...))
@@ -174,11 +187,13 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 
 		// Browser → server pump: parse type-tagged frames into stdin/resize.
+		// Read deadline is refreshed by the pong handler — if the peer goes
+		// silent for >pongWait, ReadMessage returns an error and we tear down.
 		clientGone := make(chan struct{})
 		go func() {
 			defer close(clientGone)
 			for {
-				_, data, err := conn.ReadMessage()
+				_, data, err := rawConn.ReadMessage()
 				if err != nil {
 					return
 				}
