@@ -87,7 +87,6 @@ func (m *ExecManager) Start(sessionID string, req *proto.ExecStartRequest) {
 	// the user might be typing.
 	if len(cmd) == 1 && cmd[0] == "/bin/bash" {
 		if !m.hasShell(req.Namespace, req.Pod, req.Container, "/bin/bash") {
-			log.Printf("[exec] /bin/bash not found, falling back to /bin/sh: session=%s", sessionID)
 			cmd = []string{"/bin/sh"}
 		}
 	}
