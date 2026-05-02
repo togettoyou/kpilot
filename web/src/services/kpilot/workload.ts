@@ -68,6 +68,23 @@ export function deleteWorkload(
   });
 }
 
+// Returns plain text — the same output as `kubectl describe`.
+export function describeWorkload(
+  clusterId: string,
+  type: WorkloadResourceType,
+  name: string,
+  namespace = '',
+) {
+  return request<string>(
+    `/api/v1/clusters/${clusterId}/workloads/${type}/${name}/describe`,
+    {
+      method: 'GET',
+      params: namespace ? { namespace } : {},
+      responseType: 'text',
+    },
+  );
+}
+
 export function listNamespaces(clusterId: string) {
   return request<string[]>(`/api/v1/clusters/${clusterId}/namespaces`, {
     method: 'GET',

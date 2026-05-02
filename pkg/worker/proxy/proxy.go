@@ -19,6 +19,7 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"k8s.io/kubectl/pkg/describe"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
@@ -90,6 +91,8 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 		return p.apply(ctx, mapping, req.Namespace, req.Name, req.Body)
 	case "delete":
 		return p.delete(ctx, mapping, req.Namespace, req.Name)
+	case "describe":
+		return p.describe(mapping, req.Namespace, req.Name)
 	default:
 		return fail("unsupported action: " + req.Action)
 	}
@@ -191,6 +194,25 @@ func (p *Proxy) apply(ctx context.Context, mapping *apimeta.RESTMapping, namespa
 		return fail(err.Error())
 	}
 	return marshal(result)
+}
+
+// describe returns the same human-readable text that `kubectl describe` would
+// produce, by delegating to the official k8s.io/kubectl describer for the
+// resource's GroupKind. ShowEvents=true so the output includes the recent
+// events block — that's the most useful part for debugging.
+func (p *Proxy) describe(mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {
+	if name == "" {
+		return fail("name is required for describe")
+	}
+	describer, ok := describe.DescriberFor(mapping.GroupVersionKind.GroupKind(), p.cfg)
+	if !ok {
+		return fail(fmt.Sprintf("no describer for %s", mapping.GroupVersionKind.Kind))
+	}
+	output, err := describer.Describe(namespace, name, describe.DescriberSettings{ShowEvents: true})
+	if err != nil {
+		return fail(err.Error())
+	}
+	return &proto.ResourceResponse{Success: true, Data: []byte(output)}
 }
 
 func (p *Proxy) delete(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {

@@ -290,6 +290,45 @@ func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID strin
 	return r
 }
 
+// DescribeWorkload returns the kubectl-equivalent describe output as plain
+// text. The Worker delegates to k8s.io/kubectl/pkg/describe so the format
+// matches `kubectl describe` 1:1, including the events block.
+func DescribeWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		resourceType := c.Param("type")
+		name := c.Param("name")
+		namespace := c.Query("namespace")
+
+		gvk, ok := resourceGVK[resourceType]
+		if !ok {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:    "describe",
+			Group:     gvk.group,
+			Version:   gvk.version,
+			Kind:      gvk.kind,
+			Namespace: namespace,
+			Name:      name,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			apiErrWorker(c, resp.Error)
+			return
+		}
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", resp.Data)
+	}
+}
+
 func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")

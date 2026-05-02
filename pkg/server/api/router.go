@@ -64,6 +64,7 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.GET("/:id/namespaces", handler.ListNamespaces(gw))
 		clusters.GET("/:id/workloads/:type", handler.ListWorkloads(gw))
 		clusters.GET("/:id/workloads/:type/:name", handler.GetWorkload(gw))
+		clusters.GET("/:id/workloads/:type/:name/describe", handler.DescribeWorkload(gw))
 		clusters.PUT("/:id/workloads/:type/:name", handler.ApplyWorkload(gw))
 		clusters.DELETE("/:id/workloads/:type/:name", handler.DeleteWorkload(gw))
 		clusters.POST("/:id/apply", handler.ApplyYAML(gw))

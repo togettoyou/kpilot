@@ -32,6 +32,7 @@ import {
   listWorkloads,
 } from '@/services/kpilot/workload';
 import { ApplyYamlDrawer } from './ApplyYamlDrawer';
+import { DescribeDrawer } from './DescribeDrawer';
 import { PodExecDrawer } from './PodExecDrawer';
 import { PodLogsDrawer } from './PodLogsDrawer';
 import { YamlEditor } from './YamlEditor';
@@ -300,6 +301,11 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
   const [logsTarget, setLogsTarget] = useState<WorkloadItem | null>(null);
   const [execTarget, setExecTarget] = useState<WorkloadItem | null>(null);
 
+  // Describe drawer — available for every workload type.
+  const [describeTarget, setDescribeTarget] = useState<WorkloadItem | null>(
+    null,
+  );
+
   // Generic Apply YAML drawer — always available regardless of resourceType.
   const [applyOpen, setApplyOpen] = useState(false);
 
@@ -428,10 +434,20 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
     const actionsColumn: ProColumns<WorkloadItem> = {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       valueType: 'option',
-      width: isPods ? 240 : 120,
+      width: isPods ? 300 : 180,
       fixed: 'right',
       render: (_, record) => {
         const isProtected = (record.namespace ?? '').startsWith('kube-');
+        const describeBtn = (
+          <Button
+            key="describe"
+            type="link"
+            size="small"
+            onClick={() => setDescribeTarget(record)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.describe' })}
+          </Button>
+        );
         const podActions = isPods
           ? [
               <Button
@@ -455,6 +471,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
         if (isProtected) {
           return [
             podActions,
+            describeBtn,
             <Button
               key="view"
               type="link"
@@ -467,6 +484,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
         }
         return [
           podActions,
+          describeBtn,
           <Button
             key="edit"
             type="link"
@@ -651,6 +669,16 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
           clusterId={clusterId}
           namespace={execTarget.namespace ?? ''}
           podName={execTarget.name}
+        />
+      )}
+      {describeTarget && (
+        <DescribeDrawer
+          open={!!describeTarget}
+          onClose={() => setDescribeTarget(null)}
+          clusterId={clusterId}
+          resourceType={resourceType}
+          name={describeTarget.name}
+          namespace={describeTarget.namespace ?? ''}
         />
       )}
       <ApplyYamlDrawer
