@@ -219,6 +219,83 @@ kpilot/
 
 ---
 
+## 后端开发规范
+
+### 错误返回（Server HTTP handler）
+统一用 `pkg/server/api/handler/errors.go` 的三个 helper，**不手写** `c.JSON(500, ...)`：
+- `apiErr(c, status, code)` —— 已知错误码，前端按 `errors.{CODE}` 查表展示
+- `apiErrInternal(c, err)` —— 服务器内部错误：实际错误打 log，对外只返回 500 + `INTERNAL_ERROR`，**不泄漏内部信息**
+- `apiErrWorker(c, errMsg)` —— Worker / K8s API 返回的错误（如 validation、409 conflict）：透传消息给前端，码为 `WORKER_ERROR`
+
+新增错误码：在 `errors.go` 的 `Code*` 常量加一个，**同时**在 `web/src/locales/{zh-CN,en-US}/pages.ts` 的 `errors.{CODE}` 加翻译。
+
+### 日志格式
+统一 `log.Printf("[component] msg: key=value", ...)`：
+- component 用小写横线（`gateway`、`pod-logs`、`pod-exec`、`proxy`、`tunnel`、`handler` 等）
+- 数据用 `key=value` 风格便于 grep
+- 错误用 `err=%v`
+
+### gRPC 与 Worker 通信
+- **gRPC stream 写入必须串行化**：`grpc.ClientStream` / `grpc.ServerStream` 的 `Send` 不是并发安全的。Server 端用 `ConnectedWorker.sendMu`，Worker 端用 `Client.sendMu`。任何并发 Send 都要先拿锁
+- **一次性请求-响应**（list/get/apply/delete K8s 资源）：用 `gateway.SendResourceRequest(ctx, clusterID, req)`，内部按 request_id 注册 pending channel，超时由 ctx 控制
+- **流式会话**（Pod 日志 / exec）：用 `gateway.OpenStream(clusterID)` 拿到 `*Stream`，`Stream.Send(payload)` 写、`<-Stream.Recv()` 读、`Stream.Close()` 关。Stream 的 send-on-closed 防御已在 `Stream.deliver` 内做了 closeMu 保护，**新增流类型时套这个模式**
+- **Worker 断开时**：gateway `unregister` 会自动 `closeClusterStreams` 清理所有该集群的活跃 stream，WS handler 会从 `<-stream.Recv()` 拿到 `ok=false` 退出
+
+### K8s 资源代理（Worker 端）
+- **列表**：用 K8s Table API（`Accept: application/json;as=Table;v=v1;g=meta.k8s.io`），仅传元数据 + 单元格值，不传完整 spec/status
+- **写入**：用 Server-Side Apply（`Patch` + `ApplyPatchType`，`fieldManager=kpilot`，`force=true`），**不要用 Update**——SSA 幂等且无需携带 resourceVersion，避免并发 409
+- **流式**（logs/exec）：单独的 manager（`LogsManager`、`ExecManager`），按 sessionID 维护 cancel func / pipe / chan，分发器的 stdin/resize/cancel handler 必须**快返回**（不要在 handler 里阻塞）
+
+### WebSocket（Server 端）
+所有 WS 端点统一用 `pkg/server/api/handler/ws.go` 的 `wsConn` helper：
+- `wsConn.WriteMessage` / `wsConn.WriteControl` 带 writeMu，**多 goroutine 并发写必须用它**（gorilla/websocket 写不是并发安全的）
+- `wsConn.startHeartbeat(ctx)` 启动 ping/pong（pongWait 60s，pingPeriod 54s），半开连接 60s 内能感知
+- handler 退出时 `defer hbCancel()` 停止 pinger goroutine
+
+### 配置
+- 全部走环境变量，集中在 `pkg/server/config/config.go` 的 `Load()`
+- 默认值用 `getEnv(key, default)` 风格
+- 列表型（如 `CORS_ORIGINS`）逗号分隔，解析时 trim space + 去空
+
+### CORS
+- 白名单制，从 `cfg.CORSOrigins` 读取
+- 空列表 = dev 模式（任意 origin），生产必须显式设置
+- 永远带 `Access-Control-Allow-Credentials: true`（前端依赖 cookie）
+
+### 包组织
+```
+pkg/
+├── server/
+│   ├── api/
+│   │   ├── handler/   # gin handler，纯 HTTP 转换层，不写业务
+│   │   ├── middleware/# JWT 等
+│   │   └── router.go
+│   ├── service/       # 业务逻辑（待补充，目前 handler 直接调 store + gateway）
+│   ├── store/         # GORM CRUD，纯数据库
+│   └── gateway/       # gRPC server + Worker 连接管理 + stream 路由
+├── worker/
+│   ├── proxy/         # K8s 资源代理 + logs/exec manager
+│   ├── collector/     # 节点信息采集（controller-runtime watch）
+│   └── tunnel/        # gRPC client + 心跳 + 消息分发
+└── common/
+    ├── proto/         # protoc 生成，不手动编辑
+    └── types/         # 跨包共享类型
+```
+
+handler 不直接写 SQL / 不调 K8s API，所有外部依赖通过 store / gateway 接入。
+
+### Proto 改动
+1. 改 `proto/pilot.proto`
+2. 跑 `bash hack/gen-proto.sh` 重新生成 `pkg/common/proto/*.pb.go`
+3. 生成的文件**不手动编辑**
+
+新增 oneof 变体时同步更新：
+- gateway 的 `handleWorkerMessage` switch（如果 Worker → Server）
+- worker tunnel 的 `handleServerMessage` switch（如果 Server → Worker）
+- 流式消息：还要更新 `Stream.Send` 的 type switch、`tunnel.SendStreamMessage` 的 type switch
+
+---
+
 ## 前端开发规范（web/）
 
 ### 技术栈
