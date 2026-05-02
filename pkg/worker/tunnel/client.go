@@ -34,6 +34,16 @@ type Client struct {
 	onConnected     func(context.Context) // called in a goroutine after each successful registration
 	resourceHandler func(requestID string, req *proto.ResourceRequest)
 
+	// Streaming session handlers — invoked when the corresponding ServerMessage
+	// payload arrives. The handler is responsible for spawning its own
+	// goroutine for long-lived sessions; this dispatcher only routes.
+	logsStartHandler  func(sessionID string, req *proto.LogsStartRequest)
+	logsCancelHandler func(sessionID string)
+	execStartHandler  func(sessionID string, req *proto.ExecStartRequest)
+	execStdinHandler  func(sessionID string, data []byte)
+	execResizeHandler func(sessionID string, cols, rows uint32)
+	execCancelHandler func(sessionID string)
+
 	mu     sync.Mutex
 	sendMu sync.Mutex // serializes concurrent Send calls on the active stream
 	stream proto.PilotService_ConnectClient
@@ -56,6 +66,54 @@ func (c *Client) SetOnConnected(fn func(context.Context)) {
 // the Server sends a ResourceRequest. Used by the P3 proxy layer.
 func (c *Client) SetResourceHandler(fn func(requestID string, req *proto.ResourceRequest)) {
 	c.resourceHandler = fn
+}
+
+// SetStreamHandlers registers callbacks for streaming sessions (Pod logs and
+// Exec). Start handlers are invoked in a new goroutine — they own the
+// session's lifetime and must consume their own follow-up frames (stdin,
+// resize, cancel) by storing the sessionID and reading from a shared map.
+// Stdin/resize/cancel handlers run on the dispatcher goroutine and should
+// only forward the data to the owning session quickly.
+func (c *Client) SetStreamHandlers(
+	logsStart func(sessionID string, req *proto.LogsStartRequest),
+	logsCancel func(sessionID string),
+	execStart func(sessionID string, req *proto.ExecStartRequest),
+	execStdin func(sessionID string, data []byte),
+	execResize func(sessionID string, cols, rows uint32),
+	execCancel func(sessionID string),
+) {
+	c.logsStartHandler = logsStart
+	c.logsCancelHandler = logsCancel
+	c.execStartHandler = execStart
+	c.execStdinHandler = execStdin
+	c.execResizeHandler = execResize
+	c.execCancelHandler = execCancel
+}
+
+// SendStreamMessage forwards a worker → server stream frame (LogsChunk,
+// LogsEnd, ExecOutput, ExecEnd) tagged with the given session id.
+func (c *Client) SendStreamMessage(sessionID string, payload any) error {
+	c.mu.Lock()
+	s := c.stream
+	c.mu.Unlock()
+	if s == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	msg := &proto.WorkerMessage{RequestId: sessionID}
+	switch p := payload.(type) {
+	case *proto.LogsChunk:
+		msg.Payload = &proto.WorkerMessage_LogsChunk{LogsChunk: p}
+	case *proto.LogsEnd:
+		msg.Payload = &proto.WorkerMessage_LogsEnd{LogsEnd: p}
+	case *proto.ExecOutput:
+		msg.Payload = &proto.WorkerMessage_ExecOutput{ExecOutput: p}
+	case *proto.ExecEnd:
+		msg.Payload = &proto.WorkerMessage_ExecEnd{ExecEnd: p}
+	default:
+		return fmt.Errorf("unsupported stream payload type: %T", payload)
+	}
+	return c.safeSend(s, msg)
 }
 
 // safeSend serializes concurrent Send calls; gRPC streams are not thread-safe for Send.
@@ -227,6 +285,30 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 	case *proto.ServerMessage_PluginCmd:
 		// TODO P4
 		_ = p
+	case *proto.ServerMessage_LogsStart:
+		if c.logsStartHandler != nil {
+			go c.logsStartHandler(msg.RequestId, p.LogsStart)
+		}
+	case *proto.ServerMessage_LogsCancel:
+		if c.logsCancelHandler != nil {
+			c.logsCancelHandler(msg.RequestId)
+		}
+	case *proto.ServerMessage_ExecStart:
+		if c.execStartHandler != nil {
+			go c.execStartHandler(msg.RequestId, p.ExecStart)
+		}
+	case *proto.ServerMessage_ExecStdin:
+		if c.execStdinHandler != nil {
+			c.execStdinHandler(msg.RequestId, p.ExecStdin.Data)
+		}
+	case *proto.ServerMessage_ExecResize:
+		if c.execResizeHandler != nil {
+			c.execResizeHandler(msg.RequestId, p.ExecResize.Cols, p.ExecResize.Rows)
+		}
+	case *proto.ServerMessage_ExecCancel:
+		if c.execCancelHandler != nil {
+			c.execCancelHandler(msg.RequestId)
+		}
 	}
 }
 

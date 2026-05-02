@@ -22,8 +22,11 @@ const (
 )
 
 type WorkerMessage struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	RequestId string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"` // 空字符串表示 Push，非空表示 Response
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty for one-off pushes (NodeListPush, Heartbeat).
+	// For Resource: matches the request_id of the originating ResourceRequest.
+	// For Logs/Exec: session_id (stable across all messages of the same session).
+	RequestId string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*WorkerMessage_Register
@@ -31,6 +34,10 @@ type WorkerMessage struct {
 	//	*WorkerMessage_NodeList
 	//	*WorkerMessage_ResourceResp
 	//	*WorkerMessage_PluginStatus
+	//	*WorkerMessage_LogsChunk
+	//	*WorkerMessage_LogsEnd
+	//	*WorkerMessage_ExecOutput
+	//	*WorkerMessage_ExecEnd
 	Payload       isWorkerMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -125,6 +132,42 @@ func (x *WorkerMessage) GetPluginStatus() *PluginStatusPush {
 	return nil
 }
 
+func (x *WorkerMessage) GetLogsChunk() *LogsChunk {
+	if x != nil {
+		if x, ok := x.Payload.(*WorkerMessage_LogsChunk); ok {
+			return x.LogsChunk
+		}
+	}
+	return nil
+}
+
+func (x *WorkerMessage) GetLogsEnd() *LogsEnd {
+	if x != nil {
+		if x, ok := x.Payload.(*WorkerMessage_LogsEnd); ok {
+			return x.LogsEnd
+		}
+	}
+	return nil
+}
+
+func (x *WorkerMessage) GetExecOutput() *ExecOutput {
+	if x != nil {
+		if x, ok := x.Payload.(*WorkerMessage_ExecOutput); ok {
+			return x.ExecOutput
+		}
+	}
+	return nil
+}
+
+func (x *WorkerMessage) GetExecEnd() *ExecEnd {
+	if x != nil {
+		if x, ok := x.Payload.(*WorkerMessage_ExecEnd); ok {
+			return x.ExecEnd
+		}
+	}
+	return nil
+}
+
 type isWorkerMessage_Payload interface {
 	isWorkerMessage_Payload()
 }
@@ -149,6 +192,23 @@ type WorkerMessage_PluginStatus struct {
 	PluginStatus *PluginStatusPush `protobuf:"bytes,40,opt,name=plugin_status,json=pluginStatus,proto3,oneof"`
 }
 
+type WorkerMessage_LogsChunk struct {
+	// Streaming sessions (logs / exec)
+	LogsChunk *LogsChunk `protobuf:"bytes,50,opt,name=logs_chunk,json=logsChunk,proto3,oneof"`
+}
+
+type WorkerMessage_LogsEnd struct {
+	LogsEnd *LogsEnd `protobuf:"bytes,51,opt,name=logs_end,json=logsEnd,proto3,oneof"`
+}
+
+type WorkerMessage_ExecOutput struct {
+	ExecOutput *ExecOutput `protobuf:"bytes,60,opt,name=exec_output,json=execOutput,proto3,oneof"`
+}
+
+type WorkerMessage_ExecEnd struct {
+	ExecEnd *ExecEnd `protobuf:"bytes,61,opt,name=exec_end,json=execEnd,proto3,oneof"`
+}
+
 func (*WorkerMessage_Register) isWorkerMessage_Payload() {}
 
 func (*WorkerMessage_Heartbeat) isWorkerMessage_Payload() {}
@@ -158,6 +218,14 @@ func (*WorkerMessage_NodeList) isWorkerMessage_Payload() {}
 func (*WorkerMessage_ResourceResp) isWorkerMessage_Payload() {}
 
 func (*WorkerMessage_PluginStatus) isWorkerMessage_Payload() {}
+
+func (*WorkerMessage_LogsChunk) isWorkerMessage_Payload() {}
+
+func (*WorkerMessage_LogsEnd) isWorkerMessage_Payload() {}
+
+func (*WorkerMessage_ExecOutput) isWorkerMessage_Payload() {}
+
+func (*WorkerMessage_ExecEnd) isWorkerMessage_Payload() {}
 
 type RegisterRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -587,6 +655,12 @@ type ServerMessage struct {
 	//	*ServerMessage_RegisterAck
 	//	*ServerMessage_ResourceReq
 	//	*ServerMessage_PluginCmd
+	//	*ServerMessage_LogsStart
+	//	*ServerMessage_LogsCancel
+	//	*ServerMessage_ExecStart
+	//	*ServerMessage_ExecStdin
+	//	*ServerMessage_ExecResize
+	//	*ServerMessage_ExecCancel
 	Payload       isServerMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -663,6 +737,60 @@ func (x *ServerMessage) GetPluginCmd() *PluginCommand {
 	return nil
 }
 
+func (x *ServerMessage) GetLogsStart() *LogsStartRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_LogsStart); ok {
+			return x.LogsStart
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetLogsCancel() *LogsCancelRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_LogsCancel); ok {
+			return x.LogsCancel
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetExecStart() *ExecStartRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_ExecStart); ok {
+			return x.ExecStart
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetExecStdin() *ExecStdin {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_ExecStdin); ok {
+			return x.ExecStdin
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetExecResize() *ExecResize {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_ExecResize); ok {
+			return x.ExecResize
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetExecCancel() *ExecCancelRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_ExecCancel); ok {
+			return x.ExecCancel
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Payload interface {
 	isServerMessage_Payload()
 }
@@ -679,11 +807,48 @@ type ServerMessage_PluginCmd struct {
 	PluginCmd *PluginCommand `protobuf:"bytes,30,opt,name=plugin_cmd,json=pluginCmd,proto3,oneof"`
 }
 
+type ServerMessage_LogsStart struct {
+	// Streaming sessions (logs / exec)
+	LogsStart *LogsStartRequest `protobuf:"bytes,40,opt,name=logs_start,json=logsStart,proto3,oneof"`
+}
+
+type ServerMessage_LogsCancel struct {
+	LogsCancel *LogsCancelRequest `protobuf:"bytes,41,opt,name=logs_cancel,json=logsCancel,proto3,oneof"`
+}
+
+type ServerMessage_ExecStart struct {
+	ExecStart *ExecStartRequest `protobuf:"bytes,50,opt,name=exec_start,json=execStart,proto3,oneof"`
+}
+
+type ServerMessage_ExecStdin struct {
+	ExecStdin *ExecStdin `protobuf:"bytes,51,opt,name=exec_stdin,json=execStdin,proto3,oneof"`
+}
+
+type ServerMessage_ExecResize struct {
+	ExecResize *ExecResize `protobuf:"bytes,52,opt,name=exec_resize,json=execResize,proto3,oneof"`
+}
+
+type ServerMessage_ExecCancel struct {
+	ExecCancel *ExecCancelRequest `protobuf:"bytes,53,opt,name=exec_cancel,json=execCancel,proto3,oneof"`
+}
+
 func (*ServerMessage_RegisterAck) isServerMessage_Payload() {}
 
 func (*ServerMessage_ResourceReq) isServerMessage_Payload() {}
 
 func (*ServerMessage_PluginCmd) isServerMessage_Payload() {}
+
+func (*ServerMessage_LogsStart) isServerMessage_Payload() {}
+
+func (*ServerMessage_LogsCancel) isServerMessage_Payload() {}
+
+func (*ServerMessage_ExecStart) isServerMessage_Payload() {}
+
+func (*ServerMessage_ExecStdin) isServerMessage_Payload() {}
+
+func (*ServerMessage_ExecResize) isServerMessage_Payload() {}
+
+func (*ServerMessage_ExecCancel) isServerMessage_Payload() {}
 
 type RegisterAck struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -922,11 +1087,555 @@ func (x *PluginCommand) GetValues() []byte {
 	return nil
 }
 
+type LogsStartRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Pod           string                 `protobuf:"bytes,2,opt,name=pod,proto3" json:"pod,omitempty"`
+	Container     string                 `protobuf:"bytes,3,opt,name=container,proto3" json:"container,omitempty"` // empty = first/default container
+	Follow        bool                   `protobuf:"varint,4,opt,name=follow,proto3" json:"follow,omitempty"`
+	TailLines     int64                  `protobuf:"varint,5,opt,name=tail_lines,json=tailLines,proto3" json:"tail_lines,omitempty"`          // 0 = no tail limit
+	SinceSeconds  int64                  `protobuf:"varint,6,opt,name=since_seconds,json=sinceSeconds,proto3" json:"since_seconds,omitempty"` // 0 = no time limit
+	Previous      bool                   `protobuf:"varint,7,opt,name=previous,proto3" json:"previous,omitempty"`                             // logs from previous container instance
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogsStartRequest) Reset() {
+	*x = LogsStartRequest{}
+	mi := &file_pilot_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogsStartRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogsStartRequest) ProtoMessage() {}
+
+func (x *LogsStartRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogsStartRequest.ProtoReflect.Descriptor instead.
+func (*LogsStartRequest) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *LogsStartRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *LogsStartRequest) GetPod() string {
+	if x != nil {
+		return x.Pod
+	}
+	return ""
+}
+
+func (x *LogsStartRequest) GetContainer() string {
+	if x != nil {
+		return x.Container
+	}
+	return ""
+}
+
+func (x *LogsStartRequest) GetFollow() bool {
+	if x != nil {
+		return x.Follow
+	}
+	return false
+}
+
+func (x *LogsStartRequest) GetTailLines() int64 {
+	if x != nil {
+		return x.TailLines
+	}
+	return 0
+}
+
+func (x *LogsStartRequest) GetSinceSeconds() int64 {
+	if x != nil {
+		return x.SinceSeconds
+	}
+	return 0
+}
+
+func (x *LogsStartRequest) GetPrevious() bool {
+	if x != nil {
+		return x.Previous
+	}
+	return false
+}
+
+type LogsCancelRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogsCancelRequest) Reset() {
+	*x = LogsCancelRequest{}
+	mi := &file_pilot_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogsCancelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogsCancelRequest) ProtoMessage() {}
+
+func (x *LogsCancelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogsCancelRequest.ProtoReflect.Descriptor instead.
+func (*LogsCancelRequest) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{12}
+}
+
+type LogsChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogsChunk) Reset() {
+	*x = LogsChunk{}
+	mi := &file_pilot_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogsChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogsChunk) ProtoMessage() {}
+
+func (x *LogsChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogsChunk.ProtoReflect.Descriptor instead.
+func (*LogsChunk) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *LogsChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type LogsEnd struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Error         string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"` // empty = clean EOF
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogsEnd) Reset() {
+	*x = LogsEnd{}
+	mi := &file_pilot_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogsEnd) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogsEnd) ProtoMessage() {}
+
+func (x *LogsEnd) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogsEnd.ProtoReflect.Descriptor instead.
+func (*LogsEnd) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *LogsEnd) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type ExecStartRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Pod           string                 `protobuf:"bytes,2,opt,name=pod,proto3" json:"pod,omitempty"`
+	Container     string                 `protobuf:"bytes,3,opt,name=container,proto3" json:"container,omitempty"`
+	Command       []string               `protobuf:"bytes,4,rep,name=command,proto3" json:"command,omitempty"`
+	Tty           bool                   `protobuf:"varint,5,opt,name=tty,proto3" json:"tty,omitempty"`
+	Cols          uint32                 `protobuf:"varint,6,opt,name=cols,proto3" json:"cols,omitempty"` // initial terminal size
+	Rows          uint32                 `protobuf:"varint,7,opt,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecStartRequest) Reset() {
+	*x = ExecStartRequest{}
+	mi := &file_pilot_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecStartRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecStartRequest) ProtoMessage() {}
+
+func (x *ExecStartRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecStartRequest.ProtoReflect.Descriptor instead.
+func (*ExecStartRequest) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ExecStartRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *ExecStartRequest) GetPod() string {
+	if x != nil {
+		return x.Pod
+	}
+	return ""
+}
+
+func (x *ExecStartRequest) GetContainer() string {
+	if x != nil {
+		return x.Container
+	}
+	return ""
+}
+
+func (x *ExecStartRequest) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *ExecStartRequest) GetTty() bool {
+	if x != nil {
+		return x.Tty
+	}
+	return false
+}
+
+func (x *ExecStartRequest) GetCols() uint32 {
+	if x != nil {
+		return x.Cols
+	}
+	return 0
+}
+
+func (x *ExecStartRequest) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+type ExecStdin struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecStdin) Reset() {
+	*x = ExecStdin{}
+	mi := &file_pilot_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecStdin) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecStdin) ProtoMessage() {}
+
+func (x *ExecStdin) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecStdin.ProtoReflect.Descriptor instead.
+func (*ExecStdin) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ExecStdin) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type ExecResize struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cols          uint32                 `protobuf:"varint,1,opt,name=cols,proto3" json:"cols,omitempty"`
+	Rows          uint32                 `protobuf:"varint,2,opt,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecResize) Reset() {
+	*x = ExecResize{}
+	mi := &file_pilot_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecResize) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecResize) ProtoMessage() {}
+
+func (x *ExecResize) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecResize.ProtoReflect.Descriptor instead.
+func (*ExecResize) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ExecResize) GetCols() uint32 {
+	if x != nil {
+		return x.Cols
+	}
+	return 0
+}
+
+func (x *ExecResize) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+type ExecCancelRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecCancelRequest) Reset() {
+	*x = ExecCancelRequest{}
+	mi := &file_pilot_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecCancelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecCancelRequest) ProtoMessage() {}
+
+func (x *ExecCancelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecCancelRequest.ProtoReflect.Descriptor instead.
+func (*ExecCancelRequest) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{18}
+}
+
+type ExecOutput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Stream        uint32                 `protobuf:"varint,1,opt,name=stream,proto3" json:"stream,omitempty"` // 1=stdout, 2=stderr
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecOutput) Reset() {
+	*x = ExecOutput{}
+	mi := &file_pilot_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecOutput) ProtoMessage() {}
+
+func (x *ExecOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecOutput.ProtoReflect.Descriptor instead.
+func (*ExecOutput) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ExecOutput) GetStream() uint32 {
+	if x != nil {
+		return x.Stream
+	}
+	return 0
+}
+
+func (x *ExecOutput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type ExecEnd struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExitCode      int32                  `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecEnd) Reset() {
+	*x = ExecEnd{}
+	mi := &file_pilot_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecEnd) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecEnd) ProtoMessage() {}
+
+func (x *ExecEnd) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecEnd.ProtoReflect.Descriptor instead.
+func (*ExecEnd) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ExecEnd) GetExitCode() int32 {
+	if x != nil {
+		return x.ExitCode
+	}
+	return 0
+}
+
+func (x *ExecEnd) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_pilot_proto protoreflect.FileDescriptor
 
 const file_pilot_proto_rawDesc = "" +
 	"\n" +
-	"\vpilot.proto\x12\bpilot.v1\"\xeb\x02\n" +
+	"\vpilot.proto\x12\bpilot.v1\"\xba\x04\n" +
 	"\rWorkerMessage\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x127\n" +
@@ -935,7 +1644,13 @@ const file_pilot_proto_rawDesc = "" +
 	"\theartbeat\x18\v \x01(\v2\x1a.pilot.v1.HeartbeatRequestH\x00R\theartbeat\x125\n" +
 	"\tnode_list\x18\x14 \x01(\v2\x16.pilot.v1.NodeListPushH\x00R\bnodeList\x12A\n" +
 	"\rresource_resp\x18\x1e \x01(\v2\x1a.pilot.v1.ResourceResponseH\x00R\fresourceResp\x12A\n" +
-	"\rplugin_status\x18( \x01(\v2\x1a.pilot.v1.PluginStatusPushH\x00R\fpluginStatusB\t\n" +
+	"\rplugin_status\x18( \x01(\v2\x1a.pilot.v1.PluginStatusPushH\x00R\fpluginStatus\x124\n" +
+	"\n" +
+	"logs_chunk\x182 \x01(\v2\x13.pilot.v1.LogsChunkH\x00R\tlogsChunk\x12.\n" +
+	"\blogs_end\x183 \x01(\v2\x11.pilot.v1.LogsEndH\x00R\alogsEnd\x127\n" +
+	"\vexec_output\x18< \x01(\v2\x14.pilot.v1.ExecOutputH\x00R\n" +
+	"execOutput\x12.\n" +
+	"\bexec_end\x18= \x01(\v2\x11.pilot.v1.ExecEndH\x00R\aexecEndB\t\n" +
 	"\apayload\"]\n" +
 	"\x0fRegisterRequest\x12#\n" +
 	"\rcluster_token\x18\x01 \x01(\tR\fclusterToken\x12%\n" +
@@ -977,7 +1692,7 @@ const file_pilot_proto_rawDesc = "" +
 	"\vplugin_type\x18\x01 \x01(\tR\n" +
 	"pluginType\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xef\x01\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\xd8\x04\n" +
 	"\rServerMessage\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12:\n" +
@@ -985,7 +1700,19 @@ const file_pilot_proto_rawDesc = "" +
 	" \x01(\v2\x15.pilot.v1.RegisterAckH\x00R\vregisterAck\x12>\n" +
 	"\fresource_req\x18\x14 \x01(\v2\x19.pilot.v1.ResourceRequestH\x00R\vresourceReq\x128\n" +
 	"\n" +
-	"plugin_cmd\x18\x1e \x01(\v2\x17.pilot.v1.PluginCommandH\x00R\tpluginCmdB\t\n" +
+	"plugin_cmd\x18\x1e \x01(\v2\x17.pilot.v1.PluginCommandH\x00R\tpluginCmd\x12;\n" +
+	"\n" +
+	"logs_start\x18( \x01(\v2\x1a.pilot.v1.LogsStartRequestH\x00R\tlogsStart\x12>\n" +
+	"\vlogs_cancel\x18) \x01(\v2\x1b.pilot.v1.LogsCancelRequestH\x00R\n" +
+	"logsCancel\x12;\n" +
+	"\n" +
+	"exec_start\x182 \x01(\v2\x1a.pilot.v1.ExecStartRequestH\x00R\texecStart\x124\n" +
+	"\n" +
+	"exec_stdin\x183 \x01(\v2\x13.pilot.v1.ExecStdinH\x00R\texecStdin\x127\n" +
+	"\vexec_resize\x184 \x01(\v2\x14.pilot.v1.ExecResizeH\x00R\n" +
+	"execResize\x12>\n" +
+	"\vexec_cancel\x185 \x01(\v2\x1b.pilot.v1.ExecCancelRequestH\x00R\n" +
+	"execCancelB\t\n" +
 	"\apayload\"`\n" +
 	"\vRegisterAck\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1d\n" +
@@ -1007,7 +1734,43 @@ const file_pilot_proto_rawDesc = "" +
 	"\vplugin_type\x18\x02 \x01(\tR\n" +
 	"pluginType\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x12\x16\n" +
-	"\x06values\x18\x04 \x01(\fR\x06values2O\n" +
+	"\x06values\x18\x04 \x01(\fR\x06values\"\xd8\x01\n" +
+	"\x10LogsStartRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x10\n" +
+	"\x03pod\x18\x02 \x01(\tR\x03pod\x12\x1c\n" +
+	"\tcontainer\x18\x03 \x01(\tR\tcontainer\x12\x16\n" +
+	"\x06follow\x18\x04 \x01(\bR\x06follow\x12\x1d\n" +
+	"\n" +
+	"tail_lines\x18\x05 \x01(\x03R\ttailLines\x12#\n" +
+	"\rsince_seconds\x18\x06 \x01(\x03R\fsinceSeconds\x12\x1a\n" +
+	"\bprevious\x18\a \x01(\bR\bprevious\"\x13\n" +
+	"\x11LogsCancelRequest\"\x1f\n" +
+	"\tLogsChunk\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"\x1f\n" +
+	"\aLogsEnd\x12\x14\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\"\xb4\x01\n" +
+	"\x10ExecStartRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x10\n" +
+	"\x03pod\x18\x02 \x01(\tR\x03pod\x12\x1c\n" +
+	"\tcontainer\x18\x03 \x01(\tR\tcontainer\x12\x18\n" +
+	"\acommand\x18\x04 \x03(\tR\acommand\x12\x10\n" +
+	"\x03tty\x18\x05 \x01(\bR\x03tty\x12\x12\n" +
+	"\x04cols\x18\x06 \x01(\rR\x04cols\x12\x12\n" +
+	"\x04rows\x18\a \x01(\rR\x04rows\"\x1f\n" +
+	"\tExecStdin\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"4\n" +
+	"\n" +
+	"ExecResize\x12\x12\n" +
+	"\x04cols\x18\x01 \x01(\rR\x04cols\x12\x12\n" +
+	"\x04rows\x18\x02 \x01(\rR\x04rows\"\x13\n" +
+	"\x11ExecCancelRequest\"8\n" +
+	"\n" +
+	"ExecOutput\x12\x16\n" +
+	"\x06stream\x18\x01 \x01(\rR\x06stream\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"<\n" +
+	"\aExecEnd\x12\x1b\n" +
+	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error2O\n" +
 	"\fPilotService\x12?\n" +
 	"\aConnect\x12\x17.pilot.v1.WorkerMessage\x1a\x17.pilot.v1.ServerMessage(\x010\x01B5Z3github.com/togettoyou/kpilot/pkg/common/proto;protob\x06proto3"
 
@@ -1023,21 +1786,31 @@ func file_pilot_proto_rawDescGZIP() []byte {
 	return file_pilot_proto_rawDescData
 }
 
-var file_pilot_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_pilot_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_pilot_proto_goTypes = []any{
-	(*WorkerMessage)(nil),    // 0: pilot.v1.WorkerMessage
-	(*RegisterRequest)(nil),  // 1: pilot.v1.RegisterRequest
-	(*HeartbeatRequest)(nil), // 2: pilot.v1.HeartbeatRequest
-	(*NodeListPush)(nil),     // 3: pilot.v1.NodeListPush
-	(*NodeInfo)(nil),         // 4: pilot.v1.NodeInfo
-	(*ResourceResponse)(nil), // 5: pilot.v1.ResourceResponse
-	(*PluginStatusPush)(nil), // 6: pilot.v1.PluginStatusPush
-	(*ServerMessage)(nil),    // 7: pilot.v1.ServerMessage
-	(*RegisterAck)(nil),      // 8: pilot.v1.RegisterAck
-	(*ResourceRequest)(nil),  // 9: pilot.v1.ResourceRequest
-	(*PluginCommand)(nil),    // 10: pilot.v1.PluginCommand
-	nil,                      // 11: pilot.v1.NodeInfo.LabelsEntry
-	nil,                      // 12: pilot.v1.NodeInfo.AnnotationsEntry
+	(*WorkerMessage)(nil),     // 0: pilot.v1.WorkerMessage
+	(*RegisterRequest)(nil),   // 1: pilot.v1.RegisterRequest
+	(*HeartbeatRequest)(nil),  // 2: pilot.v1.HeartbeatRequest
+	(*NodeListPush)(nil),      // 3: pilot.v1.NodeListPush
+	(*NodeInfo)(nil),          // 4: pilot.v1.NodeInfo
+	(*ResourceResponse)(nil),  // 5: pilot.v1.ResourceResponse
+	(*PluginStatusPush)(nil),  // 6: pilot.v1.PluginStatusPush
+	(*ServerMessage)(nil),     // 7: pilot.v1.ServerMessage
+	(*RegisterAck)(nil),       // 8: pilot.v1.RegisterAck
+	(*ResourceRequest)(nil),   // 9: pilot.v1.ResourceRequest
+	(*PluginCommand)(nil),     // 10: pilot.v1.PluginCommand
+	(*LogsStartRequest)(nil),  // 11: pilot.v1.LogsStartRequest
+	(*LogsCancelRequest)(nil), // 12: pilot.v1.LogsCancelRequest
+	(*LogsChunk)(nil),         // 13: pilot.v1.LogsChunk
+	(*LogsEnd)(nil),           // 14: pilot.v1.LogsEnd
+	(*ExecStartRequest)(nil),  // 15: pilot.v1.ExecStartRequest
+	(*ExecStdin)(nil),         // 16: pilot.v1.ExecStdin
+	(*ExecResize)(nil),        // 17: pilot.v1.ExecResize
+	(*ExecCancelRequest)(nil), // 18: pilot.v1.ExecCancelRequest
+	(*ExecOutput)(nil),        // 19: pilot.v1.ExecOutput
+	(*ExecEnd)(nil),           // 20: pilot.v1.ExecEnd
+	nil,                       // 21: pilot.v1.NodeInfo.LabelsEntry
+	nil,                       // 22: pilot.v1.NodeInfo.AnnotationsEntry
 }
 var file_pilot_proto_depIdxs = []int32{
 	1,  // 0: pilot.v1.WorkerMessage.register:type_name -> pilot.v1.RegisterRequest
@@ -1045,19 +1818,29 @@ var file_pilot_proto_depIdxs = []int32{
 	3,  // 2: pilot.v1.WorkerMessage.node_list:type_name -> pilot.v1.NodeListPush
 	5,  // 3: pilot.v1.WorkerMessage.resource_resp:type_name -> pilot.v1.ResourceResponse
 	6,  // 4: pilot.v1.WorkerMessage.plugin_status:type_name -> pilot.v1.PluginStatusPush
-	4,  // 5: pilot.v1.NodeListPush.nodes:type_name -> pilot.v1.NodeInfo
-	11, // 6: pilot.v1.NodeInfo.labels:type_name -> pilot.v1.NodeInfo.LabelsEntry
-	12, // 7: pilot.v1.NodeInfo.annotations:type_name -> pilot.v1.NodeInfo.AnnotationsEntry
-	8,  // 8: pilot.v1.ServerMessage.register_ack:type_name -> pilot.v1.RegisterAck
-	9,  // 9: pilot.v1.ServerMessage.resource_req:type_name -> pilot.v1.ResourceRequest
-	10, // 10: pilot.v1.ServerMessage.plugin_cmd:type_name -> pilot.v1.PluginCommand
-	0,  // 11: pilot.v1.PilotService.Connect:input_type -> pilot.v1.WorkerMessage
-	7,  // 12: pilot.v1.PilotService.Connect:output_type -> pilot.v1.ServerMessage
-	12, // [12:13] is the sub-list for method output_type
-	11, // [11:12] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	13, // 5: pilot.v1.WorkerMessage.logs_chunk:type_name -> pilot.v1.LogsChunk
+	14, // 6: pilot.v1.WorkerMessage.logs_end:type_name -> pilot.v1.LogsEnd
+	19, // 7: pilot.v1.WorkerMessage.exec_output:type_name -> pilot.v1.ExecOutput
+	20, // 8: pilot.v1.WorkerMessage.exec_end:type_name -> pilot.v1.ExecEnd
+	4,  // 9: pilot.v1.NodeListPush.nodes:type_name -> pilot.v1.NodeInfo
+	21, // 10: pilot.v1.NodeInfo.labels:type_name -> pilot.v1.NodeInfo.LabelsEntry
+	22, // 11: pilot.v1.NodeInfo.annotations:type_name -> pilot.v1.NodeInfo.AnnotationsEntry
+	8,  // 12: pilot.v1.ServerMessage.register_ack:type_name -> pilot.v1.RegisterAck
+	9,  // 13: pilot.v1.ServerMessage.resource_req:type_name -> pilot.v1.ResourceRequest
+	10, // 14: pilot.v1.ServerMessage.plugin_cmd:type_name -> pilot.v1.PluginCommand
+	11, // 15: pilot.v1.ServerMessage.logs_start:type_name -> pilot.v1.LogsStartRequest
+	12, // 16: pilot.v1.ServerMessage.logs_cancel:type_name -> pilot.v1.LogsCancelRequest
+	15, // 17: pilot.v1.ServerMessage.exec_start:type_name -> pilot.v1.ExecStartRequest
+	16, // 18: pilot.v1.ServerMessage.exec_stdin:type_name -> pilot.v1.ExecStdin
+	17, // 19: pilot.v1.ServerMessage.exec_resize:type_name -> pilot.v1.ExecResize
+	18, // 20: pilot.v1.ServerMessage.exec_cancel:type_name -> pilot.v1.ExecCancelRequest
+	0,  // 21: pilot.v1.PilotService.Connect:input_type -> pilot.v1.WorkerMessage
+	7,  // 22: pilot.v1.PilotService.Connect:output_type -> pilot.v1.ServerMessage
+	22, // [22:23] is the sub-list for method output_type
+	21, // [21:22] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_pilot_proto_init() }
@@ -1071,11 +1854,21 @@ func file_pilot_proto_init() {
 		(*WorkerMessage_NodeList)(nil),
 		(*WorkerMessage_ResourceResp)(nil),
 		(*WorkerMessage_PluginStatus)(nil),
+		(*WorkerMessage_LogsChunk)(nil),
+		(*WorkerMessage_LogsEnd)(nil),
+		(*WorkerMessage_ExecOutput)(nil),
+		(*WorkerMessage_ExecEnd)(nil),
 	}
 	file_pilot_proto_msgTypes[7].OneofWrappers = []any{
 		(*ServerMessage_RegisterAck)(nil),
 		(*ServerMessage_ResourceReq)(nil),
 		(*ServerMessage_PluginCmd)(nil),
+		(*ServerMessage_LogsStart)(nil),
+		(*ServerMessage_LogsCancel)(nil),
+		(*ServerMessage_ExecStart)(nil),
+		(*ServerMessage_ExecStdin)(nil),
+		(*ServerMessage_ExecResize)(nil),
+		(*ServerMessage_ExecCancel)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1083,7 +1876,7 @@ func file_pilot_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pilot_proto_rawDesc), len(file_pilot_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

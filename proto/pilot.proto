@@ -12,13 +12,22 @@ service PilotService {
 // ─── Worker → Server ─────────────────────────────────────────────────────────
 
 message WorkerMessage {
-  string request_id = 1; // 空字符串表示 Push，非空表示 Response
+  // Empty for one-off pushes (NodeListPush, Heartbeat).
+  // For Resource: matches the request_id of the originating ResourceRequest.
+  // For Logs/Exec: session_id (stable across all messages of the same session).
+  string request_id = 1;
   oneof payload {
     RegisterRequest    register        = 10;
     HeartbeatRequest   heartbeat       = 11;
     NodeListPush       node_list       = 20;
     ResourceResponse   resource_resp   = 30;
     PluginStatusPush   plugin_status   = 40;
+
+    // Streaming sessions (logs / exec)
+    LogsChunk          logs_chunk      = 50;
+    LogsEnd            logs_end        = 51;
+    ExecOutput         exec_output     = 60;
+    ExecEnd            exec_end        = 61;
   }
 }
 
@@ -82,6 +91,14 @@ message ServerMessage {
     RegisterAck     register_ack     = 10;
     ResourceRequest resource_req     = 20;
     PluginCommand   plugin_cmd       = 30;
+
+    // Streaming sessions (logs / exec)
+    LogsStartRequest  logs_start    = 40;
+    LogsCancelRequest logs_cancel   = 41;
+    ExecStartRequest  exec_start    = 50;
+    ExecStdin         exec_stdin    = 51;
+    ExecResize        exec_resize   = 52;
+    ExecCancelRequest exec_cancel   = 53;
   }
 }
 
@@ -110,4 +127,59 @@ message PluginCommand {
   string plugin_type = 2; // hami / victoria-metrics / victoria-logs / ...
   string version     = 3;
   bytes  values      = 4; // JSON 编码的 Helm values
+}
+
+// ─── Pod Logs (streaming) ────────────────────────────────────────────────────
+
+message LogsStartRequest {
+  string namespace     = 1;
+  string pod           = 2;
+  string container     = 3; // empty = first/default container
+  bool   follow        = 4;
+  int64  tail_lines    = 5; // 0 = no tail limit
+  int64  since_seconds = 6; // 0 = no time limit
+  bool   previous      = 7; // logs from previous container instance
+}
+
+message LogsCancelRequest {}
+
+message LogsChunk {
+  bytes data = 1;
+}
+
+message LogsEnd {
+  string error = 1; // empty = clean EOF
+}
+
+// ─── Pod Exec (bidirectional streaming) ──────────────────────────────────────
+
+message ExecStartRequest {
+  string          namespace = 1;
+  string          pod       = 2;
+  string          container = 3;
+  repeated string command   = 4;
+  bool            tty       = 5;
+  uint32          cols      = 6; // initial terminal size
+  uint32          rows      = 7;
+}
+
+message ExecStdin {
+  bytes data = 1;
+}
+
+message ExecResize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+message ExecCancelRequest {}
+
+message ExecOutput {
+  uint32 stream = 1; // 1=stdout, 2=stderr
+  bytes  data   = 2;
+}
+
+message ExecEnd {
+  int32  exit_code = 1;
+  string error     = 2;
 }

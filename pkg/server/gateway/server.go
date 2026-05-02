@@ -39,6 +39,11 @@ type GatewayServer struct {
 	// pendingMu guards the pending request-response map used by P3.
 	pendingMu sync.Mutex
 	pending   map[string]chan *proto.ResourceResponse
+
+	// streamMu guards active streaming sessions (Pod logs / Exec).
+	// Keyed by session_id (which is sent as request_id on the wire).
+	streamMu sync.Mutex
+	streams  map[string]*Stream
 }
 
 func NewGatewayServer() *GatewayServer {
@@ -46,6 +51,7 @@ func NewGatewayServer() *GatewayServer {
 		workers:   make(map[string]*ConnectedWorker),
 		nodeCache: make(map[string][]*proto.NodeInfo),
 		pending:   make(map[string]chan *proto.ResourceResponse),
+		streams:   make(map[string]*Stream),
 	}
 }
 
@@ -151,6 +157,26 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 		if ok {
 			ch <- resp
 		}
+	case *proto.WorkerMessage_LogsChunk, *proto.WorkerMessage_LogsEnd,
+		*proto.WorkerMessage_ExecOutput, *proto.WorkerMessage_ExecEnd:
+		g.routeStreamMessage(msg)
+	}
+}
+
+func (g *GatewayServer) routeStreamMessage(msg *proto.WorkerMessage) {
+	g.streamMu.Lock()
+	s, ok := g.streams[msg.RequestId]
+	g.streamMu.Unlock()
+	if !ok {
+		// Session already closed by the WS side — silently drop late frames.
+		return
+	}
+	select {
+	case s.msgCh <- msg:
+	default:
+		// Buffer full → consumer too slow. Drop this frame and log; for logs
+		// this means a brief gap, for exec it means the terminal lags.
+		log.Printf("[gateway] stream buffer full, dropping frame: session=%s", msg.RequestId)
 	}
 }
 
