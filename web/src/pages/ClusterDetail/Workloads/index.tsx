@@ -680,6 +680,7 @@ function WorkloadsContent({
         onClose={() => setApplyOpen(false)}
         onApplied={refresh}
         clusterId={clusterId}
+        resourceType={resourceType}
       />
     </div>
   );

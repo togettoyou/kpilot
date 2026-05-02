@@ -2,7 +2,6 @@ import {
   CheckCircleTwoTone,
   CloseCircleTwoTone,
   InboxOutlined,
-  UploadOutlined,
 } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import type { UploadProps } from 'antd';
@@ -19,7 +18,10 @@ import {
 } from 'antd';
 import React, { useEffect, useState } from 'react';
 
-import type { ApplyYamlResult } from '@/services/kpilot/workload';
+import type {
+  ApplyYamlResult,
+  WorkloadResourceType,
+} from '@/services/kpilot/workload';
 import { applyYAML } from '@/services/kpilot/workload';
 import { YamlEditor } from './YamlEditor';
 
@@ -28,16 +30,155 @@ interface ApplyYamlDrawerProps {
   onClose: () => void;
   onApplied: () => void;
   clusterId: string;
+  resourceType: WorkloadResourceType;
 }
 
-const PLACEHOLDER = `apiVersion: v1
+// Per-resource starting templates so the editor seeds with something
+// relevant to the current page (Deployments page → Deployment skeleton).
+// These are deliberately minimal so the user has less to delete; cleared/
+// replaced freely. The apply itself is type-agnostic — even on the Pods
+// page the user can paste a Service and it'll work.
+const TEMPLATES: Record<WorkloadResourceType, string> = {
+  deployments: `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: example
+  template:
+    metadata:
+      labels:
+        app: example
+    spec:
+      containers:
+        - name: app
+          image: nginx
+`,
+  statefulsets: `apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: example
+  namespace: default
+spec:
+  serviceName: example
+  replicas: 1
+  selector:
+    matchLabels:
+      app: example
+  template:
+    metadata:
+      labels:
+        app: example
+    spec:
+      containers:
+        - name: app
+          image: nginx
+`,
+  daemonsets: `apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: example
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: example
+  template:
+    metadata:
+      labels:
+        app: example
+    spec:
+      containers:
+        - name: app
+          image: nginx
+`,
+  pods: `apiVersion: v1
+kind: Pod
+metadata:
+  name: example
+  namespace: default
+spec:
+  containers:
+    - name: app
+      image: nginx
+`,
+  services: `apiVersion: v1
+kind: Service
+metadata:
+  name: example
+  namespace: default
+spec:
+  selector:
+    app: example
+  ports:
+    - port: 80
+      targetPort: 80
+`,
+  ingresses: `apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example
+  namespace: default
+spec:
+  rules:
+    - host: example.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: example
+                port:
+                  number: 80
+`,
+  configmaps: `apiVersion: v1
 kind: ConfigMap
 metadata:
   name: example
   namespace: default
 data:
-  hello: world
-`;
+  key: value
+`,
+  secrets: `apiVersion: v1
+kind: Secret
+metadata:
+  name: example
+  namespace: default
+type: Opaque
+stringData:
+  key: value
+`,
+  persistentvolumeclaims: `apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: example
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+`,
+  persistentvolumes: `apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: example
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /tmp/example
+`,
+};
 
 const MAX_FILE_BYTES = 1 << 20; // 1 MB — same cap as the server
 
@@ -46,6 +187,7 @@ export function ApplyYamlDrawer({
   onClose,
   onApplied,
   clusterId,
+  resourceType,
 }: ApplyYamlDrawerProps) {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -55,15 +197,16 @@ export function ApplyYamlDrawer({
   const [applying, setApplying] = useState(false);
   const [results, setResults] = useState<ApplyYamlResult[] | null>(null);
 
-  // Seed with a small template each time the drawer opens — gives a starting
-  // point if the user is creating something from scratch and didn't bring a
-  // file. They can clear/replace freely.
+  // Seed each time the drawer opens with a template matching the current
+  // page's resource type — gives a relevant starting point if the user is
+  // creating something from scratch. They can clear/replace freely; apply
+  // itself is type-agnostic (Deployments page can apply a Service, etc.).
   useEffect(() => {
     if (open) {
-      setYamlText(PLACEHOLDER);
+      setYamlText(TEMPLATES[resourceType] ?? '');
       setResults(null);
     }
-  }, [open]);
+  }, [open, resourceType]);
 
   const handleSubmit = async () => {
     const trimmed = yamlText.trim();
@@ -127,13 +270,6 @@ export function ApplyYamlDrawer({
       onClose={onClose}
       size={680}
       destroyOnHidden
-      extra={
-        <Upload {...uploadProps}>
-          <Button icon={<UploadOutlined />} size="small">
-            {intl.formatMessage({ id: 'pages.applyYaml.upload' })}
-          </Button>
-        </Upload>
-      }
       footer={
         <Space style={{ float: 'right' }}>
           <Button onClick={onClose}>

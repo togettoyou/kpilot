@@ -156,7 +156,6 @@ export default {
 
   // apply YAML drawer
   'pages.applyYaml.title': 'Apply YAML',
-  'pages.applyYaml.upload': 'Upload',
   'pages.applyYaml.dropHint': 'Click or drag .yaml / .yml / .json here',
   'pages.applyYaml.apply': 'Apply',
   'pages.applyYaml.success': 'Applied',

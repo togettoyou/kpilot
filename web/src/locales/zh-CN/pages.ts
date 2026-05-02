@@ -152,7 +152,6 @@ export default {
 
   // apply YAML drawer
   'pages.applyYaml.title': '应用 YAML',
-  'pages.applyYaml.upload': '上传文件',
   'pages.applyYaml.dropHint': '点击或拖拽 .yaml / .yml / .json 文件到此处',
   'pages.applyYaml.apply': '应用',
   'pages.applyYaml.success': '已应用',
