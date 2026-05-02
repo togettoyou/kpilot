@@ -168,7 +168,6 @@ export default {
   // pod exec drawer
   'pages.podExec.title': 'Pod Exec',
   'pages.podExec.container': 'Container',
-  'pages.podExec.shell': 'Shell',
   'pages.podExec.reload': 'Reconnect',
   'pages.podExec.error.connection': 'WebSocket connection failed',
 

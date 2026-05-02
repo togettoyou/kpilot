@@ -25,13 +25,14 @@ export function buildPodExecURL(
   clusterId: string,
   namespace: string,
   pod: string,
-  opts: { container?: string; command: string; cols: number; rows: number },
+  opts: { container?: string; cols: number; rows: number },
 ): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const params = new URLSearchParams();
   if (opts.container) params.set('container', opts.container);
-  params.set('command', opts.command);
   params.set('cols', String(opts.cols));
   params.set('rows', String(opts.rows));
+  // Shell selection is owned by the worker: it tries /bin/bash first and
+  // falls back to /bin/sh if bash isn't installed in the container.
   return `${proto}//${window.location.host}/api/v1/clusters/${clusterId}/pods/${namespace}/${pod}/exec?${params.toString()}`;
 }

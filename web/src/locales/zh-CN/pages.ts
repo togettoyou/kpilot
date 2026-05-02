@@ -164,7 +164,6 @@ export default {
   // pod exec drawer
   'pages.podExec.title': 'Pod 终端',
   'pages.podExec.container': '容器',
-  'pages.podExec.shell': 'Shell',
   'pages.podExec.reload': '重连',
   'pages.podExec.error.connection': 'WebSocket 连接失败',
 

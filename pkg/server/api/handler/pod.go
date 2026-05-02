@@ -146,11 +146,13 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 		cols := uint32(queryInt64(c, "cols", 80))
 		rows := uint32(queryInt64(c, "rows", 24))
 
-		cmdStr := c.Query("command")
-		if cmdStr == "" {
-			cmdStr = "/bin/sh"
+		// Empty command → leave Command nil so the worker picks the default
+		// (bash with auto-fallback to sh). Only override if the caller sent a
+		// custom command explicitly.
+		var cmd []string
+		if cmdStr := c.Query("command"); cmdStr != "" {
+			cmd = strings.Split(cmdStr, ",")
 		}
-		cmd := strings.Split(cmdStr, ",")
 
 		req := &proto.ExecStartRequest{
 			Namespace: namespace,

@@ -21,11 +21,6 @@ interface ContainerOption {
   isInit?: boolean;
 }
 
-const SHELL_OPTIONS = [
-  { label: 'bash', value: '/bin/bash' },
-  { label: 'sh', value: '/bin/sh' },
-];
-
 export function PodExecDrawer({
   open,
   onClose,
@@ -37,9 +32,6 @@ export function PodExecDrawer({
 
   const [containers, setContainers] = useState<ContainerOption[]>([]);
   const [container, setContainer] = useState<string>('');
-  // Default to bash; the worker auto-falls back to /bin/sh if bash isn't
-  // installed in the target container. The user can still pick sh explicitly.
-  const [shell, setShell] = useState<string>('/bin/bash');
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -105,7 +97,6 @@ export function PodExecDrawer({
 
     const url = buildPodExecURL(clusterId, namespace, podName, {
       container,
-      command: shell,
       cols: dims.cols,
       rows: dims.rows,
     });
@@ -184,7 +175,7 @@ export function PodExecDrawer({
       fitRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, clusterId, namespace, podName, container, shell, reloadKey]);
+  }, [open, clusterId, namespace, podName, container, reloadKey]);
 
   // Refit when drawer animation finishes (drawer width changes).
   useEffect(() => {
@@ -226,16 +217,6 @@ export function PodExecDrawer({
             onChange={setContainer}
             options={containerOptions}
             style={{ minWidth: 160 }}
-          />
-          <span style={{ fontSize: 13 }}>
-            {intl.formatMessage({ id: 'pages.podExec.shell' })}
-          </span>
-          <Select
-            size="small"
-            value={shell}
-            onChange={setShell}
-            options={SHELL_OPTIONS}
-            style={{ width: 100 }}
           />
           <Button size="small" onClick={() => setReloadKey((k) => k + 1)}>
             {intl.formatMessage({ id: 'pages.podExec.reload' })}
