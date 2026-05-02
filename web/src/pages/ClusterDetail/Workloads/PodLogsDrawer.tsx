@@ -224,6 +224,7 @@ export function PodLogsDrawer({
       open={open}
       onClose={onClose}
       size="70vw"
+      maskClosable={false}
       destroyOnHidden
       extra={
         <Space>

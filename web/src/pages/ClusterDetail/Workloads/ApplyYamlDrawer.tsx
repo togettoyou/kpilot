@@ -269,6 +269,7 @@ export function ApplyYamlDrawer({
       open={open}
       onClose={onClose}
       size={680}
+      maskClosable={false}
       destroyOnHidden
       footer={
         <Space style={{ float: 'right' }}>

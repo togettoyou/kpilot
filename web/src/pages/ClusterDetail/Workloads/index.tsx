@@ -658,6 +658,7 @@ function WorkloadsContent({
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         size={680}
+        maskClosable={false}
         footer={
           <Space style={{ float: 'right' }}>
             <Button onClick={() => setDrawerOpen(false)}>

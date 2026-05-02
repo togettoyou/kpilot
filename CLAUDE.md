@@ -323,6 +323,7 @@ handler 不直接写 SQL / 不调 K8s API，所有外部依赖通过 store / gat
 
 ### Drawer 约定
 - 用 `size`（v6.2+ 接 `number | string | 'default' | 'large'`），不要用已废弃的 `width`
+- 必须加 `maskClosable={false}`：编辑/终端/日志类 Drawer 误点遮罩关掉损失太大（YAML 改了一半、终端会话丢、日志缓冲清空）。统一禁用，强制走右上角关闭按钮或取消按钮
 
 查组件 props 用 `npx antd info <Component>`，获取示例用 `npx antd demo <Component> <name>`。
 
