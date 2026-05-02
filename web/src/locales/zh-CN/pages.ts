@@ -151,6 +151,9 @@ export default {
   'pages.cluster.nav.logging': '日志中心',
   'pages.cluster.back': '集群列表',
 
+  // global namespace picker (top bar)
+  'namespacePicker.label': '命名空间',
+
   // apply YAML drawer
   'pages.applyYaml.title': '应用 YAML',
   'pages.applyYaml.dropHint': '点击或拖拽 .yaml / .yml / .json 文件到此处',

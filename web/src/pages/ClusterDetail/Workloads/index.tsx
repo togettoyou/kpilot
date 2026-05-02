@@ -7,15 +7,13 @@ import {
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
-import { useIntl, useParams, useRequest } from '@umijs/max';
+import { useIntl, useModel, useParams, useRequest } from '@umijs/max';
 import {
   App,
   Button,
-  Divider,
   Drawer,
   Dropdown,
   Popconfirm,
-  Select,
   Space,
   Tag,
   Typography,
@@ -31,7 +29,6 @@ import {
   applyWorkload,
   deleteWorkload,
   getWorkload,
-  listNamespaces,
   listWorkloads,
 } from '@/services/kpilot/workload';
 import { ApplyYamlDrawer } from './ApplyYamlDrawer';
@@ -259,33 +256,24 @@ const CLUSTER_SCOPED = new Set<string>(['persistentvolumes']);
 interface WorkloadsContentProps {
   clusterId: string;
   resourceType: WorkloadResourceType;
-  namespaces: string[];
-  nsLoading: boolean;
-  refreshNamespaces: () => void;
 }
 
 // ─── Inner component — remounts on resourceType change via key prop ────────
 
 const PAGE_SIZE = 100;
 
-function WorkloadsContent({
-  clusterId,
-  resourceType,
-  namespaces,
-  nsLoading,
-  refreshNamespaces,
-}: WorkloadsContentProps) {
+function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
   // Cluster-scoped resources (PV) have no namespace; sending one yields 404.
   // Compute up-front so the listWorkloads call below can short-circuit.
   const isClusterScoped = CLUSTER_SCOPED.has(resourceType);
 
-  // Default to the `default` namespace (most clusters have it). Empty string
-  // would mean "all namespaces" — fine if the user picks it explicitly via
-  // the toolbar Select's allowClear, but a noisy first impression for new
-  // visitors with hundreds of system pods listed up front.
-  const [namespace, setNamespace] = useState('default');
+  // Namespace selection lives in the global `namespace` model so navigating
+  // between workload sub-pages preserves it; the picker UI lives in the top
+  // bar (rendered by ProLayout's actionsRender, see app.tsx).
+  const ns = useModel('namespace');
+  const namespace = ns.get(clusterId).selected;
   const [pollingInterval, setPollingInterval] = useState(0);
 
   // For cluster-scoped resources, ignore the namespace state entirely.
@@ -530,43 +518,6 @@ function WorkloadsContent({
           >
             {intl.formatMessage({ id: 'pages.applyYaml.title' })}
           </Button>,
-          !isClusterScoped && (
-            <Select
-              key="ns"
-              loading={nsLoading}
-              allowClear
-              placeholder={intl.formatMessage({
-                id: 'pages.workloads.allNamespaces',
-              })}
-              style={{ width: 200 }}
-              value={namespace || undefined}
-              onChange={(v) => setNamespace(v ?? '')}
-              options={namespaces.map((ns) => ({ label: ns, value: ns }))}
-              // Add a refresh action inside the dropdown so namespaces
-              // created externally (kubectl, another UI) can be picked up
-              // without reloading the browser. popupRender is the v5.25+
-              // replacement for dropdownRender.
-              popupRender={(menu) => (
-                <>
-                  {menu}
-                  <Divider style={{ margin: '4px 0' }} />
-                  <Button
-                    type="text"
-                    size="small"
-                    block
-                    icon={<ReloadOutlined />}
-                    loading={nsLoading}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      refreshNamespaces();
-                    }}
-                  >
-                    {intl.formatMessage({ id: 'pages.workloads.refresh.namespaces' })}
-                  </Button>
-                </>
-              )}
-            />
-          ),
           <Space.Compact key="refresh">
             <Button
               icon={<ReloadOutlined />}
@@ -707,9 +658,9 @@ function WorkloadsContent({
         onClose={() => setApplyOpen(false)}
         onApplied={() => {
           refresh();
-          // Applied YAML may have created a Namespace — refetch the dropdown
-          // so it shows up without a manual browser reload.
-          refreshNamespaces();
+          // Applied YAML may have created a Namespace — ask the model to
+          // refetch so the global picker shows it without a browser reload.
+          ns.refresh(clusterId);
         }}
         clusterId={clusterId}
         resourceType={resourceType}
@@ -728,16 +679,6 @@ export default function WorkloadsPage() {
     isValidType ? type : 'deployments'
   ) as WorkloadResourceType;
 
-  const {
-    data: namespaces = [],
-    loading: nsLoading,
-    refresh: refreshNamespaces,
-  } = useRequest(() => listNamespaces(clusterId!), {
-    refreshDeps: [clusterId],
-    formatResult: (res) => res,
-    pollingWhenHidden: false,
-  });
-
   if (!isValidType) {
     return (
       <Navigate to={`/clusters/${clusterId}/workloads/deployments`} replace />
@@ -749,9 +690,6 @@ export default function WorkloadsPage() {
       key={resourceType}
       clusterId={clusterId!}
       resourceType={resourceType}
-      namespaces={namespaces as string[]}
-      nsLoading={nsLoading}
-      refreshNamespaces={refreshNamespaces}
     />
   );
 }

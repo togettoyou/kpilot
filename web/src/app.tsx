@@ -21,6 +21,7 @@ import {
   Footer,
   GithubLink,
   LangDropdown,
+  NamespacePicker,
   ThemeToggle,
 } from '@/components';
 import { currentUser as queryCurrentUser } from '@/services/kpilot/auth';
@@ -84,10 +85,10 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       name: 'workloads',
       icon: <AppstoreOutlined />,
       children: [
-        { path: `${base}/workloads/deployments`,  name: 'deployments' },
+        { path: `${base}/workloads/deployments`, name: 'deployments' },
         { path: `${base}/workloads/statefulsets`, name: 'statefulsets' },
-        { path: `${base}/workloads/daemonsets`,   name: 'daemonsets' },
-        { path: `${base}/workloads/pods`,         name: 'pods' },
+        { path: `${base}/workloads/daemonsets`, name: 'daemonsets' },
+        { path: `${base}/workloads/pods`, name: 'pods' },
       ],
     },
     {
@@ -95,7 +96,7 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       name: 'network',
       icon: <ApiOutlined />,
       children: [
-        { path: `${base}/workloads/services`,  name: 'services' },
+        { path: `${base}/workloads/services`, name: 'services' },
         { path: `${base}/workloads/ingresses`, name: 'ingresses' },
       ],
     },
@@ -105,7 +106,7 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       icon: <DatabaseOutlined />,
       children: [
         { path: `${base}/workloads/persistentvolumeclaims`, name: 'pvc' },
-        { path: `${base}/workloads/persistentvolumes`,      name: 'pv' },
+        { path: `${base}/workloads/persistentvolumes`, name: 'pv' },
       ],
     },
     {
@@ -114,14 +115,39 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       icon: <SettingOutlined />,
       children: [
         { path: `${base}/workloads/configmaps`, name: 'configmaps' },
-        { path: `${base}/workloads/secrets`,    name: 'secrets' },
+        { path: `${base}/workloads/secrets`, name: 'secrets' },
       ],
     },
-    { path: `${base}/plugins`,    name: 'plugins',    icon: <AppstoreAddOutlined />, disabled: true },
-    { path: `${base}/gpu`,        name: 'gpu',        icon: <ThunderboltOutlined />, disabled: true },
-    { path: `${base}/models`,     name: 'models',     icon: <BulbOutlined />,        disabled: true },
-    { path: `${base}/monitoring`, name: 'monitoring', icon: <LineChartOutlined />,   disabled: true },
-    { path: `${base}/logging`,    name: 'logging',    icon: <FileTextOutlined />,    disabled: true },
+    {
+      path: `${base}/plugins`,
+      name: 'plugins',
+      icon: <AppstoreAddOutlined />,
+      disabled: true,
+    },
+    {
+      path: `${base}/gpu`,
+      name: 'gpu',
+      icon: <ThunderboltOutlined />,
+      disabled: true,
+    },
+    {
+      path: `${base}/models`,
+      name: 'models',
+      icon: <BulbOutlined />,
+      disabled: true,
+    },
+    {
+      path: `${base}/monitoring`,
+      name: 'monitoring',
+      icon: <LineChartOutlined />,
+      disabled: true,
+    },
+    {
+      path: `${base}/logging`,
+      name: 'logging',
+      icon: <FileTextOutlined />,
+      disabled: true,
+    },
   ];
 }
 
@@ -138,6 +164,7 @@ export const layout: RunTimeLayoutConfig = ({
     siderWidth: 208,
     logo: '/logo.svg',
     actionsRender: () => [
+      <NamespacePicker key="ns" />,
       <GithubLink key="github" />,
       <ThemeToggle key="theme" />,
       <LangDropdown key="lang" />,
@@ -174,7 +201,11 @@ export const layout: RunTimeLayoutConfig = ({
     // different computed styles, causing a 1px vertical jiggle when switching
     // tabs). Always wrap in <Link> to keep DOM structure consistent.
     menuItemRender: (menuItemProps: any, defaultDom: React.ReactNode) => {
-      if (menuItemProps.isUrl || menuItemProps.children || !menuItemProps.path) {
+      if (
+        menuItemProps.isUrl ||
+        menuItemProps.children ||
+        !menuItemProps.path
+      ) {
         return defaultDom;
       }
       return (

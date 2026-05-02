@@ -155,6 +155,9 @@ export default {
   'pages.cluster.nav.logging': 'Logging',
   'pages.cluster.back': 'Clusters',
 
+  // global namespace picker (top bar)
+  'namespacePicker.label': 'Namespace',
+
   // apply YAML drawer
   'pages.applyYaml.title': 'Apply YAML',
   'pages.applyYaml.dropHint': 'Click or drag .yaml / .yml / .json here',
