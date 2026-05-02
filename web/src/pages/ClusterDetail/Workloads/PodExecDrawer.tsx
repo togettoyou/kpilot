@@ -22,9 +22,8 @@ interface ContainerOption {
 }
 
 const SHELL_OPTIONS = [
-  { label: 'sh', value: '/bin/sh' },
   { label: 'bash', value: '/bin/bash' },
-  { label: 'ash', value: '/bin/ash' },
+  { label: 'sh', value: '/bin/sh' },
 ];
 
 export function PodExecDrawer({
@@ -38,7 +37,9 @@ export function PodExecDrawer({
 
   const [containers, setContainers] = useState<ContainerOption[]>([]);
   const [container, setContainer] = useState<string>('');
-  const [shell, setShell] = useState<string>('/bin/sh');
+  // Default to bash; the worker auto-falls back to /bin/sh if bash isn't
+  // installed in the target container. The user can still pick sh explicitly.
+  const [shell, setShell] = useState<string>('/bin/bash');
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 

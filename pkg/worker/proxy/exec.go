@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
+
+const shellProbeTimeout = 5 * time.Second
 
 // ExecManager owns active Pod exec sessions for this Worker. Each session
 // runs the executor on its own goroutine; ExecStdin / ExecResize / ExecCancel
@@ -75,7 +78,18 @@ func (m *ExecManager) Start(sessionID string, req *proto.ExecStartRequest) {
 
 	cmd := req.Command
 	if len(cmd) == 0 {
-		cmd = []string{"/bin/sh"}
+		cmd = []string{"/bin/bash"}
+	}
+	// If the user picked /bin/bash (default or explicit), probe the container
+	// quickly first and fall back to /bin/sh if bash isn't installed. We probe
+	// instead of letting the real exec fail and retrying because retrying
+	// after the interactive session has already started would race with stdin
+	// the user might be typing.
+	if len(cmd) == 1 && cmd[0] == "/bin/bash" {
+		if !m.hasShell(req.Namespace, req.Pod, req.Container, "/bin/bash") {
+			log.Printf("[exec] /bin/bash not found, falling back to /bin/sh: session=%s", sessionID)
+			cmd = []string{"/bin/sh"}
+		}
 	}
 
 	// Build the SPDY executor URL via the typed client (same auth+TLS path
@@ -192,6 +206,35 @@ func (m *ExecManager) closeSession(sess *execSession) {
 	sess.cancel()
 	_ = sess.stdinW.Close()
 	close(sess.resizeCh)
+}
+
+// hasShell probes whether the given shell is installed and executable in the
+// target container by running it with `-c exit 0`. Times out after 5s. Used
+// for bash → sh fallback before starting the real interactive session.
+func (m *ExecManager) hasShell(namespace, pod, container, shell string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), shellProbeTimeout)
+	defer cancel()
+
+	r := m.clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(pod).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container,
+			Command:   []string{shell, "-c", "exit 0"},
+			Stdout:    true,
+			Stderr:    true,
+		}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(m.cfg, "POST", r.URL())
+	if err != nil {
+		return false
+	}
+	return executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	}) == nil
 }
 
 // execWriter implements io.Writer by wrapping each chunk in an ExecOutput
