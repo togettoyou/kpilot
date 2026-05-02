@@ -12,7 +12,7 @@ import {
 } from '@ant-design/icons';
 import type { MenuDataItem } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
-import { history } from '@umijs/max';
+import { history, Link } from '@umijs/max';
 import { ThemeProvider } from 'antd-style';
 import React from 'react';
 
@@ -165,6 +165,24 @@ export const layout: RunTimeLayoutConfig = ({
           currentClusterId: next,
         }));
       }
+    },
+    // Override Umi's default menuItemRender — by default it omits the <Link>
+    // wrapper for the currently-active menu item, which makes selected vs
+    // unselected items render with different DOM nesting (and therefore
+    // different computed styles, causing a 1px vertical jiggle when switching
+    // tabs). Always wrap in <Link> to keep DOM structure consistent.
+    menuItemRender: (menuItemProps: any, defaultDom: React.ReactNode) => {
+      if (menuItemProps.isUrl || menuItemProps.children || !menuItemProps.path) {
+        return defaultDom;
+      }
+      return (
+        <Link
+          to={menuItemProps.path.replace('/*', '')}
+          target={menuItemProps.target}
+        >
+          {defaultDom}
+        </Link>
+      );
     },
     menuDataRender: (menuData) => {
       if (!currentClusterId) return menuData;
