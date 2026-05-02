@@ -80,6 +80,30 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 		return err
 	}
 
+	// Reject if another worker is already connected for this cluster.
+	// Take-over (kick the old, register the new) was tried first and
+	// regressed: with worker auto-reconnect, two concurrently-alive
+	// workers using the same token kicked each other in a tight loop.
+	// Rejection lets the incumbent keep its slot; if the incumbent is
+	// actually dead, the heartbeat timeout (~35s) frees the slot and
+	// the next reconnect attempt by the (legitimate) replacement wins.
+	g.mu.RLock()
+	_, occupied := g.workers[cluster.ID]
+	g.mu.RUnlock()
+	if occupied {
+		_ = stream.Send(&proto.ServerMessage{
+			RequestId: msg.RequestId,
+			Payload: &proto.ServerMessage_RegisterAck{
+				RegisterAck: &proto.RegisterAck{
+					Success: false,
+					Message: "another worker is already connected for this cluster",
+				},
+			},
+		})
+		log.Printf("[gateway] worker rejected, slot occupied: cluster=%s", cluster.ID)
+		return fmt.Errorf("cluster %s already connected", cluster.ID)
+	}
+
 	if err = stream.Send(&proto.ServerMessage{
 		RequestId: msg.RequestId,
 		Payload: &proto.ServerMessage_RegisterAck{
@@ -100,7 +124,7 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 		done:      make(chan struct{}),
 	}
 	g.register(worker)
-	defer g.unregister(cluster.ID)
+	defer g.unregister(worker)
 
 	log.Printf("[gateway] worker connected: cluster=%s", cluster.ID)
 
@@ -184,18 +208,37 @@ func (g *GatewayServer) routeStreamMessage(msg *proto.WorkerMessage) {
 }
 
 func (g *GatewayServer) register(w *ConnectedWorker) {
+	// Connect already rejected duplicates above, so this is unconditional —
+	// but use Lock anyway to publish the new entry safely.
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	g.workers[w.ClusterID] = w
+	g.mu.Unlock()
 	if err := store.UpdateClusterStatus(w.ClusterID, store.ClusterStatusOnline); err != nil {
 		log.Printf("[gateway] update cluster online failed: cluster=%s err=%v", w.ClusterID, err)
 	}
 }
 
-func (g *GatewayServer) unregister(clusterID string) {
+func (g *GatewayServer) unregister(w *ConnectedWorker) {
+	clusterID := w.ClusterID
+
+	// Identity check: only delete the map entry if it still points to *this*
+	// worker. If a newer connection has taken over (register() above kicked
+	// us), we must not blow away the new entry on our way out.
 	g.mu.Lock()
-	delete(g.workers, clusterID)
+	cur, ok := g.workers[clusterID]
+	wasCurrent := ok && cur == w
+	if wasCurrent {
+		delete(g.workers, clusterID)
+	}
 	g.mu.Unlock()
+
+	if !wasCurrent {
+		// We were already kicked by a newer registration. The new worker
+		// owns the cluster slot and its streams; don't touch them.
+		log.Printf("[gateway] worker exited (already replaced): cluster=%s", clusterID)
+		return
+	}
+
 	if err := store.UpdateClusterStatus(clusterID, store.ClusterStatusOffline); err != nil {
 		log.Printf("[gateway] update cluster offline failed: cluster=%s err=%v", clusterID, err)
 	}
