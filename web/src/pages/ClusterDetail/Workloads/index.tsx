@@ -272,12 +272,19 @@ function WorkloadsContent({
 }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
+  // Cluster-scoped resources (PV) have no namespace; sending one yields 404.
+  // Compute up-front so the listWorkloads call below can short-circuit.
+  const isClusterScoped = CLUSTER_SCOPED.has(resourceType);
+
   // Default to the `default` namespace (most clusters have it). Empty string
   // would mean "all namespaces" — fine if the user picks it explicitly via
   // the toolbar Select's allowClear, but a noisy first impression for new
   // visitors with hundreds of system pods listed up front.
   const [namespace, setNamespace] = useState('default');
   const [pollingInterval, setPollingInterval] = useState(0);
+
+  // For cluster-scoped resources, ignore the namespace state entirely.
+  const effectiveNamespace = isClusterScoped ? '' : namespace;
 
   // Server-side cursor pagination.
   const [pageTokens, setPageTokens] = useState<string[]>(['']);
@@ -309,12 +316,12 @@ function WorkloadsContent({
       listWorkloads(
         clusterId,
         resourceType,
-        namespace,
+        effectiveNamespace,
         PAGE_SIZE,
         currentToken,
       ),
     {
-      refreshDeps: [namespace, currentToken],
+      refreshDeps: [effectiveNamespace, currentToken],
       formatResult: (res: any) => {
         const { items, colDefs } = parseTableResponse(res);
         return {
@@ -418,8 +425,6 @@ function WorkloadsContent({
       // global error handler in requestErrorConfig already shows the toast
     }
   };
-
-  const isClusterScoped = CLUSTER_SCOPED.has(resourceType);
 
   const isPods = resourceType === 'pods';
 
