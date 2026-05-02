@@ -1,7 +1,15 @@
 import { useIntl } from '@umijs/max';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
-import { Alert, Button, Drawer, Select, Space, Tag } from 'antd';
+import {
+  Alert,
+  Button,
+  Drawer,
+  Select,
+  Space,
+  Tag,
+  theme as antdTheme,
+} from 'antd';
 import '@xterm/xterm/css/xterm.css';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -29,6 +37,7 @@ export function PodExecDrawer({
   podName,
 }: PodExecDrawerProps) {
   const intl = useIntl();
+  const { token } = antdTheme.useToken();
 
   const [containers, setContainers] = useState<ContainerOption[]>([]);
   const [container, setContainer] = useState<string>('');
@@ -207,7 +216,23 @@ export function PodExecDrawer({
       size="70vw"
       maskClosable={false}
       destroyOnHidden
-      extra={
+      styles={{
+        body: { padding: 0, display: 'flex', flexDirection: 'column' },
+      }}
+    >
+      {/* Container selector + reload moved to a body control bar so the
+          header title doesn't wrap on long pod names (the title already
+          carries namespace + pod-name tags). */}
+      <div
+        style={{
+          padding: '12px 16px',
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+        }}
+      >
         <Space>
           <span style={{ fontSize: 13 }}>
             {intl.formatMessage({ id: 'pages.podExec.container' })}
@@ -219,15 +244,11 @@ export function PodExecDrawer({
             options={containerOptions}
             style={{ minWidth: 160 }}
           />
-          <Button size="small" onClick={() => setReloadKey((k) => k + 1)}>
-            {intl.formatMessage({ id: 'pages.podExec.reload' })}
-          </Button>
         </Space>
-      }
-      styles={{
-        body: { padding: 0, display: 'flex', flexDirection: 'column' },
-      }}
-    >
+        <Button size="small" onClick={() => setReloadKey((k) => k + 1)}>
+          {intl.formatMessage({ id: 'pages.podExec.reload' })}
+        </Button>
+      </div>
       {error && <Alert message={error} type="error" banner />}
       <div
         ref={containerRef}
