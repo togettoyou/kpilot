@@ -66,6 +66,11 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.GET("/:id/workloads/:type/:name", handler.GetWorkload(gw))
 		clusters.PUT("/:id/workloads/:type/:name", handler.ApplyWorkload(gw))
 		clusters.DELETE("/:id/workloads/:type/:name", handler.DeleteWorkload(gw))
+
+		// Pod streaming endpoints (WebSocket). Auth is the same JWT cookie —
+		// browsers send cookies on the WS handshake, so the Auth middleware
+		// above runs first and rejects unauthenticated upgrades.
+		clusters.GET("/:id/pods/:namespace/:name/logs", handler.PodLogs(gw))
 	}
 
 	return r

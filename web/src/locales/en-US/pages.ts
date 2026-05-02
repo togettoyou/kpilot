@@ -99,6 +99,7 @@ export default {
   'pages.workloads.apply.success': 'Applied',
   'pages.workloads.delete.success': 'Deleted',
   'pages.workloads.cancel': 'Cancel',
+  'pages.workloads.logs': 'Logs',
   'pages.workloads.loadError': 'Failed to load resource',
   'pages.workloads.loading': 'Loading…',
   'pages.workloads.editor.title': 'Edit {type} / {name}',
@@ -150,6 +151,17 @@ export default {
   'pages.cluster.nav.monitoring': 'Monitoring',
   'pages.cluster.nav.logging': 'Logging',
   'pages.cluster.back': 'Clusters',
+
+  // pod logs drawer
+  'pages.podLogs.title': 'Pod Logs',
+  'pages.podLogs.container': 'Container',
+  'pages.podLogs.tail': 'Tail',
+  'pages.podLogs.follow': 'Follow',
+  'pages.podLogs.previous': 'Previous',
+  'pages.podLogs.reload': 'Reconnect',
+  'pages.podLogs.clear': 'Clear',
+  'pages.podLogs.lineCount': '{n} lines',
+  'pages.podLogs.error.connection': 'WebSocket connection failed',
 
   // 404
   'pages.404.subTitle': 'Sorry, the page you visited does not exist.',

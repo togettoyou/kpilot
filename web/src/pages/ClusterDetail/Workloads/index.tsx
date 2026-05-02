@@ -32,6 +32,7 @@ import {
   listNamespaces,
   listWorkloads,
 } from '@/services/kpilot/workload';
+import { PodLogsDrawer } from './PodLogsDrawer';
 import { YamlEditor } from './YamlEditor';
 
 const { Text } = Typography;
@@ -290,6 +291,9 @@ function WorkloadsContent({
   const [applying, setApplying] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
 
+  // Pod logs drawer state — only relevant when resourceType === 'pods'
+  const [logsTarget, setLogsTarget] = useState<WorkloadItem | null>(null);
+
   const {
     data: pageData,
     loading,
@@ -411,15 +415,28 @@ function WorkloadsContent({
 
   const isClusterScoped = CLUSTER_SCOPED.has(resourceType);
 
+  const isPods = resourceType === 'pods';
+
   const columns = useMemo((): ProColumns<WorkloadItem>[] => {
     const actionsColumn: ProColumns<WorkloadItem> = {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       valueType: 'option',
-      width: 120,
+      width: isPods ? 180 : 120,
       render: (_, record) => {
         const isProtected = (record.namespace ?? '').startsWith('kube-');
+        const logsBtn = isPods ? (
+          <Button
+            key="logs"
+            type="link"
+            size="small"
+            onClick={() => setLogsTarget(record)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.logs' })}
+          </Button>
+        ) : null;
         if (isProtected) {
           return [
+            logsBtn,
             <Button
               key="view"
               type="link"
@@ -431,6 +448,7 @@ function WorkloadsContent({
           ];
         }
         return [
+          logsBtn,
           <Button
             key="edit"
             type="link"
@@ -456,7 +474,7 @@ function WorkloadsContent({
       },
     };
     return [...buildColumns(colDefs, intl, isClusterScoped), actionsColumn];
-  }, [colDefs, intl, isClusterScoped, openEditor, handleDelete]);
+  }, [colDefs, intl, isClusterScoped, isPods, openEditor, handleDelete]);
 
   return (
     <div className="p-6">
@@ -600,6 +618,15 @@ function WorkloadsContent({
           />
         )}
       </Drawer>
+      {logsTarget && (
+        <PodLogsDrawer
+          open={!!logsTarget}
+          onClose={() => setLogsTarget(null)}
+          clusterId={clusterId}
+          namespace={logsTarget.namespace ?? ''}
+          podName={logsTarget.name}
+        />
+      )}
     </div>
   );
 }

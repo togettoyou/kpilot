@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/go-logr/logr"
+	"k8s.io/client-go/kubernetes"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -58,6 +59,19 @@ func main() {
 			log.Fatalf("[worker] failed to create proxy: %v", err)
 		}
 		tunnelClient.SetResourceHandler(p.Handle)
+
+		// Streaming sessions (Pod logs / Exec) need a typed clientset.
+		clientset, err := kubernetes.NewForConfig(k8sCfg)
+		if err != nil {
+			log.Fatalf("[worker] failed to create clientset: %v", err)
+		}
+		logsMgr := proxy.NewLogsManager(clientset, tunnelClient)
+		// Exec handlers are wired in P3-followup commit 3.
+		tunnelClient.SetStreamHandlers(
+			logsMgr.Start,
+			logsMgr.Cancel,
+			nil, nil, nil, nil, // exec handlers — TBD
+		)
 
 		go func() {
 			if err := mgr.Start(ctx); err != nil {

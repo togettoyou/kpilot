@@ -95,6 +95,7 @@ export default {
   'pages.workloads.apply.success': '已应用',
   'pages.workloads.delete.success': '已删除',
   'pages.workloads.cancel': '取消',
+  'pages.workloads.logs': '日志',
   'pages.workloads.loadError': '加载资源失败',
   'pages.workloads.loading': '加载中…',
   'pages.workloads.editor.title': '编辑 {type} / {name}',
@@ -146,6 +147,17 @@ export default {
   'pages.cluster.nav.monitoring': '监控中心',
   'pages.cluster.nav.logging': '日志中心',
   'pages.cluster.back': '集群列表',
+
+  // pod logs drawer
+  'pages.podLogs.title': 'Pod 日志',
+  'pages.podLogs.container': '容器',
+  'pages.podLogs.tail': '行数',
+  'pages.podLogs.follow': '跟随',
+  'pages.podLogs.previous': '上一实例',
+  'pages.podLogs.reload': '重连',
+  'pages.podLogs.clear': '清屏',
+  'pages.podLogs.lineCount': '{n} 行',
+  'pages.podLogs.error.connection': 'WebSocket 连接失败',
 
   // 404
   'pages.404.subTitle': '抱歉，您访问的页面不存在。',
