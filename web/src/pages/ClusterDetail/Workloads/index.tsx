@@ -272,7 +272,11 @@ function WorkloadsContent({
 }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
-  const [namespace, setNamespace] = useState('');
+  // Default to the `default` namespace (most clusters have it). Empty string
+  // would mean "all namespaces" — fine if the user picks it explicitly via
+  // the toolbar Select's allowClear, but a noisy first impression for new
+  // visitors with hundreds of system pods listed up front.
+  const [namespace, setNamespace] = useState('default');
   const [pollingInterval, setPollingInterval] = useState(0);
 
   // Server-side cursor pagination.
