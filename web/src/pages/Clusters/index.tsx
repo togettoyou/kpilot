@@ -177,6 +177,7 @@ export default function ClustersPage() {
         rowKey="id"
         loading={loading}
         dataSource={clusterList}
+        scroll={{ x: 'max-content' }}
         search={false}
         toolBarRender={false}
         pagination={false}
@@ -219,6 +220,7 @@ export default function ClustersPage() {
           {
             title: intl.formatMessage({ id: 'pages.clusters.col.action' }),
             width: 160,
+            fixed: 'right',
             render: (_, record) => (
               <Space>
                 <Button

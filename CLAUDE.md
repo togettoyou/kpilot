@@ -240,6 +240,13 @@ kpilot/
 - 卡片：`ProCard` / antd `Card`
 - 弹窗：antd `Modal`、`Drawer`
 
+### 表格约定（必须遵守）
+- 所有 `ProTable` 都加 `scroll={{ x: 'max-content' }}`：列宽超过容器时横向滚动，避免中文 header 被压成一字一行
+- "操作"列必须 `fixed: 'right'`：横滚时按钮始终可见，且必须显式给 `width`（fixed 列不能没宽度）
+
+### Drawer 约定
+- 用 `size`（v6.2+ 接 `number | string | 'default' | 'large'`），不要用已废弃的 `width`
+
 查组件 props 用 `npx antd info <Component>`，获取示例用 `npx antd demo <Component> <name>`。
 
 ### API 请求模式
