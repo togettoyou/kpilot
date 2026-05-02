@@ -217,7 +217,16 @@ export function PodExecDrawer({
       maskClosable={false}
       destroyOnHidden
       styles={{
-        body: { padding: 0, display: 'flex', flexDirection: 'column' },
+        // overflow:hidden so the body can't scroll — children own their own
+        // scrolling (xterm has its own scrollback). Without this, sub-pixel
+        // height rounding in flex layout produces an extra body scrollbar
+        // alongside the terminal's.
+        body: {
+          padding: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        },
       }}
     >
       {/* Container selector + reload moved to a body control bar so the

@@ -243,7 +243,15 @@ export function PodLogsDrawer({
         </Space>
       }
       styles={{
-        body: { padding: 0, display: 'flex', flexDirection: 'column' },
+        // overflow:hidden so children own scrolling — the <pre> already has
+        // overflow:auto for the log buffer; without this, sub-pixel flex
+        // rounding adds a parasitic outer scrollbar.
+        body: {
+          padding: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        },
       }}
     >
       <div
