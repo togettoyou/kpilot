@@ -424,6 +424,7 @@ function WorkloadsContent({
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       valueType: 'option',
       width: isPods ? 240 : 120,
+      fixed: 'right',
       render: (_, record) => {
         const isProtected = (record.namespace ?? '').startsWith('kube-');
         const podActions = isPods
