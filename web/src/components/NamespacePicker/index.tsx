@@ -1,7 +1,7 @@
 import { ReloadOutlined } from '@ant-design/icons';
 import { useIntl, useLocation, useModel } from '@umijs/max';
 import { Button, Divider, Select, Space } from 'antd';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 // NamespacePicker is mounted once via ProLayout's actionsRender. It hides
 // itself for routes that don't care about a namespace (cluster list, Nodes,
@@ -19,6 +19,7 @@ export function NamespacePicker() {
   const resourceType = match?.[2];
 
   const ns = useModel('namespace');
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // Refetch the cluster's namespace list whenever the cluster scope changes
   // (initial entry into a cluster, or switching clusters via the URL).
@@ -29,6 +30,22 @@ export function NamespacePicker() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clusterId]);
 
+  // Strip ProLayout's `*-header-actions-item / -hover` wrapper class on the
+  // parent div. CSS overrides via :has() / class chain didn't take in
+  // practice (cssinjs hashed rules + specificity), so we just rip the
+  // class out of the DOM directly. The wrapper div itself stays — only
+  // the styling hooks go.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const wrapper = root.parentElement;
+    if (!wrapper) return;
+    const offenders = Array.from(wrapper.classList).filter((c) =>
+      c.includes('actions-item') || c.includes('actions-hover'),
+    );
+    offenders.forEach((c) => wrapper.classList.remove(c));
+  });
+
   // Nothing to pick on non-workload pages, or for the cluster-scoped PV.
   if (!clusterId || !resourceType || resourceType === 'persistentvolumes') {
     return null;
@@ -37,7 +54,7 @@ export function NamespacePicker() {
   const state = ns.get(clusterId);
 
   return (
-    <Space>
+    <Space ref={rootRef} style={{ marginInlineEnd: 12 }}>
       <span style={{ fontSize: 13 }}>
         {intl.formatMessage({ id: 'namespacePicker.label' })}
       </span>
