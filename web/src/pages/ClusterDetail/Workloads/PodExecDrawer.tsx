@@ -259,14 +259,21 @@ export function PodExecDrawer({
         </Button>
       </div>
       {error && <Alert message={error} type="error" banner />}
+      {/* Wrap the xterm mount in a flex parent: padding lives on the wrapper
+          so the terminal element sees a clean box. FitAddon rounds rows by
+          line-height, and padding on the mount element itself caused the
+          last row to clip when content scrolled. */}
       <div
-        ref={containerRef}
         style={{
           flex: 1,
+          minHeight: 0,
           background: '#1e1e2e',
           padding: 8,
+          display: 'flex',
         }}
-      />
+      >
+        <div ref={containerRef} style={{ flex: 1, minHeight: 0 }} />
+      </div>
     </Drawer>
   );
 }
