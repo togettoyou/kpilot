@@ -14,6 +14,10 @@ export default {
     '/api/v1/': {
       target: 'http://localhost:8080',
       changeOrigin: true,
+      // ws: true forwards WebSocket upgrade requests (Pod logs / exec) to
+      // the backend. Without it the upgrade gets treated as plain HTTP and
+      // the handshake stalls — DevTools shows "Provisional headers".
+      ws: true,
     },
   },
   test: {
