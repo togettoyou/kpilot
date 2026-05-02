@@ -1,6 +1,7 @@
 export default {
   'menu.login': '登录',
   'menu.clusters': '集群管理',
+  'menu.plugins': '插件中心',
 
   // Cluster detail (dynamically injected when a cluster is selected).
   // Locale keys are auto-derived as `menu.clusters.{name}` (parent prefix +

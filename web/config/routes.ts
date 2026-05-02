@@ -15,6 +15,12 @@ export default [
     ],
   },
   {
+    path: '/plugins',
+    name: 'plugins',
+    icon: 'appstore',
+    component: './Plugins/index',
+  },
+  {
     path: '/clusters',
     name: 'clusters',
     icon: 'cluster',

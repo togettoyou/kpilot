@@ -1,6 +1,10 @@
 export default {
   'pages.layouts.userLayout.title': 'Kubernetes-native GPU 算力编排平台',
 
+  // plugin center (placeholder)
+  'pages.plugins.title': '插件中心',
+  'pages.plugins.comingSoon': '敬请期待',
+
   // api error codes
   'errors.INVALID_REQUEST': '请求参数错误',
   'errors.INTERNAL_ERROR': '服务器内部错误',
@@ -38,7 +42,8 @@ export default {
   'pages.clusters.edit.title': '编辑集群',
   'pages.clusters.edit.success': '保存成功',
   'pages.clusters.delete.title': '删除集群 "{name}"？',
-  'pages.clusters.delete.content': '此操作将断开 Worker 连接并删除所有集群数据。',
+  'pages.clusters.delete.content':
+    '此操作将断开 Worker 连接并删除所有集群数据。',
   'pages.clusters.delete.success': '集群已删除',
   'pages.clusters.create.error': '创建集群失败',
   'pages.clusters.modal.add': '添加集群',
@@ -54,9 +59,11 @@ export default {
   'pages.clusters.token.done': '完成',
   'pages.clusters.copied': '已复制',
   'pages.clusters.token.regenerate': '重新生成 Token',
-  'pages.clusters.token.regenerateConfirm': '重新生成后旧 Token 立即失效，已部署的 Worker 将断开连接，需重新部署。确认继续？',
+  'pages.clusters.token.regenerateConfirm':
+    '重新生成后旧 Token 立即失效，已部署的 Worker 将断开连接，需重新部署。确认继续？',
   'pages.clusters.token.regenerateTitle': '重新生成 Token',
-  'pages.clusters.token.regenerateWarning': '新 Token 已生成，旧 Token 立即失效，请立即保存。',
+  'pages.clusters.token.regenerateWarning':
+    '新 Token 已生成，旧 Token 立即失效，请立即保存。',
 
   // nodes
   'pages.nodes.title': '节点',

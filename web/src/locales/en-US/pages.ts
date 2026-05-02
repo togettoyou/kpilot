@@ -1,5 +1,10 @@
 export default {
-  'pages.layouts.userLayout.title': 'Kubernetes-native GPU Orchestration Platform',
+  'pages.layouts.userLayout.title':
+    'Kubernetes-native GPU Orchestration Platform',
+
+  // plugin center (placeholder)
+  'pages.plugins.title': 'Plugin Center',
+  'pages.plugins.comingSoon': 'Coming soon',
 
   // api error codes
   'errors.INVALID_REQUEST': 'Invalid request',
@@ -8,10 +13,12 @@ export default {
   'errors.CLUSTER_NAME_EXISTS': 'Cluster name already exists',
   'errors.LOGIN_INCORRECT': 'Incorrect username or password',
   'errors.NETWORK_ERROR': 'Network error, please try again',
-  'errors.CLUSTER_NOT_CONNECTED': 'Cluster not connected — Worker may be offline',
+  'errors.CLUSTER_NOT_CONNECTED':
+    'Cluster not connected — Worker may be offline',
   'errors.WORKER_TIMEOUT': 'Cluster timed out, please try again',
   'errors.WORKER_ERROR': 'Worker returned an error',
-  'errors.NAMESPACE_PROTECTED': 'This namespace is read-only (kube-* namespaces cannot be modified)',
+  'errors.NAMESPACE_PROTECTED':
+    'This namespace is read-only (kube-* namespaces cannot be modified)',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',
@@ -38,7 +45,8 @@ export default {
   'pages.clusters.edit.title': 'Edit Cluster',
   'pages.clusters.edit.success': 'Saved',
   'pages.clusters.delete.title': 'Delete cluster "{name}"?',
-  'pages.clusters.delete.content': 'This will disconnect the Worker and remove all cluster data.',
+  'pages.clusters.delete.content':
+    'This will disconnect the Worker and remove all cluster data.',
   'pages.clusters.delete.success': 'Cluster deleted',
   'pages.clusters.create.error': 'Failed to create cluster',
   'pages.clusters.modal.add': 'Add Cluster',
@@ -49,14 +57,17 @@ export default {
   'pages.clusters.modal.descPlaceholder': 'Optional description',
   'pages.clusters.modal.create': 'Create',
   'pages.clusters.token.title': 'Cluster Created',
-  'pages.clusters.token.warning': 'Save this token now — it will not be shown again.',
+  'pages.clusters.token.warning':
+    'Save this token now — it will not be shown again.',
   'pages.clusters.token.label': 'Cluster Token',
   'pages.clusters.token.done': 'Done',
   'pages.clusters.copied': 'Copied!',
   'pages.clusters.token.regenerate': 'Regenerate Token',
-  'pages.clusters.token.regenerateConfirm': 'The old token will be immediately invalidated and any deployed Workers will disconnect. Continue?',
+  'pages.clusters.token.regenerateConfirm':
+    'The old token will be immediately invalidated and any deployed Workers will disconnect. Continue?',
   'pages.clusters.token.regenerateTitle': 'Regenerate Token',
-  'pages.clusters.token.regenerateWarning': 'A new token has been generated. The old token is immediately invalidated — save this now.',
+  'pages.clusters.token.regenerateWarning':
+    'A new token has been generated. The old token is immediately invalidated — save this now.',
 
   // nodes
   'pages.nodes.title': 'Nodes',

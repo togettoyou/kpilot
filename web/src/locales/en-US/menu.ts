@@ -1,6 +1,7 @@
 export default {
   'menu.login': 'Login',
   'menu.clusters': 'Clusters',
+  'menu.plugins': 'Plugin Center',
 
   // Cluster detail (dynamically injected when a cluster is selected).
   // Locale keys are auto-derived as `menu.clusters.{name}` (parent prefix +
