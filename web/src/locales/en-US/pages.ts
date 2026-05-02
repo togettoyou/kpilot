@@ -89,6 +89,7 @@ export default {
 
   // workloads
   'pages.workloads.allNamespaces': 'All namespaces',
+  'pages.workloads.searchPlaceholder': 'Search current page (name, namespace, status…)',
   'pages.workloads.col.actions': 'Actions',
   'pages.workloads.view': 'View',
   'pages.workloads.edit': 'Edit',

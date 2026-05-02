@@ -85,6 +85,7 @@ export default {
 
   // workloads
   'pages.workloads.allNamespaces': '全部命名空间',
+  'pages.workloads.searchPlaceholder': '搜索当前页（名称 / 命名空间 / 状态…）',
   'pages.workloads.col.actions': '操作',
   'pages.workloads.view': '查看',
   'pages.workloads.edit': '编辑',

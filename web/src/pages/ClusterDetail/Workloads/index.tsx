@@ -4,6 +4,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   RightOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
@@ -13,6 +14,7 @@ import {
   Button,
   Drawer,
   Dropdown,
+  Input,
   Popconfirm,
   Space,
   Tag,
@@ -309,6 +311,11 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
   // Generic Apply YAML drawer — always available regardless of resourceType.
   const [applyOpen, setApplyOpen] = useState(false);
 
+  // Client-side search across the current page. K8s API has no substring
+  // search (fieldSelector on metadata.name only does exact equality), so we
+  // filter what's already loaded — same approach as kubectl/Lens.
+  const [search, setSearch] = useState('');
+
   const {
     data: pageData,
     loading,
@@ -345,6 +352,21 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
     pageData?.remaining != null
       ? pageIdx * PAGE_SIZE + items.length + pageData.remaining
       : undefined;
+
+  const filteredItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((r) => {
+      if (r.name?.toLowerCase().includes(q)) return true;
+      if (r.namespace?.toLowerCase().includes(q)) return true;
+      for (const col of colDefs) {
+        const v = r[col.name];
+        if (v != null && String(v).toLowerCase().includes(q)) return true;
+      }
+      return false;
+    });
+  }, [items, colDefs, search]);
+  const isFiltering = search.trim().length > 0;
 
   useEffect(() => {
     if (!nextToken) return;
@@ -521,13 +543,30 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
               {resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}
             </Text>
             <Text type="secondary">
-              {totalKnown != null
-                ? `(${totalKnown})`
-                : `(${items.length}${hasMore ? '+' : ''})`}
+              {isFiltering
+                ? `(${filteredItems.length} / ${
+                    totalKnown != null
+                      ? totalKnown
+                      : `${items.length}${hasMore ? '+' : ''}`
+                  })`
+                : totalKnown != null
+                  ? `(${totalKnown})`
+                  : `(${items.length}${hasMore ? '+' : ''})`}
             </Text>
           </Space>
         }
         toolBarRender={() => [
+          <Input
+            key="search"
+            placeholder={intl.formatMessage({
+              id: 'pages.workloads.searchPlaceholder',
+            })}
+            prefix={<SearchOutlined />}
+            allowClear
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: 240 }}
+          />,
           <Button
             key="apply"
             type="primary"
@@ -573,7 +612,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
           </Space.Compact>,
         ]}
         rowKey={(r) => `${r.namespace}/${r.name}`}
-        dataSource={items}
+        dataSource={filteredItems}
         columns={columns}
         // Honor explicit column widths and scroll horizontally when the sum
         // exceeds the container — otherwise antd squeezes columns and Chinese
