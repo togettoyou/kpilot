@@ -156,6 +156,8 @@ export default {
   'pages.applyYaml.dropHint': '点击或拖拽 .yaml / .yml / .json 文件到此处',
   'pages.applyYaml.apply': '应用',
   'pages.applyYaml.success': '已应用',
+  'pages.applyYaml.successN': '成功应用 {n} 个资源',
+  'pages.applyYaml.partial': '已应用 {ok} / {total} 个资源，其余失败',
   'pages.applyYaml.empty': '请输入或上传 YAML',
   'pages.applyYaml.tooLarge': '文件超过 1 MB',
   'pages.applyYaml.readError': '读取文件失败',

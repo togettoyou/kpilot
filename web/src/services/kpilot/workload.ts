@@ -74,12 +74,26 @@ export function listNamespaces(clusterId: string) {
   });
 }
 
-// Generic apply: server parses YAML/JSON text, extracts GVK + metadata, then
-// routes to the same Server-Side Apply path as the per-type endpoint.
+export interface ApplyYamlResult {
+  index: number;
+  kind?: string;
+  namespace?: string;
+  name?: string;
+  success: boolean;
+  error?: string;
+}
+
+// Generic apply: server parses YAML/JSON text (multi-doc `---` supported),
+// extracts GVK + metadata for each manifest, and routes to the SSA path.
+// Returns one result entry per document — the caller checks `success` per
+// entry to surface partial failures.
 export function applyYAML(clusterId: string, yamlText: string) {
-  return request<any>(`/api/v1/clusters/${clusterId}/apply`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    data: yamlText,
-  });
+  return request<{ results: ApplyYamlResult[] }>(
+    `/api/v1/clusters/${clusterId}/apply`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      data: yamlText,
+    },
+  );
 }

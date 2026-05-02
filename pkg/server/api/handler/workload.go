@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	sigsyaml "sigs.k8s.io/yaml"
+	apimacyaml "k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
@@ -168,11 +169,25 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 	}
 }
 
-// ApplyYAML accepts a raw single-document YAML manifest (text/* or JSON), parses
-// it to extract GVK + metadata, and routes to the same Server-Side Apply path
-// as the per-type ApplyWorkload handler. Single-doc only for now — multi-doc
-// `---` separated files need a follow-up commit (would have to apply each in
-// a transaction-ish way and report partial failures).
+// ApplyYamlResult is one entry in the response array; one per parsed document.
+type ApplyYamlResult struct {
+	Index     int    `json:"index"`
+	Kind      string `json:"kind,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// ApplyYAML accepts raw YAML/JSON (single document or `---` separated multi-
+// document) and applies each entry through the same Server-Side Apply path
+// as ApplyWorkload. Returns a 200 with per-document results — the frontend
+// inspects `success` per entry to decide success / partial / total failure.
+//
+// Apply is fail-soft (continue past errors) so users can recover from a
+// partially-bad manifest without re-uploading; ordering is preserved so
+// dependency-style manifests (e.g. namespace before deployment) work as
+// long as the user authored them in order.
 func ApplyYAML(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
@@ -183,58 +198,96 @@ func ApplyYAML(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		// sigs.k8s.io/yaml handles both YAML and JSON input — converts to JSON.
-		jsonBody, err := sigsyaml.YAMLToJSON(body)
-		if err != nil {
-			apiErrWorker(c, "invalid YAML: "+err.Error())
+		docs, parseErr := parseYAMLDocs(body)
+		if parseErr != nil {
+			apiErrWorker(c, "invalid YAML: "+parseErr.Error())
+			return
+		}
+		if len(docs) == 0 {
+			apiErrWorker(c, "no manifests found")
 			return
 		}
 
-		obj := &unstructured.Unstructured{}
-		if err := obj.UnmarshalJSON(jsonBody); err != nil {
-			apiErrWorker(c, "invalid manifest: "+err.Error())
-			return
+		results := make([]ApplyYamlResult, 0, len(docs))
+		for i, obj := range docs {
+			results = append(results, applyOneDoc(c.Request.Context(), gw, clusterID, i, obj))
 		}
-
-		gvk := obj.GroupVersionKind()
-		if gvk.Kind == "" || gvk.Version == "" {
-			apiErrWorker(c, "manifest missing apiVersion or kind")
-			return
-		}
-		name := obj.GetName()
-		if name == "" {
-			apiErrWorker(c, "manifest missing metadata.name")
-			return
-		}
-		namespace := obj.GetNamespace()
-
-		if strings.HasPrefix(namespace, "kube-") {
-			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
-			return
-		}
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
-		defer cancel()
-
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
-			Action:    "apply",
-			Group:     gvk.Group,
-			Version:   gvk.Version,
-			Kind:      gvk.Kind,
-			Namespace: namespace,
-			Name:      name,
-			Body:      jsonBody,
-		})
-		if err != nil {
-			handleWorkerErr(c, err)
-			return
-		}
-		if !resp.Success {
-			apiErrWorker(c, resp.Error)
-			return
-		}
-		c.Data(http.StatusOK, "application/json", resp.Data)
+		c.JSON(http.StatusOK, gin.H{"results": results})
 	}
+}
+
+// parseYAMLDocs decodes a (possibly multi-document) YAML/JSON stream into a
+// slice of unstructured manifests, skipping empty documents (e.g. trailing
+// `---` or comment-only blocks).
+func parseYAMLDocs(body []byte) ([]*unstructured.Unstructured, error) {
+	dec := apimacyaml.NewYAMLOrJSONDecoder(bytes.NewReader(body), 4096)
+	var out []*unstructured.Unstructured
+	for {
+		obj := &unstructured.Unstructured{}
+		if err := dec.Decode(obj); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, err
+		}
+		if len(obj.Object) == 0 {
+			continue
+		}
+		out = append(out, obj)
+	}
+	return out, nil
+}
+
+func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID string, idx int, obj *unstructured.Unstructured) ApplyYamlResult {
+	gvk := obj.GroupVersionKind()
+	r := ApplyYamlResult{
+		Index:     idx,
+		Kind:      gvk.Kind,
+		Namespace: obj.GetNamespace(),
+		Name:      obj.GetName(),
+	}
+
+	if gvk.Kind == "" || gvk.Version == "" {
+		r.Error = "missing apiVersion or kind"
+		return r
+	}
+	if r.Name == "" {
+		r.Error = "missing metadata.name"
+		return r
+	}
+	if strings.HasPrefix(r.Namespace, "kube-") {
+		r.Error = "namespace " + r.Namespace + " is read-only"
+		return r
+	}
+
+	jsonBody, err := obj.MarshalJSON()
+	if err != nil {
+		r.Error = err.Error()
+		return r
+	}
+
+	cctx, cancel := context.WithTimeout(ctx, workerTimeout)
+	defer cancel()
+
+	resp, err := gw.SendResourceRequest(cctx, clusterID, &proto.ResourceRequest{
+		Action:    "apply",
+		Group:     gvk.Group,
+		Version:   gvk.Version,
+		Kind:      gvk.Kind,
+		Namespace: r.Namespace,
+		Name:      r.Name,
+		Body:      jsonBody,
+	})
+	if err != nil {
+		r.Error = err.Error()
+		return r
+	}
+	if !resp.Success {
+		r.Error = resp.Error
+		return r
+	}
+	r.Success = true
+	return r
 }
 
 func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {

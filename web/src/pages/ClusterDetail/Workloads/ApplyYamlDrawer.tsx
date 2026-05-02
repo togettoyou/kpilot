@@ -1,9 +1,25 @@
-import { InboxOutlined, UploadOutlined } from '@ant-design/icons';
+import {
+  CheckCircleTwoTone,
+  CloseCircleTwoTone,
+  InboxOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import type { UploadProps } from 'antd';
-import { App, theme as antdTheme, Button, Drawer, Space, Upload } from 'antd';
+import {
+  Alert,
+  App,
+  theme as antdTheme,
+  Button,
+  Drawer,
+  List,
+  Space,
+  Tag,
+  Upload,
+} from 'antd';
 import React, { useEffect, useState } from 'react';
 
+import type { ApplyYamlResult } from '@/services/kpilot/workload';
 import { applyYAML } from '@/services/kpilot/workload';
 import { YamlEditor } from './YamlEditor';
 
@@ -37,12 +53,16 @@ export function ApplyYamlDrawer({
 
   const [yamlText, setYamlText] = useState('');
   const [applying, setApplying] = useState(false);
+  const [results, setResults] = useState<ApplyYamlResult[] | null>(null);
 
   // Seed with a small template each time the drawer opens — gives a starting
   // point if the user is creating something from scratch and didn't bring a
   // file. They can clear/replace freely.
   useEffect(() => {
-    if (open) setYamlText(PLACEHOLDER);
+    if (open) {
+      setYamlText(PLACEHOLDER);
+      setResults(null);
+    }
   }, [open]);
 
   const handleSubmit = async () => {
@@ -52,12 +72,29 @@ export function ApplyYamlDrawer({
       return;
     }
     setApplying(true);
+    setResults(null);
     try {
-      await applyYAML(clusterId, trimmed);
-      message.success(intl.formatMessage({ id: 'pages.applyYaml.success' }));
-      setYamlText('');
-      onApplied();
-      onClose();
+      const resp = await applyYAML(clusterId, trimmed);
+      const list = resp.results ?? [];
+      const failed = list.filter((r) => !r.success);
+
+      if (failed.length === 0) {
+        // All docs applied — close drawer and refresh.
+        message.success(
+          intl.formatMessage(
+            { id: 'pages.applyYaml.successN' },
+            { n: list.length },
+          ),
+        );
+        setYamlText('');
+        onApplied();
+        onClose();
+      } else {
+        // Partial / total failure — keep drawer open and surface per-doc
+        // results so the user can fix and retry without losing their work.
+        setResults(list);
+        onApplied(); // refresh table for any successes
+      }
     } catch {
       // Global error handler in requestErrorConfig already shows the toast.
     } finally {
@@ -130,6 +167,50 @@ export function ApplyYamlDrawer({
           {intl.formatMessage({ id: 'pages.applyYaml.dropHint' })}
         </p>
       </Upload.Dragger>
+      {results && results.some((r) => !r.success) && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ margin: '0 16px 8px' }}
+          message={intl.formatMessage(
+            { id: 'pages.applyYaml.partial' },
+            {
+              ok: results.filter((r) => r.success).length,
+              total: results.length,
+            },
+          )}
+          description={
+            <List
+              size="small"
+              dataSource={results}
+              split={false}
+              renderItem={(r) => (
+                <List.Item style={{ padding: '4px 0' }}>
+                  <Space size="small" align="start">
+                    {r.success ? (
+                      <CheckCircleTwoTone twoToneColor="#52c41a" />
+                    ) : (
+                      <CloseCircleTwoTone twoToneColor="#ff4d4f" />
+                    )}
+                    <span>
+                      {r.kind && <Tag>{r.kind}</Tag>}
+                      <span style={{ fontFamily: 'monospace' }}>
+                        {r.namespace ? `${r.namespace}/` : ''}
+                        {r.name || `#${r.index}`}
+                      </span>
+                      {r.error && (
+                        <span style={{ marginLeft: 8, color: '#ff4d4f' }}>
+                          {r.error}
+                        </span>
+                      )}
+                    </span>
+                  </Space>
+                </List.Item>
+              )}
+            />
+          }
+        />
+      )}
       <div style={{ flex: 1, overflow: 'auto', padding: '0 16px 16px' }}>
         <YamlEditor value={yamlText} onChange={(v) => setYamlText(v)} />
       </div>
