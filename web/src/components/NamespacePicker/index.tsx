@@ -62,6 +62,15 @@ export function NamespacePicker() {
         size="small"
         loading={state.loading}
         allowClear
+        // Client-side substring search — namespace lists are short enough
+        // (rarely >100) that filtering in the browser is fine.
+        showSearch
+        optionFilterProp="label"
+        filterOption={(input, opt) =>
+          (opt?.label as string)
+            ?.toLowerCase()
+            .includes(input.trim().toLowerCase())
+        }
         placeholder={intl.formatMessage({
           id: 'pages.workloads.allNamespaces',
         })}
