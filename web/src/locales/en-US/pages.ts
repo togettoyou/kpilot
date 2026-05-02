@@ -3,7 +3,7 @@ export default {
     'Kubernetes-native GPU Orchestration Platform',
 
   // plugin center (placeholder)
-  'pages.plugins.title': 'Plugin Center',
+  'pages.plugins.title': 'Plugin Management',
   'pages.plugins.comingSoon': 'Coming soon',
 
   // api error codes

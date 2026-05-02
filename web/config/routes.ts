@@ -15,12 +15,6 @@ export default [
     ],
   },
   {
-    path: '/plugins',
-    name: 'plugins',
-    icon: 'appstore',
-    component: './Plugins/index',
-  },
-  {
     path: '/clusters',
     name: 'clusters',
     icon: 'cluster',
@@ -46,6 +40,12 @@ export default [
         component: './ClusterDetail/Workloads/index',
       },
     ],
+  },
+  {
+    path: '/plugins',
+    name: 'plugins',
+    icon: 'appstore',
+    component: './Plugins/index',
   },
   {
     path: '/',

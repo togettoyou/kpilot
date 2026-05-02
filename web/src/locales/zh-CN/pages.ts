@@ -2,7 +2,7 @@ export default {
   'pages.layouts.userLayout.title': 'Kubernetes-native GPU 算力编排平台',
 
   // plugin center (placeholder)
-  'pages.plugins.title': '插件中心',
+  'pages.plugins.title': '插件管理',
   'pages.plugins.comingSoon': '敬请期待',
 
   // api error codes
