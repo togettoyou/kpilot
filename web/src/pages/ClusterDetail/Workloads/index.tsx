@@ -1,6 +1,7 @@
 import {
   DownOutlined,
   LeftOutlined,
+  PlusOutlined,
   ReloadOutlined,
   RightOutlined,
 } from '@ant-design/icons';
@@ -32,6 +33,7 @@ import {
   listNamespaces,
   listWorkloads,
 } from '@/services/kpilot/workload';
+import { ApplyYamlDrawer } from './ApplyYamlDrawer';
 import { PodExecDrawer } from './PodExecDrawer';
 import { PodLogsDrawer } from './PodLogsDrawer';
 import { YamlEditor } from './YamlEditor';
@@ -307,6 +309,9 @@ function WorkloadsContent({
   const [logsTarget, setLogsTarget] = useState<WorkloadItem | null>(null);
   const [execTarget, setExecTarget] = useState<WorkloadItem | null>(null);
 
+  // Generic Apply YAML drawer — always available regardless of resourceType.
+  const [applyOpen, setApplyOpen] = useState(false);
+
   const {
     data: pageData,
     loading,
@@ -514,6 +519,14 @@ function WorkloadsContent({
           </Space>
         }
         toolBarRender={() => [
+          <Button
+            key="apply"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setApplyOpen(true)}
+          >
+            {intl.formatMessage({ id: 'pages.applyYaml.title' })}
+          </Button>,
           !isClusterScoped && (
             <Select
               key="ns"
@@ -662,6 +675,12 @@ function WorkloadsContent({
           podName={execTarget.name}
         />
       )}
+      <ApplyYamlDrawer
+        open={applyOpen}
+        onClose={() => setApplyOpen(false)}
+        onApplied={refresh}
+        clusterId={clusterId}
+      />
     </div>
   );
 }

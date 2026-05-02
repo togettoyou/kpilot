@@ -73,3 +73,13 @@ export function listNamespaces(clusterId: string) {
     method: 'GET',
   });
 }
+
+// Generic apply: server parses YAML/JSON text, extracts GVK + metadata, then
+// routes to the same Server-Side Apply path as the per-type endpoint.
+export function applyYAML(clusterId: string, yamlText: string) {
+  return request<any>(`/api/v1/clusters/${clusterId}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    data: yamlText,
+  });
+}

@@ -154,6 +154,16 @@ export default {
   'pages.cluster.nav.logging': 'Logging',
   'pages.cluster.back': 'Clusters',
 
+  // apply YAML drawer
+  'pages.applyYaml.title': 'Apply YAML',
+  'pages.applyYaml.upload': 'Upload',
+  'pages.applyYaml.dropHint': 'Click or drag .yaml / .yml / .json here',
+  'pages.applyYaml.apply': 'Apply',
+  'pages.applyYaml.success': 'Applied',
+  'pages.applyYaml.empty': 'Please enter or upload YAML',
+  'pages.applyYaml.tooLarge': 'File exceeds 1 MB',
+  'pages.applyYaml.readError': 'Failed to read file',
+
   // pod logs drawer
   'pages.podLogs.title': 'Pod Logs',
   'pages.podLogs.container': 'Container',

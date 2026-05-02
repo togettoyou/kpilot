@@ -150,6 +150,16 @@ export default {
   'pages.cluster.nav.logging': '日志中心',
   'pages.cluster.back': '集群列表',
 
+  // apply YAML drawer
+  'pages.applyYaml.title': '应用 YAML',
+  'pages.applyYaml.upload': '上传文件',
+  'pages.applyYaml.dropHint': '点击或拖拽 .yaml / .yml / .json 文件到此处',
+  'pages.applyYaml.apply': '应用',
+  'pages.applyYaml.success': '已应用',
+  'pages.applyYaml.empty': '请输入或上传 YAML',
+  'pages.applyYaml.tooLarge': '文件超过 1 MB',
+  'pages.applyYaml.readError': '读取文件失败',
+
   // pod logs drawer
   'pages.podLogs.title': 'Pod 日志',
   'pages.podLogs.container': '容器',

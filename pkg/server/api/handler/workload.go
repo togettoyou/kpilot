@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	sigsyaml "sigs.k8s.io/yaml"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
@@ -153,6 +155,75 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			Namespace: namespace,
 			Name:      name,
 			Body:      body,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			apiErrWorker(c, resp.Error)
+			return
+		}
+		c.Data(http.StatusOK, "application/json", resp.Data)
+	}
+}
+
+// ApplyYAML accepts a raw single-document YAML manifest (text/* or JSON), parses
+// it to extract GVK + metadata, and routes to the same Server-Side Apply path
+// as the per-type ApplyWorkload handler. Single-doc only for now — multi-doc
+// `---` separated files need a follow-up commit (would have to apply each in
+// a transaction-ish way and report partial failures).
+func ApplyYAML(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBodySize))
+		if err != nil || len(body) == 0 {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		// sigs.k8s.io/yaml handles both YAML and JSON input — converts to JSON.
+		jsonBody, err := sigsyaml.YAMLToJSON(body)
+		if err != nil {
+			apiErrWorker(c, "invalid YAML: "+err.Error())
+			return
+		}
+
+		obj := &unstructured.Unstructured{}
+		if err := obj.UnmarshalJSON(jsonBody); err != nil {
+			apiErrWorker(c, "invalid manifest: "+err.Error())
+			return
+		}
+
+		gvk := obj.GroupVersionKind()
+		if gvk.Kind == "" || gvk.Version == "" {
+			apiErrWorker(c, "manifest missing apiVersion or kind")
+			return
+		}
+		name := obj.GetName()
+		if name == "" {
+			apiErrWorker(c, "manifest missing metadata.name")
+			return
+		}
+		namespace := obj.GetNamespace()
+
+		if strings.HasPrefix(namespace, "kube-") {
+			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:    "apply",
+			Group:     gvk.Group,
+			Version:   gvk.Version,
+			Kind:      gvk.Kind,
+			Namespace: namespace,
+			Name:      name,
+			Body:      jsonBody,
 		})
 		if err != nil {
 			handleWorkerErr(c, err)
