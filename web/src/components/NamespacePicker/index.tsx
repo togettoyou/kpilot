@@ -1,5 +1,6 @@
 import { ReloadOutlined } from '@ant-design/icons';
 import { useIntl, useLocation, useModel } from '@umijs/max';
+import type { RefSelectProps } from 'antd';
 import { Button, Divider, Select, Space } from 'antd';
 import React, { useEffect, useRef } from 'react';
 
@@ -20,6 +21,7 @@ export function NamespacePicker() {
 
   const ns = useModel('namespace');
   const rootRef = useRef<HTMLDivElement>(null);
+  const selectRef = useRef<RefSelectProps>(null);
 
   // Refetch the cluster's namespace list whenever the cluster scope changes
   // (initial entry into a cluster, or switching clusters via the URL).
@@ -59,6 +61,7 @@ export function NamespacePicker() {
         {intl.formatMessage({ id: 'namespacePicker.label' })}
       </span>
       <Select
+        ref={selectRef}
         size="small"
         loading={state.loading}
         allowClear
@@ -76,7 +79,13 @@ export function NamespacePicker() {
         })}
         style={{ width: 180 }}
         value={state.selected || undefined}
-        onChange={(v) => ns.setSelected(clusterId, v ?? '')}
+        onChange={(v) => {
+          ns.setSelected(clusterId, v ?? '');
+          // Blur the search input after selection so the caret stops
+          // blinking over the picked value. Same as the user clicking
+          // outside the picker.
+          selectRef.current?.blur();
+        }}
         options={state.list.map((n) => ({ label: n, value: n }))}
         popupRender={(menu) => (
           <>
