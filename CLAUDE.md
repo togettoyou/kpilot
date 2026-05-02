@@ -128,9 +128,14 @@ status:
 - 列表使用 K8s Table API（同 kubectl 默认展示，server 端计算列，仅传输元数据+单元格值，不传输完整 YAML）
 - 展示全部列（含 wide 列，等价于 `kubectl -o wide`）
 - 服务端游标分页（limit + continue token），支持前后翻页
-- 工具栏：命名空间筛选、手动刷新 + 定时刷新（5s/10s/30s/60s）
+- 工具栏：手动刷新 + 定时刷新（5s/10s/30s/60s）
+- 全局命名空间选择器（顶部栏，进入工作负载相关页面时显示，PV 页面自动隐藏；按集群独立保存；支持客户端搜索 + 刷新）
 - kube-* 命名空间只读（前端隐藏操作按钮，后端返回 403）
 - YAML 编辑器：CodeMirror 6，有语法高亮，status 区块视觉变暗（不可改）
+- **通用 Apply YAML**：用户输入或拖拽上传 .yaml/.yml/.json，支持多文档 `---` 分隔，每条独立 SSA，返回逐条结果（成功/失败 + 错误消息）
+- **资源详情（Describe）**：所有工作负载操作栏带"详情"按钮，调用 `k8s.io/kubectl/pkg/describe` 输出与 `kubectl describe` 一致的文本，前端做最小化高亮（key 着色 + Events Type Normal/Warning 着色）
+- **Pod 日志**：WebSocket 流式 follow，可选容器、tail 行数（100/500/1000/5000）、previous 实例；前端 rAF 节流避免高吞吐场景的渲染抖动
+- **Pod 终端（Exec）**：xterm.js + FitAddon，Worker 端默认 `/bin/bash`，不存在自动回退 `/bin/sh`；二进制 WS 帧（首字节为类型）
 
 ### 4. 插件管理
 - 查看可用插件列表及安装状态
@@ -396,6 +401,10 @@ web/src/
 - **集群级资源**：`CLUSTER_SCOPED` 集合（目前含 `persistentvolumes`）控制是否显示命名空间列和命名空间筛选器。
 - **编辑（Apply）**：使用 K8s **Server-Side Apply**（`Patch` + `ApplyPatchType`，`fieldManager=kpilot`，`force=true`），幂等、无需携带 `resourceVersion`，不会因并发更新产生 409 冲突。
 - **错误透传**：K8s 操作失败用 `apiErrWorker`（HTTP 400，code=WORKER_ERROR，message=K8s 原始错误），区别于服务器内部错误（500）。
+- **通用 Apply YAML**：`POST /api/v1/clusters/:id/apply`，body 是纯文本（`Content-Type: text/plain`）。Server 端用 `apimachinery/pkg/util/yaml.NewYAMLOrJSONDecoder` 流式解析多文档，逐条提取 GVK + name + namespace 后走与单资源相同的 SSA 通道。响应 `{results: [...]}` 一份文档一条结果，前端按 `success` 渲染部分失败。
+- **Describe**：Worker 端走 `k8s.io/kubectl/pkg/describe` 的 `DescriberFor(GVK.GroupKind(), cfg)`（`ShowEvents: true`），返回纯文本经 gRPC 透传给 Server，再以 `text/plain` 返回前端。前端只做两类高亮：行内 `key:` 着色（lookahead 排除 taint 表达式如 `node.kubernetes.io/unreachable:NoExecute`），Events 段内 Type 列 Normal/Warning 着色。
+- **Pod 日志**：WS 端点 `/api/v1/clusters/:id/workloads/pods/:name/logs`。Server 通过 `gateway.OpenStream` 拿 sessionID 双向流，发 `LogsStartRequest` 给 Worker；Worker 用 `clientset.CoreV1().Pods(ns).GetLogs(...).Stream(ctx)` 4 KiB chunk 转发，EOF 发 `LogsEnd`。前端用 rAF 批量 flush 行缓冲，避免每条消息触发 React re-render。
+- **Pod 终端（Exec）**：WS 端点 `/api/v1/clusters/:id/workloads/pods/:name/exec`，二进制帧首字节为类型（client→server: 0=stdin / 1=resize JSON；server→client: 1=stdout / 2=stderr / 3=end）。Worker 端 `ExecManager` 维护 sessionID → `{cancel, stdinW, resizeCh, closed, closeMu}`，dispatcher handler 必须快返回（实际 IO 在管理器 goroutine 里做）。Shell 选择由 Worker 决定：先探测 `/bin/bash`，不存在静默回退 `/bin/sh`，前端无须传参。
 
 ---
 
@@ -405,8 +414,8 @@ web/src/
 |------|------|------|
 | P1 | 项目脚手架 + Proto 设计 + gRPC 连接/注册 + PostgreSQL schema + JWT 认证 | ✅ 完成 |
 | P2 | 集群管理 UI + 节点概览（Worker 采集上报） | ✅ 完成 |
-| P3 | 工作负载管理（K8s 资源 CRUD 代理） | ✅ 完成 |
-| P4 | 插件系统（CRD + Helm + 状态同步） | 待开始 |
+| P3 | 工作负载管理（CRUD 代理 + 通用 Apply YAML + Describe + Pod 日志/终端 + 全局命名空间选择器） | ✅ 完成 |
+| P4 | 插件系统（CRD + Helm + 状态同步） | 待开始 ← 下一步 |
 | P5 | GPU 管理（HAMI 集成） | 待开始 |
 | P6 | 监控中心 + 日志中心 | 待开始 |
 | P7 | 模型管理（LLM + KServe） | 待开始 |
