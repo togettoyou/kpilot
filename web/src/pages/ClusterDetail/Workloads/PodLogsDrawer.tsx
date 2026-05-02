@@ -132,12 +132,12 @@ export function PodLogsDrawer({
       if (idx >= 0) {
         const complete = pending.slice(0, idx);
         pending = pending.slice(idx + 1);
+        // push.apply mutates in place — avoids the O(n) `concat` allocation
+        // that would otherwise run on every chunk for chatty pods.
         const newLines = complete.split('\n');
-        linesRef.current = linesRef.current.concat(newLines);
+        linesRef.current.push(...newLines);
         if (linesRef.current.length > MAX_LINES) {
-          linesRef.current = linesRef.current.slice(
-            linesRef.current.length - MAX_LINES,
-          );
+          linesRef.current.splice(0, linesRef.current.length - MAX_LINES);
         }
         scheduleFlush();
       }
@@ -150,7 +150,7 @@ export function PodLogsDrawer({
       if (myKey !== sessionKey.current) return;
       // Flush any trailing partial line.
       if (pending) {
-        linesRef.current = linesRef.current.concat([pending]);
+        linesRef.current.push(pending);
         pending = '';
         scheduleFlush();
       }

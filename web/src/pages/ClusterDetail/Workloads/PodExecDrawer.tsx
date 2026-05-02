@@ -137,28 +137,26 @@ export function PodExecDrawer({
       setError(intl.formatMessage({ id: 'pages.podExec.error.connection' }));
     };
 
-    // Pipe terminal input → ws stdin frames (tag 0).
+    // Hoist the encoder out of the keystroke / resize callbacks — allocating
+    // a new TextEncoder on every keypress is wasteful (and the spec says
+    // instances are stateless / safe to reuse).
+    const encoder = new TextEncoder();
+
+    // Pipe terminal input → ws stdin frames (tag 0). Single allocation: encode
+    // first to know the byte length, then build the framed payload once.
     const dataDisposable = term.onData((data) => {
       if (ws.readyState !== WebSocket.OPEN) return;
-      const payload = new Uint8Array(data.length + 1);
+      const enc = encoder.encode(data);
+      const payload = new Uint8Array(enc.length + 1);
       payload[0] = 0;
-      const enc = new TextEncoder().encode(data);
       payload.set(enc, 1);
-      // Adjust size if utf-8 encoded length differs.
-      if (enc.length === data.length) {
-        ws.send(payload);
-      } else {
-        const real = new Uint8Array(enc.length + 1);
-        real[0] = 0;
-        real.set(enc, 1);
-        ws.send(real);
-      }
+      ws.send(payload);
     });
 
     // Pipe terminal resize → ws resize frames (tag 1, JSON body).
     const resizeDisposable = term.onResize(({ cols, rows }) => {
       if (ws.readyState !== WebSocket.OPEN) return;
-      const body = new TextEncoder().encode(JSON.stringify({ cols, rows }));
+      const body = encoder.encode(JSON.stringify({ cols, rows }));
       const payload = new Uint8Array(body.length + 1);
       payload[0] = 1;
       payload.set(body, 1);

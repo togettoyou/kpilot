@@ -53,7 +53,7 @@ func PodLogs(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		stream, err := gw.OpenStream(clusterID)
 		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
 		}
 
@@ -164,7 +164,7 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		stream, err := gw.OpenStream(clusterID)
 		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
 		}
 

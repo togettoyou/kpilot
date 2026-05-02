@@ -155,7 +155,15 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 		ch, ok := g.pending[msg.RequestId]
 		g.pendingMu.Unlock()
 		if ok {
-			ch <- resp
+			// Non-blocking send: channel is buffered size 1, so on the happy
+			// path this is a no-wait. If the requester already gave up (ctx
+			// cancelled before delete) the buffer might still be empty but
+			// the receiver's gone — fall through silently rather than block
+			// the gateway's recv loop on a duplicate or stale response.
+			select {
+			case ch <- resp:
+			default:
+			}
 		}
 	case *proto.WorkerMessage_LogsChunk, *proto.WorkerMessage_LogsEnd,
 		*proto.WorkerMessage_ExecOutput, *proto.WorkerMessage_ExecEnd:
