@@ -61,6 +61,14 @@ body,
   left: unset;
 }
 
+// ProLayout zeroes out the horizontal-menu selected indicators (active bar
+// height 0, transparent bg, near-black text barely distinguishable from
+// inactive). Recolor the selected text to primary — keeps the indication
+// visible without the heavy bg fill.
+.ant-pro-top-nav-header .ant-menu-horizontal {
+  --ant-menu-horizontal-item-selected-color: var(--ant-color-primary);
+}
+
 canvas {
   display: block;
 }
