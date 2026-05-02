@@ -1,4 +1,10 @@
-import { CheckOutlined, GlobalOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
+import {
+  CheckOutlined,
+  GithubOutlined,
+  GlobalOutlined,
+  MoonOutlined,
+  SunOutlined,
+} from '@ant-design/icons';
 import { getLocale, setLocale } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Button } from 'antd';
@@ -23,6 +29,23 @@ const useStyles = createStyles(({ token, css }) => ({
     border-radius: ${token.borderRadius}px !important;
   `,
 }));
+
+const GITHUB_URL = 'https://github.com/togettoyou/kpilot';
+
+export const GithubLink: React.FC = () => {
+  const { styles } = useStyles();
+  return (
+    <Button
+      type="text"
+      className={styles.action}
+      aria-label="GitHub"
+      href={GITHUB_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      icon={<GithubOutlined />}
+    />
+  );
+};
 
 export const ThemeToggle: React.FC = () => {
   const { styles } = useStyles();

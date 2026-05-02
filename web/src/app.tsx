@@ -19,6 +19,7 @@ import React from 'react';
 import {
   AvatarDropdown,
   Footer,
+  GithubLink,
   LangDropdown,
   ThemeToggle,
 } from '@/components';
@@ -137,6 +138,7 @@ export const layout: RunTimeLayoutConfig = ({
     siderWidth: 208,
     logo: '/logo.svg',
     actionsRender: () => [
+      <GithubLink key="github" />,
       <ThemeToggle key="theme" />,
       <LangDropdown key="lang" />,
     ],
