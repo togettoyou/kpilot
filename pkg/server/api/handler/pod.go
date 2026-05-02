@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -104,6 +106,130 @@ func PodLogs(gw *gateway.GatewayServer) gin.HandlerFunc {
 					if p.LogsEnd.Error != "" {
 						_ = conn.WriteMessage(websocket.TextMessage, []byte("\n[stream ended: "+p.LogsEnd.Error+"]"))
 					}
+					_ = conn.WriteMessage(websocket.CloseMessage,
+						websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+					return
+				}
+			}
+		}
+	}
+}
+
+// PodExec opens an interactive exec session over a WebSocket. The Browser
+// sends binary frames where the first byte is a type tag:
+//
+//	0 = stdin (rest is raw bytes)
+//	1 = resize (rest is JSON: {"cols":N,"rows":N})
+//
+// The server sends binary frames where the first byte is:
+//
+//	1 = stdout (rest is bytes)
+//	2 = stderr (rest is bytes)
+//	3 = end    (rest is utf-8 error string; empty = clean exit)
+//
+// Query params: container, command (comma-separated; default "/bin/sh"),
+// cols, rows.
+func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		namespace := c.Param("namespace")
+		pod := c.Param("name")
+
+		cols := uint32(queryInt64(c, "cols", 80))
+		rows := uint32(queryInt64(c, "rows", 24))
+
+		cmdStr := c.Query("command")
+		if cmdStr == "" {
+			cmdStr = "/bin/sh"
+		}
+		cmd := strings.Split(cmdStr, ",")
+
+		req := &proto.ExecStartRequest{
+			Namespace: namespace,
+			Pod:       pod,
+			Container: c.Query("container"),
+			Command:   cmd,
+			Tty:       true,
+			Cols:      cols,
+			Rows:      rows,
+		}
+
+		stream, err := gw.OpenStream(clusterID)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			stream.Close()
+			return
+		}
+		defer conn.Close()
+		defer stream.Close()
+
+		if err := stream.Send(req); err != nil {
+			_ = conn.WriteMessage(websocket.BinaryMessage, append([]byte{3}, []byte(err.Error())...))
+			return
+		}
+
+		// Browser → server pump: parse type-tagged frames into stdin/resize.
+		clientGone := make(chan struct{})
+		go func() {
+			defer close(clientGone)
+			for {
+				_, data, err := conn.ReadMessage()
+				if err != nil {
+					return
+				}
+				if len(data) == 0 {
+					continue
+				}
+				switch data[0] {
+				case 0: // stdin
+					if len(data) > 1 {
+						_ = stream.Send(&proto.ExecStdin{Data: data[1:]})
+					}
+				case 1: // resize
+					var sz struct {
+						Cols uint32 `json:"cols"`
+						Rows uint32 `json:"rows"`
+					}
+					if err := json.Unmarshal(data[1:], &sz); err == nil && sz.Cols > 0 && sz.Rows > 0 {
+						_ = stream.Send(&proto.ExecResize{Cols: sz.Cols, Rows: sz.Rows})
+					}
+				}
+			}
+		}()
+
+		// Worker → browser pump.
+		for {
+			select {
+			case <-clientGone:
+				_ = stream.Send(&proto.ExecCancelRequest{})
+				select {
+				case <-stream.Recv():
+				case <-time.After(wsCloseGrace):
+				}
+				return
+
+			case msg, ok := <-stream.Recv():
+				if !ok {
+					return
+				}
+				switch p := msg.Payload.(type) {
+				case *proto.WorkerMessage_ExecOutput:
+					out := p.ExecOutput
+					tag := byte(out.Stream) // 1 stdout, 2 stderr
+					frame := append([]byte{tag}, out.Data...)
+					if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+						log.Printf("[pod-exec] write failed: %v", err)
+						return
+					}
+				case *proto.WorkerMessage_ExecEnd:
+					end := p.ExecEnd
+					payload := append([]byte{3}, []byte(end.Error)...)
+					_ = conn.WriteMessage(websocket.BinaryMessage, payload)
 					_ = conn.WriteMessage(websocket.CloseMessage,
 						websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 					return

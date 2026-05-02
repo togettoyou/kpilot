@@ -100,6 +100,7 @@ export default {
   'pages.workloads.delete.success': 'Deleted',
   'pages.workloads.cancel': 'Cancel',
   'pages.workloads.logs': 'Logs',
+  'pages.workloads.exec': 'Exec',
   'pages.workloads.loadError': 'Failed to load resource',
   'pages.workloads.loading': 'Loading…',
   'pages.workloads.editor.title': 'Edit {type} / {name}',
@@ -162,6 +163,13 @@ export default {
   'pages.podLogs.clear': 'Clear',
   'pages.podLogs.lineCount': '{n} lines',
   'pages.podLogs.error.connection': 'WebSocket connection failed',
+
+  // pod exec drawer
+  'pages.podExec.title': 'Pod Exec',
+  'pages.podExec.container': 'Container',
+  'pages.podExec.shell': 'Shell',
+  'pages.podExec.reload': 'Reconnect',
+  'pages.podExec.error.connection': 'WebSocket connection failed',
 
   // 404
   'pages.404.subTitle': 'Sorry, the page you visited does not exist.',

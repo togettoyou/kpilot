@@ -71,6 +71,7 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// browsers send cookies on the WS handshake, so the Auth middleware
 		// above runs first and rejects unauthenticated upgrades.
 		clusters.GET("/:id/pods/:namespace/:name/logs", handler.PodLogs(gw))
+		clusters.GET("/:id/pods/:namespace/:name/exec", handler.PodExec(gw))
 	}
 
 	return r

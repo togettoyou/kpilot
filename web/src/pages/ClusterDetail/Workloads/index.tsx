@@ -32,6 +32,7 @@ import {
   listNamespaces,
   listWorkloads,
 } from '@/services/kpilot/workload';
+import { PodExecDrawer } from './PodExecDrawer';
 import { PodLogsDrawer } from './PodLogsDrawer';
 import { YamlEditor } from './YamlEditor';
 
@@ -291,8 +292,9 @@ function WorkloadsContent({
   const [applying, setApplying] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
 
-  // Pod logs drawer state — only relevant when resourceType === 'pods'
+  // Pod logs / exec drawer state — only relevant when resourceType === 'pods'
   const [logsTarget, setLogsTarget] = useState<WorkloadItem | null>(null);
+  const [execTarget, setExecTarget] = useState<WorkloadItem | null>(null);
 
   const {
     data: pageData,
@@ -421,22 +423,32 @@ function WorkloadsContent({
     const actionsColumn: ProColumns<WorkloadItem> = {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       valueType: 'option',
-      width: isPods ? 180 : 120,
+      width: isPods ? 240 : 120,
       render: (_, record) => {
         const isProtected = (record.namespace ?? '').startsWith('kube-');
-        const logsBtn = isPods ? (
-          <Button
-            key="logs"
-            type="link"
-            size="small"
-            onClick={() => setLogsTarget(record)}
-          >
-            {intl.formatMessage({ id: 'pages.workloads.logs' })}
-          </Button>
-        ) : null;
+        const podActions = isPods
+          ? [
+              <Button
+                key="logs"
+                type="link"
+                size="small"
+                onClick={() => setLogsTarget(record)}
+              >
+                {intl.formatMessage({ id: 'pages.workloads.logs' })}
+              </Button>,
+              <Button
+                key="exec"
+                type="link"
+                size="small"
+                onClick={() => setExecTarget(record)}
+              >
+                {intl.formatMessage({ id: 'pages.workloads.exec' })}
+              </Button>,
+            ]
+          : null;
         if (isProtected) {
           return [
-            logsBtn,
+            podActions,
             <Button
               key="view"
               type="link"
@@ -448,7 +460,7 @@ function WorkloadsContent({
           ];
         }
         return [
-          logsBtn,
+          podActions,
           <Button
             key="edit"
             type="link"
@@ -625,6 +637,15 @@ function WorkloadsContent({
           clusterId={clusterId}
           namespace={logsTarget.namespace ?? ''}
           podName={logsTarget.name}
+        />
+      )}
+      {execTarget && (
+        <PodExecDrawer
+          open={!!execTarget}
+          onClose={() => setExecTarget(null)}
+          clusterId={clusterId}
+          namespace={execTarget.namespace ?? ''}
+          podName={execTarget.name}
         />
       )}
     </div>

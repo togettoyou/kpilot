@@ -66,11 +66,14 @@ func main() {
 			log.Fatalf("[worker] failed to create clientset: %v", err)
 		}
 		logsMgr := proxy.NewLogsManager(clientset, tunnelClient)
-		// Exec handlers are wired in P3-followup commit 3.
+		execMgr := proxy.NewExecManager(k8sCfg, clientset, tunnelClient)
 		tunnelClient.SetStreamHandlers(
 			logsMgr.Start,
 			logsMgr.Cancel,
-			nil, nil, nil, nil, // exec handlers — TBD
+			execMgr.Start,
+			execMgr.Stdin,
+			execMgr.Resize,
+			execMgr.Cancel,
 		)
 
 		go func() {
