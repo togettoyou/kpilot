@@ -280,7 +280,7 @@ export default function ClustersPage() {
         onCancel={() => { setEditingCluster(null); editForm.resetFields(); }}
         onOk={() => editForm.submit()}
         confirmLoading={editing}
-        okText={intl.formatMessage({ id: 'pages.clusters.modal.create' })}
+        okText={intl.formatMessage({ id: 'pages.clusters.edit.apply' })}
       >
         <Form
           form={editForm}

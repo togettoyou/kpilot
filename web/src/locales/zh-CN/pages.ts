@@ -40,6 +40,7 @@ export default {
   'pages.clusters.status.online': '在线',
   'pages.clusters.status.offline': '离线',
   'pages.clusters.edit.title': '编辑集群',
+  'pages.clusters.edit.apply': '应用',
   'pages.clusters.edit.success': '保存成功',
   'pages.clusters.delete.title': '删除集群 "{name}"？',
   'pages.clusters.delete.content':

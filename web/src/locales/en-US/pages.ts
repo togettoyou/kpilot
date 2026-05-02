@@ -43,6 +43,7 @@ export default {
   'pages.clusters.status.online': 'Online',
   'pages.clusters.status.offline': 'Offline',
   'pages.clusters.edit.title': 'Edit Cluster',
+  'pages.clusters.edit.apply': 'Apply',
   'pages.clusters.edit.success': 'Saved',
   'pages.clusters.delete.title': 'Delete cluster "{name}"?',
   'pages.clusters.delete.content':
