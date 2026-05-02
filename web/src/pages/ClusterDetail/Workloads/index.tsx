@@ -260,6 +260,7 @@ interface WorkloadsContentProps {
   resourceType: WorkloadResourceType;
   namespaces: string[];
   nsLoading: boolean;
+  refreshNamespaces: () => void;
 }
 
 // ─── Inner component — remounts on resourceType change via key prop ────────
@@ -271,6 +272,7 @@ function WorkloadsContent({
   resourceType,
   namespaces,
   nsLoading,
+  refreshNamespaces,
 }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -678,7 +680,12 @@ function WorkloadsContent({
       <ApplyYamlDrawer
         open={applyOpen}
         onClose={() => setApplyOpen(false)}
-        onApplied={refresh}
+        onApplied={() => {
+          refresh();
+          // Applied YAML may have created a Namespace — refetch the dropdown
+          // so it shows up without a manual browser reload.
+          refreshNamespaces();
+        }}
         clusterId={clusterId}
         resourceType={resourceType}
       />
@@ -696,14 +703,15 @@ export default function WorkloadsPage() {
     isValidType ? type : 'deployments'
   ) as WorkloadResourceType;
 
-  const { data: namespaces = [], loading: nsLoading } = useRequest(
-    () => listNamespaces(clusterId!),
-    {
-      refreshDeps: [clusterId],
-      formatResult: (res) => res,
-      pollingWhenHidden: false,
-    },
-  );
+  const {
+    data: namespaces = [],
+    loading: nsLoading,
+    refresh: refreshNamespaces,
+  } = useRequest(() => listNamespaces(clusterId!), {
+    refreshDeps: [clusterId],
+    formatResult: (res) => res,
+    pollingWhenHidden: false,
+  });
 
   if (!isValidType) {
     return (
@@ -718,6 +726,7 @@ export default function WorkloadsPage() {
       resourceType={resourceType}
       namespaces={namespaces as string[]}
       nsLoading={nsLoading}
+      refreshNamespaces={refreshNamespaces}
     />
   );
 }
