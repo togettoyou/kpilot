@@ -59,13 +59,23 @@ export function PluginCard({
   return (
     <Card
       size="small"
-      style={{ height: '100%' }}
+      // height:100% lets the card fill its flex-stretched wrapper, but
+      // antd Card body doesn't grow to fill the card on its own — it
+      // sizes to content. Make the card a flex column and the body
+      // flex:1 so body stretches, which is what `marginTop: auto` on
+      // the bottom action row needs to actually align across siblings.
+      style={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
       // antd Card size="small" uses very tight padding (8px header,
       // 12px body); on a 280px-wide card it ended up with text
       // bumping the frame. Push both to a comfortable 14×16.
       styles={{
         header: { padding: '10px 16px' },
         body: {
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
           gap: 8,
@@ -92,11 +102,17 @@ export function PluginCard({
         </div>
       }
       // The "内置" tag and the page-specific extra (phase badge on the
-      // per-cluster page) both live in the top-right corner — combine
-      // them into one Space so the title row stays uncluttered.
+      // per-cluster page) both live in the top-right corner. Stack
+      // them vertically when BOTH are present — horizontal layout
+      // ate enough title-row width to truncate longer display_names
+      // ("VictoriaMetrics" → "VictoriaMetri").
       extra={
         plugin.is_builtin || extra ? (
-          <Space size={8}>
+          <Space
+            size={4}
+            direction={plugin.is_builtin && extra ? 'vertical' : 'horizontal'}
+            align="end"
+          >
             {plugin.is_builtin && (
               <Tag color="gold" style={{ marginInlineEnd: 0 }}>
                 {intl.formatMessage({ id: 'pages.plugins.builtin' })}
