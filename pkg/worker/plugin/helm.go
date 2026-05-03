@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
@@ -17,6 +18,12 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
 )
+
+// helmInstallTimeout caps how long Helm waits for resources to become
+// Ready before declaring failure. Long enough for operator-style
+// charts that pull big images on first install (VictoriaMetrics
+// stack, HAMi), short enough that a wedged install gets visible.
+const helmInstallTimeout = 5 * time.Minute
 
 // HelmDriver is the storage backend Helm uses for release state. "secrets"
 // stores release state as Kubernetes Secrets (the Helm v3 default).
@@ -143,6 +150,17 @@ func (h *HelmRunner) InstallOrUpgrade(
 		up.Namespace = namespace
 		up.Force = false
 		up.MaxHistory = 5 // keep release history bounded
+		// Wait until rolled-out resources report Ready before returning.
+		// Critical for umbrella charts where later resources depend on
+		// an earlier operator coming up (e.g. victoria-metrics-k8s-stack
+		// patches CRs through a webhook served by the operator pod).
+		up.Wait = true
+		up.WaitForJobs = true
+		up.Timeout = helmInstallTimeout
+		// Atomic upgrades roll back to the previous good release if
+		// anything fails — leaves the cluster in a consistent state
+		// instead of half-applied with orphan webhook configs.
+		up.Atomic = true
 		return up.Run(releaseName, chart, values)
 	}
 
@@ -150,6 +168,13 @@ func (h *HelmRunner) InstallOrUpgrade(
 	inst.ReleaseName = releaseName
 	inst.Namespace = namespace
 	inst.CreateNamespace = true
+	inst.Wait = true
+	inst.WaitForJobs = true
+	inst.Timeout = helmInstallTimeout
+	// Atomic install rolls everything back on failure; without it the
+	// cluster ends up with half-installed manifests that block retries
+	// (orphan webhooks, dangling secrets, etc.).
+	inst.Atomic = true
 	return inst.Run(chart, values)
 }
 
