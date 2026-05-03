@@ -1,11 +1,17 @@
+import {
+  CheckCircleFilled,
+  CloseCircleFilled,
+  LoadingOutlined,
+  MinusCircleOutlined,
+} from '@ant-design/icons';
 import { useIntl, useParams, useRequest } from '@umijs/max';
 import {
   App,
-  Badge,
   Button,
   Empty,
   Popconfirm,
   Spin,
+  Tag,
   Tooltip,
   Typography,
 } from 'antd';
@@ -39,20 +45,70 @@ const CATEGORY_ORDER: PluginCategory[] = [
   'custom',
 ];
 
-// Map K8s-style phases to the antd Badge "status" prop. Anything outside
-// this set falls back to "default" (grey dot).
-const PHASE_STATUS: Record<
-  PluginPhase,
-  'default' | 'success' | 'processing' | 'error' | 'warning'
-> = {
-  Disabled: 'default',
-  Pending: 'warning',
-  Installing: 'processing',
-  Upgrading: 'processing',
-  Running: 'success',
-  Failed: 'error',
-  Uninstalling: 'processing',
+// Visual style for each phase. The in-flight phases (Pending /
+// Installing / Upgrading / Uninstalling) use LoadingOutlined whose
+// built-in spin gives the "something is happening" cue users expect.
+// Running / Failed are static but use bold filled icons so they read
+// at-a-glance. Disabled stays muted.
+interface PhaseVisual {
+  // antd Tag color name. Empty string = no Tag, render plain text.
+  color: '' | 'processing' | 'success' | 'error' | 'warning';
+  icon: React.ReactNode;
+  // Bold the label for failure so it stands out among the cards.
+  bold?: boolean;
+}
+
+const PHASE_VISUALS: Record<PluginPhase, PhaseVisual> = {
+  Disabled: { color: '', icon: <MinusCircleOutlined /> },
+  Pending: { color: 'warning', icon: <LoadingOutlined spin /> },
+  Installing: { color: 'processing', icon: <LoadingOutlined spin /> },
+  Upgrading: { color: 'processing', icon: <LoadingOutlined spin /> },
+  Uninstalling: { color: 'warning', icon: <LoadingOutlined spin /> },
+  Running: { color: 'success', icon: <CheckCircleFilled /> },
+  Failed: { color: 'error', icon: <CloseCircleFilled />, bold: true },
 };
+
+function PhaseTag({
+  phase,
+  message,
+}: {
+  phase: PluginPhase;
+  message?: string;
+}) {
+  const intl = useIntl();
+  const label = intl.formatMessage({
+    id: `pages.clusterPlugins.phase.${phase}`,
+  });
+  const visual = PHASE_VISUALS[phase];
+
+  const inner = visual.color ? (
+    <Tag
+      color={visual.color}
+      icon={visual.icon}
+      style={{
+        marginInlineEnd: 0,
+        fontWeight: visual.bold ? 600 : undefined,
+      }}
+    >
+      {label}
+    </Tag>
+  ) : (
+    <span
+      style={{
+        color: 'var(--ant-color-text-secondary)',
+        fontSize: 13,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+      }}
+    >
+      {visual.icon}
+      {label}
+    </span>
+  );
+
+  return message ? <Tooltip title={message}>{inner}</Tooltip> : inner;
+}
 
 interface CategorySection {
   key: string;
@@ -122,14 +178,7 @@ export default function ClusterPluginsPage() {
 
   const renderCard = (it: ClusterPluginItem) => {
     const phase = it.phase || 'Disabled';
-    const phaseLabel = intl.formatMessage({
-      id: `pages.clusterPlugins.phase.${phase}`,
-    });
-    const phaseTag = (
-      <Tooltip title={it.message || undefined}>
-        <Badge status={PHASE_STATUS[phase] ?? 'default'} text={phaseLabel} />
-      </Tooltip>
-    );
+    const phaseTag = <PhaseTag phase={phase} message={it.message} />;
     const action = it.enabled ? (
       <Popconfirm
         title={intl.formatMessage(
