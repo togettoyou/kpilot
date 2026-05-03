@@ -120,15 +120,42 @@ service:
 		DefaultReleaseNamespace: "monitoring",
 	},
 	{
-		Name:                    "victoria-logs",
-		DisplayName:             "VictoriaLogs",
-		Description:             "Container logs collection & storage.",
-		Category:                PluginCategoryLogging,
-		IsBuiltin:               true,
-		SortOrder:               10,
-		ChartType:               ChartTypeRepo,
-		ChartRepo:               "https://victoriametrics.github.io/helm-charts/",
-		ChartName:               "victoria-logs-single",
+		Name:        "victoria-logs",
+		DisplayName: "VictoriaLogs",
+		Description: "Cluster log storage with a built-in Web UI; the bundled Vector DaemonSet collects every pod's logs and ships them via the Elasticsearch-compatible insert API. Out-of-box logging pipeline.",
+		Category:    PluginCategoryLogging,
+		IsBuiltin:   true,
+		SortOrder:   10,
+		ChartType:   ChartTypeRepo,
+		ChartRepo:   "https://victoriametrics.github.io/helm-charts/",
+		ChartName:   "victoria-logs-single",
+		// Pin a known-good chart version so upstream re-tagging
+		// can't break first-boot installs.
+		DefaultVersion: "0.12.4",
+		// Mirror the VM-single shape: image registry/repository spelled
+		// out so operators behind a private mirror have a ready hook in
+		// the Enable drawer; tighter PV + dev-friendly resource caps;
+		// vector.enabled=true turns on the bundled log-shipping
+		// DaemonSet — chart auto-points its elasticsearch sink at the
+		// vlogs server URL. Disable per-cluster if a restricted Pod
+		// Security profile rejects vector's hostPath /var/log mount.
+		DefaultValues: `server:
+  image:
+    registry: ""
+    repository: victoriametrics/victoria-logs
+  retentionPeriod: "1"
+  persistentVolume:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+vector:
+  enabled: true
+`,
 		DefaultReleaseNamespace: "logging",
 	},
 }
