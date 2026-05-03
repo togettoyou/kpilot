@@ -56,11 +56,15 @@ export function PluginCard({
       style={{ height: '100%' }}
       styles={{ body: { display: 'flex', flexDirection: 'column', gap: 8 } }}
       title={
-        <Space>
+        <Space size={8}>
           <Avatar size={28} src={plugin.icon_url || undefined}>
             {initial}
           </Avatar>
           <span style={{ fontWeight: 500 }}>{plugin.display_name}</span>
+          {/* Inline chart-source badge — secondary identifier sits next
+              to the display name instead of in the body, freeing up the
+              body for the description. */}
+          {chartTag}
         </Space>
       }
       // The "内置" tag and the page-specific extra (phase badge on the
@@ -84,10 +88,11 @@ export function PluginCard({
           {plugin.description}
         </div>
       )}
-      <Space size={4} wrap>
-        {chartTag}
-        {plugin.default_version && <Tag>{plugin.default_version}</Tag>}
-      </Space>
+      {plugin.default_version && (
+        <Space size={4} wrap>
+          <Tag>{plugin.default_version}</Tag>
+        </Space>
+      )}
       {/* Single bottom action row — right-aligned (marketplace convention)
           and pushed to the card bottom via marginTop:auto so cards in the
           same flex row visually align even with different content height. */}
