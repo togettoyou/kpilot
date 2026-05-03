@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/joho/godotenv"
 )
@@ -10,19 +11,25 @@ import (
 type Config struct {
 	ServerAddr   string
 	ClusterToken string
-	// ChartCacheDir is where Worker writes Helm chart .tgz files received
-	// from the Server. Operators are expected to mount a persistent volume
-	// here so cache survives pod restarts (charts are several MB and
-	// re-pushing on every restart wastes bandwidth).
+	// DataDir is the single persistent root for Worker state. Operators
+	// mount one PVC here in production; ChartCacheDir + Helm's
+	// repository config and cache all live under it by default.
+	DataDir string
+	// ChartCacheDir is where Worker writes Helm chart .tgz files
+	// received from the Server. Defaults to $DataDir/charts; override
+	// via CHART_CACHE_DIR if you need to split it onto a different
+	// volume than DataDir.
 	ChartCacheDir string
 }
 
 func Load() *Config {
 	loadDotEnv()
+	dataDir := envOr("DATA_DIR", "/var/lib/kpilot")
 	return &Config{
 		ServerAddr:    envOr("SERVER_ADDR", "localhost:9090"),
 		ClusterToken:  envOr("CLUSTER_TOKEN", ""),
-		ChartCacheDir: envOr("CHART_CACHE_DIR", "/var/lib/kpilot/charts"),
+		DataDir:       dataDir,
+		ChartCacheDir: envOr("CHART_CACHE_DIR", filepath.Join(dataDir, "charts")),
 	}
 }
 

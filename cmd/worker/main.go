@@ -118,7 +118,7 @@ func main() {
 		// Reconciler watches Plugin CRDs and drives Helm.
 		reconciler := &plugin.Reconciler{
 			Client: mgr.GetClient(),
-			Helm:   plugin.NewHelmRunner(k8sCfg),
+			Helm:   plugin.NewHelmRunner(k8sCfg, cfg.DataDir),
 			Cache:  chartCache,
 			Push:   plugin.NewPusherAdapter(tunnelClient),
 			Scheme: scheme,

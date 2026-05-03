@@ -13,7 +13,6 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/release"
-	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
@@ -37,19 +36,28 @@ type HelmRunner struct {
 	settings *cli.EnvSettings
 }
 
-func NewHelmRunner(cfg *rest.Config) *HelmRunner {
+func NewHelmRunner(cfg *rest.Config, dataDir string) *HelmRunner {
 	settings := cli.New()
-	// Point Helm's repo cache at a writable directory. Defaults are under
-	// $HOME which doesn't exist (or isn't writable) in many container
-	// images; making this explicit avoids surprise EACCES errors.
-	if settings.RepositoryConfig == "" || filepath.IsAbs(settings.RepositoryConfig) == false {
-		settings.RepositoryConfig = "/var/lib/kpilot/helm/repositories.yaml"
+	// cli.New respects HELM_REPOSITORY_CONFIG / HELM_REPOSITORY_CACHE
+	// from the environment. When the operator hasn't set them, point
+	// Helm's repo state at the kpilot data dir so it lands on the
+	// same PVC as the chart cache — operators mount one volume and
+	// everything persistent goes there.
+	if dataDir != "" {
+		helmHome := filepath.Join(dataDir, "helm")
+		if os.Getenv("HELM_REPOSITORY_CONFIG") == "" {
+			settings.RepositoryConfig = filepath.Join(helmHome, "repositories.yaml")
+		}
+		if os.Getenv("HELM_REPOSITORY_CACHE") == "" {
+			settings.RepositoryCache = filepath.Join(helmHome, "cache")
+		}
+		// MkdirAll is best-effort: if the path is read-only (dev
+		// machine without write access to /var/lib/kpilot), Helm will
+		// surface the resulting EACCES at install time, where it's
+		// actionable.
+		_ = os.MkdirAll(filepath.Dir(settings.RepositoryConfig), 0o755)
+		_ = os.MkdirAll(settings.RepositoryCache, 0o755)
 	}
-	if settings.RepositoryCache == "" {
-		settings.RepositoryCache = "/var/lib/kpilot/helm/cache"
-	}
-	_ = os.MkdirAll(filepath.Dir(settings.RepositoryConfig), 0o755)
-	_ = os.MkdirAll(settings.RepositoryCache, 0o755)
 	return &HelmRunner{cfg: cfg, settings: settings}
 }
 
@@ -216,7 +224,3 @@ func (h *HelmRunner) Get(releaseName, namespace string) (*release.Release, error
 func isReleaseNotFound(err error) bool {
 	return errors.Is(err, driver.ErrReleaseNotFound)
 }
-
-// We import repo here so `go vet` doesn't complain about an unused import
-// when downstream packages add repo-related code; the value is harmless.
-var _ = repo.File{}
