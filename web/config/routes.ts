@@ -39,6 +39,10 @@ export default [
         path: '/clusters/:id/workloads/:type',
         component: './ClusterDetail/Workloads/index',
       },
+      {
+        path: '/clusters/:id/plugins',
+        component: './ClusterDetail/Plugins/index',
+      },
     ],
   },
   {

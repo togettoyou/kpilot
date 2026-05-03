@@ -122,7 +122,6 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       path: `${base}/plugins`,
       name: 'plugins',
       icon: <AppstoreAddOutlined />,
-      disabled: true,
     },
     {
       path: `${base}/gpu`,

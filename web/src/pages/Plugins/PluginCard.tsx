@@ -1,0 +1,100 @@
+import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { useIntl } from '@umijs/max';
+import { Avatar, Button, Card, Popconfirm, Space, Tag, Tooltip } from 'antd';
+import React from 'react';
+
+import type { Plugin } from '@/services/kpilot/plugin';
+
+interface PluginCardProps {
+  plugin: Plugin;
+  // When provided, renders edit + delete buttons. Built-in plugins call
+  // these as undefined so the card shows up read-only.
+  onEdit?: (p: Plugin) => void;
+  onDelete?: (p: Plugin) => void;
+  // Right-side overlay for per-cluster pages (phase tag + enable/disable
+  // button). Global registry passes none.
+  extra?: React.ReactNode;
+  // Footer rendered under the description; per-cluster pages put the
+  // enable/disable action there.
+  footer?: React.ReactNode;
+}
+
+export function PluginCard({
+  plugin,
+  onEdit,
+  onDelete,
+  extra,
+  footer,
+}: PluginCardProps) {
+  const intl = useIntl();
+  const initial = (plugin.display_name || plugin.name).slice(0, 2).toUpperCase();
+
+  // Show chart source as a small badge so users can tell at-a-glance
+  // whether a plugin pulls from a repo or runs from an uploaded file.
+  const chartTag =
+    plugin.chart_type === 'repo' ? (
+      <Tooltip title={plugin.chart_repo}>
+        <Tag color="blue" style={{ marginInlineEnd: 0 }}>
+          {plugin.chart_name || plugin.name}
+        </Tag>
+      </Tooltip>
+    ) : (
+      <Tag color="purple" style={{ marginInlineEnd: 0 }}>
+        local
+      </Tag>
+    );
+
+  return (
+    <Card
+      size="small"
+      style={{ height: '100%' }}
+      styles={{ body: { display: 'flex', flexDirection: 'column', gap: 8 } }}
+      title={
+        <Space>
+          <Avatar size={28} src={plugin.icon_url || undefined}>
+            {initial}
+          </Avatar>
+          <span style={{ fontWeight: 500 }}>{plugin.display_name}</span>
+          {plugin.is_builtin && (
+            <Tag color="gold">
+              {intl.formatMessage({ id: 'pages.plugins.builtin' })}
+            </Tag>
+          )}
+        </Space>
+      }
+      extra={extra}
+    >
+      <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 13, minHeight: 36 }}>
+        {plugin.description || '—'}
+      </div>
+      <Space size={4} wrap>
+        {chartTag}
+        {plugin.default_version && <Tag>{plugin.default_version}</Tag>}
+      </Space>
+      {footer}
+      {(onEdit || onDelete) && !plugin.is_builtin && (
+        <Space style={{ marginTop: 'auto' }}>
+          {onEdit && (
+            <Button size="small" icon={<EditOutlined />} onClick={() => onEdit(plugin)}>
+              {intl.formatMessage({ id: 'pages.plugins.edit' })}
+            </Button>
+          )}
+          {onDelete && (
+            <Popconfirm
+              title={intl.formatMessage(
+                { id: 'pages.plugins.delete.confirm' },
+                { name: plugin.display_name },
+              )}
+              onConfirm={() => onDelete(plugin)}
+              okType="danger"
+            >
+              <Button size="small" danger icon={<DeleteOutlined />}>
+                {intl.formatMessage({ id: 'pages.plugins.delete' })}
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
+      )}
+    </Card>
+  );
+}

@@ -2,9 +2,75 @@ export default {
   'pages.layouts.userLayout.title':
     'Kubernetes-native GPU Orchestration Platform',
 
-  // plugin center (placeholder)
+  // plugin management
   'pages.plugins.title': 'Plugin Management',
   'pages.plugins.comingSoon': 'Coming soon',
+  'pages.plugins.subtitle': 'Manage Helm chart plugins',
+  'pages.plugins.add': 'Add Plugin',
+  'pages.plugins.edit': 'Edit',
+  'pages.plugins.delete': 'Delete',
+  'pages.plugins.delete.confirm': 'Delete plugin "{name}"?',
+  'pages.plugins.delete.success': 'Plugin deleted',
+  'pages.plugins.builtin': 'Built-in',
+  'pages.plugins.empty': 'No plugins',
+  'pages.plugins.category.gpu': 'GPU',
+  'pages.plugins.category.monitoring': 'Monitoring',
+  'pages.plugins.category.logging': 'Logging',
+  'pages.plugins.category.networking': 'Networking',
+  'pages.plugins.category.serving': 'Serving',
+  'pages.plugins.category.custom': 'Custom',
+  'pages.plugins.form.name': 'Name',
+  'pages.plugins.form.namePlaceholder':
+    'lowercase letters, digits, and hyphens (used as CRD name)',
+  'pages.plugins.form.displayName': 'Display Name',
+  'pages.plugins.form.description': 'Description',
+  'pages.plugins.form.category': 'Category',
+  'pages.plugins.form.iconURL': 'Icon URL',
+  'pages.plugins.form.chartType': 'Chart Source',
+  'pages.plugins.form.chartType.repo': 'Helm Repository',
+  'pages.plugins.form.chartType.local': 'Local File',
+  'pages.plugins.form.chartRepo': 'Repo URL',
+  'pages.plugins.form.chartRepoPlaceholder':
+    'e.g. https://project-hami.github.io/HAMi/',
+  'pages.plugins.form.chartName': 'Chart Name',
+  'pages.plugins.form.chartNamePlaceholder': 'e.g. hami',
+  'pages.plugins.form.defaultVersion': 'Default Version',
+  'pages.plugins.form.defaultVersionPlaceholder':
+    'Leave empty to use the latest',
+  'pages.plugins.form.defaultValues': 'Default values (YAML)',
+  'pages.plugins.form.defaultReleaseNamespace': 'Default install namespace',
+  'pages.plugins.form.upload': 'Upload chart file',
+  'pages.plugins.form.uploadHint': 'Click or drag a .tgz file here',
+  'pages.plugins.form.uploadSuccess': 'Uploaded: {filename}',
+  'pages.plugins.create.success': 'Plugin created',
+  'pages.plugins.update.success': 'Plugin updated',
+  'pages.plugins.modal.create': 'Add Plugin',
+  'pages.plugins.modal.edit': 'Edit Plugin',
+  'pages.plugins.modal.submit.create': 'Create',
+  'pages.plugins.modal.submit.edit': 'Save',
+  // per-cluster plugin page
+  'pages.clusterPlugins.enable': 'Enable',
+  'pages.clusterPlugins.disable': 'Disable',
+  'pages.clusterPlugins.disable.confirm':
+    'Disable "{name}"? This will uninstall the Helm release.',
+  'pages.clusterPlugins.enableDrawer.title': 'Enable {name}',
+  'pages.clusterPlugins.enableDrawer.values': 'values (YAML)',
+  'pages.clusterPlugins.enableDrawer.version': 'Version',
+  'pages.clusterPlugins.enableDrawer.versionPlaceholder':
+    'Leave empty for default ({default})',
+  'pages.clusterPlugins.enableDrawer.namespace': 'Install namespace',
+  'pages.clusterPlugins.enableDrawer.namespacePlaceholder':
+    'Leave empty for default ({default})',
+  'pages.clusterPlugins.enableDrawer.submit': 'Enable',
+  'pages.clusterPlugins.enable.success': 'Enable request submitted',
+  'pages.clusterPlugins.disable.success': 'Disable request submitted',
+  'pages.clusterPlugins.phase.Disabled': 'Disabled',
+  'pages.clusterPlugins.phase.Pending': 'Pending',
+  'pages.clusterPlugins.phase.Installing': 'Installing',
+  'pages.clusterPlugins.phase.Upgrading': 'Upgrading',
+  'pages.clusterPlugins.phase.Running': 'Running',
+  'pages.clusterPlugins.phase.Failed': 'Failed',
+  'pages.clusterPlugins.phase.Uninstalling': 'Uninstalling',
 
   // api error codes
   'errors.INVALID_REQUEST': 'Invalid request',
@@ -19,6 +85,12 @@ export default {
   'errors.WORKER_ERROR': 'Worker returned an error',
   'errors.NAMESPACE_PROTECTED':
     'This namespace is read-only (kube-* namespaces cannot be modified)',
+  'errors.PLUGIN_NOT_FOUND': 'Plugin not found',
+  'errors.PLUGIN_NAME_EXISTS': 'Plugin name already exists',
+  'errors.PLUGIN_BUILTIN_LOCKED': 'Built-in plugins cannot be modified or deleted',
+  'errors.PLUGIN_CHART_MISSING':
+    'Please configure a chart source (repo URL or local file)',
+  'errors.PLUGIN_UPLOAD_TOO_LARGE': 'File too large (max 16MB)',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',
