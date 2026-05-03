@@ -258,6 +258,9 @@ export default {
   'pages.podLogs.reload': '重连',
   'pages.podLogs.clear': '清屏',
   'pages.podLogs.lineCount': '{n} 行',
+  'pages.podLogs.matchCount': '匹配 {m} / 共 {n} 行',
+  'pages.podLogs.search.placeholder': '搜索（grep）',
+  'pages.podLogs.search.regex': '正则',
   'pages.podLogs.error.connection': 'WebSocket 连接失败',
 
   // pod exec drawer

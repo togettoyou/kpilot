@@ -268,6 +268,9 @@ export default {
   'pages.podLogs.reload': 'Reconnect',
   'pages.podLogs.clear': 'Clear',
   'pages.podLogs.lineCount': '{n} lines',
+  'pages.podLogs.matchCount': '{m} / {n} matched',
+  'pages.podLogs.search.placeholder': 'Search (grep)',
+  'pages.podLogs.search.regex': 'Regex',
   'pages.podLogs.error.connection': 'WebSocket connection failed',
 
   // pod exec drawer

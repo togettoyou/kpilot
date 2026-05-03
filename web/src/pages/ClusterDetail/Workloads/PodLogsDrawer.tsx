@@ -1,14 +1,16 @@
-import { ClearOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ClearOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import {
   Alert,
   theme as antdTheme,
   Button,
   Drawer,
+  Input,
   Select,
   Space,
   Switch,
   Tag,
+  Tooltip,
 } from 'antd';
 import React, {
   useEffect,
@@ -22,6 +24,46 @@ import { getWorkload } from '@/services/kpilot/workload';
 
 const MAX_LINES = 5000; // hard cap to keep DOM size bounded
 const TAIL_OPTIONS = [100, 500, 1000, 5000];
+
+// Escape characters with special meaning to RegExp so plain-text search
+// behaves like a literal match. (The same trick MDN recommends.)
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Render a single line, wrapping every match of `pattern` in <mark> for
+// in-place highlighting. Returns the line unchanged when pattern is null
+// (search empty / regex invalid).
+function highlightLine(line: string, pattern: RegExp | null): React.ReactNode {
+  if (!pattern) return line;
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  // Build a fresh global regex per line — pattern's lastIndex resets
+  // to 0 between calls because we only consume it in this loop.
+  pattern.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(line)) !== null) {
+    if (m.index > last) parts.push(line.slice(last, m.index));
+    parts.push(
+      <mark
+        key={parts.length}
+        style={{
+          background: 'rgba(255, 213, 79, 0.6)',
+          color: 'inherit',
+          padding: 0,
+        }}
+      >
+        {m[0]}
+      </mark>,
+    );
+    last = m.index + m[0].length;
+    // RegExp.exec on a zero-width match doesn't advance lastIndex; bump
+    // it manually to avoid infinite looping.
+    if (m[0].length === 0) pattern.lastIndex++;
+  }
+  if (last < line.length) parts.push(line.slice(last));
+  return parts;
+}
 
 interface PodLogsDrawerProps {
   open: boolean;
@@ -55,6 +97,18 @@ export function PodLogsDrawer({
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [, forceTick] = useState(0); // trigger re-render when buffer changes
+
+  // Client-side grep. Filter is applied at render time (no extra fetch),
+  // so the user can tweak it freely without reconnecting. `query` mirrors
+  // the input; `debouncedQuery` is what actually drives filtering, to
+  // avoid re-rendering 5k lines on every keystroke.
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [useRegex, setUseRegex] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 200);
+    return () => clearTimeout(t);
+  }, [query]);
 
   const linesRef = useRef<string[]>([]);
   const preRef = useRef<HTMLPreElement | null>(null);
@@ -210,7 +264,32 @@ export function PodLogsDrawer({
     [containers],
   );
 
+  // Compile the pattern once per render. An invalid regex is reported
+  // via `regexError` and treated as no filter so the user keeps seeing
+  // logs while they're mid-typing the regex.
+  let pattern: RegExp | null = null;
+  let regexError: string | null = null;
+  if (debouncedQuery) {
+    try {
+      pattern = new RegExp(
+        useRegex ? debouncedQuery : escapeRegExp(debouncedQuery),
+        'gi',
+      );
+    } catch (e: any) {
+      regexError = String(e?.message ?? e);
+    }
+  }
+
   const lineCount = linesRef.current.length;
+  // Filter for grep at render time. 5k×O(line length) regex tests is
+  // negligible compared with the React reconcile that follows.
+  const visibleLines = pattern
+    ? linesRef.current.filter((l) => {
+        pattern!.lastIndex = 0;
+        return pattern!.test(l);
+      })
+    : linesRef.current;
+  const matchCount = visibleLines.length;
 
   return (
     <Drawer
@@ -229,10 +308,15 @@ export function PodLogsDrawer({
       extra={
         <Space>
           <span style={{ color: token.colorTextSecondary, fontSize: 12 }}>
-            {intl.formatMessage(
-              { id: 'pages.podLogs.lineCount' },
-              { n: lineCount },
-            )}
+            {pattern
+              ? intl.formatMessage(
+                  { id: 'pages.podLogs.matchCount' },
+                  { m: matchCount, n: lineCount },
+                )
+              : intl.formatMessage(
+                  { id: 'pages.podLogs.lineCount' },
+                  { n: lineCount },
+                )}
           </span>
           <Button size="small" icon={<ReloadOutlined />} onClick={handleReload}>
             {intl.formatMessage({ id: 'pages.podLogs.reload' })}
@@ -300,6 +384,36 @@ export function PodLogsDrawer({
             {intl.formatMessage({ id: 'pages.podLogs.previous' })}
           </span>
         </Space>
+        <Tooltip
+          // Surface invalid-regex errors inline rather than blocking
+          // the input — the user can keep typing.
+          title={regexError ?? undefined}
+          color="red"
+          open={regexError ? undefined : false}
+        >
+          <Input
+            size="small"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={intl.formatMessage({
+              id: 'pages.podLogs.search.placeholder',
+            })}
+            prefix={<SearchOutlined />}
+            allowClear
+            status={regexError ? 'error' : undefined}
+            style={{ width: 220 }}
+          />
+        </Tooltip>
+        <Space>
+          <Switch
+            size="small"
+            checked={useRegex}
+            onChange={setUseRegex}
+          />
+          <span style={{ fontSize: 13 }}>
+            {intl.formatMessage({ id: 'pages.podLogs.search.regex' })}
+          </span>
+        </Space>
       </div>
       {error && (
         <Alert message={error} type="error" banner style={{ flexShrink: 0 }} />
@@ -322,7 +436,19 @@ export function PodLogsDrawer({
           wordBreak: 'break-all',
         }}
       >
-        {linesRef.current.join('\n')}
+        {pattern ? (
+          // Per-line render so we can wrap matches in <mark>. Slower than
+          // the single-text-node fast path below, but only used when a
+          // grep is active.
+          visibleLines.map((line, i) => (
+            <React.Fragment key={i}>
+              {highlightLine(line, pattern)}
+              {'\n'}
+            </React.Fragment>
+          ))
+        ) : (
+          linesRef.current.join('\n')
+        )}
       </pre>
     </Drawer>
   );
