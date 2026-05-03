@@ -29,7 +29,7 @@ func Load() *Config {
 	return &Config{
 		ServerAddr:   envOr("SERVER_ADDR", "localhost:9090"),
 		ClusterToken: envOr("CLUSTER_TOKEN", ""),
-		DataDir:      envOr("DATA_DIR", "/var/lib/kpilot"),
+		DataDir:      envOr("DATA_DIR", "./data"),
 	}
 }
 
