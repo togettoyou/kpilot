@@ -49,8 +49,12 @@ var builtinPlugins = []Plugin{
 		// can't break first-boot installs unexpectedly.
 		DefaultVersion: "0.37.0",
 		// Tighter PV + resource defaults so the install fits a
-		// dev/small cluster out of the box. Users override per
-		// cluster via the Enable drawer.
+		// dev/small cluster out of the box. server.scrape.enabled=true
+		// turns on vmsingle's built-in Prometheus-style scraping so
+		// metrics start flowing immediately without needing a separate
+		// vmagent — the chart's bundled scrape config covers
+		// apiserver / nodes / pods. Users override per cluster via
+		// the Enable drawer.
 		DefaultValues: `server:
   retentionPeriod: "1"
   persistentVolume:
@@ -62,6 +66,8 @@ var builtinPlugins = []Plugin{
     limits:
       cpu: "1"
       memory: 2Gi
+  scrape:
+    enabled: true
 `,
 		DefaultReleaseNamespace: "monitoring",
 	},
