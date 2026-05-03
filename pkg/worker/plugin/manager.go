@@ -24,10 +24,14 @@ const fieldManagerName = "kpilot"
 type Manager struct {
 	Client client.Client
 	Cache  *ChartCache
+	// Push lets handleDisable surface a "no-op completed" status back to
+	// Server when there's no CRD to delete (Server already thinks the
+	// plugin is Uninstalling — without this, the row would stay stuck).
+	Push StatusPusher
 }
 
-func NewManager(c client.Client, cache *ChartCache) *Manager {
-	return &Manager{Client: c, Cache: cache}
+func NewManager(c client.Client, cache *ChartCache, push StatusPusher) *Manager {
+	return &Manager{Client: c, Cache: cache, Push: push}
 }
 
 // Handle is wired into tunnel.Client as the PluginCommand handler. It
@@ -78,7 +82,15 @@ func (m *Manager) handleDisable(ctx context.Context, cmd *pb.PluginCommand) erro
 	var p kpilotv1alpha1.Plugin
 	err := m.Client.Get(ctx, client.ObjectKey{Name: cmd.CrdName}, &p)
 	if apierrors.IsNotFound(err) {
-		// Already gone — nothing to do.
+		// No CRD on this cluster, but Server's row is presumably parked
+		// at Uninstalling (e.g. an earlier enable never reached us).
+		// Push an empty-phase status so Server settles to Disabled
+		// instead of staying stuck.
+		log.Printf("[plugin] disable: CRD already absent, sending Disabled push: name=%s",
+			cmd.CrdName)
+		if m.Push != nil {
+			m.Push.PushPluginStatus(cmd.CrdName, &kpilotv1alpha1.PluginStatus{})
+		}
 		return nil
 	}
 	if err != nil {

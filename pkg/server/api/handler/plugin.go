@@ -373,6 +373,15 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
+		// Pre-flight: bail out without touching the DB if the Worker
+		// can't receive the command. Otherwise we'd flip the row to
+		// Pending and leave it stuck (Worker has no idea it was
+		// expected to act, no reconcile-on-reconnect yet).
+		if _, ok := gw.GetWorker(clusterID); !ok {
+			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
+			return
+		}
+
 		cp := &store.ClusterPlugin{
 			ClusterID:                clusterID,
 			PluginID:                 plugin.ID,
@@ -382,18 +391,21 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			ReleaseNamespaceOverride: req.ReleaseNamespaceOverride,
 			Phase:                    store.PluginPhasePending,
 		}
-		if err := store.UpsertClusterPlugin(cp); err != nil {
-			apiErrInternal(c, err)
-			return
-		}
 
 		cmd, err := buildEnableCommand(plugin, cp)
 		if err != nil {
 			apiErrInternal(c, err)
 			return
 		}
+		// Push first; only persist Pending if the Worker actually
+		// accepted the command. SendPluginCommand returns an error if
+		// the Worker disconnected between the pre-flight and now.
 		if err := gw.SendPluginCommand(clusterID, cmd); err != nil {
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
+			return
+		}
+		if err := store.UpsertClusterPlugin(cp); err != nil {
+			apiErrInternal(c, err)
 			return
 		}
 		c.Status(http.StatusAccepted)
@@ -430,15 +442,10 @@ func DisablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		// Mark Enabled=false + Phase=Uninstalling so the UI shows progress
-		// immediately. PluginStatusPush from the Worker will move it to
-		// Disabled (or Failed) when uninstall completes.
-		if err := store.UpdateClusterPluginStatus(clusterID, plugin.ID, map[string]any{
-			"enabled": false,
-			"phase":   store.PluginPhaseUninstalling,
-			"message": "",
-		}); err != nil {
-			apiErrInternal(c, err)
+		// Pre-flight: same reasoning as EnablePlugin — don't transition
+		// the row to Uninstalling unless we know the Worker can act on it.
+		if _, ok := gw.GetWorker(clusterID); !ok {
+			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
 		}
 
@@ -446,8 +453,19 @@ func DisablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			Action:  "disable",
 			CrdName: plugin.Name,
 		}
+		// Push first; persist the new phase only after the Worker
+		// accepted the command, so a failed push leaves the DB row
+		// untouched.
 		if err := gw.SendPluginCommand(clusterID, cmd); err != nil {
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
+			return
+		}
+		if err := store.UpdateClusterPluginStatus(clusterID, plugin.ID, map[string]any{
+			"enabled": false,
+			"phase":   store.PluginPhaseUninstalling,
+			"message": "",
+		}); err != nil {
+			apiErrInternal(c, err)
 			return
 		}
 		c.Status(http.StatusAccepted)

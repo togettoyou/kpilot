@@ -110,8 +110,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("[worker] chart cache init: %v", err)
 		}
-		// Manager translates PluginCommand from gRPC into CRD writes.
-		pluginMgr := plugin.NewManager(mgr.GetClient(), chartCache)
+		statusPusher := plugin.NewPusherAdapter(tunnelClient)
+		// Manager translates PluginCommand from gRPC into CRD writes;
+		// it also pushes a Disabled status when handleDisable finds no
+		// CRD to delete (covers Server rows stuck at Uninstalling).
+		pluginMgr := plugin.NewManager(mgr.GetClient(), chartCache, statusPusher)
 		tunnelClient.SetPluginHandler(func(cmd *pb.PluginCommand) error {
 			return pluginMgr.Handle(ctx, cmd)
 		})
@@ -120,7 +123,7 @@ func main() {
 			Client: mgr.GetClient(),
 			Helm:   plugin.NewHelmRunner(k8sCfg, cfg.DataDir),
 			Cache:  chartCache,
-			Push:   plugin.NewPusherAdapter(tunnelClient),
+			Push:   statusPusher,
 			Scheme: scheme,
 		}
 		if err := reconciler.SetupWithManager(mgr); err != nil {
