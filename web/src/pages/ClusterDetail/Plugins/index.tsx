@@ -25,11 +25,16 @@ import { EnableDrawer } from './EnableDrawer';
 
 const { Title } = Typography;
 
+// Display order: pure category grouping. The "built-in" status is shown
+// as a tag on each card, not as a separate section.
 const CATEGORY_ORDER: PluginCategory[] = [
   'gpu',
+  'scheduling',
+  'networking',
+  'storage',
   'monitoring',
   'logging',
-  'networking',
+  'security',
   'serving',
   'custom',
 ];
@@ -79,24 +84,15 @@ export default function ClusterPluginsPage() {
 
   const sections = useMemo<CategorySection[]>(() => {
     const all = data ?? [];
-    const builtins = all.filter((it) => it.plugin.is_builtin);
-    const customsByCat = new Map<PluginCategory, ClusterPluginItem[]>();
+    const byCat = new Map<PluginCategory, ClusterPluginItem[]>();
     for (const it of all) {
-      if (it.plugin.is_builtin) continue;
       const cat = (it.plugin.category ?? 'custom') as PluginCategory;
-      if (!customsByCat.has(cat)) customsByCat.set(cat, []);
-      customsByCat.get(cat)!.push(it);
+      if (!byCat.has(cat)) byCat.set(cat, []);
+      byCat.get(cat)!.push(it);
     }
     const out: CategorySection[] = [];
-    if (builtins.length > 0) {
-      out.push({
-        key: 'builtin',
-        label: intl.formatMessage({ id: 'pages.plugins.builtin' }),
-        items: builtins,
-      });
-    }
     for (const cat of CATEGORY_ORDER) {
-      const list = customsByCat.get(cat);
+      const list = byCat.get(cat);
       if (list && list.length > 0) {
         out.push({
           key: cat,

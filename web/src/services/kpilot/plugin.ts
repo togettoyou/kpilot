@@ -3,9 +3,12 @@ import { request } from '@umijs/max';
 export type ChartType = 'repo' | 'local';
 export type PluginCategory =
   | 'gpu'
+  | 'scheduling'
+  | 'networking'
+  | 'storage'
   | 'monitoring'
   | 'logging'
-  | 'networking'
+  | 'security'
   | 'serving'
   | 'custom';
 export type PluginPhase =

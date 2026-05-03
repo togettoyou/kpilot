@@ -37,9 +37,12 @@ interface PluginEditDrawerProps {
 
 const CATEGORIES: PluginCategory[] = [
   'gpu',
+  'scheduling',
+  'networking',
+  'storage',
   'monitoring',
   'logging',
-  'networking',
+  'security',
   'serving',
   'custom',
 ];

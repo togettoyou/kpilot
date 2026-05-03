@@ -12,13 +12,17 @@ import { PluginEditDrawer } from './PluginEditDrawer';
 
 const { Title } = Typography;
 
-// Display order: built-ins on top (one section), then category groups in
-// this order. Anything outside this list falls into "custom".
+// Display order: pure category grouping. The "built-in" status is shown
+// as a tag on each card, not as a separate section, so HAMi (gpu) and a
+// user's custom GPU plugin sit side-by-side under "GPU".
 const CATEGORY_ORDER: PluginCategory[] = [
   'gpu',
+  'scheduling',
+  'networking',
+  'storage',
   'monitoring',
   'logging',
-  'networking',
+  'security',
   'serving',
   'custom',
 ];
@@ -41,24 +45,15 @@ export default function PluginsPage() {
 
   const sections = useMemo<CategorySection[]>(() => {
     const all = data ?? [];
-    const builtins = all.filter((p) => p.is_builtin);
-    const customsByCat = new Map<PluginCategory, Plugin[]>();
+    const byCat = new Map<PluginCategory, Plugin[]>();
     for (const p of all) {
-      if (p.is_builtin) continue;
-      const cat = p.category ?? 'custom';
-      if (!customsByCat.has(cat)) customsByCat.set(cat, []);
-      customsByCat.get(cat)!.push(p);
+      const cat = (p.category ?? 'custom') as PluginCategory;
+      if (!byCat.has(cat)) byCat.set(cat, []);
+      byCat.get(cat)!.push(p);
     }
     const out: CategorySection[] = [];
-    if (builtins.length > 0) {
-      out.push({
-        key: 'builtin',
-        label: intl.formatMessage({ id: 'pages.plugins.builtin' }),
-        plugins: builtins,
-      });
-    }
     for (const cat of CATEGORY_ORDER) {
-      const list = customsByCat.get(cat);
+      const list = byCat.get(cat);
       if (list && list.length > 0) {
         out.push({
           key: cat,

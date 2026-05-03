@@ -51,9 +51,12 @@ type PluginCategory string
 
 const (
 	PluginCategoryGPU        PluginCategory = "gpu"
+	PluginCategoryScheduling PluginCategory = "scheduling"
+	PluginCategoryNetworking PluginCategory = "networking"
+	PluginCategoryStorage    PluginCategory = "storage"
 	PluginCategoryMonitoring PluginCategory = "monitoring"
 	PluginCategoryLogging    PluginCategory = "logging"
-	PluginCategoryNetworking PluginCategory = "networking"
+	PluginCategorySecurity   PluginCategory = "security"
 	PluginCategoryServing    PluginCategory = "serving"
 	PluginCategoryCustom     PluginCategory = "custom"
 )
