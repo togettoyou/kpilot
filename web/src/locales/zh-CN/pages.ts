@@ -72,6 +72,8 @@ export default {
   'pages.clusterPlugins.phase.Running': '运行中',
   'pages.clusterPlugins.phase.Failed': '失败',
   'pages.clusterPlugins.phase.Uninstalling': '卸载中',
+  'pages.clusterPlugins.errorPopover.title': '失败原因',
+  'pages.clusterPlugins.errorPopover.copy': '复制',
 
   // api error codes
   'errors.INVALID_REQUEST': '请求参数错误',

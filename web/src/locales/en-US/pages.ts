@@ -78,6 +78,8 @@ export default {
   'pages.clusterPlugins.phase.Running': 'Running',
   'pages.clusterPlugins.phase.Failed': 'Failed',
   'pages.clusterPlugins.phase.Uninstalling': 'Uninstalling',
+  'pages.clusterPlugins.errorPopover.title': 'Error',
+  'pages.clusterPlugins.errorPopover.copy': 'Copy',
 
   // api error codes
   'errors.INVALID_REQUEST': 'Invalid request',

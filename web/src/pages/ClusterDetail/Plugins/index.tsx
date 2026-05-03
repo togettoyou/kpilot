@@ -1,6 +1,7 @@
 import {
   CheckCircleFilled,
   CloseCircleFilled,
+  CopyOutlined,
   LoadingOutlined,
   MinusCircleOutlined,
 } from '@ant-design/icons';
@@ -10,6 +11,7 @@ import {
   Button,
   Empty,
   Popconfirm,
+  Popover,
   Spin,
   Tag,
   Tooltip,
@@ -76,6 +78,7 @@ function PhaseTag({
   message?: string;
 }) {
   const intl = useIntl();
+  const { message: msg } = App.useApp();
   const label = intl.formatMessage({
     id: `pages.clusterPlugins.phase.${phase}`,
   });
@@ -88,6 +91,9 @@ function PhaseTag({
       style={{
         marginInlineEnd: 0,
         fontWeight: visual.bold ? 600 : undefined,
+        // Failed tags are click-targets for the error popover. Tag's
+        // default cursor is text, which doesn't signal interactivity.
+        cursor: phase === 'Failed' && message ? 'pointer' : undefined,
       }}
     >
       {label}
@@ -107,7 +113,75 @@ function PhaseTag({
     </span>
   );
 
-  return message ? <Tooltip title={message}>{inner}</Tooltip> : inner;
+  if (!message) return inner;
+
+  // Failed messages can be long (full Helm error, sometimes near our
+  // 4 KiB cap). Tooltip can't scroll on hover, so we use a click
+  // Popover with a scrollable monospace block + Copy button.
+  if (phase === 'Failed') {
+    const handleCopy = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(message);
+        msg.success(intl.formatMessage({ id: 'pages.workloads.copied' }));
+      } catch {
+        msg.error(intl.formatMessage({ id: 'pages.describe.copyFailed' }));
+      }
+    };
+    return (
+      <Popover
+        trigger="click"
+        title={
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+            }}
+          >
+            <span>
+              {intl.formatMessage({
+                id: 'pages.clusterPlugins.errorPopover.title',
+              })}
+            </span>
+            <Button
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={handleCopy}
+            >
+              {intl.formatMessage({
+                id: 'pages.clusterPlugins.errorPopover.copy',
+              })}
+            </Button>
+          </div>
+        }
+        overlayStyle={{ maxWidth: 600 }}
+        content={
+          <pre
+            style={{
+              margin: 0,
+              maxWidth: 560,
+              maxHeight: 400,
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily:
+                'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+              fontSize: 12,
+              lineHeight: 1.5,
+              color: 'var(--ant-color-text)',
+            }}
+          >
+            {message}
+          </pre>
+        }
+      >
+        {inner}
+      </Popover>
+    );
+  }
+  return <Tooltip title={message}>{inner}</Tooltip>;
 }
 
 interface CategorySection {
