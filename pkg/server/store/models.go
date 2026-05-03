@@ -71,7 +71,11 @@ type Plugin struct {
 	ID          uint           `gorm:"primaryKey;autoIncrement" json:"id"`
 	Name        string         `gorm:"type:varchar(63);not null;uniqueIndex" json:"name"`         // DNS-compatible, used as CRD metadata.name
 	DisplayName string         `gorm:"type:varchar(255);not null" json:"display_name"`
-	Description string         `gorm:"type:text" json:"description"`
+	// Length-capped to match the API validator + frontend textarea
+	// maxLength. Stored as varchar(500) so direct DB writes can't
+	// bypass the limit either; the card UI clamps display to 3 lines
+	// regardless.
+	Description string         `gorm:"type:varchar(500)" json:"description"`
 	Category    PluginCategory `gorm:"type:varchar(32);not null;default:'custom'" json:"category"`
 	IsBuiltin   bool           `gorm:"not null;default:false" json:"is_builtin"`
 	IconURL     string         `gorm:"type:varchar(512)" json:"icon_url"`
