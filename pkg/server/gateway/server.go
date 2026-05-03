@@ -171,8 +171,7 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 		g.nodeCache[w.ClusterID] = p.NodeList.Nodes
 		g.mu.Unlock()
 	case *proto.WorkerMessage_PluginStatus:
-		// TODO P4
-		_ = p
+		g.handlePluginStatus(w, p.PluginStatus)
 	case *proto.WorkerMessage_ResourceResp:
 		resp := p.ResourceResp
 		g.pendingMu.Lock()

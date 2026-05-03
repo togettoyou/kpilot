@@ -74,6 +74,20 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// above runs first and rejects unauthenticated upgrades.
 		clusters.GET("/:id/pods/:namespace/:name/logs", handler.PodLogs(gw))
 		clusters.GET("/:id/pods/:namespace/:name/exec", handler.PodExec(gw))
+
+		// Per-cluster plugin state (read-only registry view + enable/disable)
+		clusters.GET("/:id/plugins", handler.ListClusterPlugins)
+		clusters.POST("/:id/plugins/:name/enable", handler.EnablePlugin(gw))
+		clusters.POST("/:id/plugins/:name/disable", handler.DisablePlugin(gw))
+
+		// Global plugin registry
+		plugins := protected.Group("/plugins")
+		plugins.GET("", handler.ListPlugins)
+		plugins.POST("", handler.CreatePlugin)
+		plugins.POST("/upload", handler.UploadPluginChart)
+		plugins.GET("/:id", handler.GetPlugin)
+		plugins.PATCH("/:id", handler.UpdatePlugin)
+		plugins.DELETE("/:id", handler.DeletePlugin)
 	}
 
 	return r

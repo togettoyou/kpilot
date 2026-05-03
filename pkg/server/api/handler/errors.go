@@ -9,14 +9,19 @@ import (
 
 // API error codes — must stay in sync with frontend locales errors.* keys.
 const (
-	CodeInvalidRequest      = "INVALID_REQUEST"
-	CodeInternalError       = "INTERNAL_ERROR"
-	CodeClusterNotFound     = "CLUSTER_NOT_FOUND"
-	CodeClusterNameExists   = "CLUSTER_NAME_EXISTS"
-	CodeClusterNotConnected = "CLUSTER_NOT_CONNECTED"
-	CodeWorkerError         = "WORKER_ERROR"
-	CodeWorkerTimeout       = "WORKER_TIMEOUT"
-	CodeNamespaceProtected  = "NAMESPACE_PROTECTED"
+	CodeInvalidRequest       = "INVALID_REQUEST"
+	CodeInternalError        = "INTERNAL_ERROR"
+	CodeClusterNotFound      = "CLUSTER_NOT_FOUND"
+	CodeClusterNameExists    = "CLUSTER_NAME_EXISTS"
+	CodeClusterNotConnected  = "CLUSTER_NOT_CONNECTED"
+	CodeWorkerError          = "WORKER_ERROR"
+	CodeWorkerTimeout        = "WORKER_TIMEOUT"
+	CodeNamespaceProtected   = "NAMESPACE_PROTECTED"
+	CodePluginNotFound       = "PLUGIN_NOT_FOUND"
+	CodePluginNameExists     = "PLUGIN_NAME_EXISTS"
+	CodePluginBuiltinLocked  = "PLUGIN_BUILTIN_LOCKED"
+	CodePluginChartMissing   = "PLUGIN_CHART_MISSING"
+	CodePluginUploadTooLarge = "PLUGIN_UPLOAD_TOO_LARGE"
 )
 
 // apiErr writes a JSON error response with the given code.
