@@ -60,6 +60,7 @@ export default {
   'pages.clusterPlugins.disable.confirm':
     'Disable "{name}"? This will uninstall the Helm release.',
   'pages.clusterPlugins.enableDrawer.title': 'Enable {name}',
+  'pages.clusterPlugins.enableDrawer.viewTitle': 'View {name} — currently applied',
   'pages.clusterPlugins.enableDrawer.values': 'values (YAML)',
   'pages.clusterPlugins.enableDrawer.version': 'Version',
   'pages.clusterPlugins.enableDrawer.versionPlaceholder':

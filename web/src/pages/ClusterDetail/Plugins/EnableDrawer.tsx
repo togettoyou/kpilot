@@ -12,6 +12,12 @@ interface EnableDrawerProps {
   clusterId: string;
   // The card we're configuring; null while closed.
   target: ClusterPluginItem | null;
+  // readOnly turns this into a "current applied config" inspector —
+  // same shape (version / namespace / values) but inputs disabled and
+  // only a Close button. Used by the cluster page's 查看 button so
+  // users see the override that's actually live, not the registry
+  // default they'd see in PluginEditDrawer.
+  readOnly?: boolean;
   onClose: () => void;
   onEnabled: () => void;
 }
@@ -20,6 +26,7 @@ export function EnableDrawer({
   open,
   clusterId,
   target,
+  readOnly = false,
   onClose,
   onEnabled,
 }: EnableDrawerProps) {
@@ -78,7 +85,11 @@ export function EnableDrawer({
       title={
         target
           ? intl.formatMessage(
-              { id: 'pages.clusterPlugins.enableDrawer.title' },
+              {
+                id: readOnly
+                  ? 'pages.clusterPlugins.enableDrawer.viewTitle'
+                  : 'pages.clusterPlugins.enableDrawer.title',
+              },
               { name: target.plugin.display_name },
             )
           : ''
@@ -91,33 +102,41 @@ export function EnableDrawer({
       // doesn't carry over leftover state from the previous target.
       destroyOnHidden
       footer={
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <Button icon={<ReloadOutlined />} onClick={handleReset}>
-            {intl.formatMessage({
-              id: 'pages.clusterPlugins.enableDrawer.reset',
-            })}
-          </Button>
-          <Space>
-            <Button onClick={onClose}>
-              {intl.formatMessage({ id: 'pages.workloads.cancel' })}
-            </Button>
-            <Button type="primary" loading={submitting} onClick={handleSubmit}>
-              {intl.formatMessage({
-                id: 'pages.clusterPlugins.enableDrawer.submit',
-              })}
+        readOnly ? (
+          <Space style={{ float: 'right' }}>
+            <Button type="primary" onClick={onClose}>
+              {intl.formatMessage({ id: 'pages.plugins.modal.close' })}
             </Button>
           </Space>
-        </div>
+        ) : (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <Button icon={<ReloadOutlined />} onClick={handleReset}>
+              {intl.formatMessage({
+                id: 'pages.clusterPlugins.enableDrawer.reset',
+              })}
+            </Button>
+            <Space>
+              <Button onClick={onClose}>
+                {intl.formatMessage({ id: 'pages.workloads.cancel' })}
+              </Button>
+              <Button type="primary" loading={submitting} onClick={handleSubmit}>
+                {intl.formatMessage({
+                  id: 'pages.clusterPlugins.enableDrawer.submit',
+                })}
+              </Button>
+            </Space>
+          </div>
+        )
       }
     >
       {target && (
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" disabled={readOnly}>
           <Form.Item
             name="version"
             label={intl.formatMessage({
@@ -161,7 +180,7 @@ export function EnableDrawer({
                 borderRadius: 4,
               }}
             >
-              <YamlEditor value={values} onChange={setValues} />
+              <YamlEditor value={values} onChange={setValues} readOnly={readOnly} />
             </div>
           </Form.Item>
         </Form>

@@ -42,13 +42,25 @@ func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *proto.PluginS
 		return
 	}
 
-	// Empty phase is the reconciler's "release uninstalled, CRD gone" beat;
-	// translate to Disabled so the NOT NULL column constraint is satisfied
-	// (DB defaults only fire on INSERT, not Updates).
+	// Empty phase is the reconciler's "release uninstalled, CRD gone"
+	// beat. Disabled rows are deleted entirely (not kept around as
+	// phase=Disabled) so a fresh re-enable starts with registry
+	// defaults instead of inheriting the prior values_override.
 	phase := store.PluginPhase(st.Phase)
 	if phase == "" {
 		phase = store.PluginPhaseDisabled
 	}
+	if phase == store.PluginPhaseDisabled {
+		// Conditional delete: only if enabled=false. If the user
+		// re-enabled while this uninstall was still in flight, the
+		// new row has enabled=true and we must not wipe it.
+		if _, err := store.DeleteDisabledClusterPlugin(w.ClusterID, plugin.ID); err != nil {
+			log.Printf("[gateway] delete disabled cluster plugin: cluster=%s plugin=%s err=%v",
+				w.ClusterID, st.CrdName, err)
+		}
+		return
+	}
+
 	updates := map[string]any{
 		"phase":                phase,
 		"message":              capStatusMessage(st.Message),

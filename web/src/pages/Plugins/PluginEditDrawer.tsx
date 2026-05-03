@@ -101,10 +101,12 @@ export function PluginEditDrawer({
       );
     } else {
       form.resetFields();
+      // Leave default_release_namespace blank intentionally — operators
+      // pick a namespace per plugin; pre-filling kube-system pushed
+      // people into accepting it without thinking.
       form.setFieldsValue({
         chart_type: 'repo',
         category: 'custom',
-        default_release_namespace: 'kube-system',
       });
       setChartType('repo');
       setValues('');

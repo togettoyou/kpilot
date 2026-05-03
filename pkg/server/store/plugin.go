@@ -160,6 +160,26 @@ func UpsertClusterPlugin(cp *ClusterPlugin) error {
 	}).Create(cp).Error
 }
 
+// DeleteDisabledClusterPlugin removes the per-cluster row for (cluster,
+// plugin) — but only if the row's `enabled` is already false.
+//
+// Used after a successful uninstall: once the Helm release is gone,
+// keeping the row around just leaks the previous values_override and
+// shows up confusingly when the user re-enables ("why does the form
+// already have my old YAML?"). Deleting collapses Disabled state to
+// "no row at all" so re-enable starts from registry defaults.
+//
+// The `enabled = false` predicate avoids races: if the user clicked
+// Disable then Enable in quick succession, the new EnablePlugin will
+// have set enabled=true with fresh overrides; when the lingering
+// uninstall status push from the OLD command lands here, this
+// predicate matches 0 rows and the new state is preserved.
+func DeleteDisabledClusterPlugin(clusterID string, pluginID uint) (bool, error) {
+	res := DB.Where("cluster_id = ? AND plugin_id = ? AND enabled = ?",
+		clusterID, pluginID, false).Delete(&ClusterPlugin{})
+	return res.RowsAffected > 0, res.Error
+}
+
 // UpdateClusterPluginStatus is a partial update used by PluginStatusPush
 // handling — it never touches user-controlled fields (enabled, overrides).
 func UpdateClusterPluginStatus(clusterID string, pluginID uint, updates map[string]any) error {

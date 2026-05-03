@@ -56,6 +56,7 @@ export default {
   'pages.clusterPlugins.disable': '禁用',
   'pages.clusterPlugins.disable.confirm': '确认禁用 "{name}"？将卸载该 Helm Release。',
   'pages.clusterPlugins.enableDrawer.title': '启用 {name}',
+  'pages.clusterPlugins.enableDrawer.viewTitle': '查看 {name} — 当前应用配置',
   'pages.clusterPlugins.enableDrawer.values': 'values（YAML）',
   'pages.clusterPlugins.enableDrawer.version': '版本',
   'pages.clusterPlugins.enableDrawer.versionPlaceholder': '留空则使用默认 {default}',

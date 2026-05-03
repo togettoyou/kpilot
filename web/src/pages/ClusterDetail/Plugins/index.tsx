@@ -21,13 +21,11 @@ import React, { useMemo, useState } from 'react';
 
 import type {
   ClusterPluginItem,
-  Plugin,
   PluginCategory,
   PluginPhase,
 } from '@/services/kpilot/plugin';
 import { disablePlugin, listClusterPlugins } from '@/services/kpilot/plugin';
 import { PluginCard } from '@/pages/Plugins/PluginCard';
-import { PluginEditDrawer } from '@/pages/Plugins/PluginEditDrawer';
 
 import { EnableDrawer } from './EnableDrawer';
 
@@ -204,10 +202,12 @@ export default function ClusterPluginsPage() {
   const [enableTarget, setEnableTarget] = useState<ClusterPluginItem | null>(
     null,
   );
-  // The per-cluster page has no edit/delete; "view" is the only way to
-  // inspect chart_repo, default_values, etc. Reuses the global page's
-  // PluginEditDrawer in readOnly mode.
-  const [viewing, setViewing] = useState<Plugin | null>(null);
+  // 查看 reuses the EnableDrawer in readOnly mode so users see the
+  // override that's actually live on this cluster (for enabled rows)
+  // or the registry default (for disabled rows where the override was
+  // wiped on disable). PluginEditDrawer would only show registry
+  // metadata, not the per-cluster install state.
+  const [viewing, setViewing] = useState<ClusterPluginItem | null>(null);
 
   const { data, loading, refresh } = useRequest(
     () => listClusterPlugins(clusterId),
@@ -286,7 +286,7 @@ export default function ClusterPluginsPage() {
       <div key={it.plugin.id} style={{ width: 280 }}>
         <PluginCard
           plugin={it.plugin}
-          onView={(p) => setViewing(p)}
+          onView={() => setViewing(it)}
           extra={phaseTag}
           actions={action}
         />
@@ -324,12 +324,13 @@ export default function ClusterPluginsPage() {
         onClose={() => setEnableTarget(null)}
         onEnabled={refresh}
       />
-      <PluginEditDrawer
+      <EnableDrawer
         open={!!viewing}
-        editing={viewing}
+        clusterId={clusterId}
+        target={viewing}
         readOnly
         onClose={() => setViewing(null)}
-        onSaved={() => {}}
+        onEnabled={() => {}}
       />
     </div>
   );
