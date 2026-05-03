@@ -9,7 +9,7 @@ interface NamespaceState {
 }
 
 const DEFAULT: NamespaceState = {
-  selected: 'default',
+  selected: '',
   list: [],
   loading: false,
 };
