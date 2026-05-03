@@ -37,17 +37,21 @@ export function PluginCard({
 
   // Show chart source as a small badge so users can tell at-a-glance
   // whether a plugin pulls from a repo or runs from an uploaded file.
+  // Tooltip shows the chart name (helpful when the tag truncates on
+  // narrow cards or when the chart name and display name diverge).
   const chartTag =
     plugin.chart_type === 'repo' ? (
-      <Tooltip title={plugin.chart_repo}>
+      <Tooltip title={plugin.chart_name || plugin.name}>
         <Tag color="blue" style={{ marginInlineEnd: 0 }}>
           {plugin.chart_name || plugin.name}
         </Tag>
       </Tooltip>
     ) : (
-      <Tag color="purple" style={{ marginInlineEnd: 0 }}>
-        local
-      </Tag>
+      <Tooltip title={plugin.chart_name || plugin.name}>
+        <Tag color="purple" style={{ marginInlineEnd: 0 }}>
+          local
+        </Tag>
+      </Tooltip>
     );
 
   return (
