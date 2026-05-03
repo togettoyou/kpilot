@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v3/pkg/storage/driver"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
 )
@@ -187,7 +189,7 @@ func (h *HelmRunner) Get(releaseName, namespace string) (*release.Release, error
 }
 
 func isReleaseNotFound(err error) bool {
-	return err != nil && err.Error() == "release: not found"
+	return errors.Is(err, driver.ErrReleaseNotFound)
 }
 
 // We import repo here so `go vet` doesn't complain about an unused import

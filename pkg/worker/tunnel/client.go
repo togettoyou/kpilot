@@ -21,6 +21,11 @@ const (
 	heartbeatInterval  = 10 * time.Second
 	connectTimeout     = 15 * time.Second
 	workerVersion      = "v0.1.0"
+
+	// gRPC client message-size cap. Must mirror the Server's 32 MB ceiling
+	// so Worker can receive plugin chart blobs (up to 16 MB) and large
+	// Table API responses without ResourceExhausted. Default is 4 MB.
+	maxGRPCMessageSize = 32 * 1024 * 1024
 )
 
 // ErrTokenRejected is returned when the server explicitly rejects the cluster
@@ -221,6 +226,10 @@ func (c *Client) connect(ctx context.Context) error {
 		grpc.WithConnectParams(grpc.ConnectParams{
 			MinConnectTimeout: connectTimeout,
 		}),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxGRPCMessageSize),
+			grpc.MaxCallSendMsgSize(maxGRPCMessageSize),
+		),
 	)
 	if err != nil {
 		return err

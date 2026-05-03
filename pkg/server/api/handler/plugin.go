@@ -90,6 +90,9 @@ func CreatePlugin(c *gin.Context) {
 		apiErr(c, http.StatusBadRequest, code)
 		return
 	}
+	if !validateBlobRef(c, &req) {
+		return
+	}
 	exists, err := store.PluginNameExists(req.Name)
 	if err != nil {
 		apiErrInternal(c, err)
@@ -155,6 +158,9 @@ func UpdatePlugin(c *gin.Context) {
 	}
 	if code := req.validate(); code != "" {
 		apiErr(c, http.StatusBadRequest, code)
+		return
+	}
+	if !validateBlobRef(c, &req) {
 		return
 	}
 	if req.Name != existing.Name {
@@ -242,6 +248,14 @@ func UploadPluginChart(c *gin.Context) {
 	content, err := io.ReadAll(file)
 	if err != nil {
 		apiErrInternal(c, err)
+		return
+	}
+	// Reject obviously-not-gzip payloads early — Helm chart .tgz must start
+	// with the gzip magic number 1f 8b. The reconciler would catch this
+	// later via loader.Load, but failing at upload time gives a synchronous
+	// error code instead of a delayed Failed phase.
+	if len(content) < 2 || content[0] != 0x1f || content[1] != 0x8b {
+		apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 		return
 	}
 	digest := sha256.Sum256(content)
@@ -336,10 +350,11 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		clusterID := c.Param("id")
 		pluginName := c.Param("name")
 		var req enableRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			// Empty body is fine — defaults apply. Treat any other parse
-			// error as a malformed payload.
-			if err != io.EOF {
+		// Empty body is fine — defaults apply. Only call ShouldBindJSON
+		// when there's actually a payload to parse, which sidesteps the
+		// fragility of comparing the parser error against io.EOF.
+		if c.Request.ContentLength != 0 {
+			if err := c.ShouldBindJSON(&req); err != nil {
 				apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 				return
 			}
@@ -390,8 +405,23 @@ func DisablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		clusterID := c.Param("id")
 		pluginName := c.Param("name")
 
+		if _, err := store.GetClusterByID(clusterID); err != nil {
+			apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+			return
+		}
 		plugin, err := store.GetPluginByName(pluginName)
 		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				apiErr(c, http.StatusNotFound, CodePluginNotFound)
+				return
+			}
+			apiErrInternal(c, err)
+			return
+		}
+		// The per-cluster row must exist (created by EnablePlugin); without
+		// it there's no Helm release to remove. Surface this as 404 instead
+		// of silently sending a delete to a Worker that will no-op.
+		if _, err := store.GetClusterPlugin(clusterID, plugin.ID); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				apiErr(c, http.StatusNotFound, CodePluginNotFound)
 				return
@@ -425,6 +455,26 @@ func DisablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
+
+// validateBlobRef ensures a chart_blob_id present in the request actually
+// corresponds to a stored blob. Without this we'd accept any uint and the
+// reconciler would surface the dangling reference as Failed at install
+// time — the API should reject up-front instead. Writes the response on
+// failure and returns false.
+func validateBlobRef(c *gin.Context, req *pluginRequest) bool {
+	if req.ChartType != store.ChartTypeLocal || req.ChartBlobID == nil {
+		return true
+	}
+	if _, err := store.GetPluginBlobByID(*req.ChartBlobID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			apiErr(c, http.StatusBadRequest, CodePluginChartMissing)
+		} else {
+			apiErrInternal(c, err)
+		}
+		return false
+	}
+	return true
+}
 
 func parsePluginID(c *gin.Context) (uint, error) {
 	raw := c.Param("id")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -174,13 +175,36 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 // ─── helpers ────────────────────────────────────────────────────────────
 
+// touchAndPush updates the CRD's status subresource and pushes the result
+// back to Server. On 409 (concurrent modification — typically the manager
+// adding a finalizer mid-reconcile) we refetch and retry once with the
+// caller's intended status fields applied to the fresh resource version.
+// Without that retry the in-memory ObservedValuesHash etc. would be lost
+// and the next reconcile would needlessly run Helm again.
 func (r *Reconciler) touchAndPush(ctx context.Context, p *kpilotv1alpha1.Plugin, msg string) {
 	if msg != "" {
 		p.Status.Message = msg
 	}
-	t := now()
-	p.Status.LastUpdatedAt = t
+	p.Status.LastUpdatedAt = now()
 	if err := r.Client.Status().Update(ctx, p); err != nil {
+		if apierrors.IsConflict(err) {
+			// Snapshot the status we wanted to land, refetch, and re-apply.
+			pending := p.Status
+			var fresh kpilotv1alpha1.Plugin
+			if getErr := r.Client.Get(ctx, client.ObjectKey{Name: p.Name}, &fresh); getErr == nil {
+				fresh.Status = pending
+				if upErr := r.Client.Status().Update(ctx, &fresh); upErr == nil {
+					*p = fresh // give the caller the up-to-date copy
+					r.Push.PushPluginStatus(p.Name, &p.Status)
+					return
+				} else {
+					log.Printf("[plugin] status update retry failed: name=%s err=%v", p.Name, upErr)
+				}
+			} else {
+				log.Printf("[plugin] status refetch failed: name=%s err=%v", p.Name, getErr)
+			}
+			return
+		}
 		log.Printf("[plugin] status update failed: name=%s err=%v", p.Name, err)
 		return
 	}
@@ -190,8 +214,20 @@ func (r *Reconciler) touchAndPush(ctx context.Context, p *kpilotv1alpha1.Plugin,
 func (r *Reconciler) markFailed(ctx context.Context, p *kpilotv1alpha1.Plugin, err error) {
 	log.Printf("[plugin] reconcile failed: name=%s err=%v", p.Name, err)
 	p.Status.Phase = kpilotv1alpha1.PluginPhaseFailed
-	p.Status.Message = err.Error()
+	// Cap the message — Helm errors can be huge (full release manifests in
+	// some failure modes) and we don't want to bloat etcd or every poll
+	// response from the per-cluster page.
+	p.Status.Message = capMessage(err.Error())
 	r.touchAndPush(ctx, p, "")
+}
+
+const maxStatusMessageBytes = 4096
+
+func capMessage(s string) string {
+	if len(s) <= maxStatusMessageBytes {
+		return s
+	}
+	return s[:maxStatusMessageBytes] + "\n…(truncated)"
 }
 
 // pickInstallPhase distinguishes a fresh install from an upgrade in the
@@ -203,9 +239,36 @@ func pickInstallPhase(s kpilotv1alpha1.PluginStatus) kpilotv1alpha1.PluginPhase 
 	return kpilotv1alpha1.PluginPhaseUpgrading
 }
 
+// valuesHash returns a content-based hash of the values YAML, canonical
+// across whitespace / key-order differences. CodeMirror reformats can
+// trigger byte-level changes that don't actually alter Helm input — by
+// parsing and re-marshaling we collapse those to the same hash, so the
+// reconciler's no-op gate isn't fooled into running needless upgrades.
 func valuesHash(yamlText string) string {
-	h := sha256.Sum256([]byte(yamlText))
+	v, err := ParseValues(yamlText)
+	if err != nil {
+		// Fall back to raw bytes; this hash will only ever be compared to
+		// itself if Helm install succeeds (in which case ParseValues must
+		// have worked there too), so this branch is mostly defensive.
+		h := sha256.Sum256([]byte(yamlText))
+		return hex.EncodeToString(h[:])
+	}
+	canonical, err := jsonMarshalSortedKeys(v)
+	if err != nil {
+		h := sha256.Sum256([]byte(yamlText))
+		return hex.EncodeToString(h[:])
+	}
+	h := sha256.Sum256(canonical)
 	return hex.EncodeToString(h[:])
+}
+
+// jsonMarshalSortedKeys serializes a Go value into JSON with map keys
+// sorted at every level, giving a stable byte representation regardless
+// of the order in which keys were specified in the source YAML. encoding
+// /json already sorts map[string]any keys; the YAML loader produces this
+// shape throughout, so we just delegate.
+func jsonMarshalSortedKeys(v any) ([]byte, error) {
+	return json.Marshal(v)
 }
 
 func now() *metav1.Time {

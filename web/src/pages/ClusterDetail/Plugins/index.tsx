@@ -11,7 +11,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import type {
   ClusterPluginItem,
@@ -68,16 +68,14 @@ export default function ClusterPluginsPage() {
     {
       formatResult: (res) => res,
       refreshDeps: [clusterId],
+      // Status updates land in the DB asynchronously (Worker pushes
+      // PluginStatusPush), so poll keeps the UI fresh while a Helm
+      // install/upgrade/uninstall is in flight. Built-in `useRequest`
+      // polling pauses while the tab is hidden, unlike a raw setInterval.
+      pollingInterval: 5000,
+      pollingWhenHidden: false,
     },
   );
-
-  // Status updates land in the DB asynchronously (Worker pushes
-  // PluginStatusPush), so a 5s poll keeps the UI fresh while a Helm
-  // install/upgrade/uninstall is in flight.
-  useEffect(() => {
-    const t = setInterval(refresh, 5000);
-    return () => clearInterval(t);
-  }, [refresh]);
 
   const sections = useMemo<CategorySection[]>(() => {
     const all = data ?? [];

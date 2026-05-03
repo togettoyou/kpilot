@@ -13,6 +13,11 @@ import (
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
 )
 
+// fieldManagerName scopes Server-Side Apply operations from the manager.
+// Same string as the proxy uses for Workload SSA so kubectl/Helm can see
+// kpilot-owned fields with one filter.
+const fieldManagerName = "kpilot"
+
 // Manager translates PluginCommands from the Server (enable/disable) into
 // CRD operations on the local cluster. The reconciler does all the actual
 // Helm work; this layer is just the protocol boundary.
@@ -57,22 +62,16 @@ func (m *Manager) handleEnable(ctx context.Context, cmd *pb.PluginCommand) error
 		}
 	}
 
+	// Server-Side Apply: idempotent, no resourceVersion needed, no TOCTOU
+	// race against the reconciler when it adds the finalizer concurrently.
+	// fieldManager=kpilot + Force=true matches the convention in
+	// pkg/worker/proxy for Workload writes.
 	desired := buildPluginCRD(cmd)
-	var existing kpilotv1alpha1.Plugin
-	err := m.Client.Get(ctx, client.ObjectKey{Name: cmd.CrdName}, &existing)
-	switch {
-	case apierrors.IsNotFound(err):
-		log.Printf("[plugin] creating CRD: name=%s", cmd.CrdName)
-		return m.Client.Create(ctx, desired)
-	case err != nil:
-		return fmt.Errorf("get plugin: %w", err)
-	default:
-		// Update spec on the existing object — preserve ResourceVersion +
-		// Finalizers + Status (those are owned by the reconciler).
-		existing.Spec = desired.Spec
-		log.Printf("[plugin] updating CRD: name=%s", cmd.CrdName)
-		return m.Client.Update(ctx, &existing)
-	}
+	log.Printf("[plugin] applying CRD: name=%s", cmd.CrdName)
+	return m.Client.Patch(ctx, desired, client.Apply,
+		client.FieldOwner(fieldManagerName),
+		client.ForceOwnership,
+	)
 }
 
 func (m *Manager) handleDisable(ctx context.Context, cmd *pb.PluginCommand) error {
@@ -108,6 +107,12 @@ func buildPluginCRD(cmd *pb.PluginCommand) *kpilotv1alpha1.Plugin {
 		}
 	}
 	return &kpilotv1alpha1.Plugin{
+		// SSA requires Kind + APIVersion in the request body; controller-
+		// runtime's typed client doesn't fill these in for us on Patch.
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: kpilotv1alpha1.GroupVersion.String(),
+			Kind:       "Plugin",
+		},
 		ObjectMeta: metav1.ObjectMeta{Name: cmd.CrdName},
 		Spec: kpilotv1alpha1.PluginSpec{
 			PluginID:    spec.PluginId,

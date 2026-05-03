@@ -42,9 +42,16 @@ func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *proto.PluginS
 		return
 	}
 
+	// Empty phase is the reconciler's "release uninstalled, CRD gone" beat;
+	// translate to Disabled so the NOT NULL column constraint is satisfied
+	// (DB defaults only fire on INSERT, not Updates).
+	phase := store.PluginPhase(st.Phase)
+	if phase == "" {
+		phase = store.PluginPhaseDisabled
+	}
 	updates := map[string]any{
-		"phase":                store.PluginPhase(st.Phase),
-		"message":              st.Message,
+		"phase":                phase,
+		"message":              capStatusMessage(st.Message),
 		"observed_version":     st.ObservedVersion,
 		"observed_values_hash": st.ObservedValuesHash,
 		"helm_revision":        st.HelmRevision,
@@ -58,4 +65,16 @@ func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *proto.PluginS
 		log.Printf("[gateway] update cluster plugin status: cluster=%s plugin=%s err=%v",
 			w.ClusterID, st.CrdName, err)
 	}
+}
+
+// capStatusMessage trims very long Helm error messages — they can carry the
+// full release manifest and bloat the DB row + every poll response from the
+// per-cluster page. 4 KiB is plenty for the actual error text.
+const maxStatusMessageBytes = 4096
+
+func capStatusMessage(s string) string {
+	if len(s) <= maxStatusMessageBytes {
+		return s
+	}
+	return s[:maxStatusMessageBytes] + "\n…(truncated)"
 }

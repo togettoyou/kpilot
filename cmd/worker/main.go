@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -47,7 +48,13 @@ func main() {
 		// Build a scheme that includes both the standard k8s types and
 		// our Plugin CRD; controller-runtime needs both registered before
 		// the Manager starts so the Plugin reconciler can Watch and Get.
-		scheme := clientgoscheme.Scheme
+		// Use a fresh scheme rather than the package-global
+		// clientgoscheme.Scheme so we don't leak the kpilot types into
+		// any other code path that walks the default scheme.
+		scheme := runtime.NewScheme()
+		if err := clientgoscheme.AddToScheme(scheme); err != nil {
+			log.Fatalf("[worker] failed to add k8s scheme: %v", err)
+		}
 		if err := kpilotv1alpha1.AddToScheme(scheme); err != nil {
 			log.Fatalf("[worker] failed to add plugin scheme: %v", err)
 		}

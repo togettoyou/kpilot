@@ -177,13 +177,23 @@ export function PluginEditDrawer({
         <Form.Item
           name="name"
           label={intl.formatMessage({ id: 'pages.plugins.form.name' })}
-          rules={[{ required: true }, { pattern: /^[a-z0-9-]+$/ }]}
+          rules={[
+            { required: true },
+            // DNS-1123 label: 1–63 chars, lowercase alphanumerics or '-',
+            // can't start or end with '-'. The CRD metadata.name and the
+            // Helm release name both use this directly.
+            {
+              pattern: /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/,
+              message: 'a-z, 0-9, "-"; 1–63 chars; no leading/trailing dash',
+            },
+          ]}
         >
           <Input
             placeholder={intl.formatMessage({
               id: 'pages.plugins.form.namePlaceholder',
             })}
             disabled={!!editing} // name is the CRD identity; locked after creation
+            maxLength={63}
           />
         </Form.Item>
         <Form.Item
