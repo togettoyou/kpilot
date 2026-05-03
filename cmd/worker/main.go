@@ -106,7 +106,7 @@ func main() {
 		// ─── Plugin pipeline ────────────────────────────────────────────
 		// Local Helm chart .tgz cache. CHART_CACHE_DIR should be on a PVC
 		// so the cache survives Worker pod restarts.
-		chartCache, err := plugin.NewChartCache(cfg.ChartCacheDir)
+		chartCache, err := plugin.NewChartCache(cfg.ChartCacheDir())
 		if err != nil {
 			log.Fatalf("[worker] chart cache init: %v", err)
 		}

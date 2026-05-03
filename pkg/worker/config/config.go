@@ -12,24 +12,24 @@ type Config struct {
 	ServerAddr   string
 	ClusterToken string
 	// DataDir is the single persistent root for Worker state. Operators
-	// mount one PVC here in production; ChartCacheDir + Helm's
-	// repository config and cache all live under it by default.
+	// mount one PVC here in production; chart .tgz cache and Helm's
+	// repository config + cache all live under it.
 	DataDir string
-	// ChartCacheDir is where Worker writes Helm chart .tgz files
-	// received from the Server. Defaults to $DataDir/charts; override
-	// via CHART_CACHE_DIR if you need to split it onto a different
-	// volume than DataDir.
-	ChartCacheDir string
+}
+
+// ChartCacheDir is where Worker writes Helm chart .tgz bytes received
+// from the Server. Always $DataDir/charts — operators tune the parent
+// via DATA_DIR rather than splitting paths.
+func (c *Config) ChartCacheDir() string {
+	return filepath.Join(c.DataDir, "charts")
 }
 
 func Load() *Config {
 	loadDotEnv()
-	dataDir := envOr("DATA_DIR", "/var/lib/kpilot")
 	return &Config{
-		ServerAddr:    envOr("SERVER_ADDR", "localhost:9090"),
-		ClusterToken:  envOr("CLUSTER_TOKEN", ""),
-		DataDir:       dataDir,
-		ChartCacheDir: envOr("CHART_CACHE_DIR", filepath.Join(dataDir, "charts")),
+		ServerAddr:   envOr("SERVER_ADDR", "localhost:9090"),
+		ClusterToken: envOr("CLUSTER_TOKEN", ""),
+		DataDir:      envOr("DATA_DIR", "/var/lib/kpilot"),
 	}
 }
 
