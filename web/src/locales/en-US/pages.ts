@@ -103,6 +103,8 @@ export default {
   'errors.PLUGIN_UPLOAD_TOO_LARGE': 'File too large (max 16MB)',
   'errors.PLUGIN_NAMESPACE_LOCKED':
     'Cannot change install namespace after installation. Disable first, then re-enable in the new namespace.',
+  'errors.PLUGIN_IN_USE':
+    'Plugin is currently enabled on at least one cluster. Disable it everywhere before deleting.',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',

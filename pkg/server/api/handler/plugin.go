@@ -219,6 +219,18 @@ func DeletePlugin(c *gin.Context) {
 		apiErr(c, http.StatusForbidden, CodePluginBuiltinLocked)
 		return
 	}
+	// Refuse deletion while at least one cluster has the plugin in a
+	// non-Disabled phase — DELETE would cascade-drop ClusterPlugin
+	// rows and orphan the actual Helm release on those clusters.
+	inUse, err := store.PluginInUse(id)
+	if err != nil {
+		apiErrInternal(c, err)
+		return
+	}
+	if inUse {
+		apiErr(c, http.StatusConflict, CodePluginInUse)
+		return
+	}
 	if err := store.DeletePlugin(id); err != nil {
 		apiErrInternal(c, err)
 		return

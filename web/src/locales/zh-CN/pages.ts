@@ -94,6 +94,8 @@ export default {
   'errors.PLUGIN_UPLOAD_TOO_LARGE': '上传文件过大（最大 16MB）',
   'errors.PLUGIN_NAMESPACE_LOCKED':
     '已安装的插件不允许修改命名空间，请先禁用再以新命名空间重新启用',
+  'errors.PLUGIN_IN_USE':
+    '插件正在被某个集群启用中，请先在所有集群禁用后再删除',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU 算力编排',

@@ -50,6 +50,20 @@ func UpdatePlugin(id uint, updates map[string]any) error {
 	return DB.Model(&Plugin{}).Where("id = ?", id).Updates(updates).Error
 }
 
+// PluginInUse reports whether any cluster currently holds this plugin
+// in a non-Disabled phase — i.e. a Helm release is (or might still
+// be) on at least one cluster. Used by the Delete handler to refuse
+// removal until users disable everywhere first; otherwise DELETE
+// would cascade-wipe ClusterPlugin rows and leave the cluster's
+// release orphaned with nothing tracking it.
+func PluginInUse(pluginID uint) (bool, error) {
+	var count int64
+	err := DB.Model(&ClusterPlugin{}).
+		Where("plugin_id = ? AND phase != ?", pluginID, PluginPhaseDisabled).
+		Count(&count).Error
+	return count > 0, err
+}
+
 func DeletePlugin(id uint) error {
 	// Cascade to per-cluster rows so we don't leave orphans pointing at a
 	// missing plugin id. Built-in protection is in the handler layer.
