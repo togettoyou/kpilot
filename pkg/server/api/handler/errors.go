@@ -24,6 +24,7 @@ const (
 	CodePluginUploadTooLarge = "PLUGIN_UPLOAD_TOO_LARGE"
 	CodePluginNamespaceLock  = "PLUGIN_NAMESPACE_LOCKED"
 	CodePluginInUse          = "PLUGIN_IN_USE"
+	CodePluginUninstalling   = "PLUGIN_UNINSTALLING"
 	CodeLoginIncorrect       = "LOGIN_INCORRECT"
 )
 

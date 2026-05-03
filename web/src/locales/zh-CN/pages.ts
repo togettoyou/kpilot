@@ -96,6 +96,8 @@ export default {
     '已安装的插件不允许修改命名空间，请先禁用再以新命名空间重新启用',
   'errors.PLUGIN_IN_USE':
     '插件正在被某个集群启用中，请先在所有集群禁用后再删除',
+  'errors.PLUGIN_UNINSTALLING':
+    '插件正在卸载中，请等待卸载完成再启用',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU 算力编排',

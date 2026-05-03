@@ -449,14 +449,33 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		// Release-namespace lock: Helm release identity is (name,
-		// namespace), and our chart cache + reconciler track release
-		// state by the new namespace only. Letting the user change
-		// namespace after install would orphan the old release in the
-		// previous namespace with no Helm-aware path to clean it up.
-		// Refuse the change; the user can disable (which uninstalls
-		// from the OLD namespace) and then re-enable in the new one.
+		// Reject re-enable while a previous Disable is still being
+		// processed. Without this, the SSA we're about to send would
+		// land on a CRD that already has DeletionTimestamp set — Worker
+		// would update the spec, but the finalizer-driven deletion still
+		// runs and removes the CRD anyway. The new ClusterPlugin row
+		// (enabled=true) then survives the Disabled push (its
+		// enabled=false predicate doesn't match), leaving Phase=Pending
+		// forever with no CRD on the cluster. User experience: re-click
+		// Enable does nothing visible.
+		//
+		// `existing.Enabled == false` is the canonical "user already
+		// asked for this gone" signal — the disable handler sets it
+		// before sending the command. Surface a 409 so the UI can
+		// explain "wait for uninstall to finish".
 		if existing, err := store.GetClusterPlugin(clusterID, plugin.ID); err == nil {
+			if !existing.Enabled {
+				apiErr(c, http.StatusConflict, CodePluginUninstalling)
+				return
+			}
+			// Release-namespace lock: Helm release identity is (name,
+			// namespace), and our chart cache + reconciler track release
+			// state by the new namespace only. Letting the user change
+			// namespace after install would orphan the old release in
+			// the previous namespace with no Helm-aware path to clean
+			// it up. Refuse the change; the user can disable (which
+			// uninstalls from the OLD namespace) and then re-enable in
+			// the new one.
 			if existing.HelmRevision > 0 {
 				wantNS := req.ReleaseNamespaceOverride
 				if wantNS == "" {

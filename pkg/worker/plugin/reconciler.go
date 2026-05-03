@@ -110,12 +110,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	if plugin.Status.AttemptHash == currentAttempt {
 		switch plugin.Status.Phase {
-		case kpilotv1alpha1.PluginPhaseRunning:
-			// Already at the desired state.
-			return ctrl.Result{}, nil
-		case kpilotv1alpha1.PluginPhaseFailed:
-			// Permanent failure on this exact input. User must change
-			// spec to retry; auto-retry would just thrash.
+		case kpilotv1alpha1.PluginPhaseRunning, kpilotv1alpha1.PluginPhaseFailed:
+			// Terminal state for this AttemptHash — Running means
+			// already at the desired state, Failed means permanent
+			// failure that re-attempting would just thrash on (user
+			// must change spec to retry).
+			//
+			// Re-push the current status before returning. Without
+			// this, a Worker that finished install successfully but
+			// died before the Phase=Running push made it across the
+			// wire would leave Server stuck at Phase=Pending forever:
+			// on reconnect, gateway replay re-sends Enable → manager
+			// SSAs the CRD (no-op, spec unchanged) → reconciler hits
+			// this gate → silently returns. Push is idempotent and
+			// cheap (one gRPC frame per reconcile of an already-
+			// settled plugin).
+			r.Push.PushPluginStatus(plugin.Name, &plugin.Status)
 			return ctrl.Result{}, nil
 		}
 		// Other phases (Pending / Installing / Upgrading) fall through —

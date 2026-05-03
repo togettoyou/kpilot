@@ -105,6 +105,8 @@ export default {
     'Cannot change install namespace after installation. Disable first, then re-enable in the new namespace.',
   'errors.PLUGIN_IN_USE':
     'Plugin is currently enabled on at least one cluster. Disable it everywhere before deleting.',
+  'errors.PLUGIN_UNINSTALLING':
+    'Plugin is currently uninstalling. Wait for it to finish before re-enabling.',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',

@@ -87,10 +87,21 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 	// Rejection lets the incumbent keep its slot; if the incumbent is
 	// actually dead, the heartbeat timeout (~35s) frees the slot and
 	// the next reconnect attempt by the (legitimate) replacement wins.
-	g.mu.RLock()
-	_, occupied := g.workers[cluster.ID]
-	g.mu.RUnlock()
-	if occupied {
+	//
+	// Check + claim under one Lock (not RLock-then-Lock) so two
+	// simultaneous registers with the same token can't both pass an
+	// "occupied=false" snapshot and have the second silently overwrite
+	// the first — that would orphan the first worker's stream while
+	// the gateway map still routed messages to it.
+	worker := &ConnectedWorker{
+		ClusterID: cluster.ID,
+		Stream:    stream,
+		LastSeen:  time.Now(),
+		done:      make(chan struct{}),
+	}
+	g.mu.Lock()
+	if _, occupied := g.workers[cluster.ID]; occupied {
+		g.mu.Unlock()
 		_ = stream.Send(&proto.ServerMessage{
 			RequestId: msg.RequestId,
 			Payload: &proto.ServerMessage_RegisterAck{
@@ -103,6 +114,14 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 		log.Printf("[gateway] worker rejected, slot occupied: cluster=%s", cluster.ID)
 		return fmt.Errorf("cluster %s already connected", cluster.ID)
 	}
+	g.workers[cluster.ID] = worker
+	g.mu.Unlock()
+	// Cluster row → online (best-effort; a DB blip here doesn't unwind
+	// the connection — the next status push or restart will fix it).
+	if err := store.UpdateClusterStatus(cluster.ID, store.ClusterStatusOnline); err != nil {
+		log.Printf("[gateway] update cluster online failed: cluster=%s err=%v", cluster.ID, err)
+	}
+	defer g.unregister(worker)
 
 	if err = stream.Send(&proto.ServerMessage{
 		RequestId: msg.RequestId,
@@ -116,15 +135,6 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 	}); err != nil {
 		return err
 	}
-
-	worker := &ConnectedWorker{
-		ClusterID: cluster.ID,
-		Stream:    stream,
-		LastSeen:  time.Now(),
-		done:      make(chan struct{}),
-	}
-	g.register(worker)
-	defer g.unregister(worker)
 
 	log.Printf("[gateway] worker connected: cluster=%s", cluster.ID)
 
@@ -213,17 +223,6 @@ func (g *GatewayServer) routeStreamMessage(msg *proto.WorkerMessage) {
 	}
 	// deliver internally guards against send-on-closed-channel.
 	s.deliver(msg)
-}
-
-func (g *GatewayServer) register(w *ConnectedWorker) {
-	// Connect already rejected duplicates above, so this is unconditional —
-	// but use Lock anyway to publish the new entry safely.
-	g.mu.Lock()
-	g.workers[w.ClusterID] = w
-	g.mu.Unlock()
-	if err := store.UpdateClusterStatus(w.ClusterID, store.ClusterStatusOnline); err != nil {
-		log.Printf("[gateway] update cluster online failed: cluster=%s err=%v", w.ClusterID, err)
-	}
 }
 
 func (g *GatewayServer) unregister(w *ConnectedWorker) {

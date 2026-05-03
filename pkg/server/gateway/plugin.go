@@ -20,16 +20,27 @@ import (
 // Uninstalling.
 //
 // What we replay:
-//   - phase=Uninstalling           → re-push disable
+//   - enabled=false && phase=Uninstalling           → re-push disable
 //   - enabled=true && phase one of {Pending, Installing, Upgrading,
 //     Failed} → re-push enable (rebuilt from current overrides)
 //
-// Skipped: phase=Running (steady state, nothing pending) and
-// phase=Disabled (handled by row deletion now, no row would exist).
+// Skipped: phase=Running (steady state, nothing pending),
+// phase=Disabled (no row would exist), and rows whose `enabled` flag
+// disagrees with their phase (a Disable+Enable racing in quick
+// succession can land enabled=true while phase still says Uninstalling
+// — replaying the disable in that state would clobber the user's
+// re-enable intent).
 //
 // Best-effort: errors are logged, not propagated; the next user action
-// would push again anyway.
+// would push again anyway. A panic in this goroutine would otherwise
+// crash the gateway process — recover so a malformed row can't take
+// the whole server down.
 func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[gateway] replay panic: cluster=%s panic=%v", clusterID, r)
+		}
+	}()
 	rows, err := store.ListClusterPlugins(clusterID)
 	if err != nil {
 		log.Printf("[gateway] replay: list cluster plugins failed: cluster=%s err=%v",
@@ -40,6 +51,14 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 		cp := &rows[i]
 		switch cp.Phase {
 		case store.PluginPhaseUninstalling:
+			// Symmetric with the enable case below: only replay if the
+			// row's `enabled` actually agrees that the user wants this
+			// plugin gone. enabled=true with phase=Uninstalling means a
+			// concurrent re-enable already overwrote the row; replaying
+			// the disable would clobber that intent.
+			if cp.Enabled {
+				continue
+			}
 			plugin, err := store.GetPluginByName(cp.Plugin.Name)
 			if err != nil {
 				continue
