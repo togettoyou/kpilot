@@ -138,12 +138,22 @@ status:
 - YAML 编辑器：CodeMirror 6，有语法高亮，status 区块视觉变暗（不可改）
 - **通用 Apply YAML**：用户输入或拖拽上传 .yaml/.yml/.json，支持多文档 `---` 分隔，每条独立 SSA，返回逐条结果（成功/失败 + 错误消息）
 - **资源详情（Describe）**：所有工作负载操作栏带"详情"按钮，调用 `k8s.io/kubectl/pkg/describe` 输出与 `kubectl describe` 一致的文本，前端做最小化高亮（key 着色 + Events Type Normal/Warning 着色）
-- **Pod 日志**：WebSocket 流式 follow，可选容器、tail 行数（100/500/1000/5000）、previous 实例；前端 rAF 节流避免高吞吐场景的渲染抖动
+- **Pod 日志**：WebSocket 流式 follow，可选容器、tail 行数（100/500/1000/5000）、previous 实例；前端 rAF 节流避免高吞吐场景的渲染抖动；自带客户端 grep（200ms 防抖，纯字符串/正则双模式，匹配高亮 + "匹配 X / 共 Y 行" 计数）
 - **Pod 终端（Exec）**：xterm.js + FitAddon，Worker 端默认 `/bin/bash`，不存在自动回退 `/bin/sh`；二进制 WS 帧（首字节为类型）
 
 ### 4. 插件管理
-- 查看可用插件列表及安装状态
-- 启用/禁用插件，配置插件参数
+两层界面，全局 + 集群侧分工明确：
+- **全局插件管理**（顶部菜单 `/plugins`）：Helm Chart 注册表的 CRUD。卡片按 category 分组（gpu / scheduling / networking / storage / monitoring / logging / security / serving / custom）。内置插件只读（带「内置」金色 tag），自定义可编辑/删除/查看
+- **集群侧插件管理**（侧边菜单 `/clusters/:id/plugins`）：注册表的只读视图，每张卡显示该集群上的 phase（带动态 icon：spinning Loading / 绿勾 Running / 红叉 Failed），点「启用」打开 drawer 配置 values/version/namespace 后下发 Helm install
+- **添加插件**：name (DNS-1123) + 分类 + Helm chart 来源（repo URL or 本地 .tgz 上传，sha256 dedupe）+ 默认 values（YAML 编辑器）+ 默认安装命名空间
+- **启用流程**：Server merge 注册表默认 + 集群覆盖 → PluginCommand 经 gRPC 推 Worker → Worker manager SSA 写 Plugin CRD → controller-runtime Reconciler 跑 Helm install/upgrade（Wait + Atomic + 5min Timeout）→ PluginStatusPush 实时回报状态
+- **死循环防护**：CRD status 带 AttemptHash（输入指纹），同输入 Failed 不再自动重试，避免持续 rollback。要重试改 values 或 disable+re-enable
+- **离线保护**：handler 提交前 pre-flight 检查 Worker 是否在线，离线直接 503 不污染 DB；handleDisable 找不到 CRD 时主动 push Disabled 兜底卡死的 Uninstalling
+- **删除保护**：自定义插件被任意集群启用中（phase != Disabled）时 DELETE 返回 409 / `PLUGIN_IN_USE`
+- **Namespace 锁**：`helm_revision > 0` 后改 release_namespace_override 返回 400 / `PLUGIN_NAMESPACE_LOCKED`，避免 Helm release 在旧 ns 孤悬
+- **失败错误展示**：Failed phase tag hover 弹 Popover（不是 Tooltip，可滚动 + 复制按钮 + `overscroll-behavior: contain` 防屏抖）
+- **重置默认**：Enable drawer 左下角「重置为默认」按钮，按当前注册表 default_values 重新 prefill
+- **内置插件**（4 个）：HAMi（GPU）、VictoriaMetrics（monitoring，victoria-metrics-single 0.37.0，pin 版本 + scrape.enabled + 资源限制）、Node Exporter（monitoring，prometheus-node-exporter 4.55.0，docker.io 镜像 override + service annotations 配齐）、VictoriaLogs（logging）
 
 ### 5. GPU 管理
 - 依赖 HAMI 插件
@@ -224,8 +234,20 @@ kpilot/
 | `JWT_SECRET` | 随机 | JWT 签名密钥，未设置则每次重启失效 |
 | `CORS_ORIGINS` | 空（开发宽松模式） | 生产环境设置前端域名，逗号分隔，如 `https://kpilot.example.com` |
 
+### Worker 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `SERVER_ADDR` | `localhost:9090` | Server gRPC 地址（Worker 视角） |
+| `CLUSTER_TOKEN` | 空 | 必填，集群创建时 UI 一次性展示的 token |
+| `DATA_DIR` | `/var/lib/kpilot` | 持久化根目录。`charts/` 放 Helm chart .tgz cache，`helm/` 放 Helm 仓库配置 + cache。生产挂 PVC，本地 dev 改 `./data` |
+| `HELM_REPOSITORY_CONFIG` / `HELM_REPOSITORY_CACHE` | 空 | Helm SDK 自身的 env 变量，设了优先于 `DATA_DIR` 派生路径（高级场景） |
+
+### `.env` 加载
+Server / Worker 启动时自动加载 cwd 下的 `.env`（godotenv），shell / pod env 优先（不会覆盖）。`.env.example` 在仓库根，`.env` 在 `.gitignore`。本地 dev 把 `.env.example` 拷成 `.env` 改改就能跑。
+
 ### gRPC 配置
-- Server 最大消息收发均为 **32 MB**（默认 4 MB 不够大集群 Table API 响应）
+- Server 和 Worker 最大消息收发均为 **32 MB**（默认 4 MB 不够大集群 Table API 响应 + 大 chart .tgz blob）
 
 ---
 
@@ -409,6 +431,19 @@ web/src/
 - **Pod 日志**：WS 端点 `/api/v1/clusters/:id/workloads/pods/:name/logs`。Server 通过 `gateway.OpenStream` 拿 sessionID 双向流，发 `LogsStartRequest` 给 Worker；Worker 用 `clientset.CoreV1().Pods(ns).GetLogs(...).Stream(ctx)` 4 KiB chunk 转发，EOF 发 `LogsEnd`。前端用 rAF 批量 flush 行缓冲，避免每条消息触发 React re-render。
 - **Pod 终端（Exec）**：WS 端点 `/api/v1/clusters/:id/workloads/pods/:name/exec`，二进制帧首字节为类型（client→server: 0=stdin / 1=resize JSON；server→client: 1=stdout / 2=stderr / 3=end）。Worker 端 `ExecManager` 维护 sessionID → `{cancel, stdinW, resizeCh, closed, closeMu}`，dispatcher handler 必须快返回（实际 IO 在管理器 goroutine 里做）。Shell 选择由 Worker 决定：先探测 `/bin/bash`，不存在静默回退 `/bin/sh`，前端无须传参。
 
+### 插件系统关键设计说明
+
+- **数据切分（三表）**：`Plugin`（全局注册表，是 Helm chart 元数据）/ `PluginBlob`（本地 .tgz 字节，sha256 dedupe）/ `ClusterPlugin`（集群侧启用状态 + 用户 override + 反映 PluginStatusPush 的 phase / observed_*）。删除注册表行会级联删 ClusterPlugin。
+- **Plugin CRD**（`pkg/worker/apis/v1alpha1`）：cluster-scoped。spec 含 chart 来源（`type=repo|local` + sha256）+ release identity + values YAML。status 含 phase / observed_version / observed_values_hash / **AttemptHash（输入指纹，防 hot-loop）** / helm_revision。CRD 定义由 Worker 启动时 `EnsurePluginCRD` 自动 install 到目标集群。
+- **gRPC 协议**：`PluginCommand`（Server→Worker）action ∈ `{enable, disable}` + spec；`PluginStatusPush`（Worker→Server）含 phase + observed_* + helm_revision。**Push 模式（无 request_id）**，火焰发射，状态由 PluginStatusPush 异步回报。
+- **Worker reconciler**：controller-runtime watches Plugin CRD。Add finalizer 后跑 Helm；删除走 finalizer pattern（先 helm uninstall 再清 finalizer）。**install/upgrade 都用 `Wait + WaitForJobs + Atomic + 5min Timeout`**——Wait 解决 chart 内子组件依赖（如 victoria-metrics-k8s-stack 的 webhook race），Atomic 失败回滚不留半装状态。
+- **AttemptHash 防死循环**：每次 reconcile 前算 `sha256(chart.type + repo + name + version + sha256 + release.name + release.namespace + canonical(values))`。`Phase=Running && AttemptHash 匹配` 跳过；`Phase=Failed && AttemptHash 匹配` 也跳过（不再自动重试），永久失败靠用户改 spec / disable+re-enable 触发。
+- **Manager SSA**：处理 PluginCommand 时用 `client.Apply` + `FieldOwner("kpilot")` + `ForceOwnership` 写 CRD，不用 Get-then-Update（会跟 reconciler 加 finalizer 抢 ResourceVersion）。
+- **离线 / 重连保护**：handler 提交前 `gw.GetWorker()` pre-flight；离线返回 503 不写 DB。`handlePluginStatus` 用 upsert（不是 update），自愈"push 成功 DB 写失败"的 corner case。`Manager.handleDisable` 找不到 CRD 时 push 一个空 phase（→ Server 翻成 Disabled），让卡死的 Uninstalling 行能恢复。
+- **Helm chart cache**：本地 chart .tgz 存 `$DATA_DIR/charts/<sha256>.tgz`，atomic write（tempfile + rename）+ 内容校验 sha256。Repo chart 也在 `$DATA_DIR/helm/cache/` 缓存 .tgz，`LoadChart` 命中缓存就跳过 Pull（Helm v3.20 的 action.NewPull 即使 RepositoryCache 配了也会重下，所以这一层手动检查必要）。
+- **Helm release storage**：用 secrets driver（v3 默认），keyed by (release_name, release_namespace)。**release_namespace 锁**：`helm_revision > 0` 后改 namespace 直接拒绝（400 + `PLUGIN_NAMESPACE_LOCKED`），否则会在新 ns fresh install + 旧 ns release 孤悬。
+- **删除保护**：自定义 plugin 被任意集群启用中（`phase != Disabled`）时拒绝删除（409 + `PLUGIN_IN_USE`），避免 cascade 把 ClusterPlugin 行删了导致 Helm release 在集群上孤悬。
+
 ---
 
 ## 开发阶段
@@ -417,8 +452,8 @@ web/src/
 |------|------|------|
 | P1 | 项目脚手架 + Proto 设计 + gRPC 连接/注册 + PostgreSQL schema + JWT 认证 | ✅ 完成 |
 | P2 | 集群管理 UI + 节点概览（Worker 采集上报） | ✅ 完成 |
-| P3 | 工作负载管理（CRUD 代理 + 通用 Apply YAML + Describe + Pod 日志/终端 + 全局命名空间选择器） | ✅ 完成 |
-| P4 | 插件系统（CRD + Helm + 状态同步） | 待开始 ← 下一步 |
-| P5 | GPU 管理（HAMI 集成） | 待开始 |
+| P3 | 工作负载管理（CRUD 代理 + 通用 Apply YAML + Describe + Pod 日志/终端 + 全局命名空间选择器 + Pod 日志客户端 grep） | ✅ 完成 |
+| P4 | 插件系统（Plugin CRD + Helm SDK + Server 注册表 + 集群启用/禁用 + 状态同步 + 4 个内置插件） | ✅ 完成 |
+| P5 | GPU 管理（HAMI 集成） | 待开始 ← 下一步 |
 | P6 | 监控中心 + 日志中心 | 待开始 |
 | P7 | 模型管理（LLM + KServe） | 待开始 |
