@@ -12,7 +12,6 @@ export default {
   'pages.plugins.delete.success': '插件已删除',
   'pages.plugins.builtin': '内置',
   'pages.plugins.empty': '暂无插件',
-  'pages.plugins.localFile': '本地文件',
   'pages.plugins.localTag': '本地',
   'pages.plugins.category.gpu': 'GPU',
   'pages.plugins.category.scheduling': '调度',

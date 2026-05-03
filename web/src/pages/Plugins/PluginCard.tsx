@@ -49,13 +49,12 @@ export function PluginCard({
 
   // Subtitle text under the display name — replaces the in-title tag,
   // which didn't fit when chart names were long (victoria-metrics-k8s-
-  // stack, etc.). Tooltip surfaces the source (repo URL or "local file")
-  // since the visual no longer encodes type via tag color.
+  // stack, etc.). Tooltip just shows the chart name in full, so when
+  // the subtitle ellipsises on a narrow card the user can still read
+  // it. Repo URL stays out of the way; if users need it they can edit/
+  // view the plugin entry.
   const subtitleText = plugin.chart_name || plugin.name;
-  const subtitleTooltip =
-    plugin.chart_type === 'repo'
-      ? plugin.chart_repo || subtitleText
-      : intl.formatMessage({ id: 'pages.plugins.localFile' });
+  const subtitleTooltip = subtitleText;
 
   return (
     <Card
