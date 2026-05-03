@@ -13,11 +13,13 @@ import React, { useMemo, useState } from 'react';
 
 import type {
   ClusterPluginItem,
+  Plugin,
   PluginCategory,
   PluginPhase,
 } from '@/services/kpilot/plugin';
 import { disablePlugin, listClusterPlugins } from '@/services/kpilot/plugin';
 import { PluginCard } from '@/pages/Plugins/PluginCard';
+import { PluginEditDrawer } from '@/pages/Plugins/PluginEditDrawer';
 
 import { EnableDrawer } from './EnableDrawer';
 
@@ -65,6 +67,10 @@ export default function ClusterPluginsPage() {
   const [enableTarget, setEnableTarget] = useState<ClusterPluginItem | null>(
     null,
   );
+  // The per-cluster page has no edit/delete; "view" is the only way to
+  // inspect chart_repo, default_values, etc. Reuses the global page's
+  // PluginEditDrawer in readOnly mode.
+  const [viewing, setViewing] = useState<Plugin | null>(null);
 
   const { data, loading, refresh } = useRequest(
     () => listClusterPlugins(clusterId),
@@ -150,6 +156,7 @@ export default function ClusterPluginsPage() {
       <div key={it.plugin.id} style={{ width: 300 }}>
         <PluginCard
           plugin={it.plugin}
+          onView={(p) => setViewing(p)}
           extra={phaseTag}
           footer={<div>{action}</div>}
         />
@@ -186,6 +193,13 @@ export default function ClusterPluginsPage() {
         target={enableTarget}
         onClose={() => setEnableTarget(null)}
         onEnabled={refresh}
+      />
+      <PluginEditDrawer
+        open={!!viewing}
+        editing={viewing}
+        readOnly
+        onClose={() => setViewing(null)}
+        onSaved={() => {}}
       />
     </div>
   );

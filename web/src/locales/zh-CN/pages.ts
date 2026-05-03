@@ -46,8 +46,11 @@ export default {
   'pages.plugins.update.success': '插件已更新',
   'pages.plugins.modal.create': '添加插件',
   'pages.plugins.modal.edit': '编辑插件',
+  'pages.plugins.modal.view': '查看插件',
+  'pages.plugins.modal.close': '关闭',
   'pages.plugins.modal.submit.create': '创建',
   'pages.plugins.modal.submit.edit': '保存',
+  'pages.plugins.view': '查看',
   // per-cluster plugin page
   'pages.clusterPlugins.enable': '启用',
   'pages.clusterPlugins.disable': '禁用',

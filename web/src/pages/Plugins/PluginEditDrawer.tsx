@@ -29,8 +29,13 @@ import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 
 interface PluginEditDrawerProps {
   open: boolean;
-  // editing === null means "create"; otherwise edit this plugin.
+  // editing === null means "create"; otherwise edit (or view, when
+  // readOnly) this plugin.
   editing: Plugin | null;
+  // readOnly disables every input + hides the save button. Used for
+  // built-in plugins, where the registry entry is immutable but users
+  // still want to inspect chart_repo / default values / etc.
+  readOnly?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -56,6 +61,7 @@ interface UploadedBlob {
 export function PluginEditDrawer({
   open,
   editing,
+  readOnly = false,
   onClose,
   onSaved,
 }: PluginEditDrawerProps) {
@@ -150,33 +156,47 @@ export function PluginEditDrawer({
     }
   };
 
+  const titleId = readOnly
+    ? 'pages.plugins.modal.view'
+    : editing
+      ? 'pages.plugins.modal.edit'
+      : 'pages.plugins.modal.create';
+
   return (
     <Drawer
-      title={intl.formatMessage({
-        id: editing
-          ? 'pages.plugins.modal.edit'
-          : 'pages.plugins.modal.create',
-      })}
+      title={intl.formatMessage({ id: titleId })}
       open={open}
       onClose={onClose}
       size={620}
       maskClosable={false}
       footer={
-        <Space style={{ float: 'right' }}>
-          <Button onClick={onClose}>
-            {intl.formatMessage({ id: 'pages.workloads.cancel' })}
-          </Button>
-          <Button type="primary" loading={submitting} onClick={handleSubmit}>
-            {intl.formatMessage({
-              id: editing
-                ? 'pages.plugins.modal.submit.edit'
-                : 'pages.plugins.modal.submit.create',
-            })}
-          </Button>
-        </Space>
+        readOnly ? (
+          <Space style={{ float: 'right' }}>
+            <Button type="primary" onClick={onClose}>
+              {intl.formatMessage({ id: 'pages.plugins.modal.close' })}
+            </Button>
+          </Space>
+        ) : (
+          <Space style={{ float: 'right' }}>
+            <Button onClick={onClose}>
+              {intl.formatMessage({ id: 'pages.workloads.cancel' })}
+            </Button>
+            <Button type="primary" loading={submitting} onClick={handleSubmit}>
+              {intl.formatMessage({
+                id: editing
+                  ? 'pages.plugins.modal.submit.edit'
+                  : 'pages.plugins.modal.submit.create',
+              })}
+            </Button>
+          </Space>
+        )
       }
     >
-      <Form form={form} layout="vertical">
+      {/* antd Form's `disabled` prop cascades to all child controls,
+          so readOnly turns inputs/select/radio off in one shot.
+          The Upload.Dragger and YamlEditor are checked explicitly
+          below since they're not antd Form controls. */}
+      <Form form={form} layout="vertical" disabled={readOnly}>
         <Form.Item
           name="name"
           label={intl.formatMessage({ id: 'pages.plugins.form.name' })}
@@ -287,43 +307,45 @@ export function PluginEditDrawer({
         ) : (
           <Form.Item
             label={intl.formatMessage({ id: 'pages.plugins.form.upload' })}
-            required
+            required={!readOnly}
           >
-            <Upload.Dragger
-              accept=".tgz"
-              maxCount={1}
-              showUploadList={false}
-              beforeUpload={async (file) => {
-                setUploading(true);
-                try {
-                  const res = await uploadPluginChart(file);
-                  setUploaded({
-                    id: res.id,
-                    filename: res.filename,
-                    sha256: res.sha256,
-                  });
-                  message.success(
-                    intl.formatMessage(
-                      { id: 'pages.plugins.form.uploadSuccess' },
-                      { filename: res.filename },
-                    ),
-                  );
-                } catch {
-                  // global toast
-                } finally {
-                  setUploading(false);
-                }
-                // Always return false — we already uploaded above.
-                return false;
-              }}
-            >
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined />
-              </p>
-              <p style={{ fontSize: 13, color: 'var(--ant-color-text-secondary)' }}>
-                {intl.formatMessage({ id: 'pages.plugins.form.uploadHint' })}
-              </p>
-            </Upload.Dragger>
+            {!readOnly && (
+              <Upload.Dragger
+                accept=".tgz"
+                maxCount={1}
+                showUploadList={false}
+                beforeUpload={async (file) => {
+                  setUploading(true);
+                  try {
+                    const res = await uploadPluginChart(file);
+                    setUploaded({
+                      id: res.id,
+                      filename: res.filename,
+                      sha256: res.sha256,
+                    });
+                    message.success(
+                      intl.formatMessage(
+                        { id: 'pages.plugins.form.uploadSuccess' },
+                        { filename: res.filename },
+                      ),
+                    );
+                  } catch {
+                    // global toast
+                  } finally {
+                    setUploading(false);
+                  }
+                  // Always return false — we already uploaded above.
+                  return false;
+                }}
+              >
+                <p className="ant-upload-drag-icon">
+                  <InboxOutlined />
+                </p>
+                <p style={{ fontSize: 13, color: 'var(--ant-color-text-secondary)' }}>
+                  {intl.formatMessage({ id: 'pages.plugins.form.uploadHint' })}
+                </p>
+              </Upload.Dragger>
+            )}
             {uploaded && (
               <div style={{ marginTop: 8 }}>
                 <Tag color="green">
@@ -360,7 +382,7 @@ export function PluginEditDrawer({
           })}
         >
           <div style={{ border: '1px solid var(--ant-color-border)', borderRadius: 4 }}>
-            <YamlEditor value={values} onChange={setValues} />
+            <YamlEditor value={values} onChange={setValues} readOnly={readOnly} />
           </div>
         </Form.Item>
       </Form>

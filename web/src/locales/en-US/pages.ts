@@ -49,8 +49,11 @@ export default {
   'pages.plugins.update.success': 'Plugin updated',
   'pages.plugins.modal.create': 'Add Plugin',
   'pages.plugins.modal.edit': 'Edit Plugin',
+  'pages.plugins.modal.view': 'View Plugin',
+  'pages.plugins.modal.close': 'Close',
   'pages.plugins.modal.submit.create': 'Create',
   'pages.plugins.modal.submit.edit': 'Save',
+  'pages.plugins.view': 'View',
   // per-cluster plugin page
   'pages.clusterPlugins.enable': 'Enable',
   'pages.clusterPlugins.disable': 'Disable',

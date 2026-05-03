@@ -1,4 +1,4 @@
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import { Avatar, Button, Card, Popconfirm, Space, Tag, Tooltip } from 'antd';
 import React from 'react';
@@ -7,8 +7,13 @@ import type { Plugin } from '@/services/kpilot/plugin';
 
 interface PluginCardProps {
   plugin: Plugin;
-  // When provided, renders edit + delete buttons. Built-in plugins call
-  // these as undefined so the card shows up read-only.
+  // Always-available read-only inspector. The drawer it opens is the
+  // same edit drawer in `readOnly` mode, so users see chart_repo /
+  // default values / etc. without risking accidental edits. Shown
+  // unconditionally when provided (even on built-ins where edit is off).
+  onView?: (p: Plugin) => void;
+  // Edit + delete buttons. Built-in plugins call these as undefined so
+  // their card stays read-only.
   onEdit?: (p: Plugin) => void;
   onDelete?: (p: Plugin) => void;
   // Right-side overlay for per-cluster pages (phase tag + enable/disable
@@ -21,6 +26,7 @@ interface PluginCardProps {
 
 export function PluginCard({
   plugin,
+  onView,
   onEdit,
   onDelete,
   extra,
@@ -72,14 +78,19 @@ export function PluginCard({
         {plugin.default_version && <Tag>{plugin.default_version}</Tag>}
       </Space>
       {footer}
-      {(onEdit || onDelete) && !plugin.is_builtin && (
-        <Space style={{ marginTop: 'auto' }}>
-          {onEdit && (
+      {(onView || (!plugin.is_builtin && (onEdit || onDelete))) && (
+        <Space style={{ marginTop: 'auto' }} wrap>
+          {onView && (
+            <Button size="small" icon={<EyeOutlined />} onClick={() => onView(plugin)}>
+              {intl.formatMessage({ id: 'pages.plugins.view' })}
+            </Button>
+          )}
+          {!plugin.is_builtin && onEdit && (
             <Button size="small" icon={<EditOutlined />} onClick={() => onEdit(plugin)}>
               {intl.formatMessage({ id: 'pages.plugins.edit' })}
             </Button>
           )}
-          {onDelete && (
+          {!plugin.is_builtin && onDelete && (
             <Popconfirm
               title={intl.formatMessage(
                 { id: 'pages.plugins.delete.confirm' },

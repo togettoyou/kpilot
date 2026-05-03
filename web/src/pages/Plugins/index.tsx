@@ -38,6 +38,9 @@ export default function PluginsPage() {
   const { message } = App.useApp();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<Plugin | null>(null);
+  // The drawer doubles as a read-only viewer for built-ins; viewMode
+  // says which behavior is active when the drawer opens.
+  const [viewMode, setViewMode] = useState(false);
 
   const { data, loading, refresh } = useRequest(listPlugins, {
     formatResult: (res) => res,
@@ -88,6 +91,7 @@ export default function PluginsPage() {
           icon={<PlusOutlined />}
           onClick={() => {
             setEditing(null);
+            setViewMode(false);
             setDrawerOpen(true);
           }}
         >
@@ -115,8 +119,14 @@ export default function PluginsPage() {
                 <div key={p.id} style={{ width: 300 }}>
                   <PluginCard
                     plugin={p}
+                    onView={(plugin) => {
+                      setEditing(plugin);
+                      setViewMode(true);
+                      setDrawerOpen(true);
+                    }}
                     onEdit={(plugin) => {
                       setEditing(plugin);
+                      setViewMode(false);
                       setDrawerOpen(true);
                     }}
                     onDelete={handleDelete}
@@ -130,6 +140,7 @@ export default function PluginsPage() {
       <PluginEditDrawer
         open={drawerOpen}
         editing={editing}
+        readOnly={viewMode}
         onClose={() => setDrawerOpen(false)}
         onSaved={refresh}
       />
