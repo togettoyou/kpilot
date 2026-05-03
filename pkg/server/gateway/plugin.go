@@ -9,6 +9,132 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
+// replayPendingPluginCommands re-pushes plugin commands for any
+// (cluster, plugin) row whose state on Server suggests an action is in
+// flight that the (just-reconnected) Worker may not know about.
+//
+// Triggered after Worker registration. Without it, a Disable click
+// landing during a Worker restart got stranded — the command went out
+// over the dying stream, the new Worker session had no record of it,
+// the CRD on the cluster never saw a delete, and UI sat permanently at
+// Uninstalling.
+//
+// What we replay:
+//   - phase=Uninstalling           → re-push disable
+//   - enabled=true && phase one of {Pending, Installing, Upgrading,
+//     Failed} → re-push enable (rebuilt from current overrides)
+//
+// Skipped: phase=Running (steady state, nothing pending) and
+// phase=Disabled (handled by row deletion now, no row would exist).
+//
+// Best-effort: errors are logged, not propagated; the next user action
+// would push again anyway.
+func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
+	rows, err := store.ListClusterPlugins(clusterID)
+	if err != nil {
+		log.Printf("[gateway] replay: list cluster plugins failed: cluster=%s err=%v",
+			clusterID, err)
+		return
+	}
+	for i := range rows {
+		cp := &rows[i]
+		switch cp.Phase {
+		case store.PluginPhaseUninstalling:
+			plugin, err := store.GetPluginByName(cp.Plugin.Name)
+			if err != nil {
+				continue
+			}
+			cmd := &proto.PluginCommand{
+				Action:  "disable",
+				CrdName: plugin.Name,
+			}
+			if err := g.SendPluginCommand(clusterID, cmd); err != nil {
+				log.Printf("[gateway] replay disable failed: cluster=%s plugin=%s err=%v",
+					clusterID, plugin.Name, err)
+				continue
+			}
+			log.Printf("[gateway] replay disable: cluster=%s plugin=%s",
+				clusterID, plugin.Name)
+		case store.PluginPhasePending,
+			store.PluginPhaseInstalling,
+			store.PluginPhaseUpgrading,
+			store.PluginPhaseFailed:
+			if !cp.Enabled {
+				continue
+			}
+			plugin, err := store.GetPluginByID(cp.PluginID)
+			if err != nil {
+				continue
+			}
+			cmd, err := buildEnableCommandForReplay(plugin, cp)
+			if err != nil {
+				log.Printf("[gateway] replay enable build failed: cluster=%s plugin=%s err=%v",
+					clusterID, plugin.Name, err)
+				continue
+			}
+			if err := g.SendPluginCommand(clusterID, cmd); err != nil {
+				log.Printf("[gateway] replay enable failed: cluster=%s plugin=%s err=%v",
+					clusterID, plugin.Name, err)
+				continue
+			}
+			log.Printf("[gateway] replay enable: cluster=%s plugin=%s phase=%s",
+				clusterID, plugin.Name, cp.Phase)
+		}
+	}
+}
+
+// buildEnableCommandForReplay merges the registry plugin's defaults
+// with the per-cluster overrides on cp and produces a PluginCommand
+// suitable for re-sending after a worker reconnect. Mirrors the
+// handler's buildEnableCommand but lives here so the gateway doesn't
+// have to depend on the handler package.
+func buildEnableCommandForReplay(p *store.Plugin, cp *store.ClusterPlugin) (*proto.PluginCommand, error) {
+	values := cp.ValuesOverride
+	if values == "" {
+		values = p.DefaultValues
+	}
+	version := cp.VersionOverride
+	if version == "" {
+		version = p.DefaultVersion
+	}
+	releaseNS := cp.ReleaseNamespaceOverride
+	if releaseNS == "" {
+		releaseNS = p.DefaultReleaseNamespace
+	}
+	chart := &proto.ChartSource{
+		Type:    string(p.ChartType),
+		Name:    p.ChartName,
+		Version: version,
+	}
+	switch p.ChartType {
+	case store.ChartTypeRepo:
+		chart.Repo = p.ChartRepo
+	case store.ChartTypeLocal:
+		if p.ChartBlobID == nil {
+			return nil, errFmt("local chart has no blob")
+		}
+		blob, err := store.GetPluginBlobByID(*p.ChartBlobID)
+		if err != nil {
+			return nil, err
+		}
+		chart.Sha256 = blob.SHA256
+		chart.Blob = blob.Content
+	}
+	return &proto.PluginCommand{
+		Action:  "enable",
+		CrdName: p.Name,
+		Spec: &proto.PluginSpec{
+			DisplayName:      p.DisplayName,
+			Chart:            chart,
+			ReleaseName:      p.Name,
+			ReleaseNamespace: releaseNS,
+			Values:           values,
+		},
+	}, nil
+}
+
+func errFmt(msg string) error { return fmt.Errorf("%s", msg) }
+
 // SendPluginCommand pushes a one-way command (enable/disable) to the
 // connected Worker. Plugins use a fire-and-forget pattern — the Worker
 // reports back asynchronously via PluginStatusPush, so there's no

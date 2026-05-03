@@ -128,6 +128,15 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 
 	log.Printf("[gateway] worker connected: cluster=%s", cluster.ID)
 
+	// Reconcile-on-reconnect: replay any plugin commands the previous
+	// worker session may have lost. Without this, a Disable / Enable
+	// click that landed while the worker was being restarted gets
+	// stranded — UI sits forever at Uninstalling / Pending while the
+	// new worker has no idea the user wanted anything. Run in a
+	// goroutine so a slow replay doesn't block this connection's
+	// recv loop from starting.
+	go g.replayPendingPluginCommands(cluster.ID)
+
 	timer := time.NewTicker(heartbeatCheckInterval)
 	defer timer.Stop()
 
