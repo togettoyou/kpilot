@@ -588,12 +588,22 @@ func (x *ResourceResponse) GetData() []byte {
 }
 
 type PluginStatusPush struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PluginType    string                 `protobuf:"bytes,1,opt,name=plugin_type,json=pluginType,proto3" json:"plugin_type,omitempty"` // hami / victoria-metrics / victoria-logs / ...
-	Phase         string                 `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`                             // Pending / Installing / Running / Failed
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The CRD metadata.name (matches the registry plugin's name).
+	CrdName string `protobuf:"bytes,1,opt,name=crd_name,json=crdName,proto3" json:"crd_name,omitempty"`
+	// Pending / Installing / Running / Upgrading / Failed / Uninstalling
+	Phase   string `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`
+	Message string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// Helm release version actually installed (from chart, not the CRD spec).
+	ObservedVersion string `protobuf:"bytes,4,opt,name=observed_version,json=observedVersion,proto3" json:"observed_version,omitempty"`
+	// sha256 of the values YAML actually applied — Server uses this to detect
+	// drift between the registered values and what's running.
+	ObservedValuesHash string `protobuf:"bytes,5,opt,name=observed_values_hash,json=observedValuesHash,proto3" json:"observed_values_hash,omitempty"`
+	HelmRevision       int32  `protobuf:"varint,6,opt,name=helm_revision,json=helmRevision,proto3" json:"helm_revision,omitempty"`
+	InstalledAt        int64  `protobuf:"varint,7,opt,name=installed_at,json=installedAt,proto3" json:"installed_at,omitempty"`         // unix seconds, 0 if not installed
+	LastUpdatedAt      int64  `protobuf:"varint,8,opt,name=last_updated_at,json=lastUpdatedAt,proto3" json:"last_updated_at,omitempty"` // unix seconds
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *PluginStatusPush) Reset() {
@@ -626,9 +636,9 @@ func (*PluginStatusPush) Descriptor() ([]byte, []int) {
 	return file_pilot_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *PluginStatusPush) GetPluginType() string {
+func (x *PluginStatusPush) GetCrdName() string {
 	if x != nil {
-		return x.PluginType
+		return x.CrdName
 	}
 	return ""
 }
@@ -645,6 +655,41 @@ func (x *PluginStatusPush) GetMessage() string {
 		return x.Message
 	}
 	return ""
+}
+
+func (x *PluginStatusPush) GetObservedVersion() string {
+	if x != nil {
+		return x.ObservedVersion
+	}
+	return ""
+}
+
+func (x *PluginStatusPush) GetObservedValuesHash() string {
+	if x != nil {
+		return x.ObservedValuesHash
+	}
+	return ""
+}
+
+func (x *PluginStatusPush) GetHelmRevision() int32 {
+	if x != nil {
+		return x.HelmRevision
+	}
+	return 0
+}
+
+func (x *PluginStatusPush) GetInstalledAt() int64 {
+	if x != nil {
+		return x.InstalledAt
+	}
+	return 0
+}
+
+func (x *PluginStatusPush) GetLastUpdatedAt() int64 {
+	if x != nil {
+		return x.LastUpdatedAt
+	}
+	return 0
 }
 
 type ServerMessage struct {
@@ -1020,11 +1065,16 @@ func (x *ResourceRequest) GetContinueToken() string {
 }
 
 type PluginCommand struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Action        string                 `protobuf:"bytes,1,opt,name=action,proto3" json:"action,omitempty"`                           // enable / disable
-	PluginType    string                 `protobuf:"bytes,2,opt,name=plugin_type,json=pluginType,proto3" json:"plugin_type,omitempty"` // hami / victoria-metrics / victoria-logs / ...
-	Version       string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
-	Values        []byte                 `protobuf:"bytes,4,opt,name=values,proto3" json:"values,omitempty"` // JSON 编码的 Helm values
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "enable" → install or upgrade the Helm release driven by `spec`.
+	// "disable" → uninstall the release; `spec` may be nil.
+	Action string `protobuf:"bytes,1,opt,name=action,proto3" json:"action,omitempty"`
+	// The CRD metadata.name — matches the registry plugin's name. Stable
+	// identifier for the lifetime of the plugin on this cluster.
+	CrdName string `protobuf:"bytes,2,opt,name=crd_name,json=crdName,proto3" json:"crd_name,omitempty"`
+	// Only meaningful when action="enable". Server fills it from the registry
+	// entry merged with the per-cluster overrides (values, version, namespace).
+	Spec          *PluginSpec `protobuf:"bytes,3,opt,name=spec,proto3" json:"spec,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1066,23 +1116,195 @@ func (x *PluginCommand) GetAction() string {
 	return ""
 }
 
-func (x *PluginCommand) GetPluginType() string {
+func (x *PluginCommand) GetCrdName() string {
 	if x != nil {
-		return x.PluginType
+		return x.CrdName
 	}
 	return ""
 }
 
-func (x *PluginCommand) GetVersion() string {
+func (x *PluginCommand) GetSpec() *PluginSpec {
+	if x != nil {
+		return x.Spec
+	}
+	return nil
+}
+
+type PluginSpec struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Registry plugin id (PostgreSQL row id, for traceability — not required
+	// by the reconciler, just useful in logs).
+	PluginId         string       `protobuf:"bytes,1,opt,name=plugin_id,json=pluginId,proto3" json:"plugin_id,omitempty"`
+	DisplayName      string       `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Chart            *ChartSource `protobuf:"bytes,3,opt,name=chart,proto3" json:"chart,omitempty"`
+	ReleaseName      string       `protobuf:"bytes,4,opt,name=release_name,json=releaseName,proto3" json:"release_name,omitempty"`                // Helm release name
+	ReleaseNamespace string       `protobuf:"bytes,5,opt,name=release_namespace,json=releaseNamespace,proto3" json:"release_namespace,omitempty"` // Helm release namespace (created if missing)
+	Values           string       `protobuf:"bytes,6,opt,name=values,proto3" json:"values,omitempty"`                                             // YAML text (kept human-readable; not JSON)
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *PluginSpec) Reset() {
+	*x = PluginSpec{}
+	mi := &file_pilot_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PluginSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PluginSpec) ProtoMessage() {}
+
+func (x *PluginSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PluginSpec.ProtoReflect.Descriptor instead.
+func (*PluginSpec) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *PluginSpec) GetPluginId() string {
+	if x != nil {
+		return x.PluginId
+	}
+	return ""
+}
+
+func (x *PluginSpec) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *PluginSpec) GetChart() *ChartSource {
+	if x != nil {
+		return x.Chart
+	}
+	return nil
+}
+
+func (x *PluginSpec) GetReleaseName() string {
+	if x != nil {
+		return x.ReleaseName
+	}
+	return ""
+}
+
+func (x *PluginSpec) GetReleaseNamespace() string {
+	if x != nil {
+		return x.ReleaseNamespace
+	}
+	return ""
+}
+
+func (x *PluginSpec) GetValues() string {
+	if x != nil {
+		return x.Values
+	}
+	return ""
+}
+
+type ChartSource struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "repo" → pulled by Helm from chart_repo at install time.
+	// "local" → Worker reads from /var/lib/kpilot/charts/<sha256>.tgz which is
+	// populated by the `blob` field on the FIRST PluginCommand of this sha.
+	Type string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	// type=repo
+	Repo string `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"` // chart name (both types)
+	// Both types: for repo it's the Helm chart version; for local it's a
+	// human-facing label (we identify the chart by sha256 internally).
+	Version string `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	// type=local
+	Sha256 string `protobuf:"bytes,5,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// Only present on initial enable until Worker confirms the cache hit.
+	// Worker writes blob to disk by sha256 then verifies the digest.
+	Blob          []byte `protobuf:"bytes,6,opt,name=blob,proto3" json:"blob,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChartSource) Reset() {
+	*x = ChartSource{}
+	mi := &file_pilot_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChartSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChartSource) ProtoMessage() {}
+
+func (x *ChartSource) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChartSource.ProtoReflect.Descriptor instead.
+func (*ChartSource) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ChartSource) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *ChartSource) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *ChartSource) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ChartSource) GetVersion() string {
 	if x != nil {
 		return x.Version
 	}
 	return ""
 }
 
-func (x *PluginCommand) GetValues() []byte {
+func (x *ChartSource) GetSha256() string {
 	if x != nil {
-		return x.Values
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *ChartSource) GetBlob() []byte {
+	if x != nil {
+		return x.Blob
 	}
 	return nil
 }
@@ -1102,7 +1324,7 @@ type LogsStartRequest struct {
 
 func (x *LogsStartRequest) Reset() {
 	*x = LogsStartRequest{}
-	mi := &file_pilot_proto_msgTypes[11]
+	mi := &file_pilot_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1114,7 +1336,7 @@ func (x *LogsStartRequest) String() string {
 func (*LogsStartRequest) ProtoMessage() {}
 
 func (x *LogsStartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[11]
+	mi := &file_pilot_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1127,7 +1349,7 @@ func (x *LogsStartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsStartRequest.ProtoReflect.Descriptor instead.
 func (*LogsStartRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{11}
+	return file_pilot_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *LogsStartRequest) GetNamespace() string {
@@ -1187,7 +1409,7 @@ type LogsCancelRequest struct {
 
 func (x *LogsCancelRequest) Reset() {
 	*x = LogsCancelRequest{}
-	mi := &file_pilot_proto_msgTypes[12]
+	mi := &file_pilot_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1199,7 +1421,7 @@ func (x *LogsCancelRequest) String() string {
 func (*LogsCancelRequest) ProtoMessage() {}
 
 func (x *LogsCancelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[12]
+	mi := &file_pilot_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1212,7 +1434,7 @@ func (x *LogsCancelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsCancelRequest.ProtoReflect.Descriptor instead.
 func (*LogsCancelRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{12}
+	return file_pilot_proto_rawDescGZIP(), []int{14}
 }
 
 type LogsChunk struct {
@@ -1224,7 +1446,7 @@ type LogsChunk struct {
 
 func (x *LogsChunk) Reset() {
 	*x = LogsChunk{}
-	mi := &file_pilot_proto_msgTypes[13]
+	mi := &file_pilot_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1236,7 +1458,7 @@ func (x *LogsChunk) String() string {
 func (*LogsChunk) ProtoMessage() {}
 
 func (x *LogsChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[13]
+	mi := &file_pilot_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1249,7 +1471,7 @@ func (x *LogsChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsChunk.ProtoReflect.Descriptor instead.
 func (*LogsChunk) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{13}
+	return file_pilot_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *LogsChunk) GetData() []byte {
@@ -1268,7 +1490,7 @@ type LogsEnd struct {
 
 func (x *LogsEnd) Reset() {
 	*x = LogsEnd{}
-	mi := &file_pilot_proto_msgTypes[14]
+	mi := &file_pilot_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1280,7 +1502,7 @@ func (x *LogsEnd) String() string {
 func (*LogsEnd) ProtoMessage() {}
 
 func (x *LogsEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[14]
+	mi := &file_pilot_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1293,7 +1515,7 @@ func (x *LogsEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsEnd.ProtoReflect.Descriptor instead.
 func (*LogsEnd) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{14}
+	return file_pilot_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *LogsEnd) GetError() string {
@@ -1318,7 +1540,7 @@ type ExecStartRequest struct {
 
 func (x *ExecStartRequest) Reset() {
 	*x = ExecStartRequest{}
-	mi := &file_pilot_proto_msgTypes[15]
+	mi := &file_pilot_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1330,7 +1552,7 @@ func (x *ExecStartRequest) String() string {
 func (*ExecStartRequest) ProtoMessage() {}
 
 func (x *ExecStartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[15]
+	mi := &file_pilot_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1343,7 +1565,7 @@ func (x *ExecStartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecStartRequest.ProtoReflect.Descriptor instead.
 func (*ExecStartRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{15}
+	return file_pilot_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ExecStartRequest) GetNamespace() string {
@@ -1404,7 +1626,7 @@ type ExecStdin struct {
 
 func (x *ExecStdin) Reset() {
 	*x = ExecStdin{}
-	mi := &file_pilot_proto_msgTypes[16]
+	mi := &file_pilot_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1416,7 +1638,7 @@ func (x *ExecStdin) String() string {
 func (*ExecStdin) ProtoMessage() {}
 
 func (x *ExecStdin) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[16]
+	mi := &file_pilot_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1429,7 +1651,7 @@ func (x *ExecStdin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecStdin.ProtoReflect.Descriptor instead.
 func (*ExecStdin) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{16}
+	return file_pilot_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ExecStdin) GetData() []byte {
@@ -1449,7 +1671,7 @@ type ExecResize struct {
 
 func (x *ExecResize) Reset() {
 	*x = ExecResize{}
-	mi := &file_pilot_proto_msgTypes[17]
+	mi := &file_pilot_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1461,7 +1683,7 @@ func (x *ExecResize) String() string {
 func (*ExecResize) ProtoMessage() {}
 
 func (x *ExecResize) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[17]
+	mi := &file_pilot_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1474,7 +1696,7 @@ func (x *ExecResize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResize.ProtoReflect.Descriptor instead.
 func (*ExecResize) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{17}
+	return file_pilot_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ExecResize) GetCols() uint32 {
@@ -1499,7 +1721,7 @@ type ExecCancelRequest struct {
 
 func (x *ExecCancelRequest) Reset() {
 	*x = ExecCancelRequest{}
-	mi := &file_pilot_proto_msgTypes[18]
+	mi := &file_pilot_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1511,7 +1733,7 @@ func (x *ExecCancelRequest) String() string {
 func (*ExecCancelRequest) ProtoMessage() {}
 
 func (x *ExecCancelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[18]
+	mi := &file_pilot_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1524,7 +1746,7 @@ func (x *ExecCancelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecCancelRequest.ProtoReflect.Descriptor instead.
 func (*ExecCancelRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{18}
+	return file_pilot_proto_rawDescGZIP(), []int{20}
 }
 
 type ExecOutput struct {
@@ -1537,7 +1759,7 @@ type ExecOutput struct {
 
 func (x *ExecOutput) Reset() {
 	*x = ExecOutput{}
-	mi := &file_pilot_proto_msgTypes[19]
+	mi := &file_pilot_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1549,7 +1771,7 @@ func (x *ExecOutput) String() string {
 func (*ExecOutput) ProtoMessage() {}
 
 func (x *ExecOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[19]
+	mi := &file_pilot_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1562,7 +1784,7 @@ func (x *ExecOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecOutput.ProtoReflect.Descriptor instead.
 func (*ExecOutput) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{19}
+	return file_pilot_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ExecOutput) GetStream() uint32 {
@@ -1589,7 +1811,7 @@ type ExecEnd struct {
 
 func (x *ExecEnd) Reset() {
 	*x = ExecEnd{}
-	mi := &file_pilot_proto_msgTypes[20]
+	mi := &file_pilot_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1601,7 +1823,7 @@ func (x *ExecEnd) String() string {
 func (*ExecEnd) ProtoMessage() {}
 
 func (x *ExecEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[20]
+	mi := &file_pilot_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1614,7 +1836,7 @@ func (x *ExecEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecEnd.ProtoReflect.Descriptor instead.
 func (*ExecEnd) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{20}
+	return file_pilot_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ExecEnd) GetExitCode() int32 {
@@ -1687,12 +1909,16 @@ const file_pilot_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x12\n" +
-	"\x04data\x18\x04 \x01(\fR\x04data\"c\n" +
-	"\x10PluginStatusPush\x12\x1f\n" +
-	"\vplugin_type\x18\x01 \x01(\tR\n" +
-	"pluginType\x12\x14\n" +
+	"\x04data\x18\x04 \x01(\fR\x04data\"\xaa\x02\n" +
+	"\x10PluginStatusPush\x12\x19\n" +
+	"\bcrd_name\x18\x01 \x01(\tR\acrdName\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xd8\x04\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12)\n" +
+	"\x10observed_version\x18\x04 \x01(\tR\x0fobservedVersion\x120\n" +
+	"\x14observed_values_hash\x18\x05 \x01(\tR\x12observedValuesHash\x12#\n" +
+	"\rhelm_revision\x18\x06 \x01(\x05R\fhelmRevision\x12!\n" +
+	"\finstalled_at\x18\a \x01(\x03R\vinstalledAt\x12&\n" +
+	"\x0flast_updated_at\x18\b \x01(\x03R\rlastUpdatedAt\"\xd8\x04\n" +
 	"\rServerMessage\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12:\n" +
@@ -1728,13 +1954,26 @@ const file_pilot_proto_rawDesc = "" +
 	"\x04name\x18\x06 \x01(\tR\x04name\x12\x12\n" +
 	"\x04body\x18\a \x01(\fR\x04body\x12\x14\n" +
 	"\x05limit\x18\b \x01(\x03R\x05limit\x12%\n" +
-	"\x0econtinue_token\x18\t \x01(\tR\rcontinueToken\"z\n" +
+	"\x0econtinue_token\x18\t \x01(\tR\rcontinueToken\"l\n" +
 	"\rPluginCommand\x12\x16\n" +
-	"\x06action\x18\x01 \x01(\tR\x06action\x12\x1f\n" +
-	"\vplugin_type\x18\x02 \x01(\tR\n" +
-	"pluginType\x12\x18\n" +
-	"\aversion\x18\x03 \x01(\tR\aversion\x12\x16\n" +
-	"\x06values\x18\x04 \x01(\fR\x06values\"\xd8\x01\n" +
+	"\x06action\x18\x01 \x01(\tR\x06action\x12\x19\n" +
+	"\bcrd_name\x18\x02 \x01(\tR\acrdName\x12(\n" +
+	"\x04spec\x18\x03 \x01(\v2\x14.pilot.v1.PluginSpecR\x04spec\"\xe1\x01\n" +
+	"\n" +
+	"PluginSpec\x12\x1b\n" +
+	"\tplugin_id\x18\x01 \x01(\tR\bpluginId\x12!\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
+	"\x05chart\x18\x03 \x01(\v2\x15.pilot.v1.ChartSourceR\x05chart\x12!\n" +
+	"\frelease_name\x18\x04 \x01(\tR\vreleaseName\x12+\n" +
+	"\x11release_namespace\x18\x05 \x01(\tR\x10releaseNamespace\x12\x16\n" +
+	"\x06values\x18\x06 \x01(\tR\x06values\"\x8f\x01\n" +
+	"\vChartSource\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
+	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\x12\x16\n" +
+	"\x06sha256\x18\x05 \x01(\tR\x06sha256\x12\x12\n" +
+	"\x04blob\x18\x06 \x01(\fR\x04blob\"\xd8\x01\n" +
 	"\x10LogsStartRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x10\n" +
 	"\x03pod\x18\x02 \x01(\tR\x03pod\x12\x1c\n" +
@@ -1786,7 +2025,7 @@ func file_pilot_proto_rawDescGZIP() []byte {
 	return file_pilot_proto_rawDescData
 }
 
-var file_pilot_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_pilot_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_pilot_proto_goTypes = []any{
 	(*WorkerMessage)(nil),     // 0: pilot.v1.WorkerMessage
 	(*RegisterRequest)(nil),   // 1: pilot.v1.RegisterRequest
@@ -1799,18 +2038,20 @@ var file_pilot_proto_goTypes = []any{
 	(*RegisterAck)(nil),       // 8: pilot.v1.RegisterAck
 	(*ResourceRequest)(nil),   // 9: pilot.v1.ResourceRequest
 	(*PluginCommand)(nil),     // 10: pilot.v1.PluginCommand
-	(*LogsStartRequest)(nil),  // 11: pilot.v1.LogsStartRequest
-	(*LogsCancelRequest)(nil), // 12: pilot.v1.LogsCancelRequest
-	(*LogsChunk)(nil),         // 13: pilot.v1.LogsChunk
-	(*LogsEnd)(nil),           // 14: pilot.v1.LogsEnd
-	(*ExecStartRequest)(nil),  // 15: pilot.v1.ExecStartRequest
-	(*ExecStdin)(nil),         // 16: pilot.v1.ExecStdin
-	(*ExecResize)(nil),        // 17: pilot.v1.ExecResize
-	(*ExecCancelRequest)(nil), // 18: pilot.v1.ExecCancelRequest
-	(*ExecOutput)(nil),        // 19: pilot.v1.ExecOutput
-	(*ExecEnd)(nil),           // 20: pilot.v1.ExecEnd
-	nil,                       // 21: pilot.v1.NodeInfo.LabelsEntry
-	nil,                       // 22: pilot.v1.NodeInfo.AnnotationsEntry
+	(*PluginSpec)(nil),        // 11: pilot.v1.PluginSpec
+	(*ChartSource)(nil),       // 12: pilot.v1.ChartSource
+	(*LogsStartRequest)(nil),  // 13: pilot.v1.LogsStartRequest
+	(*LogsCancelRequest)(nil), // 14: pilot.v1.LogsCancelRequest
+	(*LogsChunk)(nil),         // 15: pilot.v1.LogsChunk
+	(*LogsEnd)(nil),           // 16: pilot.v1.LogsEnd
+	(*ExecStartRequest)(nil),  // 17: pilot.v1.ExecStartRequest
+	(*ExecStdin)(nil),         // 18: pilot.v1.ExecStdin
+	(*ExecResize)(nil),        // 19: pilot.v1.ExecResize
+	(*ExecCancelRequest)(nil), // 20: pilot.v1.ExecCancelRequest
+	(*ExecOutput)(nil),        // 21: pilot.v1.ExecOutput
+	(*ExecEnd)(nil),           // 22: pilot.v1.ExecEnd
+	nil,                       // 23: pilot.v1.NodeInfo.LabelsEntry
+	nil,                       // 24: pilot.v1.NodeInfo.AnnotationsEntry
 }
 var file_pilot_proto_depIdxs = []int32{
 	1,  // 0: pilot.v1.WorkerMessage.register:type_name -> pilot.v1.RegisterRequest
@@ -1818,29 +2059,31 @@ var file_pilot_proto_depIdxs = []int32{
 	3,  // 2: pilot.v1.WorkerMessage.node_list:type_name -> pilot.v1.NodeListPush
 	5,  // 3: pilot.v1.WorkerMessage.resource_resp:type_name -> pilot.v1.ResourceResponse
 	6,  // 4: pilot.v1.WorkerMessage.plugin_status:type_name -> pilot.v1.PluginStatusPush
-	13, // 5: pilot.v1.WorkerMessage.logs_chunk:type_name -> pilot.v1.LogsChunk
-	14, // 6: pilot.v1.WorkerMessage.logs_end:type_name -> pilot.v1.LogsEnd
-	19, // 7: pilot.v1.WorkerMessage.exec_output:type_name -> pilot.v1.ExecOutput
-	20, // 8: pilot.v1.WorkerMessage.exec_end:type_name -> pilot.v1.ExecEnd
+	15, // 5: pilot.v1.WorkerMessage.logs_chunk:type_name -> pilot.v1.LogsChunk
+	16, // 6: pilot.v1.WorkerMessage.logs_end:type_name -> pilot.v1.LogsEnd
+	21, // 7: pilot.v1.WorkerMessage.exec_output:type_name -> pilot.v1.ExecOutput
+	22, // 8: pilot.v1.WorkerMessage.exec_end:type_name -> pilot.v1.ExecEnd
 	4,  // 9: pilot.v1.NodeListPush.nodes:type_name -> pilot.v1.NodeInfo
-	21, // 10: pilot.v1.NodeInfo.labels:type_name -> pilot.v1.NodeInfo.LabelsEntry
-	22, // 11: pilot.v1.NodeInfo.annotations:type_name -> pilot.v1.NodeInfo.AnnotationsEntry
+	23, // 10: pilot.v1.NodeInfo.labels:type_name -> pilot.v1.NodeInfo.LabelsEntry
+	24, // 11: pilot.v1.NodeInfo.annotations:type_name -> pilot.v1.NodeInfo.AnnotationsEntry
 	8,  // 12: pilot.v1.ServerMessage.register_ack:type_name -> pilot.v1.RegisterAck
 	9,  // 13: pilot.v1.ServerMessage.resource_req:type_name -> pilot.v1.ResourceRequest
 	10, // 14: pilot.v1.ServerMessage.plugin_cmd:type_name -> pilot.v1.PluginCommand
-	11, // 15: pilot.v1.ServerMessage.logs_start:type_name -> pilot.v1.LogsStartRequest
-	12, // 16: pilot.v1.ServerMessage.logs_cancel:type_name -> pilot.v1.LogsCancelRequest
-	15, // 17: pilot.v1.ServerMessage.exec_start:type_name -> pilot.v1.ExecStartRequest
-	16, // 18: pilot.v1.ServerMessage.exec_stdin:type_name -> pilot.v1.ExecStdin
-	17, // 19: pilot.v1.ServerMessage.exec_resize:type_name -> pilot.v1.ExecResize
-	18, // 20: pilot.v1.ServerMessage.exec_cancel:type_name -> pilot.v1.ExecCancelRequest
-	0,  // 21: pilot.v1.PilotService.Connect:input_type -> pilot.v1.WorkerMessage
-	7,  // 22: pilot.v1.PilotService.Connect:output_type -> pilot.v1.ServerMessage
-	22, // [22:23] is the sub-list for method output_type
-	21, // [21:22] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	13, // 15: pilot.v1.ServerMessage.logs_start:type_name -> pilot.v1.LogsStartRequest
+	14, // 16: pilot.v1.ServerMessage.logs_cancel:type_name -> pilot.v1.LogsCancelRequest
+	17, // 17: pilot.v1.ServerMessage.exec_start:type_name -> pilot.v1.ExecStartRequest
+	18, // 18: pilot.v1.ServerMessage.exec_stdin:type_name -> pilot.v1.ExecStdin
+	19, // 19: pilot.v1.ServerMessage.exec_resize:type_name -> pilot.v1.ExecResize
+	20, // 20: pilot.v1.ServerMessage.exec_cancel:type_name -> pilot.v1.ExecCancelRequest
+	11, // 21: pilot.v1.PluginCommand.spec:type_name -> pilot.v1.PluginSpec
+	12, // 22: pilot.v1.PluginSpec.chart:type_name -> pilot.v1.ChartSource
+	0,  // 23: pilot.v1.PilotService.Connect:input_type -> pilot.v1.WorkerMessage
+	7,  // 24: pilot.v1.PilotService.Connect:output_type -> pilot.v1.ServerMessage
+	24, // [24:25] is the sub-list for method output_type
+	23, // [23:24] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_pilot_proto_init() }
@@ -1876,7 +2119,7 @@ func file_pilot_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pilot_proto_rawDesc), len(file_pilot_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

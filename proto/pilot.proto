@@ -78,9 +78,19 @@ message ResourceResponse {
 }
 
 message PluginStatusPush {
-  string plugin_type = 1; // hami / victoria-metrics / victoria-logs / ...
-  string phase       = 2; // Pending / Installing / Running / Failed
-  string message     = 3;
+  // The CRD metadata.name (matches the registry plugin's name).
+  string crd_name             = 1;
+  // Pending / Installing / Running / Upgrading / Failed / Uninstalling
+  string phase                = 2;
+  string message              = 3;
+  // Helm release version actually installed (from chart, not the CRD spec).
+  string observed_version     = 4;
+  // sha256 of the values YAML actually applied — Server uses this to detect
+  // drift between the registered values and what's running.
+  string observed_values_hash = 5;
+  int32  helm_revision        = 6;
+  int64  installed_at         = 7; // unix seconds, 0 if not installed
+  int64  last_updated_at      = 8; // unix seconds
 }
 
 // ─── Server → Worker ─────────────────────────────────────────────────────────
@@ -123,10 +133,46 @@ message ResourceRequest {
 }
 
 message PluginCommand {
-  string action      = 1; // enable / disable
-  string plugin_type = 2; // hami / victoria-metrics / victoria-logs / ...
-  string version     = 3;
-  bytes  values      = 4; // JSON 编码的 Helm values
+  // "enable" → install or upgrade the Helm release driven by `spec`.
+  // "disable" → uninstall the release; `spec` may be nil.
+  string action   = 1;
+
+  // The CRD metadata.name — matches the registry plugin's name. Stable
+  // identifier for the lifetime of the plugin on this cluster.
+  string crd_name = 2;
+
+  // Only meaningful when action="enable". Server fills it from the registry
+  // entry merged with the per-cluster overrides (values, version, namespace).
+  PluginSpec spec = 3;
+}
+
+message PluginSpec {
+  // Registry plugin id (PostgreSQL row id, for traceability — not required
+  // by the reconciler, just useful in logs).
+  string plugin_id         = 1;
+  string display_name      = 2;
+  ChartSource chart        = 3;
+  string release_name      = 4; // Helm release name
+  string release_namespace = 5; // Helm release namespace (created if missing)
+  string values            = 6; // YAML text (kept human-readable; not JSON)
+}
+
+message ChartSource {
+  // "repo" → pulled by Helm from chart_repo at install time.
+  // "local" → Worker reads from /var/lib/kpilot/charts/<sha256>.tgz which is
+  // populated by the `blob` field on the FIRST PluginCommand of this sha.
+  string type    = 1;
+  // type=repo
+  string repo    = 2;
+  string name    = 3; // chart name (both types)
+  // Both types: for repo it's the Helm chart version; for local it's a
+  // human-facing label (we identify the chart by sha256 internally).
+  string version = 4;
+  // type=local
+  string sha256  = 5;
+  // Only present on initial enable until Worker confirms the cache hit.
+  // Worker writes blob to disk by sha256 then verifies the digest.
+  bytes  blob    = 6;
 }
 
 // ─── Pod Logs (streaming) ────────────────────────────────────────────────────
