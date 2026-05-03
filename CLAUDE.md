@@ -48,20 +48,24 @@ K8s Cluster
 单条双向流，用 `request_id` 实现请求-响应配对，同时支持 Worker 主动 Push。
 
 **Worker → Server（WorkerMessage）：**
-- `Register`（携带 Token）
-- `Heartbeat`
+- `Register`（携带 Token） / `Heartbeat`
 - `NodeListPush`（Node 变更事件驱动上报；重连注册成功后立即推送一次全量）
-- `ResourceListResponse / ResourceGetResponse / ResourceApplyResponse / ResourceDeleteResponse`
+- `ResourceResponse`（list/get/apply/delete/describe 共用）
 - `PluginStatusPush`
+- `LogsChunk` / `LogsEnd`（Pod 日志流）
+- `ExecOutput` / `ExecEnd`（Pod 终端流）
 
 **Server → Worker（ServerMessage）：**
 - `RegisterAck`
-- `ResourceList / ResourceGet / ResourceApply / ResourceDelete` 请求
-- `PluginEnable / PluginDisable` 命令
+- `ResourceRequest`（list/get/apply/delete/describe）
+- `PluginCommand`（enable / disable）
+- `LogsStartRequest` / `LogsCancelRequest`
+- `ExecStartRequest` / `ExecStdin` / `ExecResize` / `ExecCancelRequest`
 
-两种通信模式：
-- **Push**：Worker 主动上报（`request_id` 为空），由事件驱动（如 Node 变更）或重连触发
-- **Request-Response**：Server 带 `request_id` 发请求，Worker echo 回去
+三种通信模式：
+- **Push**：Worker 主动上报（`request_id` 为空），事件驱动或重连触发（如 NodeListPush、PluginStatusPush）
+- **Request-Response**：Server 带 `request_id` 发请求，Worker echo 同 ID 回去（list/get/apply/delete/describe）
+- **流式会话**：`request_id` 复用为 sessionID，双向多消息往返直到 `*End` 或显式 cancel（Pod 日志 / 终端）
 
 ---
 
@@ -128,8 +132,8 @@ status:
 - 列表使用 K8s Table API（同 kubectl 默认展示，server 端计算列，仅传输元数据+单元格值，不传输完整 YAML）
 - 展示全部列（含 wide 列，等价于 `kubectl -o wide`）
 - 服务端游标分页（limit + continue token），支持前后翻页
-- 工具栏：手动刷新 + 定时刷新（5s/10s/30s/60s）
-- 全局命名空间选择器（顶部栏，进入工作负载相关页面时显示，PV 页面自动隐藏；按集群独立保存；支持客户端搜索 + 刷新）
+- 工具栏：当前页客户端搜索（name + namespace + 所有动态列子串匹配）、手动刷新 + 定时刷新（5s/10s/30s/60s）
+- 全局命名空间选择器（顶部栏，进入工作负载相关页面时显示，PV 页面自动隐藏；按集群独立保存；默认"全部命名空间"，支持客户端搜索 + 刷新）
 - kube-* 命名空间只读（前端隐藏操作按钮，后端返回 403）
 - YAML 编辑器：CodeMirror 6，有语法高亮，status 区块视觉变暗（不可改）
 - **通用 Apply YAML**：用户输入或拖拽上传 .yaml/.yml/.json，支持多文档 `---` 分隔，每条独立 SSA，返回逐条结果（成功/失败 + 错误消息）
@@ -167,17 +171,17 @@ kpilot/
 ├── pkg/
 │   ├── server/
 │   │   ├── api/
-│   │   │   ├── handler/     # Gin Handler（auth、cluster、node、workload）
+│   │   │   ├── handler/     # Gin Handler（auth、cluster、node、workload、pod、ws helper、errors）
 │   │   │   ├── middleware/  # JWT 中间件
 │   │   │   └── router.go    # 路由注册
-│   │   ├── service/         # 业务逻辑层（待实现）
+│   │   ├── service/         # 业务逻辑层（待实现，目前 handler 直接调 store + gateway）
 │   │   ├── store/           # PostgreSQL CRUD（GORM）
-│   │   └── gateway/         # gRPC Server 端（Worker 连接管理、节点缓存）
+│   │   └── gateway/         # gRPC Server + Worker 连接管理 + 一次性请求路由 + 流式会话路由
 │   ├── worker/
 │   │   ├── controller/      # K8s Controller（Plugin CRD 等，待实现）
 │   │   ├── collector/       # 节点信息采集（controller-runtime Watch）
-│   │   ├── proxy/           # K8s 资源代理（Table API list、get、apply、delete）
-│   │   └── tunnel/          # gRPC Client（注册、心跳、消息收发）
+│   │   ├── proxy/           # K8s 资源代理（list/get/apply/delete/describe + LogsManager + ExecManager）
+│   │   └── tunnel/          # gRPC Client（注册、心跳、消息分发）
 │   └── common/
 │       ├── proto/           # protobuf 生成代码（不手动编辑）
 │       └── types/           # 共享类型
@@ -268,26 +272,10 @@ kpilot/
 - 永远带 `Access-Control-Allow-Credentials: true`（前端依赖 cookie）
 
 ### 包组织
-```
-pkg/
-├── server/
-│   ├── api/
-│   │   ├── handler/   # gin handler，纯 HTTP 转换层，不写业务
-│   │   ├── middleware/# JWT 等
-│   │   └── router.go
-│   ├── service/       # 业务逻辑（待补充，目前 handler 直接调 store + gateway）
-│   ├── store/         # GORM CRUD，纯数据库
-│   └── gateway/       # gRPC server + Worker 连接管理 + stream 路由
-├── worker/
-│   ├── proxy/         # K8s 资源代理 + logs/exec manager
-│   ├── collector/     # 节点信息采集（controller-runtime watch）
-│   └── tunnel/        # gRPC client + 心跳 + 消息分发
-└── common/
-    ├── proto/         # protoc 生成，不手动编辑
-    └── types/         # 跨包共享类型
-```
-
-handler 不直接写 SQL / 不调 K8s API，所有外部依赖通过 store / gateway 接入。
+（具体目录树见上文 "项目结构" 节）核心约束：
+- `handler` 是纯 HTTP 转换层，**不直接写 SQL / 不调 K8s API**，所有外部依赖通过 `store` / `gateway` 接入
+- `gateway` 既是 gRPC Server 又是 Worker 连接 + 流式会话的注册中心；HTTP handler 通过它发请求/开 stream，永远不要直连 Worker
+- `proxy`（worker 端）所有 K8s 操作都走 controller-runtime / client-go 构建的 cfg，不要在 handler 层重新构造
 
 ### Proto 改动
 1. 改 `proto/pilot.proto`
@@ -371,14 +359,15 @@ web/src/
 │   ├── Clusters/                # 集群管理
 │   ├── ClusterDetail/
 │   │   ├── Nodes/               # 节点概览
-│   │   └── Workloads/           # 工作负载（含 YamlEditor）
+│   │   └── Workloads/           # 工作负载（YamlEditor / ApplyYamlDrawer / DescribeDrawer / PodLogsDrawer / PodExecDrawer）
 │   ├── Plugins/                 # 插件管理（占位）
 │   └── exception/404/           # 404 页
-├── services/kpilot/             # API 服务（auth.ts、cluster.ts、node.ts、workload.ts）
-├── components/                  # 公共组件（Footer、LangDropdown、AvatarDropdown）
+├── services/kpilot/             # API 服务（auth、cluster、node、workload、pod）
+├── models/                      # Umi model 全局状态（namespace 等）
+├── components/                  # 公共组件（Footer、HeaderDropdown、RightContent、NamespacePicker）
 ├── locales/                     # zh-CN / en-US（menu.ts、pages.ts）
 ├── global.less                  # 全局样式 + ProLayout CSS 覆盖
-└── app.tsx                      # 全局布局、动态菜单注入、认证初始化
+└── app.tsx                      # 全局布局、动态菜单注入、认证初始化、顶部栏 actionsRender（语言/头像/命名空间选择器）
 ```
 
 ### 集群详情导航（动态菜单）
