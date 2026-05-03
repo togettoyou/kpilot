@@ -227,7 +227,7 @@ export function PluginEditDrawer({
           label={intl.formatMessage({ id: 'pages.plugins.form.displayName' })}
           rules={[{ required: true }]}
         >
-          <Input />
+          <Input maxLength={100} />
         </Form.Item>
         <Form.Item
           name="description"
@@ -256,7 +256,7 @@ export function PluginEditDrawer({
           name="icon_url"
           label={intl.formatMessage({ id: 'pages.plugins.form.iconURL' })}
         >
-          <Input placeholder="https://..." />
+          <Input placeholder="https://..." maxLength={512} />
         </Form.Item>
         <Form.Item
           name="chart_type"
@@ -297,6 +297,7 @@ export function PluginEditDrawer({
                 placeholder={intl.formatMessage({
                   id: 'pages.plugins.form.chartRepoPlaceholder',
                 })}
+                maxLength={512}
               />
             </Form.Item>
             <Form.Item
@@ -310,6 +311,7 @@ export function PluginEditDrawer({
                 placeholder={intl.formatMessage({
                   id: 'pages.plugins.form.chartNamePlaceholder',
                 })}
+                maxLength={200}
               />
             </Form.Item>
           </>
@@ -375,6 +377,7 @@ export function PluginEditDrawer({
             placeholder={intl.formatMessage({
               id: 'pages.plugins.form.defaultVersionPlaceholder',
             })}
+            maxLength={64}
           />
         </Form.Item>
         <Form.Item
@@ -383,7 +386,7 @@ export function PluginEditDrawer({
             id: 'pages.plugins.form.defaultReleaseNamespace',
           })}
         >
-          <Input />
+          <Input maxLength={63} />
         </Form.Item>
         <Form.Item
           label={intl.formatMessage({

@@ -129,6 +129,7 @@ export function EnableDrawer({
                 { id: 'pages.clusterPlugins.enableDrawer.versionPlaceholder' },
                 { default: target.plugin.default_version || '—' },
               )}
+              maxLength={64}
             />
           </Form.Item>
           <Form.Item
@@ -146,6 +147,7 @@ export function EnableDrawer({
                   default: target.plugin.default_release_namespace || '—',
                 },
               )}
+              maxLength={63}
             />
           </Form.Item>
           <Form.Item

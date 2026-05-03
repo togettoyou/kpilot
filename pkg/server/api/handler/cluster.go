@@ -13,15 +13,34 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
+// Field length caps must mirror the DB column types and the frontend
+// form maxLength props — defense-in-depth so a hand-rolled API call
+// can't slip oversized text past us.
+const (
+	maxClusterNameLen = 255
+	maxClusterDescLen = 500
+)
+
 type createClusterRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
+}
+
+func (r *createClusterRequest) validate() string {
+	if len(r.Name) > maxClusterNameLen || len(r.Description) > maxClusterDescLen {
+		return CodeInvalidRequest
+	}
+	return ""
 }
 
 func CreateCluster(c *gin.Context) {
 	var req createClusterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+		return
+	}
+	if code := req.validate(); code != "" {
+		apiErr(c, http.StatusBadRequest, code)
 		return
 	}
 
@@ -89,11 +108,22 @@ type updateClusterRequest struct {
 	Description string `json:"description"`
 }
 
+func (r *updateClusterRequest) validate() string {
+	if len(r.Name) > maxClusterNameLen || len(r.Description) > maxClusterDescLen {
+		return CodeInvalidRequest
+	}
+	return ""
+}
+
 func UpdateCluster(c *gin.Context) {
 	id := c.Param("id")
 	var req updateClusterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+		return
+	}
+	if code := req.validate(); code != "" {
+		apiErr(c, http.StatusBadRequest, code)
 		return
 	}
 	exists, err := store.ClusterExists(req.Name)

@@ -62,16 +62,35 @@ type pluginRequest struct {
 	DefaultReleaseNamespace string                `json:"default_release_namespace"`
 }
 
-// maxDescriptionLen mirrors the frontend Input.TextArea maxLength so a
-// hand-rolled API request can't sneak a 100 KB description into the
-// DB. The card UI clamps display to 3 lines anyway, so anything past
-// here would never render fully.
-const maxDescriptionLen = 500
+// Field length caps mirror the DB column types and the frontend form
+// maxLength props — three-layer defense so a hand-rolled API request
+// can't sneak oversized text past us. ValuesLen is generous (64 KiB)
+// because Helm values for complex charts can run 10+ KB; everything
+// else matches the column varchar() exactly.
+const (
+	maxPluginNameLen        = 63 // DNS-1123 label
+	maxPluginDisplayNameLen = 100
+	maxPluginDescriptionLen = 500
+	maxPluginIconURLLen     = 512
+	maxPluginChartRepoLen   = 512
+	maxPluginChartNameLen   = 200
+	maxPluginVersionLen     = 64
+	maxPluginNamespaceLen   = 63 // DNS-1123 label
+	maxPluginValuesLen      = 64 * 1024
+)
 
-// validate enforces the chart-type-specific invariants. Returns a code
-// suitable for apiErr (empty string means valid).
+// validate enforces shape + length invariants on the request. Returns
+// a code suitable for apiErr; empty string means valid.
 func (r *pluginRequest) validate() string {
-	if len(r.Description) > maxDescriptionLen {
+	if len(r.Name) > maxPluginNameLen ||
+		len(r.DisplayName) > maxPluginDisplayNameLen ||
+		len(r.Description) > maxPluginDescriptionLen ||
+		len(r.IconURL) > maxPluginIconURLLen ||
+		len(r.ChartRepo) > maxPluginChartRepoLen ||
+		len(r.ChartName) > maxPluginChartNameLen ||
+		len(r.DefaultVersion) > maxPluginVersionLen ||
+		len(r.DefaultReleaseNamespace) > maxPluginNamespaceLen ||
+		len(r.DefaultValues) > maxPluginValuesLen {
 		return CodeInvalidRequest
 	}
 	switch r.ChartType {
@@ -362,6 +381,15 @@ type enableRequest struct {
 	ReleaseNamespaceOverride string `json:"release_namespace_override"`
 }
 
+func (r *enableRequest) validate() string {
+	if len(r.VersionOverride) > maxPluginVersionLen ||
+		len(r.ValuesOverride) > maxPluginValuesLen ||
+		len(r.ReleaseNamespaceOverride) > maxPluginNamespaceLen {
+		return CodeInvalidRequest
+	}
+	return ""
+}
+
 // EnablePlugin saves the per-cluster overrides, marks the row as enabled,
 // builds a PluginCommand by merging registry defaults + overrides, and
 // pushes it to the Worker. The Worker reports back asynchronously via
@@ -379,6 +407,10 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 				apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 				return
 			}
+		}
+		if code := req.validate(); code != "" {
+			apiErr(c, http.StatusBadRequest, code)
+			return
 		}
 		if _, err := store.GetClusterByID(clusterID); err != nil {
 			apiErr(c, http.StatusNotFound, CodeClusterNotFound)

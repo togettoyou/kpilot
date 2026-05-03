@@ -266,10 +266,18 @@ export default function ClustersPage() {
             label={intl.formatMessage({ id: 'pages.clusters.modal.name' })}
             rules={[{ required: true, message: intl.formatMessage({ id: 'pages.clusters.modal.nameRequired' }) }]}
           >
-            <Input placeholder={intl.formatMessage({ id: 'pages.clusters.modal.namePlaceholder' })} />
+            <Input
+              placeholder={intl.formatMessage({ id: 'pages.clusters.modal.namePlaceholder' })}
+              maxLength={255}
+            />
           </Form.Item>
           <Form.Item name="description" label={intl.formatMessage({ id: 'pages.clusters.modal.description' })}>
-            <Input.TextArea rows={2} placeholder={intl.formatMessage({ id: 'pages.clusters.modal.descPlaceholder' })} />
+            <Input.TextArea
+              rows={2}
+              placeholder={intl.formatMessage({ id: 'pages.clusters.modal.descPlaceholder' })}
+              maxLength={500}
+              showCount
+            />
           </Form.Item>
         </Form>
       </Modal>
@@ -293,10 +301,10 @@ export default function ClustersPage() {
             label={intl.formatMessage({ id: 'pages.clusters.modal.name' })}
             rules={[{ required: true, message: intl.formatMessage({ id: 'pages.clusters.modal.nameRequired' }) }]}
           >
-            <Input />
+            <Input maxLength={255} />
           </Form.Item>
           <Form.Item name="description" label={intl.formatMessage({ id: 'pages.clusters.modal.description' })}>
-            <Input.TextArea rows={2} />
+            <Input.TextArea rows={2} maxLength={500} showCount />
           </Form.Item>
         </Form>
       </Modal>

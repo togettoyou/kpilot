@@ -16,7 +16,7 @@ type Cluster struct {
 	Name        string        `gorm:"type:varchar(255);not null;uniqueIndex" json:"name"`
 	Token       string        `gorm:"type:varchar(255);not null;uniqueIndex" json:"-"`
 	Status      ClusterStatus `gorm:"type:varchar(20);not null;default:'offline'" json:"status"`
-	Description string        `gorm:"type:text" json:"description"`
+	Description string        `gorm:"type:varchar(500)" json:"description"`
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
 }
