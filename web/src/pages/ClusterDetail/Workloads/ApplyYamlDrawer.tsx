@@ -39,12 +39,14 @@ interface ApplyYamlDrawerProps {
 // replaced freely. The apply itself is type-agnostic — even on the Pods
 // page the user can paste a Service and it'll work.
 //
-// All workload templates use prom/prometheus-example-app, which exposes
-// a /metrics endpoint on port 8080 with sample Prometheus metrics, plus
-// the standard prometheus.io scrape annotations on the pod. With the
-// built-in VictoriaMetrics plugin enabled this means a fresh apply will
-// show up in the VM UI within 15 s — useful as a demo and as a way to
-// verify the monitoring pipe end-to-end.
+// All workload templates use prom/node-exporter, which exposes a
+// /metrics endpoint on port 9100 with valid Prometheus metrics (the
+// container's /proc view — useful as a smoke test even without
+// hostPID), plus the standard prometheus.io scrape annotations on the
+// pod. With the built-in VictoriaMetrics plugin enabled, applying any
+// of these templates produces metrics in the VM UI within 15 s.
+// node-exporter is on Docker Hub (prom/node-exporter:latest), which
+// is the most reliably reachable registry from CN networks.
 const TEMPLATES: Record<WorkloadResourceType, string> = {
   deployments: `apiVersion: apps/v1
 kind: Deployment
@@ -62,14 +64,14 @@ spec:
         app: example
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
+        prometheus.io/port: "9100"
         prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
-          image: prom/prometheus-example-app:v0.5.0
+          image: prom/node-exporter:latest
           ports:
-            - containerPort: 8080
+            - containerPort: 9100
 `,
   statefulsets: `apiVersion: apps/v1
 kind: StatefulSet
@@ -88,14 +90,14 @@ spec:
         app: example
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
+        prometheus.io/port: "9100"
         prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
-          image: prom/prometheus-example-app:v0.5.0
+          image: prom/node-exporter:latest
           ports:
-            - containerPort: 8080
+            - containerPort: 9100
 `,
   daemonsets: `apiVersion: apps/v1
 kind: DaemonSet
@@ -112,14 +114,14 @@ spec:
         app: example
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
+        prometheus.io/port: "9100"
         prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
-          image: prom/prometheus-example-app:v0.5.0
+          image: prom/node-exporter:latest
           ports:
-            - containerPort: 8080
+            - containerPort: 9100
 `,
   pods: `apiVersion: v1
 kind: Pod
@@ -128,14 +130,14 @@ metadata:
   namespace: default
   annotations:
     prometheus.io/scrape: "true"
-    prometheus.io/port: "8080"
+    prometheus.io/port: "9100"
     prometheus.io/path: /metrics
 spec:
   containers:
     - name: app
-      image: prom/prometheus-example-app:v0.5.0
+      image: prom/node-exporter:latest
       ports:
-        - containerPort: 8080
+        - containerPort: 9100
 `,
   services: `apiVersion: v1
 kind: Service
@@ -146,8 +148,8 @@ spec:
   selector:
     app: example
   ports:
-    - port: 8080
-      targetPort: 8080
+    - port: 9100
+      targetPort: 9100
 `,
   ingresses: `apiVersion: networking.k8s.io/v1
 kind: Ingress
