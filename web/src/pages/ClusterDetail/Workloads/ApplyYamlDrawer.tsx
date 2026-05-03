@@ -64,7 +64,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
-        prometheus.io/path: /metrics
+        prometheus.io/path: /debug/metrics
     spec:
       containers:
         - name: app
@@ -90,7 +90,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
-        prometheus.io/path: /metrics
+        prometheus.io/path: /debug/metrics
     spec:
       containers:
         - name: app
@@ -114,7 +114,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
-        prometheus.io/path: /metrics
+        prometheus.io/path: /debug/metrics
     spec:
       containers:
         - name: app
@@ -130,7 +130,7 @@ metadata:
   annotations:
     prometheus.io/scrape: "true"
     prometheus.io/port: "8080"
-    prometheus.io/path: /metrics
+    prometheus.io/path: /debug/metrics
 spec:
   containers:
     - name: app
