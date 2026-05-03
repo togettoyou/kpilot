@@ -158,7 +158,7 @@ export default function ClusterPluginsPage() {
           plugin={it.plugin}
           onView={(p) => setViewing(p)}
           extra={phaseTag}
-          footer={<div>{action}</div>}
+          actions={action}
         />
       </div>
     );

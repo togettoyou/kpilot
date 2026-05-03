@@ -16,12 +16,12 @@ interface PluginCardProps {
   // their card stays read-only.
   onEdit?: (p: Plugin) => void;
   onDelete?: (p: Plugin) => void;
-  // Right-side overlay for per-cluster pages (phase tag + enable/disable
-  // button). Global registry passes none.
+  // Right-side overlay (phase tag for the per-cluster page; nothing on
+  // the global registry).
   extra?: React.ReactNode;
-  // Footer rendered under the description; per-cluster pages put the
-  // enable/disable action there.
-  footer?: React.ReactNode;
+  // Page-specific action(s) appended to the bottom button row alongside
+  // view/edit/delete — e.g. the per-cluster page's enable/disable.
+  actions?: React.ReactNode;
 }
 
 export function PluginCard({
@@ -30,7 +30,7 @@ export function PluginCard({
   onEdit,
   onDelete,
   extra,
-  footer,
+  actions,
 }: PluginCardProps) {
   const intl = useIntl();
   const initial = (plugin.display_name || plugin.name).slice(0, 2).toUpperCase();
@@ -77,14 +77,17 @@ export function PluginCard({
         {chartTag}
         {plugin.default_version && <Tag>{plugin.default_version}</Tag>}
       </Space>
-      {footer}
-      {(onView || (!plugin.is_builtin && (onEdit || onDelete))) && (
+      {/* Single bottom action row — keeps cards visually flush regardless
+          of how many buttons render. marginTop: auto pushes it to the
+          card bottom so cards in the same flex row align. */}
+      {(onView || actions || (!plugin.is_builtin && (onEdit || onDelete))) && (
         <Space style={{ marginTop: 'auto' }} wrap>
           {onView && (
             <Button size="small" icon={<EyeOutlined />} onClick={() => onView(plugin)}>
               {intl.formatMessage({ id: 'pages.plugins.view' })}
             </Button>
           )}
+          {actions}
           {!plugin.is_builtin && onEdit && (
             <Button size="small" icon={<EditOutlined />} onClick={() => onEdit(plugin)}>
               {intl.formatMessage({ id: 'pages.plugins.edit' })}
