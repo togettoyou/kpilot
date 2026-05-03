@@ -28,7 +28,7 @@ var builtinPlugins = []Plugin{
 		ChartName:               "hami",
 		DefaultVersion:          "",
 		DefaultValues:           "",
-		DefaultReleaseNamespace: "kube-system",
+		DefaultReleaseNamespace: "kpilot-gpu",
 	},
 	{
 		Name:        "victoria-metrics",
@@ -81,7 +81,7 @@ var builtinPlugins = []Plugin{
   scrape:
     enabled: true
 `,
-		DefaultReleaseNamespace: "monitoring",
+		DefaultReleaseNamespace: "kpilot-monitoring",
 	},
 	{
 		Name:        "node-exporter",
@@ -117,7 +117,7 @@ service:
     prometheus.io/scrape: "true"
     prometheus.io/port: "9100"
 `,
-		DefaultReleaseNamespace: "monitoring",
+		DefaultReleaseNamespace: "kpilot-monitoring",
 	},
 	{
 		Name:        "victoria-logs",
@@ -156,7 +156,7 @@ service:
 vector:
   enabled: true
 `,
-		DefaultReleaseNamespace: "logging",
+		DefaultReleaseNamespace: "kpilot-logging",
 	},
 }
 
