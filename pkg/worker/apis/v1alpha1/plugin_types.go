@@ -107,6 +107,15 @@ type PluginStatus struct {
 	// +optional
 	ObservedValuesHash string `json:"observedValuesHash,omitempty"`
 
+	// AttemptHash is a fingerprint of the inputs the reconciler last
+	// tried to apply (chart source + release identity + values). It's
+	// the latch the reconciler uses to avoid hot-looping on a permanent
+	// failure: if Phase=Failed and AttemptHash equals the current
+	// inputs' hash, the reconciler skips work entirely. The user
+	// triggers a retry by changing spec or by disable+re-enable.
+	// +optional
+	AttemptHash string `json:"attemptHash,omitempty"`
+
 	// +optional
 	HelmRevision int32 `json:"helmRevision,omitempty"`
 

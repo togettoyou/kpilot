@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -98,6 +99,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{Requeue: true}, nil
 	}
 
+	// Compute a fingerprint of the inputs we'd attempt to apply right now.
+	// If the last attempt with the SAME fingerprint settled into a
+	// terminal state, skip work. This stops hot-looping on permanent
+	// failures (e.g. K8s validation errors, chart syntax errors): the
+	// reconciler tries once, parks at Phase=Failed, and waits for the
+	// user to change spec or disable+re-enable.
+	specHash := valuesHash(plugin.Spec.Values)
+	currentAttempt := attemptHash(&plugin.Spec, specHash)
+
+	if plugin.Status.AttemptHash == currentAttempt {
+		switch plugin.Status.Phase {
+		case kpilotv1alpha1.PluginPhaseRunning:
+			// Already at the desired state.
+			return ctrl.Result{}, nil
+		case kpilotv1alpha1.PluginPhaseFailed:
+			// Permanent failure on this exact input. User must change
+			// spec to retry; auto-retry would just thrash.
+			return ctrl.Result{}, nil
+		}
+		// Other phases (Pending / Installing / Upgrading) fall through —
+		// they're transient states from a prior reconcile that didn't
+		// finish (process restart, timeout). Re-attempting is correct.
+	}
+
 	// Resolve chart source.
 	var chartRef ChartRef
 	switch kpilotv1alpha1.ChartType(plugin.Spec.Chart.Type) {
@@ -110,28 +135,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	case kpilotv1alpha1.ChartTypeLocal:
 		path := r.Cache.Path(plugin.Spec.Chart.SHA256)
 		if path == "" {
+			plugin.Status.AttemptHash = currentAttempt
 			r.markFailed(ctx, &plugin, fmt.Errorf("chart cache missing: sha256=%s", plugin.Spec.Chart.SHA256))
-			return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+			return ctrl.Result{}, nil
 		}
 		chartRef = ChartRef{LocalPath: path, Name: plugin.Spec.Chart.Name}
 	default:
+		plugin.Status.AttemptHash = currentAttempt
 		r.markFailed(ctx, &plugin, fmt.Errorf("unknown chart type: %q", plugin.Spec.Chart.Type))
 		return ctrl.Result{}, nil
 	}
 
-	// Decide install vs upgrade vs no-op via observed-hash check. Even
-	// without that, Helm's own action.NewGet drives the install/upgrade
-	// branching inside InstallOrUpgrade — but skipping the work entirely
-	// when nothing changed avoids unnecessary churn.
-	specHash := valuesHash(plugin.Spec.Values)
-	if plugin.Status.Phase == kpilotv1alpha1.PluginPhaseRunning &&
-		plugin.Status.ObservedValuesHash == specHash &&
-		plugin.Status.ObservedVersion == plugin.Spec.Chart.Version {
-		// Nothing to do — release matches spec.
-		return ctrl.Result{}, nil
-	}
-
-	// Mark in-progress before the long Helm call so the UI can show progress.
+	// Record the attempt BEFORE running Helm so the gate above closes
+	// even if we crash mid-reconcile and another reconcile picks up.
+	plugin.Status.AttemptHash = currentAttempt
 	plugin.Status.Phase = pickInstallPhase(plugin.Status)
 	r.touchAndPush(ctx, &plugin, "")
 
@@ -144,7 +161,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	chart, err := r.Helm.LoadChart(chartRef)
 	if err != nil {
 		r.markFailed(ctx, &plugin, fmt.Errorf("load chart: %w", err))
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		return ctrl.Result{}, nil
 	}
 
 	rel, err := r.Helm.InstallOrUpgrade(
@@ -155,7 +172,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	)
 	if err != nil {
 		r.markFailed(ctx, &plugin, fmt.Errorf("helm: %w", err))
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		return ctrl.Result{}, nil
 	}
 
 	plugin.Status.Phase = kpilotv1alpha1.PluginPhaseRunning
@@ -237,6 +254,26 @@ func pickInstallPhase(s kpilotv1alpha1.PluginStatus) kpilotv1alpha1.PluginPhase 
 		return kpilotv1alpha1.PluginPhaseInstalling
 	}
 	return kpilotv1alpha1.PluginPhaseUpgrading
+}
+
+// attemptHash fingerprints everything Helm would actually act on for a
+// reconcile. If two reconciles produce the same attemptHash, they would
+// behave identically — so the second one can short-circuit when the
+// first ended in a terminal Phase. Pre-computed valuesHash is passed in
+// to avoid re-parsing the YAML twice in one reconcile.
+func attemptHash(spec *kpilotv1alpha1.PluginSpec, valuesHashHex string) string {
+	parts := []string{
+		string(spec.Chart.Type),
+		spec.Chart.Repo,
+		spec.Chart.Name,
+		spec.Chart.Version,
+		spec.Chart.SHA256,
+		spec.Release.Name,
+		spec.Release.Namespace,
+		valuesHashHex,
+	}
+	h := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(h[:])
 }
 
 // valuesHash returns a content-based hash of the values YAML, canonical

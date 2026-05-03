@@ -30,14 +30,20 @@ var builtinPlugins = []Plugin{
 		DefaultReleaseNamespace: "kube-system",
 	},
 	{
-		Name:                    "victoria-metrics",
-		DisplayName:             "VictoriaMetrics",
-		Description:             "Cluster metrics & monitoring.",
-		Category:                PluginCategoryMonitoring,
-		IsBuiltin:               true,
-		ChartType:               ChartTypeRepo,
-		ChartRepo:               "https://victoriametrics.github.io/helm-charts/",
-		ChartName:               "victoria-metrics-k8s-stack",
+		Name:        "victoria-metrics",
+		DisplayName: "VictoriaMetrics",
+		Description: "Cluster metrics & monitoring.",
+		Category:    PluginCategoryMonitoring,
+		IsBuiltin:   true,
+		ChartType:   ChartTypeRepo,
+		ChartRepo:   "https://victoriametrics.github.io/helm-charts/",
+		ChartName:   "victoria-metrics-k8s-stack",
+		// Without fullnameOverride the chart concatenates release name +
+		// "victoria-metrics-k8s-stack-..." for every sub-resource, which
+		// blows past the 63-char K8s name limit (e.g. Service "victoria-
+		// metrics-victoria-metrics-k8s-stack-kube-controller-manager").
+		// Pin a short prefix so install just works on first try.
+		DefaultValues:           "fullnameOverride: vmstack\n",
 		DefaultReleaseNamespace: "monitoring",
 	},
 	{
