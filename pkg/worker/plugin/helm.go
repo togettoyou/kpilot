@@ -179,6 +179,17 @@ func ParseValues(yamlText string) (map[string]any, error) {
 // InstallOrUpgrade installs the release if it doesn't exist yet, otherwise
 // upgrades. Both code paths go through Helm SDK action types so behavior
 // matches `helm install` / `helm upgrade` from the CLI exactly.
+//
+// Recovery note: if the Worker process gets SIGKILLed mid-install,
+// Helm leaves the release in pending-install / pending-upgrade and a
+// subsequent Upgrade refuses with "another operation in progress".
+// We don't actively un-stick it here because disable+re-enable
+// already handles it: Helm.Uninstall accepts releases in any state
+// (pending included), and the reconciler's deletion path runs ahead
+// of the AttemptHash gate, so the user just clicks Disable then
+// Enable. If we ever see this happening enough to need automation,
+// add a NewGet → status check → NewRollback(0) / NewUninstall before
+// the install/upgrade dispatch below.
 func (h *HelmRunner) InstallOrUpgrade(
 	releaseName, namespace string,
 	chart *chart.Chart,
