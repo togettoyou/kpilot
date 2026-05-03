@@ -245,6 +245,18 @@ kpilot/
 - 数据用 `key=value` 风格便于 grep
 - 错误用 `err=%v`
 
+### 用户输入字段长度限制（三层一致）
+任何用户输入的 string 字段，**DB 列类型 / 服务端 validator / 前端 maxLength** 三处必须配齐且数值一致——不允许任何一层漏。
+- DB 列：用 `varchar(N)` 而不是 `text`，让 PostgreSQL 强制兜底；裸 INSERT 也越不过
+- 服务端：在请求 struct 的 `validate()` 方法里 `len(field) > maxXxxLen` 检查，失败返回 `CodeInvalidRequest`
+- 前端：antd `<Input maxLength={N}>` / `<Input.TextArea maxLength={N} showCount>`，用户敲到上限会被卡住，不用等 server 400
+
+新增字段时**同一个 commit 里把三层一起配好**，不要先 ship `text` "稍后再 cap"。
+
+YAML / values blob（`plugin.default_values`、`cluster_plugin.values_override`）特例：服务端 64 KiB cap 兜底，前端 YAML 编辑器不加 `maxLength`（Helm values 复杂的也就 10KB 量级）。
+
+参考现有数值：DNS-1123 label（plugin name / namespace）= 63；display name = 100；description = 500（配合 3-line 截断）；URL = 512；version 字符串 = 64。
+
 ### gRPC 与 Worker 通信
 - **gRPC stream 写入必须串行化**：`grpc.ClientStream` / `grpc.ServerStream` 的 `Send` 不是并发安全的。Server 端用 `ConnectedWorker.sendMu`，Worker 端用 `Client.sendMu`。任何并发 Send 都要先拿锁
 - **一次性请求-响应**（list/get/apply/delete K8s 资源）：用 `gateway.SendResourceRequest(ctx, clusterID, req)`，内部按 request_id 注册 pending channel，超时由 ctx 控制
