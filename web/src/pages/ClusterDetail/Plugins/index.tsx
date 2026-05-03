@@ -91,9 +91,6 @@ function PhaseTag({
       style={{
         marginInlineEnd: 0,
         fontWeight: visual.bold ? 600 : undefined,
-        // Failed tags are click-targets for the error popover. Tag's
-        // default cursor is text, which doesn't signal interactivity.
-        cursor: phase === 'Failed' && message ? 'pointer' : undefined,
       }}
     >
       {label}
@@ -130,7 +127,12 @@ function PhaseTag({
     };
     return (
       <Popover
-        trigger="click"
+        // Hover trigger gives the at-a-glance feel of a Tooltip but,
+        // unlike Tooltip, the panel stays open when the cursor moves
+        // over its content — so users can scroll a long error and
+        // click Copy without it closing.
+        trigger="hover"
+        mouseLeaveDelay={0.3}
         title={
           <div
             style={{
