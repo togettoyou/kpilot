@@ -22,6 +22,7 @@ const (
 	CodePluginBuiltinLocked  = "PLUGIN_BUILTIN_LOCKED"
 	CodePluginChartMissing   = "PLUGIN_CHART_MISSING"
 	CodePluginUploadTooLarge = "PLUGIN_UPLOAD_TOO_LARGE"
+	CodePluginNamespaceLock  = "PLUGIN_NAMESPACE_LOCKED"
 )
 
 // apiErr writes a JSON error response with the given code.

@@ -91,6 +91,8 @@ export default {
   'errors.PLUGIN_BUILTIN_LOCKED': '内置插件不允许修改或删除',
   'errors.PLUGIN_CHART_MISSING': '请配置 Chart 来源（仓库地址或本地文件）',
   'errors.PLUGIN_UPLOAD_TOO_LARGE': '上传文件过大（最大 16MB）',
+  'errors.PLUGIN_NAMESPACE_LOCKED':
+    '已安装的插件不允许修改命名空间，请先禁用再以新命名空间重新启用',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU 算力编排',

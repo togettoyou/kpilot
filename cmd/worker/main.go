@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/go-logr/logr"
@@ -35,7 +36,11 @@ func main() {
 	defer stop()
 
 	ctrl.SetLogger(logr.Discard())
-	log.Printf("worker starting, server=%s", cfg.ServerAddr)
+	// Resolving DataDir to its absolute path here makes "cwd-dependent
+	// .env didn't load" failures obvious in the log instead of showing
+	// up later as a surprising EACCES on /var/lib/kpilot.
+	resolvedDataDir, _ := filepath.Abs(cfg.DataDir)
+	log.Printf("[worker] starting: server=%s data_dir=%s", cfg.ServerAddr, resolvedDataDir)
 
 	tunnelClient := tunnel.NewClient(cfg.ServerAddr, cfg.ClusterToken)
 

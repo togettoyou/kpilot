@@ -96,8 +96,20 @@ func (h *HelmRunner) LoadChart(ref ChartRef) (*chart.Chart, error) {
 	if ref.LocalPath != "" {
 		return loader.Load(ref.LocalPath)
 	}
-	// Repo flow: ResolveChart returns a downloaded .tgz path; loader.Load
-	// then opens it.
+	// Cache hit: when the user pinned a specific version we can skip the
+	// network round-trip if the .tgz is already on disk. action.NewPull
+	// in v3 always re-downloads even if RepositoryCache is set, so this
+	// guard is what actually keeps reconcile retries off the network.
+	if ref.Version != "" {
+		cached := filepath.Join(
+			h.settings.RepositoryCache,
+			fmt.Sprintf("%s-%s.tgz", ref.Name, ref.Version),
+		)
+		if _, err := os.Stat(cached); err == nil {
+			return loader.Load(cached)
+		}
+	}
+	// Repo flow: Pull downloads the .tgz; loader.Load then opens it.
 	pull := action.NewPullWithOpts(action.WithConfig(&action.Configuration{}))
 	pull.Settings = h.settings
 	pull.RepoURL = ref.RepoURL

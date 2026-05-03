@@ -61,7 +61,12 @@ func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *proto.PluginS
 		updates["installed_at"] = &t
 	}
 
-	if err := store.UpdateClusterPluginStatus(w.ClusterID, plugin.ID, updates); err != nil {
+	// Upsert (not just Update) self-heals the rare path where the Enable
+	// handler successfully pushed to the Worker but the subsequent
+	// ClusterPlugin row write failed. Without this the Worker would
+	// reconcile happily while Server kept reporting "Disabled" and the
+	// AttemptHash gate blocked any retry.
+	if err := store.UpsertClusterPluginStatus(w.ClusterID, plugin.ID, phase, updates); err != nil {
 		log.Printf("[gateway] update cluster plugin status: cluster=%s plugin=%s err=%v",
 			w.ClusterID, st.CrdName, err)
 	}

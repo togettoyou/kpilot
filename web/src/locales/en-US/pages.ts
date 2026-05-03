@@ -100,6 +100,8 @@ export default {
   'errors.PLUGIN_CHART_MISSING':
     'Please configure a chart source (repo URL or local file)',
   'errors.PLUGIN_UPLOAD_TOO_LARGE': 'File too large (max 16MB)',
+  'errors.PLUGIN_NAMESPACE_LOCKED':
+    'Cannot change install namespace after installation. Disable first, then re-enable in the new namespace.',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',

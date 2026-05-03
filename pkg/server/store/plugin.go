@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ─── Plugin (registry) ─────────────────────────────────────────────────────
@@ -113,25 +114,29 @@ func ListClusterPlugins(clusterID string) ([]ClusterPlugin, error) {
 	return rows, err
 }
 
-// UpsertClusterPlugin creates or updates the row for (cluster, plugin),
-// preserving fields not present in the input. Used by both the enable
-// handler (sets enabled + overrides + Phase=Pending) and the status push
-// handler (sets phase + observed_*).
+// UpsertClusterPlugin creates or updates the row for (cluster, plugin)
+// atomically via Postgres ON CONFLICT, so two enable clicks racing on
+// the same key don't end with the second hitting a unique-violation
+// 500. Used by both the enable handler (sets enabled + overrides +
+// Phase=Pending) and elsewhere when a row is fully overwritten.
 func UpsertClusterPlugin(cp *ClusterPlugin) error {
-	var existing ClusterPlugin
-	err := DB.Where("cluster_id = ? AND plugin_id = ?", cp.ClusterID, cp.PluginID).
-		First(&existing).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		now := time.Now()
-		cp.CreatedAt, cp.UpdatedAt = now, now
-		return DB.Create(cp).Error
+	now := time.Now()
+	if cp.CreatedAt.IsZero() {
+		cp.CreatedAt = now
 	}
-	if err != nil {
-		return err
-	}
-	cp.CreatedAt = existing.CreatedAt
-	cp.UpdatedAt = time.Now()
-	return DB.Save(cp).Error
+	cp.UpdatedAt = now
+	return DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "cluster_id"}, {Name: "plugin_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"enabled",
+			"version_override",
+			"values_override",
+			"release_namespace_override",
+			"phase",
+			"message",
+			"updated_at",
+		}),
+	}).Create(cp).Error
 }
 
 // UpdateClusterPluginStatus is a partial update used by PluginStatusPush
@@ -141,4 +146,45 @@ func UpdateClusterPluginStatus(clusterID string, pluginID uint, updates map[stri
 	return DB.Model(&ClusterPlugin{}).
 		Where("cluster_id = ? AND plugin_id = ?", clusterID, pluginID).
 		Updates(updates).Error
+}
+
+// UpsertClusterPluginStatus mirrors UpdateClusterPluginStatus but inserts
+// a synthetic row when none exists for (cluster, plugin). Self-heals the
+// edge case where the enable handler successfully pushed to the Worker
+// but the subsequent ClusterPlugin row write failed: when the Worker's
+// status push lands here, we record what we know rather than dropping
+// the update. The new row is marked enabled iff the phase implies the
+// release exists on the cluster (anything other than Disabled).
+func UpsertClusterPluginStatus(clusterID string, pluginID uint, phase PluginPhase, updates map[string]any) error {
+	now := time.Now()
+	cp := &ClusterPlugin{
+		ClusterID: clusterID,
+		PluginID:  pluginID,
+		Enabled:   phase != PluginPhaseDisabled,
+		Phase:     phase,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	// Apply the same fields the UPDATE path would have set, so the
+	// inserted row reflects what the Worker just reported.
+	if v, ok := updates["message"].(string); ok {
+		cp.Message = v
+	}
+	if v, ok := updates["observed_version"].(string); ok {
+		cp.ObservedVersion = v
+	}
+	if v, ok := updates["observed_values_hash"].(string); ok {
+		cp.ObservedValuesHash = v
+	}
+	if v, ok := updates["helm_revision"].(int32); ok {
+		cp.HelmRevision = v
+	}
+	if v, ok := updates["installed_at"].(*time.Time); ok {
+		cp.InstalledAt = v
+	}
+	updates["updated_at"] = now
+	return DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "cluster_id"}, {Name: "plugin_id"}},
+		DoUpdates: clause.Assignments(updates),
+	}).Create(cp).Error
 }

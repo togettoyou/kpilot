@@ -382,6 +382,30 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
+		// Release-namespace lock: Helm release identity is (name,
+		// namespace), and our chart cache + reconciler track release
+		// state by the new namespace only. Letting the user change
+		// namespace after install would orphan the old release in the
+		// previous namespace with no Helm-aware path to clean it up.
+		// Refuse the change; the user can disable (which uninstalls
+		// from the OLD namespace) and then re-enable in the new one.
+		if existing, err := store.GetClusterPlugin(clusterID, plugin.ID); err == nil {
+			if existing.HelmRevision > 0 {
+				wantNS := req.ReleaseNamespaceOverride
+				if wantNS == "" {
+					wantNS = plugin.DefaultReleaseNamespace
+				}
+				haveNS := existing.ReleaseNamespaceOverride
+				if haveNS == "" {
+					haveNS = plugin.DefaultReleaseNamespace
+				}
+				if wantNS != haveNS {
+					apiErr(c, http.StatusBadRequest, CodePluginNamespaceLock)
+					return
+				}
+			}
+		}
+
 		cp := &store.ClusterPlugin{
 			ClusterID:                clusterID,
 			PluginID:                 plugin.ID,
