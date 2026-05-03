@@ -86,6 +86,7 @@ export default {
   'errors.CLUSTER_NOT_CONNECTED': '集群未连接，Worker 可能已离线',
   'errors.WORKER_TIMEOUT': '集群响应超时，请稍后重试',
   'errors.WORKER_ERROR': 'Worker 执行出错',
+  'errors.WORKER_CONFLICT': '资源已被其他人修改，请关闭后重新打开重试',
   'errors.NAMESPACE_PROTECTED': '该命名空间为只读（kube-* / kpilot-* 命名空间不允许直接修改）',
   'errors.PLUGIN_NOT_FOUND': '插件不存在',
   'errors.PLUGIN_NAME_EXISTS': '插件名称已存在',

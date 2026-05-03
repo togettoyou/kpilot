@@ -16,6 +16,7 @@ const (
 	CodeClusterNotConnected  = "CLUSTER_NOT_CONNECTED"
 	CodeWorkerError          = "WORKER_ERROR"
 	CodeWorkerTimeout        = "WORKER_TIMEOUT"
+	CodeWorkerConflict       = "WORKER_CONFLICT"
 	CodeNamespaceProtected   = "NAMESPACE_PROTECTED"
 	CodePluginNotFound       = "PLUGIN_NOT_FOUND"
 	CodePluginNameExists     = "PLUGIN_NAME_EXISTS"

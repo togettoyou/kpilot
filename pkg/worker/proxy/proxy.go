@@ -89,6 +89,8 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 		return p.get(ctx, mapping, req.Namespace, req.Name)
 	case "apply":
 		return p.apply(ctx, mapping, req.Namespace, req.Name, req.Body)
+	case "update":
+		return p.update(ctx, mapping, req.Namespace, req.Body)
 	case "delete":
 		return p.delete(ctx, mapping, req.Namespace, req.Name)
 	case "describe":
@@ -189,6 +191,42 @@ func (p *Proxy) apply(ctx context.Context, mapping *apimeta.RESTMapping, namespa
 		result, err = ri.Namespace(namespace).Patch(ctx, name, k8stypes.ApplyPatchType, body, opts)
 	} else {
 		result, err = ri.Patch(ctx, name, k8stypes.ApplyPatchType, body, opts)
+	}
+	if err != nil {
+		return fail(err.Error())
+	}
+	return marshal(result)
+}
+
+// update is the kubectl-edit equivalent: PUT the full object, K8s rejects
+// the call if the body's resourceVersion is stale (someone else modified
+// the object since the user opened the editor). This is what users expect
+// when they hit "save" in a YAML editor — what they typed is what lands,
+// no field-ownership games like SSA, and concurrent edits surface as a
+// 409 instead of one user silently overwriting the other.
+//
+// Used by ApplyWorkload (per-row Edit YAML). Apply YAML drawer keeps SSA
+// because that's `kubectl apply` semantics — declarative, idempotent,
+// no resourceVersion needed (intentional for drift-correcting workflows).
+func (p *Proxy) update(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, body []byte) *proto.ResourceResponse {
+	if !json.Valid(body) {
+		return fail("invalid body: not valid JSON")
+	}
+	obj := &unstructured.Unstructured{}
+	if err := obj.UnmarshalJSON(body); err != nil {
+		return fail(err.Error())
+	}
+	if obj.GetResourceVersion() == "" {
+		return fail("metadata.resourceVersion is required; reload the resource and retry")
+	}
+	ri := p.dyn.Resource(mapping.Resource)
+	opts := metav1.UpdateOptions{FieldManager: "kpilot"}
+	var result *unstructured.Unstructured
+	var err error
+	if namespace != "" {
+		result, err = ri.Namespace(namespace).Update(ctx, obj, opts)
+	} else {
+		result, err = ri.Update(ctx, obj, opts)
 	}
 	if err != nil {
 		return fail(err.Error())

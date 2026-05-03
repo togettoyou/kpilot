@@ -142,6 +142,14 @@ func GetWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 	}
 }
 
+// ApplyWorkload is the per-row "Edit YAML" save path. Despite the name,
+// it sends the worker an `update` (PUT) action — kubectl-edit semantics:
+// the body's resourceVersion is checked by K8s, concurrent edits surface
+// as 409 instead of one user silently overwriting the other.
+//
+// The Apply YAML drawer (multi-doc upload) goes through ApplyYAML below,
+// which uses the SSA `apply` action — that one's `kubectl apply`
+// semantics, no resourceVersion required.
 func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
@@ -170,7 +178,7 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
-			Action:    "apply",
+			Action:    "update",
 			Group:     gvk.group,
 			Version:   gvk.version,
 			Kind:      gvk.kind,
@@ -183,11 +191,28 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
+			// K8s' optimistic-concurrency error from a stale
+			// resourceVersion comes back as a string from worker.
+			// Translate to a typed code so the frontend can render
+			// "resource has been modified, please reload" instead of
+			// the bare K8s message.
+			if isConflictMessage(resp.Error) {
+				apiErr(c, http.StatusConflict, CodeWorkerConflict)
+				return
+			}
 			apiErrWorker(c, resp.Error)
 			return
 		}
 		c.Data(http.StatusOK, "application/json", resp.Data)
 	}
+}
+
+// isConflictMessage matches K8s' optimistic-concurrency rejection on
+// stale resourceVersion. The wire-level error is a structured Status,
+// but worker flattens it to a string before sending — we sniff for the
+// distinctive substring rather than re-marshalling on Server.
+func isConflictMessage(s string) bool {
+	return strings.Contains(s, "the object has been modified")
 }
 
 // ApplyYamlResult is one entry in the response array; one per parsed document.

@@ -93,6 +93,8 @@ export default {
     'Cluster not connected — Worker may be offline',
   'errors.WORKER_TIMEOUT': 'Cluster timed out, please try again',
   'errors.WORKER_ERROR': 'Worker returned an error',
+  'errors.WORKER_CONFLICT':
+    'Resource was modified by someone else. Close and reopen the editor to retry.',
   'errors.NAMESPACE_PROTECTED':
     'This namespace is read-only (kube-* / kpilot-* namespaces cannot be edited directly)',
   'errors.PLUGIN_NOT_FOUND': 'Plugin not found',
