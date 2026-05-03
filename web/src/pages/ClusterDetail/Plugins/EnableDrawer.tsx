@@ -1,3 +1,4 @@
+import { ReloadOutlined } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import { App, Button, Drawer, Form, Input, Space } from 'antd';
 import React, { useEffect, useState } from 'react';
@@ -40,6 +41,16 @@ export function EnableDrawer({
     });
   }, [open, target, form]);
 
+  // Reset wipes the per-cluster overrides and re-pre-fills the form
+  // from the registry's current defaults — escape hatch for users
+  // who got "stuck" on the values they set when the builtin shipped
+  // a different default (e.g. our k8s-stack → single migration).
+  const handleReset = () => {
+    if (!target) return;
+    setValues(target.plugin.default_values || '');
+    form.setFieldsValue({ version: '', namespace: '' });
+  };
+
   const handleSubmit = async () => {
     if (!target) return;
     const fv = await form.validateFields();
@@ -80,16 +91,29 @@ export function EnableDrawer({
       // doesn't carry over leftover state from the previous target.
       destroyOnHidden
       footer={
-        <Space style={{ float: 'right' }}>
-          <Button onClick={onClose}>
-            {intl.formatMessage({ id: 'pages.workloads.cancel' })}
-          </Button>
-          <Button type="primary" loading={submitting} onClick={handleSubmit}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <Button icon={<ReloadOutlined />} onClick={handleReset}>
             {intl.formatMessage({
-              id: 'pages.clusterPlugins.enableDrawer.submit',
+              id: 'pages.clusterPlugins.enableDrawer.reset',
             })}
           </Button>
-        </Space>
+          <Space>
+            <Button onClick={onClose}>
+              {intl.formatMessage({ id: 'pages.workloads.cancel' })}
+            </Button>
+            <Button type="primary" loading={submitting} onClick={handleSubmit}>
+              {intl.formatMessage({
+                id: 'pages.clusterPlugins.enableDrawer.submit',
+              })}
+            </Button>
+          </Space>
+        </div>
       }
     >
       {target && (

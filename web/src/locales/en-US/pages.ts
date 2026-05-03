@@ -69,6 +69,7 @@ export default {
   'pages.clusterPlugins.enableDrawer.namespacePlaceholder':
     'Leave empty for default ({default})',
   'pages.clusterPlugins.enableDrawer.submit': 'Enable',
+  'pages.clusterPlugins.enableDrawer.reset': 'Reset to defaults',
   'pages.clusterPlugins.enable.success': 'Enable request submitted',
   'pages.clusterPlugins.disable.success': 'Disable request submitted',
   'pages.clusterPlugins.phase.Disabled': 'Disabled',

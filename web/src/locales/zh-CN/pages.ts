@@ -63,6 +63,7 @@ export default {
   'pages.clusterPlugins.enableDrawer.namespace': '安装命名空间',
   'pages.clusterPlugins.enableDrawer.namespacePlaceholder': '留空则使用默认 {default}',
   'pages.clusterPlugins.enableDrawer.submit': '启用',
+  'pages.clusterPlugins.enableDrawer.reset': '重置为默认',
   'pages.clusterPlugins.enable.success': '已发起启用请求',
   'pages.clusterPlugins.disable.success': '已发起禁用请求',
   'pages.clusterPlugins.phase.Disabled': '未启用',
