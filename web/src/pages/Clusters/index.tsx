@@ -5,50 +5,41 @@ import {
   EditOutlined,
   KeyOutlined,
   MinusCircleOutlined,
+  MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { PageContainer } from '@ant-design/pro-components';
 import { history, useIntl, useRequest } from '@umijs/max';
+import type { MenuProps } from 'antd';
 import {
   App,
-  Badge,
   Button,
+  Card,
+  Dropdown,
+  Empty,
   Form,
   Input,
   Modal,
   Space,
+  Spin,
+  Statistic,
   Tag,
   Typography,
 } from 'antd';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
+  type Cluster,
+  type CreateClusterResult,
   createCluster,
   deleteCluster,
   listClusters,
   regenerateToken,
   updateCluster,
-  type Cluster,
-  type CreateClusterResult,
 } from '@/services/kpilot/cluster';
 
 const { Text, Paragraph } = Typography;
 
-const StatusBadge: React.FC<{ status: Cluster['status']; onlineLabel: string; offlineLabel: string }> = ({
-  status, onlineLabel, offlineLabel,
-}) => {
-  if (status === 'online') {
-    return (
-      <Badge status="success" text={
-        <Tag icon={<CheckCircleOutlined />} color="success">{onlineLabel}</Tag>
-      } />
-    );
-  }
-  return (
-    <Badge status="default" text={
-      <Tag icon={<MinusCircleOutlined />} color="default">{offlineLabel}</Tag>
-    } />
-  );
-};
+// ─── Token reveal modal (shown once after create / regenerate) ──────────────
 
 const TokenModal: React.FC<{
   result: { token: string };
@@ -73,13 +64,18 @@ const TokenModal: React.FC<{
       width={520}
     >
       <Space direction="vertical" className="w-full" size="middle">
-        <Text type="warning">
-          ⚠️ {warning}
-        </Text>
+        <Text type="warning">⚠️ {warning}</Text>
         <div>
-          <Text strong>{intl.formatMessage({ id: 'pages.clusters.token.label' })}</Text>
+          <Text strong>
+            {intl.formatMessage({ id: 'pages.clusters.token.label' })}
+          </Text>
           <Paragraph
-            copyable={{ onCopy: () => message.success(intl.formatMessage({ id: 'pages.clusters.copied' })) }}
+            copyable={{
+              onCopy: () =>
+                message.success(
+                  intl.formatMessage({ id: 'pages.clusters.copied' }),
+                ),
+            }}
             code
             className="mt-1 break-all"
           >
@@ -91,21 +87,152 @@ const TokenModal: React.FC<{
   );
 };
 
+// ─── Per-cluster card ───────────────────────────────────────────────────────
+
+interface ClusterCardProps {
+  cluster: Cluster;
+  onEdit: (c: Cluster) => void;
+  onRegenerate: (c: Cluster) => void;
+  onDelete: (c: Cluster) => void;
+}
+
+const ClusterCard: React.FC<ClusterCardProps> = ({
+  cluster,
+  onEdit,
+  onRegenerate,
+  onDelete,
+}) => {
+  const intl = useIntl();
+  const isOnline = cluster.status === 'online';
+
+  // Action menu items. Each handler stops propagation defensively in case
+  // a future antd version allows it to bubble up to the clickable Card.
+  const menuItems: MenuProps['items'] = [
+    {
+      key: 'edit',
+      icon: <EditOutlined />,
+      label: intl.formatMessage({ id: 'pages.clusters.action.edit' }),
+      onClick: ({ domEvent }) => {
+        domEvent.stopPropagation();
+        onEdit(cluster);
+      },
+    },
+    {
+      key: 'token',
+      icon: <KeyOutlined />,
+      label: intl.formatMessage({ id: 'pages.clusters.token.regenerate' }),
+      onClick: ({ domEvent }) => {
+        domEvent.stopPropagation();
+        onRegenerate(cluster);
+      },
+    },
+    { type: 'divider' },
+    {
+      key: 'delete',
+      icon: <DeleteOutlined />,
+      danger: true,
+      label: intl.formatMessage({ id: 'pages.clusters.action.delete' }),
+      onClick: ({ domEvent }) => {
+        domEvent.stopPropagation();
+        onDelete(cluster);
+      },
+    },
+  ];
+
+  const formatDate = (iso: string) => new Date(iso).toLocaleDateString();
+
+  return (
+    <Card
+      hoverable
+      onClick={() => history.push(`/clusters/${cluster.id}/nodes`)}
+      title={
+        <Space size={8}>
+          <ClusterOutlined className="text-blue-500" />
+          <span className="font-semibold">{cluster.name}</span>
+          <Tag
+            color={isOnline ? 'success' : 'default'}
+            icon={isOnline ? <CheckCircleOutlined /> : <MinusCircleOutlined />}
+            className="ml-1"
+          >
+            {intl.formatMessage({
+              id: isOnline
+                ? 'pages.clusters.status.online'
+                : 'pages.clusters.status.offline',
+            })}
+          </Tag>
+        </Space>
+      }
+      extra={
+        <Dropdown menu={{ items: menuItems }} trigger={['click']}>
+          <Button
+            type="text"
+            icon={<MoreOutlined />}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </Dropdown>
+      }
+    >
+      {/* Description — clamped to 2 lines so cards align consistently;
+          show a placeholder when empty so the card body doesn't collapse. */}
+      <Paragraph
+        type="secondary"
+        ellipsis={{ rows: 2, tooltip: cluster.description || undefined }}
+        className="mb-3 min-h-[44px]"
+      >
+        {cluster.description ||
+          intl.formatMessage({ id: 'pages.clusters.card.noDescription' })}
+      </Paragraph>
+      <div className="flex justify-between text-xs text-gray-400">
+        <span>
+          {intl.formatMessage(
+            { id: 'pages.clusters.card.createdAt' },
+            { date: formatDate(cluster.created_at) },
+          )}
+        </span>
+        <span>
+          {intl.formatMessage(
+            { id: 'pages.clusters.card.updatedAt' },
+            { date: formatDate(cluster.updated_at) },
+          )}
+        </span>
+      </div>
+    </Card>
+  );
+};
+
+// ─── Page ───────────────────────────────────────────────────────────────────
+
 export default function ClustersPage() {
   const { modal, message } = App.useApp();
   const intl = useIntl();
   const [createVisible, setCreateVisible] = useState(false);
   const [editingCluster, setEditingCluster] = useState<Cluster | null>(null);
-  const [tokenResult, setTokenResult] = useState<{ token: string; title: string; warning: string } | null>(null);
+  const [tokenResult, setTokenResult] = useState<{
+    token: string;
+    title: string;
+    warning: string;
+  } | null>(null);
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
 
-  const { data: clusters, loading, refresh } = useRequest(listClusters, {
+  const {
+    data: clusters,
+    loading,
+    refresh,
+  } = useRequest(listClusters, {
     pollingInterval: 10000,
     formatResult: (res) => res,
     pollingWhenHidden: false,
   });
   const clusterList: Cluster[] = Array.isArray(clusters) ? clusters : [];
+
+  // Derive stats client-side. Cheap, no extra round-trip; once we add
+  // node / GPU summaries this can move to a /summary endpoint.
+  const stats = useMemo(() => {
+    const total = clusterList.length;
+    const online = clusterList.filter((c) => c.status === 'online').length;
+    return { total, online, offline: total - online };
+  }, [clusterList]);
 
   const { loading: creating, run: doCreate } = useRequest(createCluster, {
     manual: true,
@@ -128,7 +255,9 @@ export default function ClustersPage() {
     onSuccess: () => {
       setEditingCluster(null);
       editForm.resetFields();
-      message.success(intl.formatMessage({ id: 'pages.clusters.edit.success' }));
+      message.success(
+        intl.formatMessage({ id: 'pages.clusters.edit.success' }),
+      );
       refresh();
     },
   });
@@ -139,27 +268,54 @@ export default function ClustersPage() {
     onSuccess: (result) => {
       setTokenResult({
         token: (result as { token: string }).token,
-        title: intl.formatMessage({ id: 'pages.clusters.token.regenerateTitle' }),
-        warning: intl.formatMessage({ id: 'pages.clusters.token.regenerateWarning' }),
+        title: intl.formatMessage({
+          id: 'pages.clusters.token.regenerateTitle',
+        }),
+        warning: intl.formatMessage({
+          id: 'pages.clusters.token.regenerateWarning',
+        }),
       });
     },
   });
 
-  const handleDelete = (record: Cluster) => {
+  const handleEdit = (c: Cluster) => {
+    setEditingCluster(c);
+    editForm.setFieldsValue({ name: c.name, description: c.description });
+  };
+
+  const handleRegenerate = (c: Cluster) => {
     modal.confirm({
-      title: intl.formatMessage({ id: 'pages.clusters.delete.title' }, { name: record.name }),
+      title: intl.formatMessage({ id: 'pages.clusters.token.regenerate' }),
+      content: intl.formatMessage({
+        id: 'pages.clusters.token.regenerateConfirm',
+      }),
+      okType: 'danger',
+      onOk: () => doRegenerate(c.id),
+    });
+  };
+
+  const handleDelete = (c: Cluster) => {
+    modal.confirm({
+      title: intl.formatMessage(
+        { id: 'pages.clusters.delete.title' },
+        { name: c.name },
+      ),
       content: intl.formatMessage({ id: 'pages.clusters.delete.content' }),
       okType: 'danger',
       onOk: async () => {
-        await deleteCluster(record.id);
-        message.success(intl.formatMessage({ id: 'pages.clusters.delete.success' }));
+        await deleteCluster(c.id);
+        message.success(
+          intl.formatMessage({ id: 'pages.clusters.delete.success' }),
+        );
         refresh();
       },
     });
   };
 
-  const onlineLabel = intl.formatMessage({ id: 'pages.clusters.status.online' });
-  const offlineLabel = intl.formatMessage({ id: 'pages.clusters.status.offline' });
+  // Distinguish "still loading initial data" from "loaded, empty" so we
+  // don't flash the empty state's "create your first cluster" CTA on the
+  // first render before the request resolves.
+  const isInitialLoading = clusters === undefined && loading;
 
   return (
     <PageContainer
@@ -168,113 +324,132 @@ export default function ClustersPage() {
         subTitle: intl.formatMessage({ id: 'pages.clusters.subtitle' }),
       }}
       extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateVisible(true)}>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => setCreateVisible(true)}
+        >
           {intl.formatMessage({ id: 'pages.clusters.addCluster' })}
         </Button>
       }
     >
-      <ProTable<Cluster>
-        rowKey="id"
-        loading={loading}
-        dataSource={clusterList}
-        scroll={{ x: 'max-content' }}
-        search={false}
-        toolBarRender={false}
-        pagination={false}
-        columns={[
-          {
-            title: intl.formatMessage({ id: 'pages.clusters.col.name' }),
-            dataIndex: 'name',
-            render: (_, record) => (
-              <a onClick={() => history.push(`/clusters/${record.id}/nodes`)}>
-                <ClusterOutlined className="mr-1" />
-                {record.name}
-              </a>
-            ),
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.clusters.col.status' }),
-            dataIndex: 'status',
-            width: 140,
-            render: (_, record) => (
-              <StatusBadge status={record.status} onlineLabel={onlineLabel} offlineLabel={offlineLabel} />
-            ),
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.clusters.col.description' }),
-            dataIndex: 'description',
-            ellipsis: true,
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.clusters.col.createdAt' }),
-            dataIndex: 'created_at',
-            width: 180,
-            render: (_, record) => new Date(record.created_at).toLocaleString(),
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.clusters.col.updatedAt' }),
-            dataIndex: 'updated_at',
-            width: 180,
-            render: (_, record) => new Date(record.updated_at).toLocaleString(),
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.clusters.col.action' }),
-            width: 160,
-            fixed: 'right',
-            render: (_, record) => (
-              <Space>
-                <Button
-                  type="text"
-                  icon={<EditOutlined />}
-                  title={intl.formatMessage({ id: 'pages.clusters.edit.title' })}
-                  onClick={() => {
-                    setEditingCluster(record);
-                    editForm.setFieldsValue({ name: record.name, description: record.description });
-                  }}
-                />
-                <Button
-                  type="text"
-                  icon={<KeyOutlined />}
-                  title={intl.formatMessage({ id: 'pages.clusters.token.regenerate' })}
-                  onClick={() =>
-                    modal.confirm({
-                      title: intl.formatMessage({ id: 'pages.clusters.token.regenerate' }),
-                      content: intl.formatMessage({ id: 'pages.clusters.token.regenerateConfirm' }),
-                      okType: 'danger',
-                      onOk: () => doRegenerate(record.id),
-                    })
-                  }
-                />
-                <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
-              </Space>
-            ),
-          },
-        ]}
-      />
+      {/* ── Stats row ───────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <Card>
+          <Statistic
+            title={intl.formatMessage({ id: 'pages.clusters.stats.total' })}
+            value={stats.total}
+            prefix={<ClusterOutlined />}
+          />
+        </Card>
+        <Card>
+          <Statistic
+            title={intl.formatMessage({ id: 'pages.clusters.stats.online' })}
+            value={stats.online}
+            valueStyle={{ color: '#52c41a' }}
+            prefix={<CheckCircleOutlined />}
+          />
+        </Card>
+        <Card>
+          <Statistic
+            title={intl.formatMessage({ id: 'pages.clusters.stats.offline' })}
+            value={stats.offline}
+            valueStyle={{ color: '#999' }}
+            prefix={<MinusCircleOutlined />}
+          />
+        </Card>
+      </div>
 
+      {/* ── Card grid / Empty state ─────────────────────────────────── */}
+      {isInitialLoading ? (
+        <div className="flex justify-center py-20">
+          <Spin size="large" />
+        </div>
+      ) : clusterList.length === 0 ? (
+        <Card>
+          <Empty
+            description={
+              <Space direction="vertical" size={4}>
+                <Text strong>
+                  {intl.formatMessage({ id: 'pages.clusters.empty.title' })}
+                </Text>
+                <Text type="secondary">
+                  {intl.formatMessage({ id: 'pages.clusters.empty.hint' })}
+                </Text>
+              </Space>
+            }
+          >
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setCreateVisible(true)}
+            >
+              {intl.formatMessage({ id: 'pages.clusters.empty.action' })}
+            </Button>
+          </Empty>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {clusterList.map((c) => (
+            <ClusterCard
+              key={c.id}
+              cluster={c}
+              onEdit={handleEdit}
+              onRegenerate={handleRegenerate}
+              onDelete={handleDelete}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Create modal ────────────────────────────────────────────── */}
       <Modal
         title={intl.formatMessage({ id: 'pages.clusters.modal.add' })}
         open={createVisible}
-        onCancel={() => { setCreateVisible(false); form.resetFields(); }}
+        onCancel={() => {
+          setCreateVisible(false);
+          form.resetFields();
+        }}
         onOk={() => form.submit()}
         confirmLoading={creating}
         okText={intl.formatMessage({ id: 'pages.clusters.modal.create' })}
       >
-        <Form form={form} layout="vertical" onFinish={(values) => doCreate(values)} className="mt-4">
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={(values) => doCreate(values)}
+          className="mt-4"
+        >
           <Form.Item
             name="name"
             label={intl.formatMessage({ id: 'pages.clusters.modal.name' })}
-            rules={[{ required: true, message: intl.formatMessage({ id: 'pages.clusters.modal.nameRequired' }) }]}
+            rules={[
+              {
+                required: true,
+                message: intl.formatMessage({
+                  id: 'pages.clusters.modal.nameRequired',
+                }),
+              },
+            ]}
           >
             <Input
-              placeholder={intl.formatMessage({ id: 'pages.clusters.modal.namePlaceholder' })}
+              placeholder={intl.formatMessage({
+                id: 'pages.clusters.modal.namePlaceholder',
+              })}
               maxLength={255}
             />
           </Form.Item>
-          <Form.Item name="description" label={intl.formatMessage({ id: 'pages.clusters.modal.description' })}>
+          <Form.Item
+            name="description"
+            label={intl.formatMessage({
+              id: 'pages.clusters.modal.description',
+            })}
+          >
             <Input.TextArea
               rows={2}
-              placeholder={intl.formatMessage({ id: 'pages.clusters.modal.descPlaceholder' })}
+              placeholder={intl.formatMessage({
+                id: 'pages.clusters.modal.descPlaceholder',
+              })}
               maxLength={500}
               showCount
             />
@@ -282,10 +457,14 @@ export default function ClustersPage() {
         </Form>
       </Modal>
 
+      {/* ── Edit modal ──────────────────────────────────────────────── */}
       <Modal
         title={intl.formatMessage({ id: 'pages.clusters.edit.title' })}
         open={!!editingCluster}
-        onCancel={() => { setEditingCluster(null); editForm.resetFields(); }}
+        onCancel={() => {
+          setEditingCluster(null);
+          editForm.resetFields();
+        }}
         onOk={() => editForm.submit()}
         confirmLoading={editing}
         okText={intl.formatMessage({ id: 'pages.clusters.edit.apply' })}
@@ -293,22 +472,38 @@ export default function ClustersPage() {
         <Form
           form={editForm}
           layout="vertical"
-          onFinish={(values) => doEdit(editingCluster!.id, values)}
+          onFinish={(values) => {
+            if (!editingCluster) return;
+            doEdit(editingCluster.id, values);
+          }}
           className="mt-4"
         >
           <Form.Item
             name="name"
             label={intl.formatMessage({ id: 'pages.clusters.modal.name' })}
-            rules={[{ required: true, message: intl.formatMessage({ id: 'pages.clusters.modal.nameRequired' }) }]}
+            rules={[
+              {
+                required: true,
+                message: intl.formatMessage({
+                  id: 'pages.clusters.modal.nameRequired',
+                }),
+              },
+            ]}
           >
             <Input maxLength={255} />
           </Form.Item>
-          <Form.Item name="description" label={intl.formatMessage({ id: 'pages.clusters.modal.description' })}>
+          <Form.Item
+            name="description"
+            label={intl.formatMessage({
+              id: 'pages.clusters.modal.description',
+            })}
+          >
             <Input.TextArea rows={2} maxLength={500} showCount />
           </Form.Item>
         </Form>
       </Modal>
 
+      {/* ── Token reveal modal ──────────────────────────────────────── */}
       {tokenResult && (
         <TokenModal
           result={tokenResult}
