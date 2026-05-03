@@ -3,7 +3,6 @@ export default {
 
   // plugin management
   'pages.plugins.title': '插件管理',
-  'pages.plugins.comingSoon': '敬请期待',
   'pages.plugins.subtitle': '管理 Helm Chart 插件',
   'pages.plugins.add': '添加插件',
   'pages.plugins.edit': '编辑',

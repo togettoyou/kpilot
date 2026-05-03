@@ -50,24 +50,28 @@ func UpdatePlugin(id uint, updates map[string]any) error {
 	return DB.Model(&Plugin{}).Where("id = ?", id).Updates(updates).Error
 }
 
-// PluginInUse reports whether any cluster currently holds this plugin
-// in a non-Disabled phase — i.e. a Helm release is (or might still
-// be) on at least one cluster. Used by the Delete handler to refuse
-// removal until users disable everywhere first; otherwise DELETE
-// would cascade-wipe ClusterPlugin rows and leave the cluster's
-// release orphaned with nothing tracking it.
-func PluginInUse(pluginID uint) (bool, error) {
-	var count int64
-	err := DB.Model(&ClusterPlugin{}).
-		Where("plugin_id = ? AND phase != ?", pluginID, PluginPhaseDisabled).
-		Count(&count).Error
-	return count > 0, err
-}
+// ErrPluginInUse is returned by DeletePlugin when at least one cluster
+// still has the plugin in a non-Disabled phase. Distinguishable from
+// other DB errors so the handler can surface a 409 / PLUGIN_IN_USE.
+var ErrPluginInUse = errors.New("plugin is in use by at least one cluster")
 
 func DeletePlugin(id uint) error {
 	// Cascade to per-cluster rows so we don't leave orphans pointing at a
-	// missing plugin id. Built-in protection is in the handler layer.
+	// missing plugin id. The in-use check has to happen INSIDE the same
+	// transaction — checking outside would race with a concurrent
+	// EnablePlugin (the SELECT could come back empty, then a row gets
+	// inserted, then we cascade-drop it under the running release).
+	// Built-in protection is in the handler layer.
 	return DB.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&ClusterPlugin{}).
+			Where("plugin_id = ? AND phase != ?", id, PluginPhaseDisabled).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return ErrPluginInUse
+		}
 		if err := tx.Where("plugin_id = ?", id).Delete(&ClusterPlugin{}).Error; err != nil {
 			return err
 		}

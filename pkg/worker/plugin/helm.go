@@ -119,10 +119,37 @@ func (h *HelmRunner) LoadChart(ref ChartRef) (*chart.Chart, error) {
 	if _, err := pull.Run(ref.Name); err != nil {
 		return nil, fmt.Errorf("pull chart: %w", err)
 	}
-	// Pull writes the .tgz to DestDir; pick it up by name+version.
+	// Pull writes the .tgz to DestDir. Prefer the exact-version filename
+	// when we have one — otherwise the glob below would match charts
+	// that share a name prefix (e.g. ref.Name="victoria-metrics" globs
+	// "victoria-metrics-single-*.tgz" too) and a stray cached residual
+	// could win the most-recent-ModTime tiebreaker.
+	if ref.Version != "" {
+		exact := filepath.Join(pull.DestDir, fmt.Sprintf("%s-%s.tgz", ref.Name, ref.Version))
+		if _, err := os.Stat(exact); err == nil {
+			return loader.Load(exact)
+		}
+	}
 	matches, err := filepath.Glob(filepath.Join(pull.DestDir, ref.Name+"-*.tgz"))
 	if err != nil || len(matches) == 0 {
 		return nil, fmt.Errorf("pulled chart not found: %v", err)
+	}
+	// Filter out matches that share only the prefix — a chart named
+	// `ref.Name-X` where X starts with non-digit isn't ours. Heuristic:
+	// the segment after the dash should start with a digit (semver) or
+	// be a plain version-like token. Best-effort; falls back to glob
+	// behavior if nothing matches the heuristic.
+	filtered := matches[:0]
+	prefix := ref.Name + "-"
+	for _, m := range matches {
+		base := filepath.Base(m)
+		rest := base[len(prefix) : len(base)-len(".tgz")]
+		if len(rest) > 0 && (rest[0] >= '0' && rest[0] <= '9' || rest[0] == 'v') {
+			filtered = append(filtered, m)
+		}
+	}
+	if len(filtered) > 0 {
+		matches = filtered
 	}
 	// Take the most recent match in case multiple versions are cached.
 	target := matches[0]

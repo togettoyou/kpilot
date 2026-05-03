@@ -79,6 +79,21 @@ const (
 	maxPluginValuesLen      = 64 * 1024
 )
 
+// validCategories is the closed set the FE Select restricts to. Mirror
+// it server-side so a hand-rolled API call can't store an arbitrary
+// string that would never group anywhere on the UI.
+var validCategories = map[store.PluginCategory]bool{
+	store.PluginCategoryGPU:        true,
+	store.PluginCategoryScheduling: true,
+	store.PluginCategoryNetworking: true,
+	store.PluginCategoryStorage:    true,
+	store.PluginCategoryMonitoring: true,
+	store.PluginCategoryLogging:    true,
+	store.PluginCategorySecurity:   true,
+	store.PluginCategoryServing:    true,
+	store.PluginCategoryCustom:     true,
+}
+
 // validate enforces shape + length invariants on the request. Returns
 // a code suitable for apiErr; empty string means valid.
 func (r *pluginRequest) validate() string {
@@ -91,6 +106,10 @@ func (r *pluginRequest) validate() string {
 		len(r.DefaultVersion) > maxPluginVersionLen ||
 		len(r.DefaultReleaseNamespace) > maxPluginNamespaceLen ||
 		len(r.DefaultValues) > maxPluginValuesLen {
+		return CodeInvalidRequest
+	}
+	// Empty category is allowed — Create/Update default it to "custom".
+	if r.Category != "" && !validCategories[r.Category] {
 		return CodeInvalidRequest
 	}
 	switch r.ChartType {
@@ -247,19 +266,14 @@ func DeletePlugin(c *gin.Context) {
 		apiErr(c, http.StatusForbidden, CodePluginBuiltinLocked)
 		return
 	}
-	// Refuse deletion while at least one cluster has the plugin in a
-	// non-Disabled phase — DELETE would cascade-drop ClusterPlugin
-	// rows and orphan the actual Helm release on those clusters.
-	inUse, err := store.PluginInUse(id)
-	if err != nil {
-		apiErrInternal(c, err)
-		return
-	}
-	if inUse {
-		apiErr(c, http.StatusConflict, CodePluginInUse)
-		return
-	}
+	// In-use check is now inside the same transaction as the cascade
+	// (see store.DeletePlugin). A racing EnablePlugin can't sneak a
+	// new ClusterPlugin row in between check and delete.
 	if err := store.DeletePlugin(id); err != nil {
+		if errors.Is(err, store.ErrPluginInUse) {
+			apiErr(c, http.StatusConflict, CodePluginInUse)
+			return
+		}
 		apiErrInternal(c, err)
 		return
 	}

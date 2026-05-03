@@ -8,6 +8,14 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/api/middleware"
 )
 
+// Length caps for login credentials. Generous but bounded — single-
+// tenant creds aren't bcrypt-compared so there's no CPU DoS angle, but
+// the three-layer cap rule (CLAUDE.md / 后端开发规范) still applies.
+const (
+	maxLoginUsernameLen = 255
+	maxLoginPasswordLen = 1024
+)
+
 type loginRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
@@ -20,9 +28,13 @@ func Login(adminUser, adminPass, jwtSecret string) gin.HandlerFunc {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
+		if len(req.Username) > maxLoginUsernameLen || len(req.Password) > maxLoginPasswordLen {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
 		if req.Username != adminUser || req.Password != adminPass {
 			// Login page handles this 200-level error directly; keep existing shape.
-			c.JSON(http.StatusOK, gin.H{"status": "error", "code": "LOGIN_INCORRECT"})
+			c.JSON(http.StatusOK, gin.H{"status": "error", "code": CodeLoginIncorrect})
 			return
 		}
 		token, err := middleware.IssueToken(jwtSecret, req.Username)

@@ -35,7 +35,17 @@ func ListClusters() ([]Cluster, error) {
 }
 
 func DeleteCluster(id string) error {
-	return DB.Where("id = ?", id).Delete(&Cluster{}).Error
+	// Cascade ClusterPlugin rows for this cluster — leaving them as
+	// orphans (FK pointing at a missing cluster row) breaks downstream
+	// joins and silently loses track of any Helm releases the deleted
+	// cluster might still have if it ever reconnects under a fresh
+	// token. Built-in/custom plugin rows in `plugins` are untouched.
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("cluster_id = ?", id).Delete(&ClusterPlugin{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&Cluster{}).Error
+	})
 }
 
 func UpdateClusterStatus(id string, status ClusterStatus) error {

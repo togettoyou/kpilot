@@ -241,6 +241,6 @@ func marshal(v interface{}) *proto.ResourceResponse {
 }
 
 func fail(msg string) *proto.ResourceResponse {
-	log.Printf("[proxy] error: %s", msg)
+	log.Printf("[proxy] resource op failed: err=%q", msg)
 	return &proto.ResourceResponse{Success: false, Error: msg}
 }

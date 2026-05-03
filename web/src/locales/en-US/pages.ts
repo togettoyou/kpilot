@@ -4,7 +4,6 @@ export default {
 
   // plugin management
   'pages.plugins.title': 'Plugin Management',
-  'pages.plugins.comingSoon': 'Coming soon',
   'pages.plugins.subtitle': 'Manage Helm chart plugins',
   'pages.plugins.add': 'Add Plugin',
   'pages.plugins.edit': 'Edit',
