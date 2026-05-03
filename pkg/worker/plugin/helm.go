@@ -19,10 +19,12 @@ import (
 )
 
 // helmInstallTimeout caps how long Helm waits for resources to become
-// Ready before declaring failure. Long enough for operator-style
-// charts that pull big images on first install (VictoriaMetrics
-// stack, HAMi), short enough that a wedged install gets visible.
-const helmInstallTimeout = 5 * time.Minute
+// Ready before declaring failure. Big images on a first-time pull
+// (VM stack, HAMi GPU images at hundreds of MB) routinely take 5+
+// minutes from a cold cache or a slow registry; 10 minutes leaves
+// room for that without leaving truly wedged installs hanging
+// indefinitely.
+const helmInstallTimeout = 10 * time.Minute
 
 // HelmDriver is the storage backend Helm uses for release state. "secrets"
 // stores release state as Kubernetes Secrets (the Helm v3 default).
