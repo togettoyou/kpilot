@@ -39,16 +39,13 @@ interface ApplyYamlDrawerProps {
 // replaced freely. The apply itself is type-agnostic — even on the Pods
 // page the user can paste a Service and it'll work.
 //
-// All workload templates use prom/pushgateway:latest — a ~12 MB
-// single-container HTTP server from the Prometheus team that exposes
-// /metrics on :9091 out of the box (Go runtime + HTTP stats, ~30
-// series). Combined with the built-in VictoriaMetrics plugin and the
-// pod's prometheus.io scrape annotations, applying any of these
-// templates produces metrics in the VM UI within 15 s. Bonus: the
-// pushgateway also accepts pushed metrics, so users can sanity-check
-// the pipe with `curl -X POST .../metrics/job/foo --data ...`. The
-// image is on Docker Hub, the most reliably reachable registry from
-// CN networks.
+// All workload templates use fortio/fortio:latest — a ~7 MB single
+// Go binary whose default CMD is `server`, listens on :8080 and
+// exposes /metrics out of the box (Go runtime + a few fortio_*
+// gauges). Combined with the built-in VictoriaMetrics plugin and
+// the pod's prometheus.io scrape annotations, applying any of these
+// templates produces metrics in the VM UI within 15 s. Image is on
+// Docker Hub, the most reliably reachable registry from CN networks.
 const TEMPLATES: Record<WorkloadResourceType, string> = {
   deployments: `apiVersion: apps/v1
 kind: Deployment
@@ -66,14 +63,14 @@ spec:
         app: example
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9091"
+        prometheus.io/port: "8080"
         prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
-          image: prom/pushgateway:latest
+          image: fortio/fortio:latest
           ports:
-            - containerPort: 9091
+            - containerPort: 8080
 `,
   statefulsets: `apiVersion: apps/v1
 kind: StatefulSet
@@ -92,14 +89,14 @@ spec:
         app: example
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9091"
+        prometheus.io/port: "8080"
         prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
-          image: prom/pushgateway:latest
+          image: fortio/fortio:latest
           ports:
-            - containerPort: 9091
+            - containerPort: 8080
 `,
   daemonsets: `apiVersion: apps/v1
 kind: DaemonSet
@@ -116,14 +113,14 @@ spec:
         app: example
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9091"
+        prometheus.io/port: "8080"
         prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
-          image: prom/pushgateway:latest
+          image: fortio/fortio:latest
           ports:
-            - containerPort: 9091
+            - containerPort: 8080
 `,
   pods: `apiVersion: v1
 kind: Pod
@@ -132,14 +129,14 @@ metadata:
   namespace: default
   annotations:
     prometheus.io/scrape: "true"
-    prometheus.io/port: "9091"
+    prometheus.io/port: "8080"
     prometheus.io/path: /metrics
 spec:
   containers:
     - name: app
-      image: prom/pushgateway:latest
+      image: fortio/fortio:latest
       ports:
-        - containerPort: 9091
+        - containerPort: 8080
 `,
   services: `apiVersion: v1
 kind: Service
@@ -150,8 +147,8 @@ spec:
   selector:
     app: example
   ports:
-    - port: 9091
-      targetPort: 9091
+    - port: 8080
+      targetPort: 8080
 `,
   ingresses: `apiVersion: networking.k8s.io/v1
 kind: Ingress
