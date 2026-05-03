@@ -126,7 +126,19 @@ export function PluginCard({
           and pushed to the card bottom via marginTop:auto so cards in the
           same flex row visually align even with different content height. */}
       {(onView || actions || (!plugin.is_builtin && (onEdit || onDelete))) && (
-        <Space style={{ marginTop: 'auto', justifyContent: 'flex-end', display: 'flex' }} wrap>
+        <Space
+          style={{
+            // Auto pushes the row to the bottom on cards stretched by
+            // their flex sibling; paddingTop guarantees a minimum gap
+            // above the buttons even on short cards where auto = 0
+            // (otherwise they sat right under the chart subtitle).
+            marginTop: 'auto',
+            paddingTop: 8,
+            justifyContent: 'flex-end',
+            display: 'flex',
+          }}
+          wrap
+        >
           {onView && (
             <Button size="small" icon={<EyeOutlined />} onClick={() => onView(plugin)}>
               {intl.formatMessage({ id: 'pages.plugins.view' })}
