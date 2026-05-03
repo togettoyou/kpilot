@@ -76,6 +76,12 @@ type Plugin struct {
 	IsBuiltin   bool           `gorm:"not null;default:false" json:"is_builtin"`
 	IconURL     string         `gorm:"type:varchar(512)" json:"icon_url"`
 
+	// SortOrder controls listing position WITHIN a category. Lower value
+	// = earlier. Built-in plugins set this in seed.go to match the
+	// logical "primary first, companions next" reading order; custom
+	// plugins default to 0 (sort by name).
+	SortOrder int `gorm:"not null;default:0" json:"sort_order"`
+
 	ChartType ChartType `gorm:"type:varchar(16);not null" json:"chart_type"`
 
 	// ChartType=repo

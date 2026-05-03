@@ -33,8 +33,11 @@ func GetPluginByName(name string) (*Plugin, error) {
 func ListPlugins() ([]Plugin, error) {
 	var plugins []Plugin
 	// Order: built-ins first (so the "内置" group renders at the top),
-	// then by category for stable grouping, then by name.
-	if err := DB.Order("is_builtin desc, category, name").Find(&plugins).Error; err != nil {
+	// then by category for stable grouping, then by sort_order within
+	// the category (lets seed.go put VictoriaMetrics ahead of node-
+	// exporter even though "n" < "v" alphabetically), with name as
+	// final tie-breaker.
+	if err := DB.Order("is_builtin desc, category, sort_order, name").Find(&plugins).Error; err != nil {
 		return nil, err
 	}
 	return plugins, nil

@@ -21,6 +21,7 @@ var builtinPlugins = []Plugin{
 		Description:             "GPU virtualization & vGPU scheduling for Kubernetes.",
 		Category:                PluginCategoryGPU,
 		IsBuiltin:               true,
+		SortOrder:               10,
 		IconURL:                 "",
 		ChartType:               ChartTypeRepo,
 		ChartRepo:               "https://project-hami.github.io/HAMi/",
@@ -35,6 +36,9 @@ var builtinPlugins = []Plugin{
 		Description: "Single-node TSDB for cluster metrics — long-term storage with a built-in Web UI. Pair with the victoria-metrics-agent plugin to scrape Kubernetes targets.",
 		Category:    PluginCategoryMonitoring,
 		IsBuiltin:   true,
+		// Primary metrics backend — show ahead of its supporting
+		// node-exporter companion within the monitoring category.
+		SortOrder: 10,
 		ChartType:   ChartTypeRepo,
 		ChartRepo:   "https://victoriametrics.github.io/helm-charts/",
 		// victoria-metrics-single is the lightweight option (one
@@ -77,6 +81,8 @@ var builtinPlugins = []Plugin{
 		Description: "Node-level hardware & OS metrics (CPU, memory, disk I/O, filesystem, network, load average). Required for the standard Grafana 'Node Exporter Full' dashboard and most node-focused monitoring queries — the kubelet/cadvisor stream alone doesn't cover this.",
 		Category:    PluginCategoryMonitoring,
 		IsBuiltin:   true,
+		// Companion to VictoriaMetrics; render after it in the list.
+		SortOrder: 20,
 		ChartType:   ChartTypeRepo,
 		ChartRepo:   "https://prometheus-community.github.io/helm-charts/",
 		ChartName:   "prometheus-node-exporter",
@@ -111,6 +117,7 @@ service:
 		Description:             "Container logs collection & storage.",
 		Category:                PluginCategoryLogging,
 		IsBuiltin:               true,
+		SortOrder:               10,
 		ChartType:               ChartTypeRepo,
 		ChartRepo:               "https://victoriametrics.github.io/helm-charts/",
 		ChartName:               "victoria-logs-single",
@@ -142,6 +149,7 @@ func SeedBuiltinPlugins(db *gorm.DB) error {
 				"description":               want.Description,
 				"category":                  want.Category,
 				"is_builtin":                true,
+				"sort_order":                want.SortOrder,
 				"icon_url":                  want.IconURL,
 				"chart_type":                want.ChartType,
 				"chart_repo":                want.ChartRepo,

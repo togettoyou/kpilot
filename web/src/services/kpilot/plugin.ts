@@ -28,6 +28,7 @@ export interface Plugin {
   description: string;
   category: PluginCategory;
   is_builtin: boolean;
+  sort_order?: number;
   icon_url?: string;
   chart_type: ChartType;
   chart_repo?: string;
