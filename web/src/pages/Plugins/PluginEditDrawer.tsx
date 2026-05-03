@@ -169,6 +169,9 @@ export function PluginEditDrawer({
       onClose={onClose}
       size={620}
       maskClosable={false}
+      // Re-mount on each open so scroll position resets, the form is
+      // fresh, and CodeMirror doesn't carry over stale state.
+      destroyOnHidden
       footer={
         readOnly ? (
           <Space style={{ float: 'right' }}>

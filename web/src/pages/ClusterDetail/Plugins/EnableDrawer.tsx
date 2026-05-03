@@ -76,6 +76,9 @@ export function EnableDrawer({
       onClose={onClose}
       size={620}
       maskClosable={false}
+      // Re-mount on each open so scroll resets and the values editor
+      // doesn't carry over leftover state from the previous target.
+      destroyOnHidden
       footer={
         <Space style={{ float: 'right' }}>
           <Button onClick={onClose}>
