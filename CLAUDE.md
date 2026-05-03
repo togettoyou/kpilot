@@ -178,8 +178,9 @@ kpilot/
 │   │   ├── store/           # PostgreSQL CRUD（GORM）
 │   │   └── gateway/         # gRPC Server + Worker 连接管理 + 一次性请求路由 + 流式会话路由
 │   ├── worker/
-│   │   ├── controller/      # K8s Controller（Plugin CRD 等，待实现）
+│   │   ├── apis/v1alpha1/   # Plugin CRD Go 类型 + DeepCopy（注册到 controller-runtime scheme）
 │   │   ├── collector/       # 节点信息采集（controller-runtime Watch）
+│   │   ├── plugin/          # Plugin CRD reconciler + Helm SDK + chart cache + manager
 │   │   ├── proxy/           # K8s 资源代理（list/get/apply/delete/describe + LogsManager + ExecManager）
 │   │   └── tunnel/          # gRPC Client（注册、心跳、消息分发）
 │   └── common/
