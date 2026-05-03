@@ -13,6 +13,8 @@ export default {
   'pages.plugins.delete.success': 'Plugin deleted',
   'pages.plugins.builtin': 'Built-in',
   'pages.plugins.empty': 'No plugins',
+  'pages.plugins.localFile': 'Local file',
+  'pages.plugins.localTag': 'Local',
   'pages.plugins.category.gpu': 'GPU',
   'pages.plugins.category.scheduling': 'Scheduling',
   'pages.plugins.category.networking': 'Networking',

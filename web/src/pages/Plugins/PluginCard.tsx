@@ -3,6 +3,18 @@ import { useIntl } from '@umijs/max';
 import { Avatar, Button, Card, Popconfirm, Space, Tag, Tooltip } from 'antd';
 import React from 'react';
 
+const SUBTITLE_STYLE: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--ant-color-text-secondary)',
+  fontWeight: 400,
+  lineHeight: 1.4,
+  // Long chart names like "victoria-metrics-k8s-stack" must not push
+  // the title row wider than the card; clip with ellipsis instead.
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
 import type { Plugin } from '@/services/kpilot/plugin';
 
 interface PluginCardProps {
@@ -35,24 +47,15 @@ export function PluginCard({
   const intl = useIntl();
   const initial = (plugin.display_name || plugin.name).slice(0, 2).toUpperCase();
 
-  // Show chart source as a small badge so users can tell at-a-glance
-  // whether a plugin pulls from a repo or runs from an uploaded file.
-  // Tooltip shows the chart name (helpful when the tag truncates on
-  // narrow cards or when the chart name and display name diverge).
-  const chartTag =
-    plugin.chart_type === 'repo' ? (
-      <Tooltip title={plugin.chart_name || plugin.name}>
-        <Tag color="blue" style={{ marginInlineEnd: 0 }}>
-          {plugin.chart_name || plugin.name}
-        </Tag>
-      </Tooltip>
-    ) : (
-      <Tooltip title={plugin.chart_name || plugin.name}>
-        <Tag color="purple" style={{ marginInlineEnd: 0 }}>
-          local
-        </Tag>
-      </Tooltip>
-    );
+  // Subtitle text under the display name — replaces the in-title tag,
+  // which didn't fit when chart names were long (victoria-metrics-k8s-
+  // stack, etc.). Tooltip surfaces the source (repo URL or "local file")
+  // since the visual no longer encodes type via tag color.
+  const subtitleText = plugin.chart_name || plugin.name;
+  const subtitleTooltip =
+    plugin.chart_type === 'repo'
+      ? plugin.chart_repo || subtitleText
+      : intl.formatMessage({ id: 'pages.plugins.localFile' });
 
   return (
     <Card
@@ -60,16 +63,23 @@ export function PluginCard({
       style={{ height: '100%' }}
       styles={{ body: { display: 'flex', flexDirection: 'column', gap: 8 } }}
       title={
-        <Space size={8}>
-          <Avatar size={28} src={plugin.icon_url || undefined}>
+        // Two-line stacked title: display_name on top, chart name below
+        // in secondary grey. Long chart names ellipsis instead of
+        // colliding with the top-right tag area. Tooltip shows the
+        // repo URL or "local file" depending on chart_type.
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <Avatar size={32} src={plugin.icon_url || undefined}>
             {initial}
           </Avatar>
-          <span style={{ fontWeight: 500 }}>{plugin.display_name}</span>
-          {/* Inline chart-source badge — secondary identifier sits next
-              to the display name instead of in the body, freeing up the
-              body for the description. */}
-          {chartTag}
-        </Space>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+            <span style={{ fontWeight: 500, lineHeight: 1.4 }}>
+              {plugin.display_name}
+            </span>
+            <Tooltip title={subtitleTooltip}>
+              <span style={SUBTITLE_STYLE}>{subtitleText}</span>
+            </Tooltip>
+          </div>
+        </div>
       }
       // The "内置" tag and the page-specific extra (phase badge on the
       // per-cluster page) both live in the top-right corner — combine
@@ -92,9 +102,14 @@ export function PluginCard({
           {plugin.description}
         </div>
       )}
-      {plugin.default_version && (
+      {(plugin.default_version || plugin.chart_type === 'local') && (
         <Space size={4} wrap>
-          <Tag>{plugin.default_version}</Tag>
+          {plugin.chart_type === 'local' && (
+            <Tag color="purple" style={{ marginInlineEnd: 0 }}>
+              {intl.formatMessage({ id: 'pages.plugins.localTag' })}
+            </Tag>
+          )}
+          {plugin.default_version && <Tag>{plugin.default_version}</Tag>}
         </Space>
       )}
       {/* Single bottom action row — right-aligned (marketplace convention)
