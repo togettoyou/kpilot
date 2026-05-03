@@ -59,7 +59,15 @@ var builtinPlugins = []Plugin{
 		// vmagent — the chart's bundled scrape config covers
 		// apiserver / nodes / pods. Users override per cluster via
 		// the Enable drawer.
+		//
+		// image.registry / image.repository are spelled out (matching
+		// the chart's defaults) so operators behind a private mirror
+		// can swap them without having to dig the chart values.yaml
+		// out — they're already in the form, ready to edit.
 		DefaultValues: `server:
+  image:
+    registry: ""
+    repository: victoriametrics/victoria-metrics
   retentionPeriod: "1"
   persistentVolume:
     size: 10Gi
