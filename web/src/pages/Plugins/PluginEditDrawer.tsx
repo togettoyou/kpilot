@@ -233,7 +233,13 @@ export function PluginEditDrawer({
           name="description"
           label={intl.formatMessage({ id: 'pages.plugins.form.description' })}
         >
-          <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} />
+          <Input.TextArea
+            // Cap matches the backend validator. Card display clamps
+            // to 3 lines anyway so longer text wouldn't show in full.
+            maxLength={500}
+            showCount
+            autoSize={{ minRows: 2, maxRows: 4 }}
+          />
         </Form.Item>
         <Form.Item
           name="category"

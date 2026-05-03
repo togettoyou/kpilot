@@ -124,9 +124,23 @@ export function PluginCard({
       }
     >
       {plugin.description && (
-        <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 13 }}>
-          {plugin.description}
-        </div>
+        <Tooltip title={plugin.description} placement="topLeft">
+          <div
+            style={{
+              color: 'var(--ant-color-text-secondary)',
+              fontSize: 13,
+              // Clamp at 3 lines so long descriptions can't blow up
+              // the card height. -webkit-line-clamp is the de-facto
+              // cross-browser way (Safari, Chrome, Firefox 68+).
+              display: '-webkit-box',
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {plugin.description}
+          </div>
+        </Tooltip>
       )}
       {(plugin.default_version || plugin.chart_type === 'local') && (
         <Space size={4} wrap>

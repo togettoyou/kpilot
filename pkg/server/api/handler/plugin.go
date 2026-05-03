@@ -62,9 +62,18 @@ type pluginRequest struct {
 	DefaultReleaseNamespace string                `json:"default_release_namespace"`
 }
 
+// maxDescriptionLen mirrors the frontend Input.TextArea maxLength so a
+// hand-rolled API request can't sneak a 100 KB description into the
+// DB. The card UI clamps display to 3 lines anyway, so anything past
+// here would never render fully.
+const maxDescriptionLen = 500
+
 // validate enforces the chart-type-specific invariants. Returns a code
 // suitable for apiErr (empty string means valid).
 func (r *pluginRequest) validate() string {
+	if len(r.Description) > maxDescriptionLen {
+		return CodeInvalidRequest
+	}
 	switch r.ChartType {
 	case store.ChartTypeRepo:
 		if r.ChartRepo == "" || r.ChartName == "" {
