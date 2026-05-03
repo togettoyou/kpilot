@@ -1,7 +1,7 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useIntl, useRequest } from '@umijs/max';
-import { App, Button, Col, Empty, Row, Spin, Typography } from 'antd';
+import { App, Button, Empty, Spin, Typography } from 'antd';
 import React, { useMemo, useState } from 'react';
 
 import type { Plugin, PluginCategory } from '@/services/kpilot/plugin';
@@ -107,9 +107,12 @@ export default function PluginsPage() {
             <Title level={5} style={{ marginBottom: 12 }}>
               {section.label}
             </Title>
-            <Row gutter={[16, 16]}>
+            {/* Flex-wrap with fixed-width cards: a category with one
+                plugin shows a single card at its natural width instead
+                of a stretched 25%-wide card with empty space. */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
               {section.plugins.map((p) => (
-                <Col key={p.id} xs={24} sm={12} md={8} xl={6}>
+                <div key={p.id} style={{ width: 300 }}>
                   <PluginCard
                     plugin={p}
                     onEdit={(plugin) => {
@@ -118,9 +121,9 @@ export default function PluginsPage() {
                     }}
                     onDelete={handleDelete}
                   />
-                </Col>
+                </div>
               ))}
-            </Row>
+            </div>
           </div>
         ))
       )}

@@ -3,10 +3,8 @@ import {
   App,
   Badge,
   Button,
-  Col,
   Empty,
   Popconfirm,
-  Row,
   Spin,
   Tooltip,
   Typography,
@@ -149,13 +147,13 @@ export default function ClusterPluginsPage() {
       </Button>
     );
     return (
-      <Col key={it.plugin.id} xs={24} sm={12} md={8} xl={6}>
+      <div key={it.plugin.id} style={{ width: 300 }}>
         <PluginCard
           plugin={it.plugin}
           extra={phaseTag}
           footer={<div>{action}</div>}
         />
-      </Col>
+      </div>
     );
   };
 
@@ -173,7 +171,12 @@ export default function ClusterPluginsPage() {
             <Title level={5} style={{ marginBottom: 12 }}>
               {section.label}
             </Title>
-            <Row gutter={[16, 16]}>{section.items.map(renderCard)}</Row>
+            {/* Flex-wrap with fixed-width cards: a category with one
+                plugin shows a single card at its natural width instead
+                of a stretched 25%-wide card with empty space. */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+              {section.items.map(renderCard)}
+            </div>
           </div>
         ))
       )}
