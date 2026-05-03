@@ -38,6 +38,13 @@ interface ApplyYamlDrawerProps {
 // These are deliberately minimal so the user has less to delete; cleared/
 // replaced freely. The apply itself is type-agnostic — even on the Pods
 // page the user can paste a Service and it'll work.
+//
+// All workload templates use prom/prometheus-example-app, which exposes
+// a /metrics endpoint on port 8080 with sample Prometheus metrics, plus
+// the standard prometheus.io scrape annotations on the pod. With the
+// built-in VictoriaMetrics plugin enabled this means a fresh apply will
+// show up in the VM UI within 15 s — useful as a demo and as a way to
+// verify the monitoring pipe end-to-end.
 const TEMPLATES: Record<WorkloadResourceType, string> = {
   deployments: `apiVersion: apps/v1
 kind: Deployment
@@ -53,10 +60,16 @@ spec:
     metadata:
       labels:
         app: example
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
-          image: nginx
+          image: prom/prometheus-example-app:v0.5.0
+          ports:
+            - containerPort: 8080
 `,
   statefulsets: `apiVersion: apps/v1
 kind: StatefulSet
@@ -73,10 +86,16 @@ spec:
     metadata:
       labels:
         app: example
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
-          image: nginx
+          image: prom/prometheus-example-app:v0.5.0
+          ports:
+            - containerPort: 8080
 `,
   daemonsets: `apiVersion: apps/v1
 kind: DaemonSet
@@ -91,20 +110,32 @@ spec:
     metadata:
       labels:
         app: example
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
-          image: nginx
+          image: prom/prometheus-example-app:v0.5.0
+          ports:
+            - containerPort: 8080
 `,
   pods: `apiVersion: v1
 kind: Pod
 metadata:
   name: example
   namespace: default
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: /metrics
 spec:
   containers:
     - name: app
-      image: nginx
+      image: prom/prometheus-example-app:v0.5.0
+      ports:
+        - containerPort: 8080
 `,
   services: `apiVersion: v1
 kind: Service
@@ -115,8 +146,8 @@ spec:
   selector:
     app: example
   ports:
-    - port: 80
-      targetPort: 80
+    - port: 8080
+      targetPort: 8080
 `,
   ingresses: `apiVersion: networking.k8s.io/v1
 kind: Ingress
