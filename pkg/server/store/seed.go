@@ -32,18 +32,37 @@ var builtinPlugins = []Plugin{
 	{
 		Name:        "victoria-metrics",
 		DisplayName: "VictoriaMetrics",
-		Description: "Cluster metrics & monitoring.",
+		Description: "Single-node TSDB for cluster metrics — long-term storage with a built-in Web UI. Pair with the victoria-metrics-agent plugin to scrape Kubernetes targets.",
 		Category:    PluginCategoryMonitoring,
 		IsBuiltin:   true,
 		ChartType:   ChartTypeRepo,
 		ChartRepo:   "https://victoriametrics.github.io/helm-charts/",
-		ChartName:   "victoria-metrics-k8s-stack",
-		// Without fullnameOverride the chart concatenates release name +
-		// "victoria-metrics-k8s-stack-..." for every sub-resource, which
-		// blows past the 63-char K8s name limit (e.g. Service "victoria-
-		// metrics-victoria-metrics-k8s-stack-kube-controller-manager").
-		// Pin a short prefix so install just works on first try.
-		DefaultValues:           "fullnameOverride: vmstack\n",
+		// victoria-metrics-single is the lightweight option (one
+		// vmsingle pod). The previous victoria-metrics-k8s-stack
+		// umbrella shipped operator + Grafana + Alertmanager + a
+		// dozen CRDs, which we found to be heavy for a default
+		// install and prone to webhook race conditions on first
+		// rollout. Users who want the full stack can add a custom
+		// plugin row.
+		ChartName: "victoria-metrics-single",
+		// Pin a known-good chart version so an upstream release
+		// can't break first-boot installs unexpectedly.
+		DefaultVersion: "0.37.0",
+		// Tighter PV + resource defaults so the install fits a
+		// dev/small cluster out of the box. Users override per
+		// cluster via the Enable drawer.
+		DefaultValues: `server:
+  retentionPeriod: "1"
+  persistentVolume:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+`,
 		DefaultReleaseNamespace: "monitoring",
 	},
 	{
