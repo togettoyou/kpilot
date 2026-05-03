@@ -60,7 +60,18 @@ export function PluginCard({
     <Card
       size="small"
       style={{ height: '100%' }}
-      styles={{ body: { display: 'flex', flexDirection: 'column', gap: 8 } }}
+      // antd Card size="small" uses very tight padding (8px header,
+      // 12px body); on a 280px-wide card it ended up with text
+      // bumping the frame. Push both to a comfortable 14×16.
+      styles={{
+        header: { padding: '10px 16px' },
+        body: {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          padding: '14px 16px',
+        },
+      }}
       title={
         // Two-line stacked title: display_name on top, chart name below
         // in secondary grey. Long chart names ellipsis instead of
