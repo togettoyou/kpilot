@@ -1,6 +1,11 @@
 package config
 
-import "os"
+import (
+	"log"
+	"os"
+
+	"github.com/joho/godotenv"
+)
 
 type Config struct {
 	ServerAddr   string
@@ -13,6 +18,7 @@ type Config struct {
 }
 
 func Load() *Config {
+	loadDotEnv()
 	return &Config{
 		ServerAddr:    envOr("SERVER_ADDR", "localhost:9090"),
 		ClusterToken:  envOr("CLUSTER_TOKEN", ""),
@@ -25,4 +31,17 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// loadDotEnv folds a .env file in the current working directory into the
+// process environment. Silently no-ops when absent. godotenv.Load (not
+// Overload) preserves already-set vars so shell / pod env always wins.
+func loadDotEnv() {
+	if err := godotenv.Load(); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[config] failed to load .env: %v", err)
+		}
+		return
+	}
+	log.Println("[config] loaded .env")
 }

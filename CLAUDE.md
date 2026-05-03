@@ -266,6 +266,7 @@ kpilot/
 - 全部走环境变量，集中在 `pkg/server/config/config.go` 的 `Load()`
 - 默认值用 `getEnv(key, default)` 风格
 - 列表型（如 `CORS_ORIGINS`）逗号分隔，解析时 trim space + 去空
+- 本地开发支持 `.env`：Server / Worker 启动时自动加载 cwd 下的 `.env`（godotenv），shell / pod 的 env 变量优先级高于 `.env`（不会被覆盖）。`.env.example` 为示例文件；`.env` 在 `.gitignore` 中
 
 ### CORS
 - 白名单制，从 `cfg.CORSOrigins` 读取

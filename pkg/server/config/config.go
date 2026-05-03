@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -19,6 +21,8 @@ type Config struct {
 }
 
 func Load() *Config {
+	loadDotEnv()
+
 	jwtSecret := envOr("JWT_SECRET", "")
 	if jwtSecret == "" {
 		jwtSecret = randomHex(32)
@@ -56,6 +60,22 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// loadDotEnv looks for a .env file in the current working directory and
+// folds its values into the process environment. Silently no-ops when
+// the file is absent — the only "supported" deployment path remains
+// real env vars (Kubernetes pod env, shell exports), and .env is a
+// convenience for local dev. godotenv.Load (not Overload) preserves
+// already-set vars so shell exports always win.
+func loadDotEnv() {
+	if err := godotenv.Load(); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[config] failed to load .env: %v", err)
+		}
+		return
+	}
+	log.Println("[config] loaded .env")
 }
 
 func randomHex(n int) string {
