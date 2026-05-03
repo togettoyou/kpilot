@@ -72,6 +72,40 @@ var builtinPlugins = []Plugin{
 		DefaultReleaseNamespace: "monitoring",
 	},
 	{
+		Name:        "node-exporter",
+		DisplayName: "Node Exporter",
+		Description: "Node-level hardware & OS metrics (CPU, memory, disk I/O, filesystem, network, load average). Required for the standard Grafana 'Node Exporter Full' dashboard and most node-focused monitoring queries — the kubelet/cadvisor stream alone doesn't cover this.",
+		Category:    PluginCategoryMonitoring,
+		IsBuiltin:   true,
+		ChartType:   ChartTypeRepo,
+		ChartRepo:   "https://prometheus-community.github.io/helm-charts/",
+		ChartName:   "prometheus-node-exporter",
+		// Pin a known-good chart version (chart 4.55.0 → app v1.11.1).
+		DefaultVersion: "4.55.0",
+		// Two overrides on top of the chart defaults:
+		//
+		// 1. image.registry: the chart pulls from quay.io by default,
+		//    which is unreliable from CN networks. Docker Hub mirrors
+		//    the same official image at prom/node-exporter, identical
+		//    binary, much more reliably reachable.
+		//
+		// 2. service.annotations.prometheus.io/port: the chart sets
+		//    "prometheus.io/scrape: true" but not the port. Our
+		//    bundled VM scrape config has a `keep_if_equal` relabel
+		//    that requires the annotation port to match the container
+		//    port; without an explicit "9100" the target gets dropped
+		//    silently and node metrics never flow into VM.
+		DefaultValues: `image:
+  registry: docker.io
+  repository: prom/node-exporter
+service:
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9100"
+`,
+		DefaultReleaseNamespace: "monitoring",
+	},
+	{
 		Name:                    "victoria-logs",
 		DisplayName:             "VictoriaLogs",
 		Description:             "Container logs collection & storage.",
