@@ -8,13 +8,17 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/client-go/kubernetes"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	pb "github.com/togettoyou/kpilot/pkg/common/proto"
+	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
 	"github.com/togettoyou/kpilot/pkg/worker/collector"
 	"github.com/togettoyou/kpilot/pkg/worker/config"
+	"github.com/togettoyou/kpilot/pkg/worker/plugin"
 	"github.com/togettoyou/kpilot/pkg/worker/proxy"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
 )
@@ -34,13 +38,29 @@ func main() {
 
 	tunnelClient := tunnel.NewClient(cfg.ServerAddr, cfg.ClusterToken)
 
-	// Set up controller-runtime Manager for node watching.
-	// Skipped gracefully when no kubeconfig is available (e.g. local dev without a cluster).
+	// Set up controller-runtime Manager. Skipped gracefully when no
+	// kubeconfig is available (e.g. local dev without a cluster).
 	k8sCfg, err := ctrlcfg.GetConfig()
 	if err != nil {
-		log.Printf("[worker] no kubeconfig available, node collection disabled: %v", err)
+		log.Printf("[worker] no kubeconfig available, node + plugin features disabled: %v", err)
 	} else {
+		// Build a scheme that includes both the standard k8s types and
+		// our Plugin CRD; controller-runtime needs both registered before
+		// the Manager starts so the Plugin reconciler can Watch and Get.
+		scheme := clientgoscheme.Scheme
+		if err := kpilotv1alpha1.AddToScheme(scheme); err != nil {
+			log.Fatalf("[worker] failed to add plugin scheme: %v", err)
+		}
+
+		// Install the Plugin CRD definition before the Manager Watch — we
+		// don't ship a separate Worker Helm chart yet, so this is the only
+		// place that registers the kind.
+		if err := plugin.EnsurePluginCRD(ctx, k8sCfg); err != nil {
+			log.Fatalf("[worker] failed to install plugin CRD: %v", err)
+		}
+
 		mgr, err := ctrl.NewManager(k8sCfg, ctrl.Options{
+			Scheme:                 scheme,
 			Metrics:                metricsserver.Options{BindAddress: "0"},
 			HealthProbeBindAddress: "0",
 		})
@@ -75,6 +95,30 @@ func main() {
 			execMgr.Resize,
 			execMgr.Cancel,
 		)
+
+		// ─── Plugin pipeline ────────────────────────────────────────────
+		// Local Helm chart .tgz cache. CHART_CACHE_DIR should be on a PVC
+		// so the cache survives Worker pod restarts.
+		chartCache, err := plugin.NewChartCache(cfg.ChartCacheDir)
+		if err != nil {
+			log.Fatalf("[worker] chart cache init: %v", err)
+		}
+		// Manager translates PluginCommand from gRPC into CRD writes.
+		pluginMgr := plugin.NewManager(mgr.GetClient(), chartCache)
+		tunnelClient.SetPluginHandler(func(cmd *pb.PluginCommand) error {
+			return pluginMgr.Handle(ctx, cmd)
+		})
+		// Reconciler watches Plugin CRDs and drives Helm.
+		reconciler := &plugin.Reconciler{
+			Client: mgr.GetClient(),
+			Helm:   plugin.NewHelmRunner(k8sCfg),
+			Cache:  chartCache,
+			Push:   plugin.NewPusherAdapter(tunnelClient),
+			Scheme: scheme,
+		}
+		if err := reconciler.SetupWithManager(mgr); err != nil {
+			log.Fatalf("[worker] plugin reconciler setup: %v", err)
+		}
 
 		go func() {
 			if err := mgr.Start(ctx); err != nil {

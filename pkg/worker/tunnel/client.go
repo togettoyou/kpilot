@@ -34,6 +34,12 @@ type Client struct {
 	onConnected     func(context.Context) // called in a goroutine after each successful registration
 	resourceHandler func(requestID string, req *proto.ResourceRequest)
 
+	// pluginHandler is invoked (in a new goroutine) when the Server pushes
+	// a PluginCommand. The handler is expected to translate it into CRD
+	// operations on the local cluster; reconciliation happens via the
+	// controller-runtime watch loop, not here.
+	pluginHandler func(cmd *proto.PluginCommand) error
+
 	// Streaming session handlers — invoked when the corresponding ServerMessage
 	// payload arrives. The handler is responsible for spawning its own
 	// goroutine for long-lived sessions; this dispatcher only routes.
@@ -66,6 +72,30 @@ func (c *Client) SetOnConnected(fn func(context.Context)) {
 // the Server sends a ResourceRequest. Used by the P3 proxy layer.
 func (c *Client) SetResourceHandler(fn func(requestID string, req *proto.ResourceRequest)) {
 	c.resourceHandler = fn
+}
+
+// SetPluginHandler registers a callback invoked (in a new goroutine) when
+// the Server sends a PluginCommand. Errors returned from the handler are
+// logged but not propagated — the reconciler reports per-release outcomes
+// via PluginStatusPush, which is the canonical channel for status.
+func (c *Client) SetPluginHandler(fn func(cmd *proto.PluginCommand) error) {
+	c.pluginHandler = fn
+}
+
+// PushPluginStatus emits a PluginStatusPush message back to the Server
+// from the reconciler. Safe to call from any goroutine — the underlying
+// stream Send is serialized via sendMu.
+func (c *Client) PushPluginStatus(crdName string, st *proto.PluginStatusPush) {
+	c.mu.Lock()
+	s := c.stream
+	c.mu.Unlock()
+	if s == nil {
+		return
+	}
+	st.CrdName = crdName
+	_ = c.safeSend(s, &proto.WorkerMessage{
+		Payload: &proto.WorkerMessage_PluginStatus{PluginStatus: st},
+	})
 }
 
 // SetStreamHandlers registers callbacks for streaming sessions (Pod logs and
@@ -283,8 +313,14 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 			go c.resourceHandler(msg.RequestId, p.ResourceReq)
 		}
 	case *proto.ServerMessage_PluginCmd:
-		// TODO P4
-		_ = p
+		if c.pluginHandler != nil {
+			go func(cmd *proto.PluginCommand) {
+				if err := c.pluginHandler(cmd); err != nil {
+					log.Printf("[tunnel] plugin handler: action=%s name=%s err=%v",
+						cmd.Action, cmd.CrdName, err)
+				}
+			}(p.PluginCmd)
+		}
 	case *proto.ServerMessage_LogsStart:
 		if c.logsStartHandler != nil {
 			go c.logsStartHandler(msg.RequestId, p.LogsStart)
