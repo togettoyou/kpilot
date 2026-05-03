@@ -459,7 +459,13 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
       width: isPods ? 300 : 180,
       fixed: 'right',
       render: (_, record) => {
-        const isProtected = (record.namespace ?? '').startsWith('kube-');
+        // Mirror the backend's protected-namespace list. kube-* covers
+        // control-plane workloads; kpilot-* covers built-in plugin
+        // installs (VictoriaMetrics / Node Exporter / VictoriaLogs / HAMi)
+        // — managing those goes through the Plugins page, not the
+        // workload list.
+        const ns = record.namespace ?? '';
+        const isProtected = ns.startsWith('kube-') || ns.startsWith('kpilot-');
         const describeBtn = (
           <Button
             key="describe"

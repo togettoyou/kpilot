@@ -134,7 +134,7 @@ status:
 - 服务端游标分页（limit + continue token），支持前后翻页
 - 工具栏：当前页客户端搜索（name + namespace + 所有动态列子串匹配）、手动刷新 + 定时刷新（5s/10s/30s/60s）
 - 全局命名空间选择器（顶部栏，进入工作负载相关页面时显示，PV 页面自动隐藏；按集群独立保存；默认"全部命名空间"，支持客户端搜索 + 刷新）
-- kube-* 命名空间只读（前端隐藏操作按钮，后端返回 403）
+- `kube-*` / `kpilot-*` 命名空间只读（前端隐藏操作按钮，后端返回 403）。`kube-*` 防误删控制面，`kpilot-*` 是内置插件安装的命名空间（监控 / 日志 / GPU），管理走插件页而不是工作负载列表
 - YAML 编辑器：CodeMirror 6，有语法高亮，status 区块视觉变暗（不可改）
 - **通用 Apply YAML**：用户输入或拖拽上传 .yaml/.yml/.json，支持多文档 `---` 分隔，每条独立 SSA，返回逐条结果（成功/失败 + 错误消息）
 - **资源详情（Describe）**：所有工作负载操作栏带"详情"按钮，调用 `k8s.io/kubectl/pkg/describe` 输出与 `kubectl describe` 一致的文本，前端做最小化高亮（key 着色 + Events Type Normal/Warning 着色）

@@ -22,6 +22,27 @@ import (
 const workerTimeout = 30 * time.Second
 const maxBodySize = 1 << 20 // 1 MB — sufficient for any K8s manifest
 
+// protectedNamespacePrefixes lists namespace name prefixes whose
+// resources are read-only via the Workloads UI. The frontend hides
+// edit/delete buttons for these and the backend rejects writes with
+// 403 / NAMESPACE_PROTECTED.
+//
+// `kube-*` covers control-plane namespaces (kube-system, kube-public,
+// kube-node-lease). `kpilot-*` protects the namespaces our built-in
+// plugins install into (kpilot-monitoring, kpilot-logging, kpilot-gpu)
+// so users don't accidentally `kubectl delete deployment` the
+// VictoriaMetrics pod from the workload list.
+var protectedNamespacePrefixes = []string{"kube-", "kpilot-"}
+
+func isProtectedNamespace(ns string) bool {
+	for _, p := range protectedNamespacePrefixes {
+		if strings.HasPrefix(ns, p) {
+			return true
+		}
+	}
+	return false
+}
+
 type gvkInfo struct {
 	group, version, kind string
 }
@@ -134,7 +155,7 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		if strings.HasPrefix(namespace, "kube-") {
+		if isProtectedNamespace(namespace) {
 			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
 			return
 		}
@@ -255,7 +276,7 @@ func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID strin
 		r.Error = "missing metadata.name"
 		return r
 	}
-	if strings.HasPrefix(r.Namespace, "kube-") {
+	if isProtectedNamespace(r.Namespace) {
 		r.Error = "namespace " + r.Namespace + " is read-only"
 		return r
 	}
@@ -342,7 +363,7 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		if strings.HasPrefix(namespace, "kube-") {
+		if isProtectedNamespace(namespace) {
 			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
 			return
 		}

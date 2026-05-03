@@ -94,7 +94,7 @@ export default {
   'errors.WORKER_TIMEOUT': 'Cluster timed out, please try again',
   'errors.WORKER_ERROR': 'Worker returned an error',
   'errors.NAMESPACE_PROTECTED':
-    'This namespace is read-only (kube-* namespaces cannot be modified)',
+    'This namespace is read-only (kube-* / kpilot-* namespaces cannot be edited directly)',
   'errors.PLUGIN_NOT_FOUND': 'Plugin not found',
   'errors.PLUGIN_NAME_EXISTS': 'Plugin name already exists',
   'errors.PLUGIN_BUILTIN_LOCKED': 'Built-in plugins cannot be modified or deleted',
