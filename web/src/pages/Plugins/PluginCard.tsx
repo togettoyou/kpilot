@@ -61,14 +61,23 @@ export function PluginCard({
             {initial}
           </Avatar>
           <span style={{ fontWeight: 500 }}>{plugin.display_name}</span>
-          {plugin.is_builtin && (
-            <Tag color="gold">
-              {intl.formatMessage({ id: 'pages.plugins.builtin' })}
-            </Tag>
-          )}
         </Space>
       }
-      extra={extra}
+      // The "内置" tag and the page-specific extra (phase badge on the
+      // per-cluster page) both live in the top-right corner — combine
+      // them into one Space so the title row stays uncluttered.
+      extra={
+        plugin.is_builtin || extra ? (
+          <Space size={8}>
+            {plugin.is_builtin && (
+              <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                {intl.formatMessage({ id: 'pages.plugins.builtin' })}
+              </Tag>
+            )}
+            {extra}
+          </Space>
+        ) : undefined
+      }
     >
       {plugin.description && (
         <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 13 }}>
