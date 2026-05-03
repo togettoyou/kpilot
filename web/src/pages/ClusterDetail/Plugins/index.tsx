@@ -166,6 +166,11 @@ function PhaseTag({
               maxWidth: 560,
               maxHeight: 400,
               overflow: 'auto',
+              // Stop the wheel/touchpad scroll from chaining to the
+              // page once we hit either edge — without this, scrolling
+              // a long Helm error past its end made the whole window
+              // jump.
+              overscrollBehavior: 'contain',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
               fontFamily:
