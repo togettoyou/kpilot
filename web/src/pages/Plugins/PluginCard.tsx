@@ -70,18 +70,20 @@ export function PluginCard({
       }
       extra={extra}
     >
-      <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 13, minHeight: 36 }}>
-        {plugin.description || '—'}
-      </div>
+      {plugin.description && (
+        <div style={{ color: 'var(--ant-color-text-secondary)', fontSize: 13 }}>
+          {plugin.description}
+        </div>
+      )}
       <Space size={4} wrap>
         {chartTag}
         {plugin.default_version && <Tag>{plugin.default_version}</Tag>}
       </Space>
-      {/* Single bottom action row — keeps cards visually flush regardless
-          of how many buttons render. marginTop: auto pushes it to the
-          card bottom so cards in the same flex row align. */}
+      {/* Single bottom action row — right-aligned (marketplace convention)
+          and pushed to the card bottom via marginTop:auto so cards in the
+          same flex row visually align even with different content height. */}
       {(onView || actions || (!plugin.is_builtin && (onEdit || onDelete))) && (
-        <Space style={{ marginTop: 'auto' }} wrap>
+        <Space style={{ marginTop: 'auto', justifyContent: 'flex-end', display: 'flex' }} wrap>
           {onView && (
             <Button size="small" icon={<EyeOutlined />} onClick={() => onView(plugin)}>
               {intl.formatMessage({ id: 'pages.plugins.view' })}

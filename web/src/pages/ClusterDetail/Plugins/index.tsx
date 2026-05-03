@@ -153,7 +153,7 @@ export default function ClusterPluginsPage() {
       </Button>
     );
     return (
-      <div key={it.plugin.id} style={{ width: 300 }}>
+      <div key={it.plugin.id} style={{ width: 280 }}>
         <PluginCard
           plugin={it.plugin}
           onView={(p) => setViewing(p)}

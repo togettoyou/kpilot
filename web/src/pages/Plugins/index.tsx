@@ -116,7 +116,7 @@ export default function PluginsPage() {
                 of a stretched 25%-wide card with empty space. */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
               {section.plugins.map((p) => (
-                <div key={p.id} style={{ width: 300 }}>
+                <div key={p.id} style={{ width: 280 }}>
                   <PluginCard
                     plugin={p}
                     onView={(plugin) => {
