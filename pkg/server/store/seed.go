@@ -16,18 +16,42 @@ import (
 // migration).
 var builtinPlugins = []Plugin{
 	{
-		Name:                    "hami",
-		DisplayName:             "HAMi",
-		Description:             "GPU virtualization & vGPU scheduling for Kubernetes.",
-		Category:                PluginCategoryGPU,
-		IsBuiltin:               true,
-		SortOrder:               10,
-		IconURL:                 "",
-		ChartType:               ChartTypeRepo,
-		ChartRepo:               "https://project-hami.github.io/HAMi/",
-		ChartName:               "hami",
-		DefaultVersion:          "",
-		DefaultValues:           "",
+		Name:        "hami",
+		DisplayName: "HAMi",
+		Description: "GPU virtualization & vGPU scheduling. NOTE: before enabling, set scheduler.kubeScheduler.image.tag to your cluster's Kubernetes version (e.g. v1.30.0) — HAMi runs a sidecar kube-scheduler that needs the matching image.",
+		Category:    PluginCategoryGPU,
+		IsBuiltin:   true,
+		SortOrder:   10,
+		IconURL:     "",
+		ChartType:   ChartTypeRepo,
+		ChartRepo:   "https://project-hami.github.io/HAMi/",
+		ChartName:   "hami",
+		// Pin chart 2.8.1 (app v2.8.1).
+		DefaultVersion: "2.8.1",
+		// Three image groups expose registry/repo so private-mirror
+		// users have ready hooks. The kube-scheduler tag is left empty
+		// on purpose — it MUST match the cluster's K8s version (e.g.
+		// v1.30.0), and there's no sensible cluster-agnostic default;
+		// the comment in the YAML guides the operator. Without a real
+		// value here the chart falls back to AppVersion which pulls
+		// kube-scheduler:2.8.1 (doesn't exist) and the install fails.
+		DefaultValues: `scheduler:
+  kubeScheduler:
+    image:
+      registry: registry.cn-hangzhou.aliyuncs.com
+      repository: google_containers/kube-scheduler
+      # REQUIRED: set to match your cluster's Kubernetes version,
+      # e.g. v1.30.0. Run "kubectl version" to find it.
+      tag: ""
+devicePlugin:
+  image:
+    registry: docker.io
+    repository: projecthami/hami
+  monitor:
+    image:
+      registry: docker.io
+      repository: projecthami/hami
+`,
 		DefaultReleaseNamespace: "kpilot-gpu",
 	},
 	{
