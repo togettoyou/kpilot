@@ -98,6 +98,10 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       children: [
         { path: `${base}/workloads/services`, name: 'services' },
         { path: `${base}/workloads/ingresses`, name: 'ingresses' },
+        { path: `${base}/workloads/gatewayclasses`, name: 'gatewayclasses' },
+        { path: `${base}/workloads/gateways`, name: 'gateways' },
+        { path: `${base}/workloads/httproutes`, name: 'httproutes' },
+        { path: `${base}/workloads/grpcroutes`, name: 'grpcroutes' },
       ],
     },
     {

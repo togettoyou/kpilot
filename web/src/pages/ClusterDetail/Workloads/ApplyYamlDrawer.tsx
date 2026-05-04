@@ -170,6 +170,64 @@ spec:
                 port:
                   number: 80
 `,
+  // Gateway API templates assume the Envoy Gateway plugin is installed
+  // (controllerName: gateway.envoyproxy.io/gatewayclass-controller).
+  // Swap that string if a different Gateway API implementation is in use.
+  gatewayclasses: `apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: example-gc
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+`,
+  gateways: `apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: example-gateway
+  namespace: default
+spec:
+  gatewayClassName: example-gc
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+`,
+  httproutes: `apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: example-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: example-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: example
+          port: 8080
+`,
+  grpcroutes: `apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: example-grpc-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: example-gateway
+  rules:
+    - matches:
+        - method:
+            service: example.Greeter
+      backendRefs:
+        - name: example-grpc
+          port: 9000
+`,
   configmaps: `apiVersion: v1
 kind: ConfigMap
 metadata:

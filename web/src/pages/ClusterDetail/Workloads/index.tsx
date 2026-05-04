@@ -248,13 +248,21 @@ const VALID_TYPES = new Set<string>([
   'pods',
   'services',
   'ingresses',
+  'gatewayclasses',
+  'gateways',
+  'httproutes',
+  'grpcroutes',
   'configmaps',
   'secrets',
   'persistentvolumeclaims',
   'persistentvolumes',
 ]);
 
-const CLUSTER_SCOPED = new Set<string>(['persistentvolumes']);
+// Cluster-scoped resources have no metadata.namespace and the UI hides
+// the namespace selector / column when one of these is shown.
+// GatewayClass joins the existing PV entry — the rest of the Gateway API
+// kinds are namespace-scoped.
+const CLUSTER_SCOPED = new Set<string>(['persistentvolumes', 'gatewayclasses']);
 
 interface WorkloadsContentProps {
   clusterId: string;

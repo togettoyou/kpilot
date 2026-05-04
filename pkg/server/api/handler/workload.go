@@ -48,17 +48,27 @@ type gvkInfo struct {
 }
 
 // resourceGVK maps the URL :type segment to Kubernetes GVK.
+//
+// Gateway API kinds (gateway.networking.k8s.io) are conditional on the
+// cluster having the upstream Gateway API CRDs installed. The worker's
+// dynamic RESTMapper handles unknown kinds at request time — listing a
+// Gateway page on a cluster without the CRD just yields a 404
+// "no such kind", which the UI surfaces as the worker error.
 var resourceGVK = map[string]gvkInfo{
-	"deployments":             {"apps", "v1", "Deployment"},
-	"statefulsets":            {"apps", "v1", "StatefulSet"},
-	"daemonsets":              {"apps", "v1", "DaemonSet"},
-	"pods":                    {"", "v1", "Pod"},
-	"services":                {"", "v1", "Service"},
-	"ingresses":               {"networking.k8s.io", "v1", "Ingress"},
-	"configmaps":              {"", "v1", "ConfigMap"},
-	"secrets":                 {"", "v1", "Secret"},
-	"persistentvolumeclaims":  {"", "v1", "PersistentVolumeClaim"},
-	"persistentvolumes":       {"", "v1", "PersistentVolume"},
+	"deployments":            {"apps", "v1", "Deployment"},
+	"statefulsets":           {"apps", "v1", "StatefulSet"},
+	"daemonsets":             {"apps", "v1", "DaemonSet"},
+	"pods":                   {"", "v1", "Pod"},
+	"services":               {"", "v1", "Service"},
+	"ingresses":              {"networking.k8s.io", "v1", "Ingress"},
+	"gatewayclasses":         {"gateway.networking.k8s.io", "v1", "GatewayClass"},
+	"gateways":               {"gateway.networking.k8s.io", "v1", "Gateway"},
+	"httproutes":             {"gateway.networking.k8s.io", "v1", "HTTPRoute"},
+	"grpcroutes":             {"gateway.networking.k8s.io", "v1", "GRPCRoute"},
+	"configmaps":             {"", "v1", "ConfigMap"},
+	"secrets":                {"", "v1", "Secret"},
+	"persistentvolumeclaims": {"", "v1", "PersistentVolumeClaim"},
+	"persistentvolumes":      {"", "v1", "PersistentVolume"},
 }
 
 func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {

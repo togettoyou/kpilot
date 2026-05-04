@@ -2,7 +2,9 @@ import { request } from '@umijs/max';
 
 export type WorkloadResourceType =
   | 'deployments' | 'statefulsets' | 'daemonsets' | 'pods'
-  | 'services' | 'ingresses' | 'configmaps' | 'secrets'
+  | 'services' | 'ingresses'
+  | 'gatewayclasses' | 'gateways' | 'httproutes' | 'grpcroutes'
+  | 'configmaps' | 'secrets'
   | 'persistentvolumeclaims' | 'persistentvolumes';
 
 export interface WorkloadItem {
