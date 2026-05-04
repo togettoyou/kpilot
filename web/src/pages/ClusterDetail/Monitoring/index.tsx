@@ -7,7 +7,7 @@ import {
 } from '@ant-design/icons';
 import { history, useIntl, useParams, useRequest } from '@umijs/max';
 import { Alert, Button, Result, Spin, Tooltip } from 'antd';
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 
 import {
   listClusterPlugins,
@@ -46,9 +46,46 @@ function rollUp(phase: PluginPhase | undefined, enabled: boolean): PluginGroupSt
   }
 }
 
+// muteAncestorScroll walks up from `el` and stops every scrollable ancestor
+// from scrolling for the lifetime returned by the cleanup. Used so the
+// embedded Grafana iframe's overflow can't chain into ProLayout's content
+// area (or html/body) when the user wheels past the iframe's own bottom.
+//
+// We can't fix this with CSS on the iframe alone: scroll-chaining starts
+// in the iframe's document and bubbles to the first scrollable ancestor
+// in the host document, which is whatever ProLayout sets up — height calc
+// + overflow:hidden on a sibling wrapper doesn't catch the chain.
+function muteAncestorScroll(el: HTMLElement): () => void {
+  type Saved = { el: HTMLElement; overflowY: string; overflowX: string };
+  const muted: Saved[] = [];
+  let p: HTMLElement | null = el.parentElement;
+  while (p) {
+    const cs = getComputedStyle(p);
+    if (cs.overflowY === 'auto' || cs.overflowY === 'scroll' ||
+      cs.overflowX === 'auto' || cs.overflowX === 'scroll') {
+      muted.push({
+        el: p,
+        overflowY: p.style.overflowY,
+        overflowX: p.style.overflowX,
+      });
+      p.style.overflowY = 'hidden';
+      p.style.overflowX = 'hidden';
+    }
+    if (p === document.documentElement) break;
+    p = p.parentElement;
+  }
+  return () => {
+    for (const m of muted) {
+      m.el.style.overflowY = m.overflowY;
+      m.el.style.overflowX = m.overflowX;
+    }
+  };
+}
+
 const MonitoringPage: React.FC = () => {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   const { data, loading, refresh } = useRequest(
     () => listClusterPlugins(clusterId!),
@@ -99,6 +136,18 @@ const MonitoringPage: React.FC = () => {
     return () => clearInterval(t);
   }, [summary.anyInstalling, refresh]);
 
+  // While the iframe is on screen, freeze every scrollable ancestor so the
+  // wheel event has nowhere to chain when Grafana's own scroll hits a
+  // boundary. Restored on unmount or when the iframe disappears (deps flip
+  // away from allReady), so the rest of the app's scroll behavior is
+  // untouched.
+  useEffect(() => {
+    if (!summary.allReady) return;
+    const el = wrapperRef.current;
+    if (!el) return;
+    return muteAncestorScroll(el);
+  }, [summary.allReady]);
+
   const goToPlugins = () => history.push(`/clusters/${clusterId}/plugins`);
 
   if (loading && !data) {
@@ -127,16 +176,23 @@ const MonitoringPage: React.FC = () => {
     );
     const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/`;
     return (
-      // Sized to the viewport minus ProLayout's header + content padding so
-      // the wrapper exactly fills the visible page area — no parent scroll
-      // appears, so iframe scroll has nothing to chain into. overflow:hidden
-      // is the belt to that suspenders, and overscroll-behavior on the
-      // iframe is the final guard if the math is off on a particular layout.
+      // Three-layer scroll containment:
+      //   1. muteAncestorScroll (useEffect above) freezes ProLayout's
+      //      content scroll for this page so wheel events have nowhere to
+      //      chain into.
+      //   2. height calc + overflow:hidden on this wrapper clips anything
+      //      that does spill (e.g. if a future Alert pushes content past
+      //      the viewport).
+      //   3. overscroll-behavior on the iframe is a no-op for scroll-chain
+      //      from inside the iframe — kept only because some browsers
+      //      respect it on the iframe element itself for two-finger touch
+      //      scroll on macOS.
       <div
+        ref={wrapperRef}
         style={{
           display: 'flex',
           flexDirection: 'column',
-          height: 'calc(100vh - 96px)',
+          height: 'calc(100vh - 56px)',
           overflow: 'hidden',
         }}
       >
