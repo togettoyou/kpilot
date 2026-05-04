@@ -20,6 +20,9 @@ export default {
   'pages.monitoring.cta.enable': '去启用',
   'pages.monitoring.recommended':
     '建议同时启用 {names}，可获得更完整的节点级监控指标。',
+  'pages.monitoring.openFullscreen': '在新标签页打开',
+  'pages.monitoring.openFullscreen.tooltip':
+    '在新标签页全屏打开 Grafana，便于多面板展开浏览',
 
 
   // plugin management

@@ -18,6 +18,9 @@ export default {
   'pages.monitoring.cta.enable': 'Enable',
   'pages.monitoring.recommended':
     'Consider also enabling {names} for richer node-level metrics.',
+  'pages.monitoring.openFullscreen': 'Open in new tab',
+  'pages.monitoring.openFullscreen.tooltip':
+    'Open Grafana fullscreen in a new tab for a wider dashboard view.',
 
   'pages.layouts.userLayout.title':
     'Kubernetes-native GPU Orchestration Platform',

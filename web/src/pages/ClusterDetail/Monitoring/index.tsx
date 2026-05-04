@@ -1,11 +1,12 @@
 import {
   CheckCircleFilled,
   ExclamationCircleOutlined,
+  ExportOutlined,
   LoadingOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
 import { history, useIntl, useParams, useRequest } from '@umijs/max';
-import { Alert, Button, Result, Spin } from 'antd';
+import { Alert, Button, Result, Spin, Tooltip } from 'antd';
 import React, { useEffect, useMemo } from 'react';
 
 import {
@@ -124,19 +125,26 @@ const MonitoringPage: React.FC = () => {
     const recommendedMissing = summary.recommended.filter(
       (r) => r.state !== 'ready',
     );
+    const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/`;
     return (
+      // Sized to the viewport minus ProLayout's header + content padding so
+      // the wrapper exactly fills the visible page area — no parent scroll
+      // appears, so iframe scroll has nothing to chain into. overflow:hidden
+      // is the belt to that suspenders, and overscroll-behavior on the
+      // iframe is the final guard if the math is off on a particular layout.
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
-          height: 'calc(100vh - 56px)', // ProLayout header is 56px
+          height: 'calc(100vh - 96px)',
+          overflow: 'hidden',
         }}
       >
         {recommendedMissing.length > 0 && (
           <Alert
             type="info"
             showIcon
-            style={{ borderRadius: 0 }}
+            style={{ borderRadius: 0, flexShrink: 0 }}
             message={intl.formatMessage(
               { id: 'pages.monitoring.recommended' },
               {
@@ -151,17 +159,46 @@ const MonitoringPage: React.FC = () => {
             closable
           />
         )}
+        {/* Slim toolbar: just the "open in new tab" affordance for now.
+            kept thin so the iframe gets nearly all the vertical space. */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            padding: '4px 8px',
+            background: 'var(--ant-color-bg-container)',
+            borderBottom: '1px solid var(--ant-color-border-secondary)',
+            flexShrink: 0,
+          }}
+        >
+          <Tooltip title={intl.formatMessage({ id: 'pages.monitoring.openFullscreen.tooltip' })}>
+            <Button
+              type="text"
+              size="small"
+              icon={<ExportOutlined />}
+              onClick={() => window.open(grafanaURL, '_blank', 'noopener,noreferrer')}
+            >
+              {intl.formatMessage({ id: 'pages.monitoring.openFullscreen' })}
+            </Button>
+          </Tooltip>
+        </div>
         <iframe
           // sandbox left off intentionally — Grafana legitimately needs
           // same-origin cookies, scripts, popups (open dashboard in new
           // tab), and form submission. Everything routes through KPilot's
           // proxy so there's no cross-origin surface to defend.
-          src={`/api/v1/clusters/${clusterId}/proxy/grafana/`}
+          src={grafanaURL}
           title="Grafana"
           style={{
             border: 0,
             width: '100%',
             flex: 1,
+            // Stop scroll-chaining: when the iframe's own scroll bottoms
+            // out, the wheel event would otherwise bubble up and try to
+            // scroll the page underneath, causing the visible "stutter
+            // when reaching the bottom" the user reported.
+            overscrollBehavior: 'contain',
           }}
         />
       </div>
