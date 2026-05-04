@@ -42,7 +42,7 @@ func main() {
 	resolvedDataDir, _ := filepath.Abs(cfg.DataDir)
 	log.Printf("[worker] starting: server=%s data_dir=%s", cfg.ServerAddr, resolvedDataDir)
 
-	tunnelClient := tunnel.NewClient(cfg.ServerAddr, cfg.ClusterToken)
+	tunnelClient := tunnel.NewClient(cfg.ServerAddr, cfg.ClusterToken, cfg.ClusterDomain)
 
 	// Set up controller-runtime Manager. Skipped gracefully when no
 	// kubeconfig is available (e.g. local dev without a cluster).

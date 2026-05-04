@@ -282,6 +282,12 @@ type RegisterRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ClusterToken  string                 `protobuf:"bytes,1,opt,name=cluster_token,json=clusterToken,proto3" json:"cluster_token,omitempty"`
 	WorkerVersion string                 `protobuf:"bytes,2,opt,name=worker_version,json=workerVersion,proto3" json:"worker_version,omitempty"`
+	// K8s in-cluster DNS suffix (defaults to "cluster.local" CoreDNS-style;
+	// clusters with a custom kubelet --cluster-domain need this). Used by
+	// Server's reverse proxy to build FQDNs for in-cluster Service URLs —
+	// short ".svc" form fails when Worker pod's resolv.conf doesn't include
+	// the matching search domain.
+	ClusterDomain string `protobuf:"bytes,3,opt,name=cluster_domain,json=clusterDomain,proto3" json:"cluster_domain,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -326,6 +332,13 @@ func (x *RegisterRequest) GetClusterToken() string {
 func (x *RegisterRequest) GetWorkerVersion() string {
 	if x != nil {
 		return x.WorkerVersion
+	}
+	return ""
+}
+
+func (x *RegisterRequest) GetClusterDomain() string {
+	if x != nil {
+		return x.ClusterDomain
 	}
 	return ""
 }
@@ -2375,10 +2388,11 @@ const file_pilot_proto_rawDesc = "" +
 	"\thttp_resp\x18F \x01(\v2\x16.pilot.v1.HTTPResponseH\x00R\bhttpResp\x127\n" +
 	"\rws_frame_recv\x18P \x01(\v2\x11.pilot.v1.WSFrameH\x00R\vwsFrameRecv\x121\n" +
 	"\vws_end_recv\x18Q \x01(\v2\x0f.pilot.v1.WSEndH\x00R\twsEndRecvB\t\n" +
-	"\apayload\"]\n" +
+	"\apayload\"\x84\x01\n" +
 	"\x0fRegisterRequest\x12#\n" +
 	"\rcluster_token\x18\x01 \x01(\tR\fclusterToken\x12%\n" +
-	"\x0eworker_version\x18\x02 \x01(\tR\rworkerVersion\"0\n" +
+	"\x0eworker_version\x18\x02 \x01(\tR\rworkerVersion\x12%\n" +
+	"\x0ecluster_domain\x18\x03 \x01(\tR\rclusterDomain\"0\n" +
 	"\x10HeartbeatRequest\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"8\n" +
 	"\fNodeListPush\x12(\n" +

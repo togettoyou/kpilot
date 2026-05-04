@@ -15,6 +15,12 @@ type Config struct {
 	// mount one PVC here in production; chart .tgz cache and Helm's
 	// repository config + cache all live under it.
 	DataDir string
+	// ClusterDomain is this cluster's K8s DNS suffix (CoreDNS default
+	// "cluster.local"). Reported to Server at registration time so Server's
+	// reverse proxy can build FQDNs for in-cluster Service URLs. Override
+	// only if the cluster was bootstrapped with a non-default kubelet
+	// --cluster-domain; the short-form ".svc" lookup fails on those.
+	ClusterDomain string
 }
 
 // ChartCacheDir is where Worker writes Helm chart .tgz bytes received
@@ -27,9 +33,10 @@ func (c *Config) ChartCacheDir() string {
 func Load() *Config {
 	loadDotEnv()
 	return &Config{
-		ServerAddr:   envOr("SERVER_ADDR", "localhost:9090"),
-		ClusterToken: envOr("CLUSTER_TOKEN", ""),
-		DataDir:      envOr("DATA_DIR", "/var/lib/kpilot"),
+		ServerAddr:    envOr("SERVER_ADDR", "localhost:9090"),
+		ClusterToken:  envOr("CLUSTER_TOKEN", ""),
+		DataDir:       envOr("DATA_DIR", "/var/lib/kpilot"),
+		ClusterDomain: envOr("CLUSTER_DOMAIN", "cluster.local"),
 	}
 }
 

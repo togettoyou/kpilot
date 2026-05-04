@@ -291,7 +291,7 @@ datasources:
       - name: VictoriaMetrics
         type: prometheus
         access: proxy
-        url: http://victoria-metrics-victoria-metrics-single-server.kpilot-monitoring.svc:8428
+        url: http://victoria-metrics-victoria-metrics-single-server.kpilot-monitoring.svc.${KPILOT_CLUSTER_DOMAIN}:8428
         isDefault: true
         jsonData:
           httpMethod: POST

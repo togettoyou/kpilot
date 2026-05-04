@@ -512,7 +512,17 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			Phase:                    store.PluginPhasePending,
 		}
 
-		cmd, err := buildEnableCommand(plugin, cp)
+		// Resolve the worker's reported cluster domain so buildEnableCommand
+		// can substitute ${KPILOT_CLUSTER_DOMAIN} in YAML values (used by
+		// charts that hard-code in-cluster Service URLs in their defaults,
+		// e.g. Grafana's VictoriaMetrics datasource pre-provisioning).
+		// We just confirmed the worker is connected above (pre-flight),
+		// so the GetWorker lookup is safe to do without falling back.
+		var workerDomain string
+		if w, ok := gw.GetWorker(clusterID); ok {
+			workerDomain = w.ClusterDomain
+		}
+		cmd, err := buildEnableCommand(plugin, cp, workerDomain)
 		if err != nil {
 			apiErrInternal(c, err)
 			return
@@ -635,18 +645,34 @@ func parsePluginID(c *gin.Context) (uint, error) {
 // and produces the on-the-wire PluginCommand. For local-chart plugins it
 // also includes the .tgz blob bytes — the Worker writes them to its
 // chart cache by sha256 so subsequent commands can omit `blob`.
-func buildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin) (*proto.PluginCommand, error) {
+//
+// workerDomain is the cluster's K8s DNS suffix as reported on register
+// (typically "cluster.local"); used to substitute ${KPILOT_CLUSTER_DOMAIN}
+// in chart values. Empty string falls back to "cluster.local".
+func buildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, workerDomain string) (*proto.PluginCommand, error) {
 	values := cp.ValuesOverride
 	if values == "" {
 		values = p.DefaultValues
 	}
 	// Resolve well-known placeholders in the final values payload before
-	// it leaves Server. Currently supports ${KPILOT_CLUSTER_ID}, used by
-	// reverse-proxied plugins (Grafana, …) that need to bake the cluster
-	// id into their own root_url so generated links route back through
-	// /api/v1/clusters/<id>/proxy/<plugin>/. Same scheme can carry future
-	// tokens — keep them ALL_CAPS so they're greppable.
+	// it leaves Server. Currently supports:
+	//   ${KPILOT_CLUSTER_ID}     — used by reverse-proxied plugins
+	//                              (Grafana root_url, etc.) so generated
+	//                              links route back through
+	//                              /api/v1/clusters/<id>/proxy/<plugin>/.
+	//   ${KPILOT_CLUSTER_DOMAIN} — used by chart defaults that hard-code
+	//                              in-cluster Service FQDNs. The Worker
+	//                              reports its actual K8s DNS suffix on
+	//                              register; we use it here so the short
+	//                              ".svc" form (which only works when
+	//                              resolv.conf carries the search domain)
+	//                              isn't necessary.
+	// Keep tokens ALL_CAPS so they're greppable.
+	if workerDomain == "" {
+		workerDomain = "cluster.local"
+	}
 	values = strings.ReplaceAll(values, "${KPILOT_CLUSTER_ID}", cp.ClusterID)
+	values = strings.ReplaceAll(values, "${KPILOT_CLUSTER_DOMAIN}", workerDomain)
 	version := cp.VersionOverride
 	if version == "" {
 		version = p.DefaultVersion

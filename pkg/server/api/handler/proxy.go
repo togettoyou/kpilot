@@ -42,6 +42,23 @@ var proxiableServices = map[string]proxiableService{
 	"grafana": {Service: "grafana", Port: 80},
 }
 
+// defaultClusterDomain is the fallback in-cluster DNS suffix used when the
+// connected Worker didn't report one (older worker, registration race). The
+// CoreDNS default is "cluster.local"; clusters with a custom domain need a
+// matching CLUSTER_DOMAIN env var on the Worker side, which gets shipped up
+// to Server in RegisterRequest.
+const defaultClusterDomain = "cluster.local"
+
+// workerClusterDomain reads the cluster's reported DNS suffix from the live
+// Worker connection, falling back to "cluster.local" when the worker is
+// gone (the upstream call will fail anyway, but at least the URL parses).
+func workerClusterDomain(gw *gateway.GatewayServer, clusterID string) string {
+	if w, ok := gw.GetWorker(clusterID); ok && w.ClusterDomain != "" {
+		return w.ClusterDomain
+	}
+	return defaultClusterDomain
+}
+
 // proxyResolveTTL is how long a (cluster, plugin) → namespace lookup is
 // reused without hitting the DB. A Grafana dashboard load fans out to 30+
 // parallel requests for assets — without caching, each one repeats the
@@ -249,9 +266,16 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// Compose the upstream URL the Worker will dial. RawQuery passes
 		// through unchanged so e.g. ?orgId=1&from=now-1h... reaches Grafana
 		// untouched. Path always starts with "/" (see subPath default).
+		// Use the fully-qualified ".svc.<cluster-domain>" form rather than
+		// the short ".svc" — DNS search-path resolution of the short form
+		// works on most clusters but fails on custom resolv.conf, custom
+		// cluster domain, dnsPolicy=None, or sidecar DNS interception. The
+		// FQDN sidesteps all of that. cluster_domain comes from the Worker
+		// (it's the only side that knows what its own kubelet's
+		// --cluster-domain is); falls back to the CoreDNS default.
 		query := c.Request.URL.RawQuery
-		target := fmt.Sprintf("http://%s.%s.svc:%d%s",
-			svc.Service, releaseNS, svc.Port, subPath)
+		target := fmt.Sprintf("http://%s.%s.svc.%s:%d%s",
+			svc.Service, releaseNS, workerClusterDomain(gw, clusterID), svc.Port, subPath)
 		if query != "" {
 			target += "?" + query
 		}
@@ -408,8 +432,8 @@ func proxyWebSocket(
 	wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: "X-WEBAUTH-USER", Value: username})
 
 	query := c.Request.URL.RawQuery
-	target := fmt.Sprintf("ws://%s.%s.svc:%d%s",
-		svc.Service, releaseNS, svc.Port, subPath)
+	target := fmt.Sprintf("ws://%s.%s.svc.%s:%d%s",
+		svc.Service, releaseNS, workerClusterDomain(gw, clusterID), svc.Port, subPath)
 	if query != "" {
 		target += "?" + query
 	}

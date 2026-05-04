@@ -21,12 +21,16 @@ const (
 
 // ConnectedWorker represents a live Worker connection.
 type ConnectedWorker struct {
-	ClusterID  string
-	Stream     proto.PilotService_ConnectServer
-	LastSeen   time.Time
-	cancelOnce sync.Once
-	done       chan struct{}
-	sendMu     sync.Mutex // serializes concurrent Send calls; gRPC streams are not thread-safe for Send
+	ClusterID string
+	// ClusterDomain is the K8s DNS suffix Worker reported on register
+	// (e.g. "cluster.local"). The reverse proxy uses it to build the
+	// FQDN of the in-cluster Service it forwards to.
+	ClusterDomain string
+	Stream        proto.PilotService_ConnectServer
+	LastSeen      time.Time
+	cancelOnce    sync.Once
+	done          chan struct{}
+	sendMu        sync.Mutex // serializes concurrent Send calls; gRPC streams are not thread-safe for Send
 }
 
 type GatewayServer struct {
@@ -102,10 +106,11 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 	// the first — that would orphan the first worker's stream while
 	// the gateway map still routed messages to it.
 	worker := &ConnectedWorker{
-		ClusterID: cluster.ID,
-		Stream:    stream,
-		LastSeen:  time.Now(),
-		done:      make(chan struct{}),
+		ClusterID:     cluster.ID,
+		ClusterDomain: reg.Register.ClusterDomain,
+		Stream:        stream,
+		LastSeen:      time.Now(),
+		done:          make(chan struct{}),
 	}
 	g.mu.Lock()
 	if _, occupied := g.workers[cluster.ID]; occupied {

@@ -36,6 +36,7 @@ var ErrTokenRejected = errors.New("token rejected by server")
 type Client struct {
 	serverAddr      string
 	clusterToken    string
+	clusterDomain   string                // K8s DNS suffix reported to Server on register
 	onConnected     func(context.Context) // called in a goroutine after each successful registration
 	resourceHandler func(requestID string, req *proto.ResourceRequest)
 
@@ -73,10 +74,11 @@ type Client struct {
 	stream proto.PilotService_ConnectClient
 }
 
-func NewClient(serverAddr, clusterToken string) *Client {
+func NewClient(serverAddr, clusterToken, clusterDomain string) *Client {
 	return &Client{
-		serverAddr:   serverAddr,
-		clusterToken: clusterToken,
+		serverAddr:    serverAddr,
+		clusterToken:  clusterToken,
+		clusterDomain: clusterDomain,
 	}
 }
 
@@ -328,6 +330,7 @@ func (c *Client) connect(ctx context.Context) error {
 			Register: &proto.RegisterRequest{
 				ClusterToken:  c.clusterToken,
 				WorkerVersion: workerVersion,
+				ClusterDomain: c.clusterDomain,
 			},
 		},
 	}); err != nil {
