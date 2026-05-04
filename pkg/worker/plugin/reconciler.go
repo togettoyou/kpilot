@@ -14,7 +14,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
 )
@@ -41,10 +44,50 @@ type Reconciler struct {
 	Scheme *runtime.Scheme
 }
 
+// reconcileTriggerPredicate filters Watch events so Reconcile fires only on
+// real intent changes — not on our own status writes. Without this filter,
+// every Status().Update() call inside Reconcile re-queues another Reconcile
+// for the same key, racing the informer cache: the requeued run can see a
+// stale Phase=Installing snapshot from the pre-Helm status write, fall
+// through the AttemptHash gate's "transient phases retry" branch, and run
+// InstallOrUpgrade a second time. Helm finds the just-created release →
+// runs Upgrade → patches Deployment → rolls a new ReplicaSet → new pod
+// fights the old one for the RWO PVC and the install effectively goes
+// haywire even though "nothing changed".
+//
+// We pass through:
+//   - Create:                   initial-sync events on controller startup
+//                               (worker restart needs a Reconcile per CRD).
+//   - Delete:                   release was actually removed; reconciler's
+//                               Get returns NotFound → returns cleanly.
+//   - Update with new gen:      spec actually changed (handleEnable SSA).
+//   - Update setting deletion:  user clicked Disable. Generation doesn't
+//                               bump on DeletionTimestamp set, so we have
+//                               to detect it explicitly here.
+//
+// We filter out:
+//   - Update with same gen + no-op deletion-timestamp transition: status
+//     writes, finalizer additions/removals — we always have an explicit
+//     Requeue ready for those when we actually need them.
+var reconcileTriggerPredicate = predicate.Funcs{
+	CreateFunc: func(_ event.CreateEvent) bool { return true },
+	DeleteFunc: func(_ event.DeleteEvent) bool { return true },
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		if e.ObjectOld == nil || e.ObjectNew == nil {
+			return true
+		}
+		if e.ObjectOld.GetDeletionTimestamp().IsZero() &&
+			!e.ObjectNew.GetDeletionTimestamp().IsZero() {
+			return true
+		}
+		return e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration()
+	},
+}
+
 // SetupWithManager wires the reconciler into a controller-runtime Manager.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kpilotv1alpha1.Plugin{}).
+		For(&kpilotv1alpha1.Plugin{}, builder.WithPredicates(reconcileTriggerPredicate)).
 		Complete(r)
 }
 
