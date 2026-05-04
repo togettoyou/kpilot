@@ -3,16 +3,16 @@ import { useIntl } from '@umijs/max';
 import {
   Alert,
   App,
+  theme as antdTheme,
   Button,
   Drawer,
   Space,
   Spin,
   Tag,
-  theme as antdTheme,
 } from 'antd';
 import React, { useEffect, useMemo, useState } from 'react';
 
-import type { WorkloadResourceType } from '@/services/kpilot/workload';
+import type { CRRef, WorkloadResourceType } from '@/services/kpilot/workload';
 import { describeWorkload } from '@/services/kpilot/workload';
 
 // Colors come from antd tokens (theme-aware), not hardcoded.
@@ -72,9 +72,12 @@ interface DescribeDrawerProps {
   open: boolean;
   onClose: () => void;
   clusterId: string;
-  resourceType: WorkloadResourceType;
+  resourceType: WorkloadResourceType | '_cr';
   name: string;
   namespace: string;
+  // Required when resourceType === '_cr' (CR instances viewer); ignored
+  // otherwise. Threads the GVK through to the worker via query params.
+  cr?: CRRef;
 }
 
 export function DescribeDrawer({
@@ -84,6 +87,7 @@ export function DescribeDrawer({
   resourceType,
   name,
   namespace,
+  cr,
 }: DescribeDrawerProps) {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -124,7 +128,7 @@ export function DescribeDrawer({
     setLoading(true);
     setError(null);
     setText('');
-    describeWorkload(clusterId, resourceType, name, namespace)
+    describeWorkload(clusterId, resourceType, name, namespace, cr)
       .then((res) => {
         if (!cancelled) setText(typeof res === 'string' ? res : '');
       })
@@ -137,7 +141,7 @@ export function DescribeDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, clusterId, resourceType, name, namespace]);
+  }, [open, clusterId, resourceType, name, namespace, cr]);
 
   const handleCopy = async () => {
     try {

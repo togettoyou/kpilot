@@ -35,16 +35,43 @@ export interface WorkloadItem {
   [key: string]: any;
 }
 
+// CRRef identifies an arbitrary CRD-defined kind for the CR-instances
+// viewer. When passed to a workload service function alongside
+// type='_cr', the GVK lands in URL query params (group/version/kind)
+// and the server's resolveGVK helper picks them up. group is optional
+// — empty string is valid for core/v1, though no current CRD lives
+// there. plural is only used for the page title and not sent to the
+// server.
+export interface CRRef {
+  group: string;
+  version: string;
+  kind: string;
+  plural: string;
+  scope: 'Namespaced' | 'Cluster';
+}
+
+// gvkParams returns the query params that pin a CR-viewer request to a
+// specific GVK. Returns {} for built-in workload types so the existing
+// URL pattern stays unchanged.
+function gvkParams(
+  type: WorkloadResourceType | '_cr',
+  cr?: CRRef,
+): Record<string, string> {
+  if (type !== '_cr' || !cr) return {};
+  return { group: cr.group, version: cr.version, kind: cr.kind };
+}
+
 // Returns raw K8s list JSON — caller must parse items.
 // Pass limit > 0 and continueToken for server-side pagination.
 export function listWorkloads(
   clusterId: string,
-  type: WorkloadResourceType,
+  type: WorkloadResourceType | '_cr',
   namespace = '',
   limit = 0,
   continueToken = '',
+  cr?: CRRef,
 ) {
-  const params: Record<string, string | number> = {};
+  const params: Record<string, string | number> = { ...gvkParams(type, cr) };
   if (namespace) params.namespace = namespace;
   if (limit > 0) params.limit = limit;
   if (continueToken) params.continue = continueToken;
@@ -56,54 +83,66 @@ export function listWorkloads(
 
 export function getWorkload(
   clusterId: string,
-  type: WorkloadResourceType,
+  type: WorkloadResourceType | '_cr',
   name: string,
   namespace = '',
+  cr?: CRRef,
 ) {
+  const params: Record<string, string> = { ...gvkParams(type, cr) };
+  if (namespace) params.namespace = namespace;
   return request<any>(`/api/v1/clusters/${clusterId}/workloads/${type}/${name}`, {
     method: 'GET',
-    params: namespace ? { namespace } : {},
+    params,
   });
 }
 
 export function applyWorkload(
   clusterId: string,
-  type: WorkloadResourceType,
+  type: WorkloadResourceType | '_cr',
   name: string,
   namespace: string,
   body: object,
+  cr?: CRRef,
 ) {
+  const params: Record<string, string> = { ...gvkParams(type, cr) };
+  if (namespace) params.namespace = namespace;
   return request<any>(`/api/v1/clusters/${clusterId}/workloads/${type}/${name}`, {
     method: 'PUT',
-    params: namespace ? { namespace } : {},
+    params,
     data: body,
   });
 }
 
 export function deleteWorkload(
   clusterId: string,
-  type: WorkloadResourceType,
+  type: WorkloadResourceType | '_cr',
   name: string,
   namespace: string,
+  cr?: CRRef,
 ) {
+  const params: Record<string, string> = { ...gvkParams(type, cr) };
+  if (namespace) params.namespace = namespace;
   return request(`/api/v1/clusters/${clusterId}/workloads/${type}/${name}`, {
     method: 'DELETE',
-    params: namespace ? { namespace } : {},
+    params,
   });
 }
 
 // Returns plain text — the same output as `kubectl describe`.
 export function describeWorkload(
   clusterId: string,
-  type: WorkloadResourceType,
+  type: WorkloadResourceType | '_cr',
   name: string,
   namespace = '',
+  cr?: CRRef,
 ) {
+  const params: Record<string, string> = { ...gvkParams(type, cr) };
+  if (namespace) params.namespace = namespace;
   return request<string>(
     `/api/v1/clusters/${clusterId}/workloads/${type}/${name}/describe`,
     {
       method: 'GET',
-      params: namespace ? { namespace } : {},
+      params,
       responseType: 'text',
     },
   );

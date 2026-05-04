@@ -92,10 +92,47 @@ func isProtectedCRD(name string) bool {
 	return strings.HasSuffix(name, ".kpilot.io")
 }
 
+// isProtectedCRGroup returns true for API groups kpilot owns. CR
+// instances under these groups (e.g. `Plugin` under `kpilot.io`) are
+// reconciler-managed; users should drive them through the dedicated
+// pages (Plugins, etc.) rather than poking the CR directly via the
+// generic CR-instances viewer. Same defense-in-depth as
+// isProtectedCRD but for instances rather than the CRD definitions.
+func isProtectedCRGroup(group string) bool {
+	return group == "kpilot.io" || strings.HasSuffix(group, ".kpilot.io")
+}
+
+// resolveGVK looks up the request's GVK + resource type. Two paths:
+//
+//   - Well-known kinds (Deployment, Service, …) come from the
+//     resourceGVK whitelist, keyed by URL `:type` segment.
+//   - The `_cr` sentinel `:type` says "look at query params" — the
+//     CR-instances viewer uses this to browse CRs of any user-installed
+//     CRD without us hardcoding the GVK. Worker resolves the
+//     resource side via its dynamic RESTMapper, so we just pass
+//     group/version/kind through.
+//
+// Returns (gvk, resourceType, ok). resourceType is the original URL
+// segment ("_cr" or whatever); callers that need to gate behavior on
+// kind ("customresourcedefinitions" → CRD-name protection) compare
+// against resourceType, not `gvk.kind`.
+func resolveGVK(c *gin.Context) (gvkInfo, string, bool) {
+	rt := c.Param("type")
+	if rt == "_cr" {
+		v := c.Query("version")
+		k := c.Query("kind")
+		if v == "" || k == "" {
+			return gvkInfo{}, rt, false
+		}
+		return gvkInfo{group: c.Query("group"), version: v, kind: k}, rt, true
+	}
+	gvk, ok := resourceGVK[rt]
+	return gvk, rt, ok
+}
+
 func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
-		resourceType := c.Param("type")
 		namespace := c.Query("namespace")
 		continueToken := c.Query("continue")
 		var limit int64
@@ -105,7 +142,7 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 			}
 		}
 
-		gvk, ok := resourceGVK[resourceType]
+		gvk, _, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -140,11 +177,10 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 func GetWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
-		resourceType := c.Param("type")
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, ok := resourceGVK[resourceType]
+		gvk, _, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -184,11 +220,10 @@ func GetWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
-		resourceType := c.Param("type")
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, ok := resourceGVK[resourceType]
+		gvk, resourceType, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -202,6 +237,14 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// schema and brick the corresponding controller. Same defense
 		// runs in DeleteWorkload below.
 		if resourceType == "customresourcedefinitions" && isProtectedCRD(name) {
+			apiErr(c, http.StatusForbidden, CodeCRDProtected)
+			return
+		}
+		// CR instances under kpilot.io groups are reconciler-managed —
+		// the user should drive them through the dedicated UI (Plugins
+		// page etc.), not the generic CR viewer. Reject edit/delete
+		// here just like the CRD-definition guard above.
+		if resourceType == "_cr" && isProtectedCRGroup(gvk.group) {
 			apiErr(c, http.StatusForbidden, CodeCRDProtected)
 			return
 		}
@@ -455,11 +498,10 @@ func deleteOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID stri
 func DescribeWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
-		resourceType := c.Param("type")
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, ok := resourceGVK[resourceType]
+		gvk, _, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -491,11 +533,10 @@ func DescribeWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
-		resourceType := c.Param("type")
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, ok := resourceGVK[resourceType]
+		gvk, resourceType, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -506,6 +547,10 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if resourceType == "customresourcedefinitions" && isProtectedCRD(name) {
+			apiErr(c, http.StatusForbidden, CodeCRDProtected)
+			return
+		}
+		if resourceType == "_cr" && isProtectedCRGroup(gvk.group) {
 			apiErr(c, http.StatusForbidden, CodeCRDProtected)
 			return
 		}

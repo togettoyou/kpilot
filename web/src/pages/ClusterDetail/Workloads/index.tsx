@@ -8,7 +8,7 @@ import {
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
-import { useIntl, useModel, useParams, useRequest } from '@umijs/max';
+import { history, useIntl, useModel, useParams, useRequest } from '@umijs/max';
 import {
   App,
   Button,
@@ -24,6 +24,7 @@ import * as jsyaml from 'js-yaml';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import type {
+  CRRef,
   WorkloadItem,
   WorkloadResourceType,
 } from '@/services/kpilot/workload';
@@ -271,19 +272,39 @@ const VALID_TYPES = new Set<string>([
 
 interface WorkloadsContentProps {
   clusterId: string;
-  resourceType: WorkloadResourceType;
+  // resourceType is either a built-in workload kind or '_cr' — the
+  // sentinel for the CR-instances viewer. When '_cr', `cr` carries the
+  // GVK + scope; for built-ins `cr` is undefined and the resourceType
+  // alone is enough.
+  resourceType: WorkloadResourceType | '_cr';
+  cr?: CRRef;
 }
 
 // ─── Inner component — remounts on resourceType change via key prop ────────
 
 const PAGE_SIZE = 100;
 
-function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
+function WorkloadsContent({
+  clusterId,
+  resourceType,
+  cr,
+}: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
-  // Cluster-scoped resources (PV) have no namespace; sending one yields 404.
-  // Compute up-front so the listWorkloads call below can short-circuit.
-  const isClusterScoped = CLUSTER_SCOPED_TYPES.has(resourceType);
+  // Cluster-scoped resources (PV/SC/GatewayClass/CRD) have no namespace;
+  // sending one yields 404. For the CR-instances viewer, scope comes
+  // from the CRD's spec.scope (passed via `cr.scope`).
+  const isClusterScoped =
+    resourceType === '_cr'
+      ? cr?.scope === 'Cluster'
+      : CLUSTER_SCOPED_TYPES.has(resourceType);
+  // CR-instance protection: kpilot.io group CR instances are reconciler-
+  // managed; users should drive them through the dedicated UI (Plugins
+  // page) not the generic CR viewer. Mirror the backend's protection.
+  const isProtectedCRGroup =
+    resourceType === '_cr' &&
+    !!cr &&
+    (cr.group === 'kpilot.io' || cr.group.endsWith('.kpilot.io'));
 
   // Namespace selection lives in the global `namespace` model so navigating
   // between workload sub-pages preserves it; the picker UI lives in the top
@@ -341,6 +362,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
         effectiveNamespace,
         PAGE_SIZE,
         currentToken,
+        cr,
       ),
     {
       refreshDeps: [effectiveNamespace, currentToken],
@@ -400,6 +422,52 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
   // Sequence counter to discard stale openEditor responses on fast clicks.
   const editorSeqRef = useRef(0);
 
+  // "View Instances" handler for the CRD list page. Fetches the CRD's
+  // full object (Table API only carries metadata + cells, not the full
+  // spec we need for GVK/scope), then navigates to the CR-instances
+  // viewer with everything pre-populated.
+  //
+  // Version pick: prefer the storage version since that's what the
+  // server stores natively; fall back to the first served version, or
+  // versions[0] as a last resort. K8s converts between served versions
+  // transparently, so any served version works for listing.
+  const openCRInstances = async (record: WorkloadItem) => {
+    let raw: any;
+    try {
+      raw = await getWorkload(
+        clusterId,
+        'customresourcedefinitions',
+        record.name,
+        '',
+      );
+    } catch {
+      // Global error toast already fired by requestErrorConfig.
+      return;
+    }
+    const spec = raw?.spec ?? {};
+    const versions: any[] = spec.versions ?? [];
+    const version =
+      versions.find((v: any) => v.storage)?.name ??
+      versions.find((v: any) => v.served)?.name ??
+      versions[0]?.name;
+    const kind: string = spec.names?.kind ?? '';
+    const plural: string = spec.names?.plural ?? '';
+    if (!version || !kind || !plural) {
+      message.error(
+        intl.formatMessage({ id: 'pages.workloads.crd.invalidSpec' }),
+      );
+      return;
+    }
+    const params = new URLSearchParams({
+      group: spec.group ?? '',
+      version,
+      kind,
+      plural,
+      scope: spec.scope === 'Cluster' ? 'Cluster' : 'Namespaced',
+    });
+    history.push(`/clusters/${clusterId}/workloads/_cr?${params.toString()}`);
+  };
+
   const openEditor = async (item: WorkloadItem, ro = false) => {
     const seq = ++editorSeqRef.current;
     setEditingItem(item);
@@ -412,6 +480,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
         resourceType,
         item.name,
         item.namespace ?? '',
+        cr,
       );
       if (seq !== editorSeqRef.current) return;
       setYamlText(toEditableYaml(raw));
@@ -433,6 +502,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
         editingItem.name,
         editingItem.namespace ?? '',
         obj,
+        cr,
       );
       message.success(
         intl.formatMessage({ id: 'pages.workloads.apply.success' }),
@@ -453,6 +523,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
         resourceType,
         item.name,
         item.namespace ?? '',
+        cr,
       );
       message.success(
         intl.formatMessage({ id: 'pages.workloads.delete.success' }),
@@ -466,10 +537,13 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
   const isPods = resourceType === 'pods';
 
   const columns = useMemo((): ProColumns<WorkloadItem>[] => {
+    const isCRDPage = resourceType === 'customresourcedefinitions';
     const actionsColumn: ProColumns<WorkloadItem> = {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       valueType: 'option',
-      width: isPods ? 300 : 180,
+      // Pods: extra logs+exec buttons; CRDs: extra "view instances"
+      // button. Both bump the action column width.
+      width: isPods ? 300 : isCRDPage ? 250 : 180,
       fixed: 'right',
       render: (_, record) => {
         // Mirror the backend's protected lists:
@@ -483,7 +557,10 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
         const protectedCRD =
           resourceType === 'customresourcedefinitions' &&
           isProtectedCRDName(record.name);
-        const isProtected = protectedNs || protectedCRD;
+        // CR instance under a kpilot.io group → also read-only.
+        // Computed once at component scope (isProtectedCRGroup) since
+        // it doesn't depend on the row.
+        const isProtected = protectedNs || protectedCRD || isProtectedCRGroup;
         const describeBtn = (
           <Button
             key="describe"
@@ -514,9 +591,25 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
               </Button>,
             ]
           : null;
+        // CRD-only: deep-link to the CR-instances viewer for this kind.
+        // Available regardless of protection — viewing instances of a
+        // protected CRD (like plugins.kpilot.io) is fine; the protection
+        // only blocks edit/delete.
+        const crInstancesBtn =
+          resourceType === 'customresourcedefinitions' ? (
+            <Button
+              key="instances"
+              type="link"
+              size="small"
+              onClick={() => openCRInstances(record)}
+            >
+              {intl.formatMessage({ id: 'pages.workloads.crd.viewInstances' })}
+            </Button>
+          ) : null;
         if (isProtected) {
           return [
             podActions,
+            crInstancesBtn,
             describeBtn,
             <Button
               key="view"
@@ -530,6 +623,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
         }
         return [
           podActions,
+          crInstancesBtn,
           describeBtn,
           <Button
             key="edit"
@@ -564,8 +658,19 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
         headerTitle={
           <Space>
             <Text strong>
-              {resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}
+              {resourceType === '_cr' && cr
+                ? // CR-instances viewer: title is the Kind (e.g. "Plugin")
+                  // followed by the group in muted text, so users can tell
+                  // which CRD they're looking at when multiple kinds share
+                  // a kind name across groups.
+                  `${cr.kind}`
+                : resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}
             </Text>
+            {resourceType === '_cr' && cr && (
+              <Text type="secondary" style={{ fontWeight: 'normal' }}>
+                {cr.group ? `${cr.group}/${cr.version}` : cr.version}
+              </Text>
+            )}
             <Text type="secondary">
               {isFiltering
                 ? `(${filteredItems.length} / ${
@@ -742,6 +847,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
           resourceType={resourceType}
           name={describeTarget.name}
           namespace={describeTarget.namespace ?? ''}
+          cr={cr}
         />
       )}
       <ApplyYamlDrawer
@@ -754,7 +860,11 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
           ns.refresh(clusterId);
         }}
         clusterId={clusterId}
-        resourceType={resourceType}
+        // Apply YAML drawer's resourceType is only used to pick a
+        // starting template; for the CR viewer fall back to a known
+        // type so the editor isn't empty for no reason. Templates are
+        // type-agnostic on submit anyway (server parses the YAML).
+        resourceType={resourceType === '_cr' ? 'configmaps' : resourceType}
       />
     </div>
   );
@@ -762,8 +872,61 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
 
 // ─── Page ──────────────────────────────────────────────────────────────────
 
+// _cr is the sentinel URL segment for the CR-instances viewer:
+//   /clusters/:id/workloads/_cr?group=...&version=...&kind=...&plural=...&scope=Namespaced|Cluster
+// All five query params are required for `_cr`. Built-in workload types
+// keep the existing /workloads/:type shape and don't need query params.
+const CR_SENTINEL = '_cr';
+
+function readCRRefFromQuery(): CRRef | null {
+  const sp = new URLSearchParams(window.location.search);
+  const version = sp.get('version');
+  const kind = sp.get('kind');
+  const plural = sp.get('plural');
+  const scope = sp.get('scope');
+  if (!version || !kind || !plural) return null;
+  return {
+    group: sp.get('group') ?? '',
+    version,
+    kind,
+    plural,
+    // Default to Namespaced — most CRDs are. Only treat as cluster-
+    // scoped when the URL explicitly says so (matches the kubectl-style
+    // safety: showing "all namespaces" for a cluster-scoped resource is
+    // confusing but harmless; missing the namespace selector when the
+    // user actually needs it is worse).
+    scope: scope === 'Cluster' ? 'Cluster' : 'Namespaced',
+  };
+}
+
 export default function WorkloadsPage() {
   const { id: clusterId, type } = useParams<{ id: string; type: string }>();
+
+  // CR-instances viewer: parse GVK from URL query params; if any
+  // required field is missing, send the user back to the CRD list page
+  // instead of rendering a broken view.
+  if (type === CR_SENTINEL) {
+    const cr = readCRRefFromQuery();
+    if (!cr) {
+      return (
+        <Navigate
+          to={`/clusters/${clusterId}/workloads/customresourcedefinitions`}
+          replace
+        />
+      );
+    }
+    return (
+      <WorkloadsContent
+        // Including the GVK in the key remounts the inner component on
+        // navigation between different CR kinds (otherwise pageTokens /
+        // search state from kind A would leak into kind B).
+        key={`_cr:${cr.group}/${cr.version}/${cr.kind}`}
+        clusterId={clusterId!}
+        resourceType={CR_SENTINEL}
+        cr={cr}
+      />
+    );
+  }
 
   const isValidType = !!type && VALID_TYPES.has(type);
   const resourceType = (

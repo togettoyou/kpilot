@@ -219,6 +219,9 @@ export default {
   'pages.workloads.logs': 'Logs',
   'pages.workloads.exec': 'Exec',
   'pages.workloads.describe': 'Describe',
+  'pages.workloads.crd.viewInstances': 'View Instances',
+  'pages.workloads.crd.invalidSpec':
+    'CRD spec missing group/version/kind/plural — cannot list instances',
   'pages.workloads.copied': 'Copied',
   'pages.describe.title': 'Describe',
   'pages.describe.copy': 'Copy',

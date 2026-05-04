@@ -208,6 +208,9 @@ export default {
   'pages.workloads.logs': '日志',
   'pages.workloads.exec': '终端',
   'pages.workloads.describe': '详情',
+  'pages.workloads.crd.viewInstances': '查看实例',
+  'pages.workloads.crd.invalidSpec':
+    'CRD spec 无效——缺少 group/version/kind/plural，无法查看实例',
   'pages.workloads.copied': '已复制',
   'pages.describe.title': '资源详情',
   'pages.describe.copy': '复制',
