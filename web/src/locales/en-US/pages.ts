@@ -1,9 +1,17 @@
 export default {
-  // monitoring page (Grafana iframe + dependency check)
-  'pages.monitoring.depState.ready': 'Running',
-  'pages.monitoring.depState.installing': 'Installing',
-  'pages.monitoring.depState.failed': 'Failed',
-  'pages.monitoring.depState.missing': 'Not enabled',
+  // Embedded Grafana page (shared between monitoring and logging)
+  'pages.embed.depState.ready': 'Running',
+  'pages.embed.depState.installing': 'Installing',
+  'pages.embed.depState.failed': 'Failed',
+  'pages.embed.depState.missing': 'Not enabled',
+  'pages.embed.cta.goPlugins': 'Go to plugins',
+  'pages.embed.cta.refresh': 'Refresh',
+  'pages.embed.cta.enable': 'Enable',
+  'pages.embed.openFullscreen': 'Open in new tab',
+  'pages.embed.openFullscreen.tooltip':
+    'Open Grafana fullscreen in a new tab for a wider dashboard view.',
+
+  // monitoring page (deps: grafana + victoria-metrics, dashboard: NodeExporterFull)
   'pages.monitoring.missing.title': 'Monitoring plugins are not enabled yet',
   'pages.monitoring.missing.subTitle':
     'Enable Grafana and VictoriaMetrics on this cluster — the dashboard will load here automatically once they finish installing.',
@@ -13,14 +21,21 @@ export default {
   'pages.monitoring.failed.title': 'Monitoring plugins failed to install',
   'pages.monitoring.failed.subTitle':
     'Open the plugins page to inspect the error and re-enable, or adjust values and retry.',
-  'pages.monitoring.cta.goPlugins': 'Go to plugins',
-  'pages.monitoring.cta.refresh': 'Refresh',
-  'pages.monitoring.cta.enable': 'Enable',
   'pages.monitoring.recommended':
     'Consider also enabling {names} for richer node-level metrics.',
-  'pages.monitoring.openFullscreen': 'Open in new tab',
-  'pages.monitoring.openFullscreen.tooltip':
-    'Open Grafana fullscreen in a new tab for a wider dashboard view.',
+
+  // logging page (deps: grafana + victoria-logs, dashboard: VictoriaLogs Explorer K8S)
+  'pages.logging.missing.title': 'Logging plugins are not enabled yet',
+  'pages.logging.missing.subTitle':
+    'Enable Grafana and VictoriaLogs on this cluster — the dashboard will load here automatically once they finish installing.',
+  'pages.logging.installing.title': 'Logging plugins are installing',
+  'pages.logging.installing.subTitle':
+    "Installation usually takes 1–2 minutes; this page auto-refreshes every 5s and will switch to the dashboard once it's ready.",
+  'pages.logging.failed.title': 'Logging plugins failed to install',
+  'pages.logging.failed.subTitle':
+    'Open the plugins page to inspect the error and re-enable, or adjust values and retry.',
+  'pages.logging.recommended':
+    'Consider also enabling {names}.',
 
   'pages.layouts.userLayout.title':
     'Kubernetes-native GPU Orchestration Platform',

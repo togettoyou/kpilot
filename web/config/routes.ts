@@ -47,6 +47,10 @@ export default [
         path: '/clusters/:id/monitoring',
         component: './ClusterDetail/Monitoring/index',
       },
+      {
+        path: '/clusters/:id/logging',
+        component: './ClusterDetail/Logging/index',
+      },
     ],
   },
   {

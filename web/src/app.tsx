@@ -182,7 +182,6 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       path: `${base}/logging`,
       name: 'logging',
       icon: <FileTextOutlined />,
-      disabled: true,
     },
   ];
 }

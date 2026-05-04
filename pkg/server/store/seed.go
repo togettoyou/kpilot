@@ -284,6 +284,14 @@ resources:
     cpu: "1"
     memory: 1Gi
 defaultDashboardsEnabled: true
+# Grafana plugins fetched from grafana.com on install. Adding the
+# VictoriaLogs datasource here makes the bundled VictoriaLogs Explorer
+# dashboard work out of the box (its panels declare type=
+# victoriametrics-logs-datasource which Grafana would otherwise refuse
+# to render). Plugin is signed by the official catalog so no
+# allow_loading_unsigned_plugins flag is needed.
+plugins:
+  - victoriametrics-logs-datasource
 datasources:
   datasources.yaml:
     apiVersion: 1
@@ -295,6 +303,18 @@ datasources:
         isDefault: true
         jsonData:
           httpMethod: POST
+      # VictoriaLogs datasource — wired up so the bundled logging
+      # dashboard works once the VictoriaLogs plugin is enabled. URL
+      # follows the same pattern as VictoriaMetrics: the chart's
+      # release name is the plugin name ("victoria-logs") and the
+      # service suffix is "victoria-logs-single-server" (chart 0.12.4).
+      # Falls into "no data" / connect-refused if VictoriaLogs isn't
+      # enabled — that's fine, the logging page's dep check blocks
+      # the iframe until both Grafana and VL are Running anyway.
+      - name: VictoriaLogs
+        type: victoriametrics-logs-datasource
+        access: proxy
+        url: http://victoria-logs-victoria-logs-single-server.kpilot-logging.svc.${KPILOT_CLUSTER_DOMAIN}:9428
 grafana.ini:
   security:
     allow_embedding: true
