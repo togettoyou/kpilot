@@ -1,8 +1,10 @@
 package gateway
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"time"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
@@ -85,7 +87,7 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 			if err != nil {
 				continue
 			}
-			cmd, err := buildEnableCommandForReplay(plugin, cp)
+			cmd, err := g.BuildEnableCommand(plugin, cp)
 			if err != nil {
 				log.Printf("[gateway] replay enable build failed: cluster=%s plugin=%s err=%v",
 					clusterID, plugin.Name, err)
@@ -102,16 +104,78 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 	}
 }
 
-// buildEnableCommandForReplay merges the registry plugin's defaults
-// with the per-cluster overrides on cp and produces a PluginCommand
-// suitable for re-sending after a worker reconnect. Mirrors the
-// handler's buildEnableCommand but lives here so the gateway doesn't
-// have to depend on the handler package.
-func buildEnableCommandForReplay(p *store.Plugin, cp *store.ClusterPlugin) (*proto.PluginCommand, error) {
+// kpilotPlaceholderRE matches ${KPILOT_<NAME>} where <NAME> is uppercase
+// letters / digits / underscores. The narrow charset is intentional —
+// Helm values can carry literal `$` (templating, env-var refs); requiring
+// the exact KPILOT_ prefix + caps avoids matching real Helm syntax.
+var kpilotPlaceholderRE = regexp.MustCompile(`\$\{KPILOT_([A-Z0-9_]+)\}`)
+
+// expandKPilotVars resolves every ${KPILOT_X} token in the values YAML
+// against the provided variable map. Unknown tokens are left literal and
+// logged (per occurrence) — silent leave-as-is matches shell behavior for
+// undefined vars; the log line surfaces typos in the chart's
+// default_values so they get noticed.
+//
+// Adding a new placeholder is one line in the caller's `vars` map.
+//
+// Caution: substituted values land inside YAML — they MUST NOT contain
+// chars that would break parsing (newlines, unbalanced quotes). Today's
+// vars (cluster_id = UUID, cluster_domain = DNS name) are all safe by
+// construction; future vars carrying user input would need escaping.
+func expandKPilotVars(values string, vars map[string]string) string {
+	return kpilotPlaceholderRE.ReplaceAllStringFunc(values, func(match string) string {
+		name := kpilotPlaceholderRE.FindStringSubmatch(match)[1]
+		if v, ok := vars[name]; ok {
+			return v
+		}
+		log.Printf("[plugin] unknown placeholder ${KPILOT_%s} in values, left as-is", name)
+		return match
+	})
+}
+
+// BuildEnableCommand merges the registry plugin's defaults with the per-
+// cluster overrides on cp and produces a PluginCommand suitable for
+// sending to the Worker. Used by both the EnablePlugin HTTP handler and
+// the worker-reconnect replay path; centralizing here ensures the
+// placeholder expansion + chart blob lookup happen once with the same
+// rules from both call sites.
+//
+// For local-chart plugins the .tgz blob bytes are inlined — the Worker
+// writes them to its chart cache by sha256 so subsequent commands can
+// omit `blob`.
+//
+// Looks up the connected worker's cluster_domain from the gateway map
+// rather than taking it as a parameter, so callers don't have to plumb
+// it through. Falls back to "cluster.local" when the worker is gone.
+func (g *GatewayServer) BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin) (*proto.PluginCommand, error) {
 	values := cp.ValuesOverride
 	if values == "" {
 		values = p.DefaultValues
 	}
+
+	// Resolve well-known ${KPILOT_*} placeholders before sending. To
+	// register a new variable: add one entry below. The names are
+	// documented for chart authors:
+	//
+	//   CLUSTER_ID     — cluster UUID. Used by reverse-proxied plugins
+	//                    (Grafana root_url, etc.) so generated links
+	//                    route back through /proxy/<plugin>/.
+	//   CLUSTER_DOMAIN — K8s DNS suffix reported by the worker. Used by
+	//                    chart defaults that hard-code in-cluster Service
+	//                    FQDNs. Falls back to "cluster.local" when the
+	//                    worker registered without reporting it.
+	//
+	// Keep tokens ALL_CAPS_WITH_UNDERSCORES so they stay greppable and
+	// match the regex's charset.
+	workerDomain := "cluster.local"
+	if w, ok := g.GetWorker(cp.ClusterID); ok && w.ClusterDomain != "" {
+		workerDomain = w.ClusterDomain
+	}
+	values = expandKPilotVars(values, map[string]string{
+		"CLUSTER_ID":     cp.ClusterID,
+		"CLUSTER_DOMAIN": workerDomain,
+	})
+
 	version := cp.VersionOverride
 	if version == "" {
 		version = p.DefaultVersion
@@ -131,7 +195,7 @@ func buildEnableCommandForReplay(p *store.Plugin, cp *store.ClusterPlugin) (*pro
 		chart.Repo = p.ChartRepo
 	case store.ChartTypeLocal:
 		if p.ChartBlobID == nil {
-			return nil, errFmt("local chart has no blob")
+			return nil, errors.New("local chart has no blob")
 		}
 		blob, err := store.GetPluginBlobByID(*p.ChartBlobID)
 		if err != nil {
@@ -144,6 +208,7 @@ func buildEnableCommandForReplay(p *store.Plugin, cp *store.ClusterPlugin) (*pro
 		Action:  "enable",
 		CrdName: p.Name,
 		Spec: &proto.PluginSpec{
+			PluginId:         fmt.Sprintf("%d", p.ID),
 			DisplayName:      p.DisplayName,
 			Chart:            chart,
 			ReleaseName:      p.Name,
@@ -152,8 +217,6 @@ func buildEnableCommandForReplay(p *store.Plugin, cp *store.ClusterPlugin) (*pro
 		},
 	}, nil
 }
-
-func errFmt(msg string) error { return fmt.Errorf("%s", msg) }
 
 // SendPluginCommand pushes a one-way command (enable/disable) to the
 // connected Worker. Plugins use a fire-and-forget pattern — the Worker

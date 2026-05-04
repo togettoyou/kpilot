@@ -5,9 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"log"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -514,17 +512,7 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			Phase:                    store.PluginPhasePending,
 		}
 
-		// Resolve the worker's reported cluster domain so buildEnableCommand
-		// can substitute ${KPILOT_CLUSTER_DOMAIN} in YAML values (used by
-		// charts that hard-code in-cluster Service URLs in their defaults,
-		// e.g. Grafana's VictoriaMetrics datasource pre-provisioning).
-		// We just confirmed the worker is connected above (pre-flight),
-		// so the GetWorker lookup is safe to do without falling back.
-		var workerDomain string
-		if w, ok := gw.GetWorker(clusterID); ok {
-			workerDomain = w.ClusterDomain
-		}
-		cmd, err := buildEnableCommand(plugin, cp, workerDomain)
+		cmd, err := gw.BuildEnableCommand(plugin, cp)
 		if err != nil {
 			apiErrInternal(c, err)
 			return
@@ -643,106 +631,3 @@ func parsePluginID(c *gin.Context) (uint, error) {
 	return uint(v), nil
 }
 
-// kpilotPlaceholderRE matches ${KPILOT_<NAME>} where <NAME> is one or more
-// uppercase letters / digits / underscores. The narrow charset is on
-// purpose — Helm values can carry literal `$` (templating, env-var refs);
-// requiring the exact KPILOT_ prefix + caps avoids matching real Helm syntax.
-var kpilotPlaceholderRE = regexp.MustCompile(`\$\{KPILOT_([A-Z0-9_]+)\}`)
-
-// expandKPilotVars resolves every ${KPILOT_X} token in the values YAML
-// against the provided variable map. Unknown tokens are left literal and
-// logged once — silent leave-as-is matches shell behavior for undefined
-// vars and keeps weird deploys from blowing up; the log line surfaces
-// typos in the chart's default_values so they get noticed.
-//
-// Adding a new placeholder is one line in the caller's `vars` map — no
-// need to add another ReplaceAll call here.
-func expandKPilotVars(values string, vars map[string]string) string {
-	return kpilotPlaceholderRE.ReplaceAllStringFunc(values, func(match string) string {
-		name := kpilotPlaceholderRE.FindStringSubmatch(match)[1]
-		if v, ok := vars[name]; ok {
-			return v
-		}
-		log.Printf("[plugin] unknown placeholder ${KPILOT_%s} in values, left as-is", name)
-		return match
-	})
-}
-
-// buildEnableCommand merges registry defaults with per-cluster overrides
-// and produces the on-the-wire PluginCommand. For local-chart plugins it
-// also includes the .tgz blob bytes — the Worker writes them to its
-// chart cache by sha256 so subsequent commands can omit `blob`.
-//
-// workerDomain is the cluster's K8s DNS suffix as reported on register
-// (typically "cluster.local"); used to substitute ${KPILOT_CLUSTER_DOMAIN}
-// in chart values. Empty string falls back to "cluster.local".
-func buildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, workerDomain string) (*proto.PluginCommand, error) {
-	values := cp.ValuesOverride
-	if values == "" {
-		values = p.DefaultValues
-	}
-	// Resolve well-known ${KPILOT_*} placeholders in the final values
-	// payload before it leaves Server. To register a new variable: add
-	// one entry to this map. The names are documented for chart authors:
-	//
-	//   CLUSTER_ID     — cluster UUID. Used by reverse-proxied plugins
-	//                    (Grafana root_url, etc.) so generated links
-	//                    route back through /proxy/<plugin>/.
-	//   CLUSTER_DOMAIN — K8s DNS suffix reported by the worker. Used by
-	//                    chart defaults that hard-code in-cluster Service
-	//                    FQDNs. Falls back to "cluster.local" when the
-	//                    worker registered without reporting it.
-	//
-	// Keep tokens ALL_CAPS_WITH_UNDERSCORES so they stay greppable and
-	// match the regex's charset.
-	if workerDomain == "" {
-		workerDomain = "cluster.local"
-	}
-	values = expandKPilotVars(values, map[string]string{
-		"CLUSTER_ID":     cp.ClusterID,
-		"CLUSTER_DOMAIN": workerDomain,
-	})
-	version := cp.VersionOverride
-	if version == "" {
-		version = p.DefaultVersion
-	}
-	releaseNS := cp.ReleaseNamespaceOverride
-	if releaseNS == "" {
-		releaseNS = p.DefaultReleaseNamespace
-	}
-
-	chart := &proto.ChartSource{
-		Type:    string(p.ChartType),
-		Name:    p.ChartName,
-		Version: version,
-	}
-	switch p.ChartType {
-	case store.ChartTypeRepo, store.ChartTypeOCI:
-		// OCI plugins reuse chart_repo for the full oci:// URL; the
-		// worker reconciler dispatches on Type.
-		chart.Repo = p.ChartRepo
-	case store.ChartTypeLocal:
-		if p.ChartBlobID == nil {
-			return nil, errors.New("local chart has no blob")
-		}
-		blob, err := store.GetPluginBlobByID(*p.ChartBlobID)
-		if err != nil {
-			return nil, err
-		}
-		chart.Sha256 = blob.SHA256
-		chart.Blob = blob.Content
-	}
-
-	return &proto.PluginCommand{
-		Action:  "enable",
-		CrdName: p.Name,
-		Spec: &proto.PluginSpec{
-			PluginId:         strconv.FormatUint(uint64(p.ID), 10),
-			DisplayName:      p.DisplayName,
-			Chart:            chart,
-			ReleaseName:      p.Name, // Helm release name = plugin name (one per cluster)
-			ReleaseNamespace: releaseNS,
-			Values:           values,
-		},
-	}, nil
-}
