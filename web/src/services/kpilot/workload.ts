@@ -7,6 +7,15 @@ export type WorkloadResourceType =
   | 'configmaps' | 'secrets'
   | 'persistentvolumeclaims' | 'persistentvolumes';
 
+// Cluster-scoped workload kinds — no metadata.namespace, so the global
+// namespace picker hides itself and the table omits the namespace column
+// when one of these is selected. Shared between NamespacePicker (top bar)
+// and the Workloads page; keep these two consumers in lockstep.
+export const CLUSTER_SCOPED_TYPES = new Set<WorkloadResourceType>([
+  'persistentvolumes',
+  'gatewayclasses',
+]);
+
 export interface WorkloadItem {
   name: string;
   namespace: string;

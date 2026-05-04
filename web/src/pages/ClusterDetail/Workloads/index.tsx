@@ -29,6 +29,7 @@ import type {
 } from '@/services/kpilot/workload';
 import {
   applyWorkload,
+  CLUSTER_SCOPED_TYPES,
   deleteWorkload,
   getWorkload,
   listWorkloads,
@@ -258,11 +259,9 @@ const VALID_TYPES = new Set<string>([
   'persistentvolumes',
 ]);
 
-// Cluster-scoped resources have no metadata.namespace and the UI hides
-// the namespace selector / column when one of these is shown.
-// GatewayClass joins the existing PV entry — the rest of the Gateway API
-// kinds are namespace-scoped.
-const CLUSTER_SCOPED = new Set<string>(['persistentvolumes', 'gatewayclasses']);
+// CLUSTER_SCOPED_TYPES (shared with NamespacePicker) is the source of
+// truth for which workload kinds have no metadata.namespace. We also use
+// it here to drop the namespace column from the table.
 
 interface WorkloadsContentProps {
   clusterId: string;
@@ -278,7 +277,7 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
   const { message } = App.useApp();
   // Cluster-scoped resources (PV) have no namespace; sending one yields 404.
   // Compute up-front so the listWorkloads call below can short-circuit.
-  const isClusterScoped = CLUSTER_SCOPED.has(resourceType);
+  const isClusterScoped = CLUSTER_SCOPED_TYPES.has(resourceType);
 
   // Namespace selection lives in the global `namespace` model so navigating
   // between workload sub-pages preserves it; the picker UI lives in the top

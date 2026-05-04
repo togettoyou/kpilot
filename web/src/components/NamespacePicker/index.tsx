@@ -4,6 +4,11 @@ import type { RefSelectProps } from 'antd';
 import { Button, Divider, Select, Space } from 'antd';
 import React, { useEffect, useRef } from 'react';
 
+import {
+  CLUSTER_SCOPED_TYPES,
+  type WorkloadResourceType,
+} from '@/services/kpilot/workload';
+
 // NamespacePicker is mounted once via ProLayout's actionsRender. It hides
 // itself for routes that don't care about a namespace (cluster list, Nodes,
 // PVs which are cluster-scoped) and shows a context-aware Select otherwise.
@@ -42,14 +47,18 @@ export function NamespacePicker() {
     if (!root) return;
     const wrapper = root.parentElement;
     if (!wrapper) return;
-    const offenders = Array.from(wrapper.classList).filter((c) =>
-      c.includes('actions-item') || c.includes('actions-hover'),
+    const offenders = Array.from(wrapper.classList).filter(
+      (c) => c.includes('actions-item') || c.includes('actions-hover'),
     );
     offenders.forEach((c) => wrapper.classList.remove(c));
   });
 
-  // Nothing to pick on non-workload pages, or for the cluster-scoped PV.
-  if (!clusterId || !resourceType || resourceType === 'persistentvolumes') {
+  // Nothing to pick on non-workload pages or on a cluster-scoped resource.
+  if (
+    !clusterId ||
+    !resourceType ||
+    CLUSTER_SCOPED_TYPES.has(resourceType as WorkloadResourceType)
+  ) {
     return null;
   }
 
