@@ -18,7 +18,7 @@ import {
 // cluster has its own independent selection + list cache.
 export function NamespacePicker() {
   const intl = useIntl();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
 
   const match = pathname.match(/^\/clusters\/([^/]+)\/workloads\/([^/]+)/);
   const clusterId = match?.[1];
@@ -54,11 +54,17 @@ export function NamespacePicker() {
   });
 
   // Nothing to pick on non-workload pages or on a cluster-scoped resource.
-  if (
-    !clusterId ||
-    !resourceType ||
-    CLUSTER_SCOPED_TYPES.has(resourceType as WorkloadResourceType)
-  ) {
+  // For built-in workload kinds the cluster-scope decision comes from
+  // CLUSTER_SCOPED_TYPES; for the dynamic CR-instances viewer ('_cr')
+  // it comes from the `?scope=Cluster` URL query that openCRInstances
+  // attached based on the CRD's spec.scope. Mirrors the same logic in
+  // WorkloadsContent — keep both in lockstep so the picker hides on
+  // exactly the pages where the table also drops its namespace column.
+  const isClusterScoped =
+    resourceType === '_cr'
+      ? new URLSearchParams(search).get('scope') === 'Cluster'
+      : CLUSTER_SCOPED_TYPES.has(resourceType as WorkloadResourceType);
+  if (!clusterId || !resourceType || isClusterScoped) {
     return null;
   }
 

@@ -80,7 +80,15 @@ func pluginCRD() *apiextv1.CustomResourceDefinition {
 						Status: &apiextv1.CustomResourceSubresourceStatus{},
 					},
 					AdditionalPrinterColumns: []apiextv1.CustomResourceColumnDefinition{
-						{Name: "Chart", Type: "string", JSONPath: ".spec.chart.name"},
+						// Source instead of Chart name — chart.name is
+						// only populated for chart_type=repo. OCI charts
+						// put the whole reference in chart.repo and
+						// leave name empty; local charts use sha256 in
+						// chart.sha256. chart.type is the only field
+						// that's always set, so it gives every plugin
+						// a non-empty Source value.
+						{Name: "Source", Type: "string", JSONPath: ".spec.chart.type"},
+						{Name: "Namespace", Type: "string", JSONPath: ".spec.release.namespace"},
 						{Name: "Phase", Type: "string", JSONPath: ".status.phase"},
 						{Name: "Version", Type: "string", JSONPath: ".status.observedVersion"},
 						{Name: "Age", Type: "date", JSONPath: ".metadata.creationTimestamp"},

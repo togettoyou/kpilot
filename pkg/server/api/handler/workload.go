@@ -418,6 +418,16 @@ func validateDoc(idx int, obj *unstructured.Unstructured) (ApplyYamlResult, bool
 		r.Error = "CRD " + r.Name + " is owned by kpilot and read-only"
 		return r, false
 	}
+	// And the same for CR instances under kpilot.io groups (Plugin etc.)
+	// — the per-row apply/delete handlers reject these via the `_cr`
+	// guard, so the bulk drawer needs to too or it becomes the obvious
+	// bypass. obj.GroupVersionKind() reads apiVersion + kind out of
+	// the unstructured doc.
+	if isProtectedCRGroup(obj.GroupVersionKind().Group) {
+		r.Error = r.Kind + "." + obj.GroupVersionKind().Group +
+			" is owned by kpilot and read-only"
+		return r, false
+	}
 	return r, true
 }
 

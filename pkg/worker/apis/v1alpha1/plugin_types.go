@@ -141,9 +141,10 @@ type PluginStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,shortName=kpl
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Chart",type=string,JSONPath=`.spec.chart.name`
-// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.observedVersion`
+// +kubebuilder:printcolumn:name="Source",type=string,JSONPath=`.spec.chart.type`
+// +kubebuilder:printcolumn:name="Namespace",type=string,JSONPath=`.spec.release.namespace`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.observedVersion`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Plugin is a cluster-scoped CRD describing a Helm release the kpilot
