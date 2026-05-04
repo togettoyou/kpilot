@@ -46,6 +46,38 @@ type Proxy struct {
 	sendFn     func(requestID string, resp *proto.ResourceResponse)
 }
 
+// restMapping looks up the GVK with one auto-retry on NoMatch.
+//
+// Controller-runtime's dynamic RESTMapper caches API discovery and only
+// re-fetches on demand, but a CRD newly installed by a Helm plugin
+// (e.g. envoy-gateway adding GatewayClass / HTTPRoute / etc.) lands
+// after our cache was already populated. Without a refresh, every
+// subsequent Apply YAML for those new kinds fails with "no matches for
+// kind" until the worker process restarts.
+//
+// Strategy: on NoMatch, invalidate the cache via meta.ResettableRESTMapper
+// and try once more. The retry forces a fresh API discovery round-trip,
+// after which the new CRD's GVK becomes resolvable. Genuine typos
+// (kind doesn't exist) cost one extra round-trip; that's a fine price
+// for never having to restart the worker after installing a CRD-bearing
+// chart.
+func (p *Proxy) restMapping(gvk schema.GroupVersionKind) (*apimeta.RESTMapping, error) {
+	mapping, err := p.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err == nil {
+		return mapping, nil
+	}
+	if !apimeta.IsNoMatchError(err) {
+		return nil, err
+	}
+	rm, ok := p.mapper.(apimeta.ResettableRESTMapper)
+	if !ok {
+		return nil, err
+	}
+	log.Printf("[proxy] RESTMapping miss, resetting discovery cache: gvk=%v", gvk)
+	rm.Reset()
+	return p.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+}
+
 // New creates a Proxy. sendFn is called after each operation to return the
 // result to the Server (typically tunnelClient.SendResourceResponse).
 func New(cfg *rest.Config, mapper apimeta.RESTMapper, sendFn func(string, *proto.ResourceResponse)) (*Proxy, error) {
@@ -77,7 +109,7 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 		Version: req.Version,
 		Kind:    req.Kind,
 	}
-	mapping, err := p.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	mapping, err := p.restMapping(gvk)
 	if err != nil {
 		return fail(fmt.Sprintf("map %v: %v", gvk, err))
 	}
