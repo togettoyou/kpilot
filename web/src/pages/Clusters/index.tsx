@@ -22,7 +22,6 @@ import {
   Modal,
   Space,
   Spin,
-  Statistic,
   Tag,
   Typography,
 } from 'antd';
@@ -84,6 +83,54 @@ const TokenModal: React.FC<{
         </div>
       </Space>
     </Modal>
+  );
+};
+
+// ─── KPI stat tile ──────────────────────────────────────────────────────────
+//
+// Big colored icon-bubble on the left, label + large number on the right.
+// We use Tailwind's design-token-bound bg-{color}-50 / text-{color}-500
+// pairs (with a dark-mode counterpart) rather than antd's `<Statistic>`
+// because the bubble is the visual anchor — `<Statistic>`'s built-in
+// `prefix` renders a small inline icon that gets visually lost next to
+// the big number.
+//
+// `tabular-nums` keeps digit width fixed so the page doesn't shift
+// horizontally when the polling refresh changes a value (e.g.
+// 9 → 10 in the online count).
+
+interface StatTileProps {
+  title: string;
+  value: number;
+  icon: React.ReactNode;
+  color: 'blue' | 'green' | 'gray';
+}
+
+const STAT_COLOR_CLASSES: Record<StatTileProps['color'], string> = {
+  blue: 'bg-blue-50 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400',
+  green: 'bg-green-50 text-green-500 dark:bg-green-900/30 dark:text-green-400',
+  gray: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+};
+
+const StatTile: React.FC<StatTileProps> = ({ title, value, icon, color }) => {
+  return (
+    <Card>
+      <div className="flex items-center gap-4">
+        <div
+          className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full ${STAT_COLOR_CLASSES[color]}`}
+        >
+          <span className="text-2xl">{icon}</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            {title}
+          </div>
+          <div className="mt-1 text-3xl font-semibold tabular-nums">
+            {value}
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 };
 
@@ -335,29 +382,24 @@ export default function ClustersPage() {
     >
       {/* ── Stats row ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <Card>
-          <Statistic
-            title={intl.formatMessage({ id: 'pages.clusters.stats.total' })}
-            value={stats.total}
-            prefix={<ClusterOutlined />}
-          />
-        </Card>
-        <Card>
-          <Statistic
-            title={intl.formatMessage({ id: 'pages.clusters.stats.online' })}
-            value={stats.online}
-            valueStyle={{ color: '#52c41a' }}
-            prefix={<CheckCircleOutlined />}
-          />
-        </Card>
-        <Card>
-          <Statistic
-            title={intl.formatMessage({ id: 'pages.clusters.stats.offline' })}
-            value={stats.offline}
-            valueStyle={{ color: '#999' }}
-            prefix={<MinusCircleOutlined />}
-          />
-        </Card>
+        <StatTile
+          color="blue"
+          icon={<ClusterOutlined />}
+          title={intl.formatMessage({ id: 'pages.clusters.stats.total' })}
+          value={stats.total}
+        />
+        <StatTile
+          color="green"
+          icon={<CheckCircleOutlined />}
+          title={intl.formatMessage({ id: 'pages.clusters.stats.online' })}
+          value={stats.online}
+        />
+        <StatTile
+          color="gray"
+          icon={<MinusCircleOutlined />}
+          title={intl.formatMessage({ id: 'pages.clusters.stats.offline' })}
+          value={stats.offline}
+        />
       </div>
 
       {/* ── Card grid / Empty state ─────────────────────────────────── */}

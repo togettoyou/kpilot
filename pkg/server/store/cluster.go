@@ -28,7 +28,11 @@ func GetClusterByToken(token string) (*Cluster, error) {
 
 func ListClusters() ([]Cluster, error) {
 	var clusters []Cluster
-	if err := DB.Order("created_at desc").Find(&clusters).Error; err != nil {
+	// Oldest first — UI lists clusters as a card grid, so a stable
+	// position-by-create-time means a freshly-added cluster appears at
+	// the end of the grid instead of bumping every existing card down
+	// one slot. Reduces visual churn for users who memorize positions.
+	if err := DB.Order("created_at asc").Find(&clusters).Error; err != nil {
 		return nil, err
 	}
 	return clusters, nil
