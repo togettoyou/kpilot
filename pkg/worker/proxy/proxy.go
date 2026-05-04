@@ -46,6 +46,31 @@ type Proxy struct {
 	sendFn     func(requestID string, resp *proto.ResourceResponse)
 }
 
+// resourceClient picks namespace-scoped vs cluster-scoped REST access
+// based on the GVK's discovered scope, NOT on whether the caller passed
+// a namespace. The Apply YAML drawer accepts user-pasted manifests; if
+// a Service/Deployment/Gateway/etc. (namespace-scoped) lacks a
+// metadata.namespace, GetNamespace returned "", we previously dispatched
+// through the cluster-scoped path, and K8s 404'd with "the server could
+// not find the requested resource" because there is no cluster-scoped
+// Service kind. kubectl handles this by defaulting to "default"; do the
+// same. For cluster-scoped kinds we always ignore any namespace input.
+//
+// Returns (resourceInterface, effectiveNamespace) — effectiveNamespace
+// is what we'll log / report back; for cluster-scoped resources it's
+// always "".
+func (p *Proxy) resourceClient(mapping *apimeta.RESTMapping, namespace string) (dynamic.ResourceInterface, string) {
+	ri := p.dyn.Resource(mapping.Resource)
+	if mapping.Scope.Name() != apimeta.RESTScopeNameNamespace {
+		return ri, ""
+	}
+	ns := namespace
+	if ns == "" {
+		ns = "default"
+	}
+	return ri.Namespace(ns), ns
+}
+
 // restMapping looks up the GVK with one auto-retry on NoMatch.
 //
 // Controller-runtime's dynamic RESTMapper caches API discovery and only
@@ -191,14 +216,8 @@ func (p *Proxy) get(ctx context.Context, mapping *apimeta.RESTMapping, namespace
 	if name == "" {
 		return fail("name is required for get")
 	}
-	ri := p.dyn.Resource(mapping.Resource)
-	var result interface{}
-	var err error
-	if namespace != "" {
-		result, err = ri.Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
-	} else {
-		result, err = ri.Get(ctx, name, metav1.GetOptions{})
-	}
+	ri, _ := p.resourceClient(mapping, namespace)
+	result, err := ri.Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -216,14 +235,8 @@ func (p *Proxy) apply(ctx context.Context, mapping *apimeta.RESTMapping, namespa
 	// Server-Side Apply: declarative, idempotent, no resourceVersion required.
 	forceTrue := true
 	opts := metav1.PatchOptions{FieldManager: "kpilot", Force: &forceTrue}
-	ri := p.dyn.Resource(mapping.Resource)
-	var result *unstructured.Unstructured
-	var err error
-	if namespace != "" {
-		result, err = ri.Namespace(namespace).Patch(ctx, name, k8stypes.ApplyPatchType, body, opts)
-	} else {
-		result, err = ri.Patch(ctx, name, k8stypes.ApplyPatchType, body, opts)
-	}
+	ri, _ := p.resourceClient(mapping, namespace)
+	result, err := ri.Patch(ctx, name, k8stypes.ApplyPatchType, body, opts)
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -251,15 +264,9 @@ func (p *Proxy) update(ctx context.Context, mapping *apimeta.RESTMapping, namesp
 	if obj.GetResourceVersion() == "" {
 		return fail("metadata.resourceVersion is required; reload the resource and retry")
 	}
-	ri := p.dyn.Resource(mapping.Resource)
+	ri, _ := p.resourceClient(mapping, namespace)
 	opts := metav1.UpdateOptions{FieldManager: "kpilot"}
-	var result *unstructured.Unstructured
-	var err error
-	if namespace != "" {
-		result, err = ri.Namespace(namespace).Update(ctx, obj, opts)
-	} else {
-		result, err = ri.Update(ctx, obj, opts)
-	}
+	result, err := ri.Update(ctx, obj, opts)
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -289,14 +296,8 @@ func (p *Proxy) delete(ctx context.Context, mapping *apimeta.RESTMapping, namesp
 	if name == "" {
 		return fail("name is required for delete")
 	}
-	ri := p.dyn.Resource(mapping.Resource)
-	var err error
-	if namespace != "" {
-		err = ri.Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
-	} else {
-		err = ri.Delete(ctx, name, metav1.DeleteOptions{})
-	}
-	if err != nil {
+	ri, _ := p.resourceClient(mapping, namespace)
+	if err := ri.Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 		return fail(err.Error())
 	}
 	return &proto.ResourceResponse{Success: true}
