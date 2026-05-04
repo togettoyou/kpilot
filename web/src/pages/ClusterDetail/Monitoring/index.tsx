@@ -7,7 +7,7 @@ import {
 } from '@ant-design/icons';
 import { history, useIntl, useParams, useRequest } from '@umijs/max';
 import { Alert, Button, Result, Spin, Tooltip } from 'antd';
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   listClusterPlugins,
@@ -103,6 +103,14 @@ const MonitoringPage: React.FC = () => {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // The wrapper's height tracks its parent's clientHeight via ResizeObserver
+  // — height:100% would collapse to 0 when ProLayout's content area doesn't
+  // hand down an explicit height through every flex/block ancestor, and a
+  // viewport-minus-header calc has to guess at all the chrome above us
+  // (header / breadcrumb / banner padding) and never gets it exactly right.
+  // Measuring the actual containing block adapts to window resize, sider
+  // collapse, and any future ProLayout chrome changes for free.
+  const [containerHeight, setContainerHeight] = useState<number | null>(null);
 
   const { data, loading, refresh } = useRequest(
     () => listClusterPlugins(clusterId!),
@@ -164,6 +172,33 @@ const MonitoringPage: React.FC = () => {
     return lockScrollChain(el);
   }, [summary.allReady]);
 
+  // Track the wrapper's parent height so the iframe fills it exactly —
+  // window resize, sider collapse / expand, recommended-banner toggling,
+  // anything that changes the available area gets the iframe re-sized
+  // without doing the math ourselves.
+  useEffect(() => {
+    if (!summary.allReady) return;
+    const el = wrapperRef.current;
+    if (!el?.parentElement) return;
+    const parent = el.parentElement;
+    const update = () => {
+      // clientHeight excludes parent's own border but includes its
+      // padding — which is exactly the area an absolutely-sized child
+      // would have to fit into. Avoids the iframe overlapping or
+      // under-running parent's padding edge.
+      const h = parent.clientHeight;
+      if (h > 0) setContainerHeight(h);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(parent);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [summary.allReady]);
+
   const goToPlugins = () => history.push(`/clusters/${clusterId}/plugins`);
 
   if (loading && !data) {
@@ -192,17 +227,18 @@ const MonitoringPage: React.FC = () => {
     );
     const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/`;
     return (
-      // Wrapper fills its parent exactly (height:100%) so it never
-      // produces an outer scrollbar of its own. The lockScrollChain
-      // effect above freezes html/body/intermediate ancestors, so the
-      // page is genuinely unscrollable while the iframe is mounted —
-      // there's literally nowhere for an iframe scroll-chain to land.
+      // Wrapper height comes from the ResizeObserver above (containerHeight)
+      // so the iframe fills the actual parent box exactly. Falls back to
+      // viewport-minus-header before the first measurement lands; once
+      // measured, future window resizes keep it in sync. lockScrollChain
+      // freezes html/body/intermediate ancestors so the page is genuinely
+      // unscrollable, no matter the height.
       <div
         ref={wrapperRef}
         style={{
           display: 'flex',
           flexDirection: 'column',
-          height: '100%',
+          height: containerHeight != null ? containerHeight : 'calc(100vh - 56px)',
           width: '100%',
           overflow: 'hidden',
         }}
