@@ -40,13 +40,12 @@ export interface WorkloadItem {
 // type='_cr', the GVK lands in URL query params (group/version/kind)
 // and the server's resolveGVK helper picks them up. group is optional
 // — empty string is valid for core/v1, though no current CRD lives
-// there. plural is only used for the page title and not sent to the
-// server.
+// there. scope drives namespace-picker visibility client-side; the
+// server resolves resource scope independently via RESTMapper.
 export interface CRRef {
   group: string;
   version: string;
   kind: string;
-  plural: string;
   scope: 'Namespaced' | 'Cluster';
 }
 

@@ -138,6 +138,20 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
         {
           path: `${base}/workloads/customresourcedefinitions`,
           name: 'crds',
+          // Hidden child route — without this, navigating to the CR-
+          // instances viewer (/workloads/_cr?...) drops out of any
+          // matched menu item, the Extensions section auto-closes
+          // (splitMenus: true), and the CRDs item loses its selected
+          // state. Listing _cr as a hidden child of CRDs keeps both
+          // the section open and the CRDs item highlighted while the
+          // user is browsing instances of a particular CRD.
+          children: [
+            {
+              path: `${base}/workloads/_cr`,
+              name: 'crInstances',
+              hideInMenu: true,
+            },
+          ],
         },
       ],
     },

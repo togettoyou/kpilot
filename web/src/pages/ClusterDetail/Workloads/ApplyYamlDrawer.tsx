@@ -32,7 +32,12 @@ interface ApplyYamlDrawerProps {
   onClose: () => void;
   onApplied: () => void;
   clusterId: string;
-  resourceType: WorkloadResourceType;
+  // '_cr' (CR-instances viewer) has no associated template — there are
+  // arbitrarily many user-installed CRDs, no useful starter we could
+  // pre-fill. The TEMPLATES lookup naturally returns undefined for it
+  // and the editor opens empty, which is the right call (better than
+  // confusing the user with a ConfigMap template on the Plugin page).
+  resourceType: WorkloadResourceType | '_cr';
 }
 
 // Per-resource starting templates so the editor seeds with something
@@ -401,7 +406,13 @@ export function ApplyYamlDrawer({
   // itself is type-agnostic (Deployments page can apply a Service, etc.).
   useEffect(() => {
     if (open) {
-      setYamlText(TEMPLATES[resourceType] ?? '');
+      // TEMPLATES is keyed on WorkloadResourceType only; for the CR-
+      // instances viewer ('_cr') we have no template (arbitrary
+      // user-installed CRDs, no useful starter to pre-fill) and the
+      // editor opens empty. Cast through unknown so the index lookup
+      // type-checks without widening TEMPLATES.
+      const tpl = (TEMPLATES as Record<string, string>)[resourceType];
+      setYamlText(tpl ?? '');
       setResults(null);
     }
   }, [open, resourceType]);

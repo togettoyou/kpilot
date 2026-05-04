@@ -8,7 +8,14 @@ import {
 } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
-import { history, useIntl, useModel, useParams, useRequest } from '@umijs/max';
+import {
+  history,
+  useIntl,
+  useLocation,
+  useModel,
+  useParams,
+  useRequest,
+} from '@umijs/max';
 import {
   App,
   Button,
@@ -451,8 +458,7 @@ function WorkloadsContent({
       versions.find((v: any) => v.served)?.name ??
       versions[0]?.name;
     const kind: string = spec.names?.kind ?? '';
-    const plural: string = spec.names?.plural ?? '';
-    if (!version || !kind || !plural) {
+    if (!version || !kind) {
       message.error(
         intl.formatMessage({ id: 'pages.workloads.crd.invalidSpec' }),
       );
@@ -462,7 +468,6 @@ function WorkloadsContent({
       group: spec.group ?? '',
       version,
       kind,
-      plural,
       scope: spec.scope === 'Cluster' ? 'Cluster' : 'Namespaced',
     });
     history.push(`/clusters/${clusterId}/workloads/_cr?${params.toString()}`);
@@ -657,6 +662,26 @@ function WorkloadsContent({
       <ProTable<WorkloadItem>
         headerTitle={
           <Space>
+            {/* CR-instances viewer: a back button → CRD list page,
+                because navigating here drops the user out of the
+                Extensions menu's CRD selection (the URL changes from
+                /workloads/customresourcedefinitions to /workloads/_cr,
+                which the menu doesn't know about). Without this they
+                lose their nav anchor. */}
+            {resourceType === '_cr' && (
+              <Button
+                size="small"
+                type="text"
+                icon={<LeftOutlined />}
+                onClick={() =>
+                  history.push(
+                    `/clusters/${clusterId}/workloads/customresourcedefinitions`,
+                  )
+                }
+              >
+                {intl.formatMessage({ id: 'pages.workloads.crd.backToList' })}
+              </Button>
+            )}
             <Text strong>
               {resourceType === '_cr' && cr
                 ? // CR-instances viewer: title is the Kind (e.g. "Plugin")
@@ -860,11 +885,7 @@ function WorkloadsContent({
           ns.refresh(clusterId);
         }}
         clusterId={clusterId}
-        // Apply YAML drawer's resourceType is only used to pick a
-        // starting template; for the CR viewer fall back to a known
-        // type so the editor isn't empty for no reason. Templates are
-        // type-agnostic on submit anyway (server parses the YAML).
-        resourceType={resourceType === '_cr' ? 'configmaps' : resourceType}
+        resourceType={resourceType}
       />
     </div>
   );
@@ -873,23 +894,25 @@ function WorkloadsContent({
 // ─── Page ──────────────────────────────────────────────────────────────────
 
 // _cr is the sentinel URL segment for the CR-instances viewer:
-//   /clusters/:id/workloads/_cr?group=...&version=...&kind=...&plural=...&scope=Namespaced|Cluster
-// All five query params are required for `_cr`. Built-in workload types
-// keep the existing /workloads/:type shape and don't need query params.
+//   /clusters/:id/workloads/_cr?group=...&version=...&kind=...&scope=Namespaced|Cluster
+// All four query params are required (group can be empty for core API).
+// Built-in workload types keep the existing /workloads/:type shape and
+// don't need query params.
 const CR_SENTINEL = '_cr';
 
-function readCRRefFromQuery(): CRRef | null {
-  const sp = new URLSearchParams(window.location.search);
+// crRefFromSearch parses a CRRef out of a URLSearchParams. Returns null
+// if any required field is missing — caller (the page component) then
+// redirects back to the CRD list. Pure of side effects so it can be
+// driven by useLocation().search reactively.
+function crRefFromSearch(sp: URLSearchParams): CRRef | null {
   const version = sp.get('version');
   const kind = sp.get('kind');
-  const plural = sp.get('plural');
   const scope = sp.get('scope');
-  if (!version || !kind || !plural) return null;
+  if (!version || !kind) return null;
   return {
     group: sp.get('group') ?? '',
     version,
     kind,
-    plural,
     // Default to Namespaced — most CRDs are. Only treat as cluster-
     // scoped when the URL explicitly says so (matches the kubectl-style
     // safety: showing "all namespaces" for a cluster-scoped resource is
@@ -901,12 +924,15 @@ function readCRRefFromQuery(): CRRef | null {
 
 export default function WorkloadsPage() {
   const { id: clusterId, type } = useParams<{ id: string; type: string }>();
+  const { search } = useLocation();
 
   // CR-instances viewer: parse GVK from URL query params; if any
   // required field is missing, send the user back to the CRD list page
-  // instead of rendering a broken view.
+  // instead of rendering a broken view. Using useLocation().search
+  // makes this reactive to URL changes, though in practice the key
+  // prop below also forces a remount on GVK change.
   if (type === CR_SENTINEL) {
-    const cr = readCRRefFromQuery();
+    const cr = crRefFromSearch(new URLSearchParams(search));
     if (!cr) {
       return (
         <Navigate

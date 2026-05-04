@@ -221,7 +221,8 @@ export default {
   'pages.workloads.describe': 'Describe',
   'pages.workloads.crd.viewInstances': 'View Instances',
   'pages.workloads.crd.invalidSpec':
-    'CRD spec missing group/version/kind/plural — cannot list instances',
+    'CRD spec missing group/version/kind — cannot list instances',
+  'pages.workloads.crd.backToList': 'Back to CRDs',
   'pages.workloads.copied': 'Copied',
   'pages.describe.title': 'Describe',
   'pages.describe.copy': 'Copy',
