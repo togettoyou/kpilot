@@ -31,8 +31,8 @@ func Load() *Config {
 
 	adminPassword := envOr("ADMIN_PASSWORD", "")
 	if adminPassword == "" {
-		adminPassword = "admin123"
-		log.Println("[config] ADMIN_PASSWORD not set, using default: admin123")
+		adminPassword = "kpilot123"
+		log.Println("[config] ADMIN_PASSWORD not set, using default: kpilot123")
 	}
 
 	var corsOrigins []string
@@ -48,7 +48,7 @@ func Load() *Config {
 		HTTPAddr:      envOr("HTTP_ADDR", ":8080"),
 		GRPCAddr:      envOr("GRPC_ADDR", ":9090"),
 		DSN:           envOr("DSN", "postgres://kpilot:kpilot123@localhost:5432/kpilot?sslmode=disable"),
-		AdminUsername: envOr("ADMIN_USERNAME", "admin"),
+		AdminUsername: envOr("ADMIN_USERNAME", "kpilot"),
 		AdminPassword: adminPassword,
 		JWTSecret:     jwtSecret,
 		CORSOrigins:   corsOrigins,

@@ -282,8 +282,8 @@ kpilot/
 | `HTTP_ADDR` | `:8080` | HTTP 监听地址 |
 | `GRPC_ADDR` | `:9090` | gRPC 监听地址 |
 | `DSN` | `postgres://...` | PostgreSQL 连接串 |
-| `ADMIN_USERNAME` | `admin` | 管理员用户名 |
-| `ADMIN_PASSWORD` | `admin123` | 管理员密码 |
+| `ADMIN_USERNAME` | `kpilot` | 管理员用户名 |
+| `ADMIN_PASSWORD` | `kpilot123` | 管理员密码 |
 | `JWT_SECRET` | 随机 | JWT 签名密钥，未设置则每次重启失效 |
 | `CORS_ORIGINS` | 空（开发宽松模式） | 生产环境设置前端域名，逗号分隔，如 `https://kpilot.example.com` |
 
