@@ -162,30 +162,41 @@ const MonitoringPage: React.FC = () => {
     return containIframeOverscroll(iframe);
   }, [summary.allReady]);
 
-  // Track the wrapper's parent height so the iframe fills it exactly —
-  // window resize, sider collapse / expand, recommended-banner toggling,
-  // anything that changes the available area gets the iframe re-sized
-  // without doing the math ourselves.
+  // Size the wrapper to fit between its top edge and the bottom of the
+  // viewport. Uses window.innerHeight - rect.top instead of the more
+  // obvious parent.clientHeight because the latter is a feedback loop:
+  // we ARE parent's content, so growing our wrapper grows parent's
+  // clientHeight which grows our wrapper. Most flex layouts incidentally
+  // dampen the loop, but an iframe error page (or any state where
+  // parent's height isn't otherwise constrained) can blow up to infinity.
+  //
+  // window.innerHeight - rect.top depends only on chrome ABOVE us
+  // (header, breadcrumbs, banner) and the viewport itself — never on
+  // our own size — so the measurement is loop-free by construction.
   useEffect(() => {
     if (!summary.allReady) return;
-    const el = wrapperRef.current;
-    if (!el?.parentElement) return;
-    const parent = el.parentElement;
     const update = () => {
-      // clientHeight excludes parent's own border but includes its
-      // padding — which is exactly the area an absolutely-sized child
-      // would have to fit into. Avoids the iframe overlapping or
-      // under-running parent's padding edge.
-      const h = parent.clientHeight;
-      if (h > 0) setContainerHeight(h);
+      const el = wrapperRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const h = Math.max(0, Math.floor(window.innerHeight - rect.top));
+      // Functional setter + equality check so unchanged measurements
+      // don't trigger re-renders.
+      setContainerHeight((prev) => (prev === h ? prev : h));
     };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(parent);
+    // Defer first measure one frame so styles from this render commit
+    // before we measure rect.top.
+    const raf = requestAnimationFrame(update);
     window.addEventListener('resize', update);
+    // body resizes when banners appear / disappear or the sider
+    // collapses — any chrome change above us. We measure relative to
+    // wrapper.top so this can't feedback into our own size.
+    const ro = new ResizeObserver(update);
+    ro.observe(document.body);
     return () => {
-      ro.disconnect();
+      cancelAnimationFrame(raf);
       window.removeEventListener('resize', update);
+      ro.disconnect();
     };
   }, [summary.allReady]);
 
