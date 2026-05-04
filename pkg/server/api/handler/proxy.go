@@ -151,6 +151,15 @@ const proxyMaxBodyBytes = 31 * 1024 * 1024
 // later if it bites.
 const proxyTimeout = 60 * time.Second
 
+// proxyGrafanaRole is the Grafana role KPilot's embedded session lands in.
+// Sent via X-WEBAUTH-ROLE on every request and consumed by Grafana's
+// auth.proxy `headers = Role:X-WEBAUTH-ROLE` config. Hardcoded here because
+// the embed is consumption-only — anyone who genuinely needs to edit can
+// use the admin password from Secret <release>-grafana to log in directly.
+// "Viewer" is the safe default; "Editor" or "Admin" if we ever need a
+// per-user mapping.
+const proxyGrafanaRole = "Viewer"
+
 // hopByHopHeadersServer mirrors the Worker-side list. Keep them in sync —
 // each side must strip these on egress so the underlying transport doesn't
 // inherit stale connection-control state.
@@ -306,20 +315,23 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 				}
 				continue
 			}
-			// Drop incoming X-WEBAUTH-USER — never trust client-supplied
-			// values for headers we use to authorize the upstream.
-			if canon == "X-Webauth-User" {
+			// Drop incoming X-WEBAUTH-USER / X-WEBAUTH-ROLE — never trust
+			// client-supplied values for headers we use to authorize the
+			// upstream.
+			if canon == "X-Webauth-User" || canon == "X-Webauth-Role" {
 				continue
 			}
 			for _, v := range values {
 				headers = append(headers, &proto.HTTPHeader{Name: name, Value: v})
 			}
 		}
-		// Inject the auth.proxy header. The username comes from the JWT
-		// middleware ctx — currently always "admin" since we're single-
-		// tenant, but we read it from context anyway so multi-user just
-		// works when we add it.
+		// Inject the auth.proxy headers. Username comes from the JWT
+		// middleware (single-tenant "admin" today). Role is hardcoded
+		// to keep the embed read-only; auth.proxy's `headers` config
+		// applies it on every request, so even old Admin accounts get
+		// downgraded immediately.
 		headers = append(headers, &proto.HTTPHeader{Name: "X-WEBAUTH-USER", Value: resolveUsername(c)})
+		headers = append(headers, &proto.HTTPHeader{Name: "X-WEBAUTH-ROLE", Value: proxyGrafanaRole})
 
 		req := &proto.HTTPRequest{
 			Method:  c.Request.Method,
@@ -414,7 +426,7 @@ func proxyWebSocket(
 		if strings.HasPrefix(canon, "Sec-Websocket-") {
 			continue
 		}
-		if canon == "Authorization" || canon == "X-Webauth-User" {
+		if canon == "Authorization" || canon == "X-Webauth-User" || canon == "X-Webauth-Role" {
 			continue
 		}
 		if canon == "Cookie" {
@@ -430,6 +442,7 @@ func proxyWebSocket(
 		}
 	}
 	wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: "X-WEBAUTH-USER", Value: username})
+	wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: "X-WEBAUTH-ROLE", Value: proxyGrafanaRole})
 
 	query := c.Request.URL.RawQuery
 	target := fmt.Sprintf("ws://%s.%s.svc.%s:%d%s",
