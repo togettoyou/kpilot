@@ -633,6 +633,13 @@ func buildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin) (*proto.Plugin
 	if values == "" {
 		values = p.DefaultValues
 	}
+	// Resolve well-known placeholders in the final values payload before
+	// it leaves Server. Currently supports ${KPILOT_CLUSTER_ID}, used by
+	// reverse-proxied plugins (Grafana, …) that need to bake the cluster
+	// id into their own root_url so generated links route back through
+	// /api/v1/clusters/<id>/proxy/<plugin>/. Same scheme can carry future
+	// tokens — keep them ALL_CAPS so they're greppable.
+	values = strings.ReplaceAll(values, "${KPILOT_CLUSTER_ID}", cp.ClusterID)
 	version := cp.VersionOverride
 	if version == "" {
 		version = p.DefaultVersion

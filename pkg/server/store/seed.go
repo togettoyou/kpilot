@@ -195,6 +195,118 @@ service:
 		DefaultReleaseNamespace: "kpilot-networking",
 	},
 	{
+		Name:        "grafana",
+		DisplayName: "Grafana",
+		Description: "Dashboards & visualization for cluster metrics. Pre-wired for KPilot reverse-proxy embedding (auth.proxy + sub-path) and with VictoriaMetrics as the default Prometheus-compatible datasource — install victoria-metrics first so Grafana finds it on first launch. Fallback admin credentials admin / admin (KPilot's monitoring page uses auth.proxy and never asks for them).",
+		Category:    PluginCategoryMonitoring,
+		IsBuiltin:   true,
+		// Renders after VictoriaMetrics (10) and Node Exporter (20)
+		// inside the monitoring category — Grafana sits on top of the
+		// metrics pipeline so the visual order matches the data flow.
+		SortOrder: 30,
+		// OCI is the chart authors' preferred distribution channel
+		// (per the README on artifacthub.io). Mirrors Envoy Gateway's
+		// OCI setup so we keep coverage for both repo and OCI install
+		// paths in the builtin set.
+		ChartType: ChartTypeOCI,
+		// ghcr.io is the official mirror; chart 12.3.0 → app v13.0.1.
+		ChartRepo:      "oci://ghcr.io/grafana-community/helm-charts/grafana",
+		DefaultVersion: "12.3.0",
+		// Defaults below mirror the shape of other monitoring builtins:
+		//
+		// - image.registry / image.repository spelled out so private-
+		//   mirror users have a ready hook in the Enable drawer.
+		// - admin creds explicit (admin / admin) ONLY as a fallback for
+		//   kubectl-port-forward debug. KPilot's monitoring page reverse-
+		//   proxies via auth.proxy + X-WEBAUTH-USER, so users never
+		//   actually type a password.
+		// - persistence enabled with a 10Gi PVC — Grafana stores
+		//   dashboards/datasources in SQLite by default, losing them on
+		//   pod restart is a worse first-run experience than a small PV.
+		// - resources sized for a small dev cluster, same shape as VM /
+		//   VL (modest requests, soft memory limit, no CPU limit).
+		// - defaultDashboardsEnabled=true pulls in the chart-bundled
+		//   community dashboards (~10 starter panels) so monitoring
+		//   isn't an empty page right after install.
+		// - datasources pre-provisions the VictoriaMetrics datasource at
+		//   the Service URL the victoria-metrics-single chart produces
+		//   when installed via the "victoria-metrics" plugin name in
+		//   namespace kpilot-monitoring (Service name pattern is
+		//   <release>-victoria-metrics-single-server). If the user
+		//   renames the VM plugin or reassigns the namespace, edit this
+		//   URL in the Enable drawer accordingly.
+		// - grafana.ini wires up the four ini sections KPilot's reverse-
+		//   proxy embedding depends on:
+		//   • [security] allow_embedding=true — Grafana sends X-Frame-
+		//     Options:deny by default; without this, even same-origin
+		//     iframes are blocked.
+		//   • [auth.proxy] enabled=true + auto_sign_up=true — KPilot
+		//     Server's reverse proxy injects X-WEBAUTH-USER:<kpilot user>
+		//     and Grafana auto-creates a matching account on first hit.
+		//     Means the user never sees a Grafana login page from inside
+		//     KPilot.
+		//   • [auth.anonymous] enabled=false — explicitly off so a
+		//     missing X-WEBAUTH-USER header isn't silently accepted as
+		//     "anonymous Viewer".
+		//   • [server] serve_from_sub_path=true + relative root_url with
+		//     ${KPILOT_CLUSTER_ID} — the placeholder is replaced by the
+		//     Server before the PluginCommand goes out (see
+		//     buildEnableCommand). Grafana then knows its own URL prefix
+		//     and rewrites every link/redirect to include it. Relative
+		//     (path-only) URL is required here because the absolute form
+		//     %(domain)s expands to Grafana's pod-internal name, which
+		//     is wrong for a browser hitting KPilot's HTTP frontend.
+		DefaultValues: `image:
+  registry: docker.io
+  repository: grafana/grafana
+  tag: ""
+adminUser: admin
+adminPassword: admin
+service:
+  type: ClusterIP
+  port: 80
+persistence:
+  type: pvc
+  enabled: true
+  size: 10Gi
+  accessModes:
+    - ReadWriteOnce
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+defaultDashboardsEnabled: true
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: VictoriaMetrics
+        type: prometheus
+        access: proxy
+        url: http://victoria-metrics-victoria-metrics-single-server.kpilot-monitoring.svc:8428
+        isDefault: true
+        jsonData:
+          httpMethod: POST
+grafana.ini:
+  security:
+    allow_embedding: true
+  server:
+    serve_from_sub_path: true
+    root_url: "/api/v1/clusters/${KPILOT_CLUSTER_ID}/proxy/grafana/"
+  auth.anonymous:
+    enabled: false
+  auth.proxy:
+    enabled: true
+    header_name: X-WEBAUTH-USER
+    header_property: username
+    auto_sign_up: true
+`,
+		DefaultReleaseNamespace: "kpilot-monitoring",
+	},
+	{
 		Name:        "victoria-logs",
 		DisplayName: "VictoriaLogs",
 		Description: "Cluster log storage with a built-in Web UI; the bundled Vector DaemonSet collects every pod's logs and ships them via the Elasticsearch-compatible insert API. Out-of-box logging pipeline.",
