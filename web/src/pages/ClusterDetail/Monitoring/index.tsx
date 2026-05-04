@@ -260,7 +260,13 @@ const MonitoringPage: React.FC = () => {
     const recommendedMissing = summary.recommended.filter(
       (r) => r.state !== 'ready',
     );
-    const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/?theme=${grafanaTheme}`;
+    // Open Grafana directly on the Node Exporter Full dashboard — its UID
+    // is fixed by the upstream JSON we embed in the Grafana plugin's
+    // overlay (see pkg/server/dashboards/builtin). Without /d/<uid>/ the
+    // user would land on Grafana's empty home page and have to click into
+    // Browse → Dashboards every time.
+    const dashboardUID = 'rYdddlPWk';
+    const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/d/${dashboardUID}/?theme=${grafanaTheme}`;
     return (
       // Wrapper height comes from the ResizeObserver above (containerHeight)
       // so the iframe fills the actual parent box exactly. Falls back to
