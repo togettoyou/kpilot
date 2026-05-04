@@ -1,7 +1,9 @@
 import {
   CheckCircleTwoTone,
   CloseCircleTwoTone,
+  DownOutlined,
   InboxOutlined,
+  UpOutlined,
 } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import type { UploadProps } from 'antd';
@@ -228,6 +230,10 @@ export function ApplyYamlDrawer({
   const [yamlText, setYamlText] = useState('');
   const [applying, setApplying] = useState(false);
   const [results, setResults] = useState<ApplyYamlResult[] | null>(null);
+  // Default to expanded — user just clicked Apply and wants to see the
+  // diagnosis. Collapse is one click away when they need editor space
+  // back. Resets to expanded on every new apply.
+  const [resultsExpanded, setResultsExpanded] = useState(true);
 
   // Seed each time the drawer opens with a template matching the current
   // page's resource type — gives a relevant starting point if the user is
@@ -268,6 +274,7 @@ export function ApplyYamlDrawer({
         // Partial / total failure — keep drawer open and surface per-doc
         // results so the user can fix and retry without losing their work.
         setResults(list);
+        setResultsExpanded(true); // expanded by default on each new apply
         onApplied(); // refresh table for any successes
       }
     } catch {
@@ -348,42 +355,63 @@ export function ApplyYamlDrawer({
               total: results.length,
             },
           )}
+          // Collapse toggle in the action slot — one click hides the
+          // per-doc list so the user can scroll the YAML editor freely
+          // while keeping the summary visible.
+          action={
+            <Button
+              type="text"
+              size="small"
+              icon={resultsExpanded ? <UpOutlined /> : <DownOutlined />}
+              onClick={() => setResultsExpanded(!resultsExpanded)}
+            >
+              {intl.formatMessage({
+                id: resultsExpanded
+                  ? 'pages.applyYaml.collapse'
+                  : 'pages.applyYaml.expand',
+              })}
+            </Button>
+          }
           description={
             // Cap the result list — without this, applying many docs
             // where most fail would push the YAML editor below the
             // viewport with nothing scrollable to bring it back. 240px
             // ≈ 8 single-line items at compact List padding; for longer
             // lists the user scrolls within the alert's own scroll area.
-            <div style={{ maxHeight: 240, overflowY: 'auto' }}>
-              <List
-                size="small"
-                dataSource={results}
-                split={false}
-                renderItem={(r) => (
-                  <List.Item style={{ padding: '4px 0' }}>
-                    <Space size="small" align="start">
-                      {r.success ? (
-                        <CheckCircleTwoTone twoToneColor="#52c41a" />
-                      ) : (
-                        <CloseCircleTwoTone twoToneColor="#ff4d4f" />
-                      )}
-                      <span>
-                        {r.kind && <Tag>{r.kind}</Tag>}
-                        <span style={{ fontFamily: 'monospace' }}>
-                          {r.namespace ? `${r.namespace}/` : ''}
-                          {r.name || `#${r.index}`}
-                        </span>
-                        {r.error && (
-                          <span style={{ marginLeft: 8, color: '#ff4d4f' }}>
-                            {r.error}
-                          </span>
+            // When collapsed, omit the description entirely so the
+            // alert shrinks to just its message + toggle.
+            resultsExpanded ? (
+              <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+                <List
+                  size="small"
+                  dataSource={results}
+                  split={false}
+                  renderItem={(r) => (
+                    <List.Item style={{ padding: '4px 0' }}>
+                      <Space size="small" align="start">
+                        {r.success ? (
+                          <CheckCircleTwoTone twoToneColor="#52c41a" />
+                        ) : (
+                          <CloseCircleTwoTone twoToneColor="#ff4d4f" />
                         )}
-                      </span>
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            </div>
+                        <span>
+                          {r.kind && <Tag>{r.kind}</Tag>}
+                          <span style={{ fontFamily: 'monospace' }}>
+                            {r.namespace ? `${r.namespace}/` : ''}
+                            {r.name || `#${r.index}`}
+                          </span>
+                          {r.error && (
+                            <span style={{ marginLeft: 8, color: '#ff4d4f' }}>
+                              {r.error}
+                            </span>
+                          )}
+                        </span>
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              </div>
+            ) : null
           }
         />
       )}

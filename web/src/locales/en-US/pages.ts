@@ -283,6 +283,8 @@ export default {
   'pages.applyYaml.success': 'Applied',
   'pages.applyYaml.successN': 'Applied {n} resource(s)',
   'pages.applyYaml.partial': 'Applied {ok} / {total} — others failed',
+  'pages.applyYaml.expand': 'Expand',
+  'pages.applyYaml.collapse': 'Collapse',
   'pages.applyYaml.empty': 'Please enter or upload YAML',
   'pages.applyYaml.tooLarge': 'File exceeds 1 MB',
   'pages.applyYaml.readError': 'Failed to read file',
