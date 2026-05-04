@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -641,6 +643,31 @@ func parsePluginID(c *gin.Context) (uint, error) {
 	return uint(v), nil
 }
 
+// kpilotPlaceholderRE matches ${KPILOT_<NAME>} where <NAME> is one or more
+// uppercase letters / digits / underscores. The narrow charset is on
+// purpose — Helm values can carry literal `$` (templating, env-var refs);
+// requiring the exact KPILOT_ prefix + caps avoids matching real Helm syntax.
+var kpilotPlaceholderRE = regexp.MustCompile(`\$\{KPILOT_([A-Z0-9_]+)\}`)
+
+// expandKPilotVars resolves every ${KPILOT_X} token in the values YAML
+// against the provided variable map. Unknown tokens are left literal and
+// logged once — silent leave-as-is matches shell behavior for undefined
+// vars and keeps weird deploys from blowing up; the log line surfaces
+// typos in the chart's default_values so they get noticed.
+//
+// Adding a new placeholder is one line in the caller's `vars` map — no
+// need to add another ReplaceAll call here.
+func expandKPilotVars(values string, vars map[string]string) string {
+	return kpilotPlaceholderRE.ReplaceAllStringFunc(values, func(match string) string {
+		name := kpilotPlaceholderRE.FindStringSubmatch(match)[1]
+		if v, ok := vars[name]; ok {
+			return v
+		}
+		log.Printf("[plugin] unknown placeholder ${KPILOT_%s} in values, left as-is", name)
+		return match
+	})
+}
+
 // buildEnableCommand merges registry defaults with per-cluster overrides
 // and produces the on-the-wire PluginCommand. For local-chart plugins it
 // also includes the .tgz blob bytes — the Worker writes them to its
@@ -654,25 +681,27 @@ func buildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, workerDomain s
 	if values == "" {
 		values = p.DefaultValues
 	}
-	// Resolve well-known placeholders in the final values payload before
-	// it leaves Server. Currently supports:
-	//   ${KPILOT_CLUSTER_ID}     — used by reverse-proxied plugins
-	//                              (Grafana root_url, etc.) so generated
-	//                              links route back through
-	//                              /api/v1/clusters/<id>/proxy/<plugin>/.
-	//   ${KPILOT_CLUSTER_DOMAIN} — used by chart defaults that hard-code
-	//                              in-cluster Service FQDNs. The Worker
-	//                              reports its actual K8s DNS suffix on
-	//                              register; we use it here so the short
-	//                              ".svc" form (which only works when
-	//                              resolv.conf carries the search domain)
-	//                              isn't necessary.
-	// Keep tokens ALL_CAPS so they're greppable.
+	// Resolve well-known ${KPILOT_*} placeholders in the final values
+	// payload before it leaves Server. To register a new variable: add
+	// one entry to this map. The names are documented for chart authors:
+	//
+	//   CLUSTER_ID     — cluster UUID. Used by reverse-proxied plugins
+	//                    (Grafana root_url, etc.) so generated links
+	//                    route back through /proxy/<plugin>/.
+	//   CLUSTER_DOMAIN — K8s DNS suffix reported by the worker. Used by
+	//                    chart defaults that hard-code in-cluster Service
+	//                    FQDNs. Falls back to "cluster.local" when the
+	//                    worker registered without reporting it.
+	//
+	// Keep tokens ALL_CAPS_WITH_UNDERSCORES so they stay greppable and
+	// match the regex's charset.
 	if workerDomain == "" {
 		workerDomain = "cluster.local"
 	}
-	values = strings.ReplaceAll(values, "${KPILOT_CLUSTER_ID}", cp.ClusterID)
-	values = strings.ReplaceAll(values, "${KPILOT_CLUSTER_DOMAIN}", workerDomain)
+	values = expandKPilotVars(values, map[string]string{
+		"CLUSTER_ID":     cp.ClusterID,
+		"CLUSTER_DOMAIN": workerDomain,
+	})
 	version := cp.VersionOverride
 	if version == "" {
 		version = p.DefaultVersion
