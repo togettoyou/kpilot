@@ -336,7 +336,7 @@ export function ApplyYamlDrawer({
           {intl.formatMessage({ id: 'pages.applyYaml.dropHint' })}
         </p>
       </Upload.Dragger>
-      {results && results.some((r) => !r.success) && (
+      {results?.some((r) => !r.success) && (
         <Alert
           type="warning"
           showIcon
@@ -349,34 +349,41 @@ export function ApplyYamlDrawer({
             },
           )}
           description={
-            <List
-              size="small"
-              dataSource={results}
-              split={false}
-              renderItem={(r) => (
-                <List.Item style={{ padding: '4px 0' }}>
-                  <Space size="small" align="start">
-                    {r.success ? (
-                      <CheckCircleTwoTone twoToneColor="#52c41a" />
-                    ) : (
-                      <CloseCircleTwoTone twoToneColor="#ff4d4f" />
-                    )}
-                    <span>
-                      {r.kind && <Tag>{r.kind}</Tag>}
-                      <span style={{ fontFamily: 'monospace' }}>
-                        {r.namespace ? `${r.namespace}/` : ''}
-                        {r.name || `#${r.index}`}
-                      </span>
-                      {r.error && (
-                        <span style={{ marginLeft: 8, color: '#ff4d4f' }}>
-                          {r.error}
-                        </span>
+            // Cap the result list — without this, applying many docs
+            // where most fail would push the YAML editor below the
+            // viewport with nothing scrollable to bring it back. 240px
+            // ≈ 8 single-line items at compact List padding; for longer
+            // lists the user scrolls within the alert's own scroll area.
+            <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+              <List
+                size="small"
+                dataSource={results}
+                split={false}
+                renderItem={(r) => (
+                  <List.Item style={{ padding: '4px 0' }}>
+                    <Space size="small" align="start">
+                      {r.success ? (
+                        <CheckCircleTwoTone twoToneColor="#52c41a" />
+                      ) : (
+                        <CloseCircleTwoTone twoToneColor="#ff4d4f" />
                       )}
-                    </span>
-                  </Space>
-                </List.Item>
-              )}
-            />
+                      <span>
+                        {r.kind && <Tag>{r.kind}</Tag>}
+                        <span style={{ fontFamily: 'monospace' }}>
+                          {r.namespace ? `${r.namespace}/` : ''}
+                          {r.name || `#${r.index}`}
+                        </span>
+                        {r.error && (
+                          <span style={{ marginLeft: 8, color: '#ff4d4f' }}>
+                            {r.error}
+                          </span>
+                        )}
+                      </span>
+                    </Space>
+                  </List.Item>
+                )}
+              />
+            </div>
           }
         />
       )}
