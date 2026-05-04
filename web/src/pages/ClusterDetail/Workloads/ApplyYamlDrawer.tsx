@@ -140,6 +140,65 @@ spec:
       ports:
         - containerPort: 8080
 `,
+  // restartPolicy=OnFailure so a busy pod gets retried; the Job
+  // controller terminates it once `completions` succeed (default 1).
+  jobs: `apiVersion: batch/v1
+kind: Job
+metadata:
+  name: example
+  namespace: default
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: app
+          image: busybox:1.37
+          command: ["sh", "-c", "echo hello && sleep 5"]
+`,
+  // Cron expression "*/5 * * * *" → every 5 minutes; concurrencyPolicy
+  // Forbid keeps overlapping runs from piling up if a job overruns.
+  cronjobs: `apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: example
+  namespace: default
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: app
+              image: busybox:1.37
+              command: ["sh", "-c", "date && echo tick"]
+`,
+  // Targets a Deployment named "example"; scales 1–5 replicas to keep
+  // average CPU near 50%. Replace scaleTargetRef.name with the actual
+  // workload, and adjust the metric/threshold to taste.
+  horizontalpodautoscalers: `apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: example
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: example
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+`,
   services: `apiVersion: v1
 kind: Service
 metadata:

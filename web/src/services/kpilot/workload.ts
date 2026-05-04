@@ -2,6 +2,7 @@ import { request } from '@umijs/max';
 
 export type WorkloadResourceType =
   | 'deployments' | 'statefulsets' | 'daemonsets' | 'pods'
+  | 'jobs' | 'cronjobs' | 'horizontalpodautoscalers'
   | 'services' | 'ingresses'
   | 'gatewayclasses' | 'gateways' | 'httproutes' | 'grpcroutes'
   | 'configmaps' | 'secrets'

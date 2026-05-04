@@ -55,20 +55,23 @@ type gvkInfo struct {
 // Gateway page on a cluster without the CRD just yields a 404
 // "no such kind", which the UI surfaces as the worker error.
 var resourceGVK = map[string]gvkInfo{
-	"deployments":            {"apps", "v1", "Deployment"},
-	"statefulsets":           {"apps", "v1", "StatefulSet"},
-	"daemonsets":             {"apps", "v1", "DaemonSet"},
-	"pods":                   {"", "v1", "Pod"},
-	"services":               {"", "v1", "Service"},
-	"ingresses":              {"networking.k8s.io", "v1", "Ingress"},
-	"gatewayclasses":         {"gateway.networking.k8s.io", "v1", "GatewayClass"},
-	"gateways":               {"gateway.networking.k8s.io", "v1", "Gateway"},
-	"httproutes":             {"gateway.networking.k8s.io", "v1", "HTTPRoute"},
-	"grpcroutes":             {"gateway.networking.k8s.io", "v1", "GRPCRoute"},
-	"configmaps":             {"", "v1", "ConfigMap"},
-	"secrets":                {"", "v1", "Secret"},
-	"persistentvolumeclaims": {"", "v1", "PersistentVolumeClaim"},
-	"persistentvolumes":      {"", "v1", "PersistentVolume"},
+	"deployments":              {"apps", "v1", "Deployment"},
+	"statefulsets":             {"apps", "v1", "StatefulSet"},
+	"daemonsets":               {"apps", "v1", "DaemonSet"},
+	"pods":                     {"", "v1", "Pod"},
+	"jobs":                     {"batch", "v1", "Job"},
+	"cronjobs":                 {"batch", "v1", "CronJob"},
+	"horizontalpodautoscalers": {"autoscaling", "v2", "HorizontalPodAutoscaler"},
+	"services":                 {"", "v1", "Service"},
+	"ingresses":                {"networking.k8s.io", "v1", "Ingress"},
+	"gatewayclasses":           {"gateway.networking.k8s.io", "v1", "GatewayClass"},
+	"gateways":                 {"gateway.networking.k8s.io", "v1", "Gateway"},
+	"httproutes":               {"gateway.networking.k8s.io", "v1", "HTTPRoute"},
+	"grpcroutes":               {"gateway.networking.k8s.io", "v1", "GRPCRoute"},
+	"configmaps":               {"", "v1", "ConfigMap"},
+	"secrets":                  {"", "v1", "Secret"},
+	"persistentvolumeclaims":   {"", "v1", "PersistentVolumeClaim"},
+	"persistentvolumes":        {"", "v1", "PersistentVolume"},
 }
 
 func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {

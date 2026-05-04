@@ -89,6 +89,12 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
         { path: `${base}/workloads/statefulsets`, name: 'statefulsets' },
         { path: `${base}/workloads/daemonsets`, name: 'daemonsets' },
         { path: `${base}/workloads/pods`, name: 'pods' },
+        { path: `${base}/workloads/jobs`, name: 'jobs' },
+        { path: `${base}/workloads/cronjobs`, name: 'cronjobs' },
+        {
+          path: `${base}/workloads/horizontalpodautoscalers`,
+          name: 'hpa',
+        },
       ],
     },
     {
