@@ -46,56 +46,44 @@ function rollUp(phase: PluginPhase | undefined, enabled: boolean): PluginGroupSt
   }
 }
 
-// lockScrollChain forces every potential scroll container in the document
-// to overflow:hidden while the iframe is mounted, so wheel events from
-// inside Grafana have absolutely nowhere to chain to. Restored on cleanup.
+// containIframeOverscroll injects overscroll-behavior:contain into the
+// iframe's own document, so a scroll-chain originating inside Grafana
+// dies at the iframe boundary and never bubbles to the host page.
 //
-// Why this is needed: scroll chaining bubbles through the host DOM
-// regardless of CSS position properties. The chain dies only when it
-// encounters an ancestor that has overflow != visible/auto/scroll —
-// or when it runs off the top of the document. Locking html + body +
-// every overflow:auto|scroll ancestor between the wrapper and html
-// guarantees the chain has zero fallback targets.
+// This works ONLY because KPilot reverse-proxies Grafana — the iframe
+// shares an origin with the parent, so contentDocument is accessible.
+// On a true cross-origin iframe this would throw; we swallow that and
+// fall through silently in case future configurations expose one.
 //
-// Critically, we DO NOT estimate which classes ProLayout uses for its
-// content area; we walk the actual rendered DOM. Robust to ProLayout
-// upgrades.
-function lockScrollChain(el: HTMLElement): () => void {
-  type Saved = { el: HTMLElement; overflowY: string; overflowX: string };
-  const targets: HTMLElement[] = [
-    // html and body always carry the viewport scroll, even when their
-    // computed overflow is "visible". Forcing both to hidden kills the
-    // last possible chain target — without it, a chain that escapes
-    // intermediate ancestors would still scroll the viewport.
-    document.documentElement,
-    document.body,
-  ];
-  // Walk up, collect every intermediate ancestor that's actually
-  // scrollable. ProLayout's content wrapper is one; there may be others
-  // depending on the layout mode.
-  let p: HTMLElement | null = el.parentElement;
-  while (p && p !== document.body) {
-    const cs = getComputedStyle(p);
-    if (cs.overflowY === 'auto' || cs.overflowY === 'scroll' ||
-      cs.overflowX === 'auto' || cs.overflowX === 'scroll') {
-      targets.push(p);
+// Returns a cleanup that removes the inline style; we apply on every
+// load (Grafana SPA navigations create a fresh document) so the cleanup
+// runs against whatever document is current.
+function containIframeOverscroll(iframe: HTMLIFrameElement): () => void {
+  const apply = () => {
+    try {
+      const doc = iframe.contentDocument;
+      if (!doc) return;
+      // Both html and body — different browsers consult different
+      // levels of the iframe document depending on which element is
+      // the actual scroll container.
+      if (doc.documentElement) {
+        doc.documentElement.style.overscrollBehavior = 'contain';
+      }
+      if (doc.body) {
+        doc.body.style.overscrollBehavior = 'contain';
+      }
+    } catch {
+      // cross-origin guard — should never trigger under our reverse
+      // proxy, but if Grafana ever redirected us off-origin we'd see it.
     }
-    p = p.parentElement;
-  }
-  const saved: Saved[] = targets.map((t) => ({
-    el: t,
-    overflowX: t.style.overflowX,
-    overflowY: t.style.overflowY,
-  }));
-  for (const t of targets) {
-    t.style.overflowX = 'hidden';
-    t.style.overflowY = 'hidden';
-  }
+  };
+  // Apply now (in case the iframe finished loading before this effect ran)
+  // and on every subsequent load (Grafana navigates between dashboards by
+  // replacing its document).
+  apply();
+  iframe.addEventListener('load', apply);
   return () => {
-    for (const s of saved) {
-      s.el.style.overflowX = s.overflowX;
-      s.el.style.overflowY = s.overflowY;
-    }
+    iframe.removeEventListener('load', apply);
   };
 }
 
@@ -103,6 +91,7 @@ const MonitoringPage: React.FC = () => {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   // The wrapper's height tracks its parent's clientHeight via ResizeObserver
   // — height:100% would collapse to 0 when ProLayout's content area doesn't
   // hand down an explicit height through every flex/block ancestor, and a
@@ -161,15 +150,16 @@ const MonitoringPage: React.FC = () => {
     return () => clearInterval(t);
   }, [summary.anyInstalling, refresh]);
 
-  // While the iframe is on screen, lock down every scroll container in
-  // the page (html, body, ProLayout's content wrapper, anything else) so
-  // Grafana's internal scroll has no chain target. Restored on unmount or
-  // when allReady flips false, so other pages keep their normal scroll.
+  // Stop scroll-chain at the iframe boundary by setting
+  // overscroll-behavior:contain inside Grafana's own document. Works
+  // because the reverse proxy keeps the iframe same-origin. The host
+  // page's normal scroll (which makes the footer visible) is left
+  // untouched.
   useEffect(() => {
     if (!summary.allReady) return;
-    const el = wrapperRef.current;
-    if (!el) return;
-    return lockScrollChain(el);
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    return containIframeOverscroll(iframe);
   }, [summary.allReady]);
 
   // Track the wrapper's parent height so the iframe fills it exactly —
@@ -230,9 +220,10 @@ const MonitoringPage: React.FC = () => {
       // Wrapper height comes from the ResizeObserver above (containerHeight)
       // so the iframe fills the actual parent box exactly. Falls back to
       // viewport-minus-header before the first measurement lands; once
-      // measured, future window resizes keep it in sync. lockScrollChain
-      // freezes html/body/intermediate ancestors so the page is genuinely
-      // unscrollable, no matter the height.
+      // measured, future window resizes keep it in sync. The host page's
+      // own scroll (footer visibility, etc.) is preserved — chain
+      // containment happens inside the iframe's document, not by locking
+      // the host's scroll.
       <div
         ref={wrapperRef}
         style={{
@@ -287,6 +278,7 @@ const MonitoringPage: React.FC = () => {
           </Tooltip>
         </div>
         <iframe
+          ref={iframeRef}
           // sandbox left off intentionally — Grafana legitimately needs
           // same-origin cookies, scripts, popups (open dashboard in new
           // tab), and form submission. Everything routes through KPilot's
@@ -297,11 +289,6 @@ const MonitoringPage: React.FC = () => {
             border: 0,
             width: '100%',
             flex: 1,
-            // Stop scroll-chaining: when the iframe's own scroll bottoms
-            // out, the wheel event would otherwise bubble up and try to
-            // scroll the page underneath, causing the visible "stutter
-            // when reaching the bottom" the user reported.
-            overscrollBehavior: 'contain',
           }}
         />
       </div>
