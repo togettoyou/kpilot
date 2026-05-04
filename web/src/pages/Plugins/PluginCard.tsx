@@ -153,23 +153,30 @@ export function PluginCard({
           </div>
         </Tooltip>
       )}
-      {(plugin.default_version ||
-        plugin.chart_type === 'local' ||
-        plugin.chart_type === 'oci') && (
-        <Space size={4} wrap>
-          {plugin.chart_type === 'local' && (
-            <Tag color="purple" style={{ marginInlineEnd: 0 }}>
-              {intl.formatMessage({ id: 'pages.plugins.localTag' })}
-            </Tag>
-          )}
-          {plugin.chart_type === 'oci' && (
-            <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
-              {intl.formatMessage({ id: 'pages.plugins.ociTag' })}
-            </Tag>
-          )}
-          {plugin.default_version && <Tag>{plugin.default_version}</Tag>}
-        </Space>
-      )}
+      {/* Chart-source tag is shown for ALL three types (repo / oci /
+          local) so the comparison is symmetric — a card with no source
+          tag would otherwise look like the "default" type, even though
+          the choice between Helm repo, OCI registry, and uploaded .tgz
+          carries real differences for users (network reachability from
+          their cluster, who controls the source, offline use). */}
+      <Space size={4} wrap>
+        {plugin.chart_type === 'repo' && (
+          <Tag color="cyan" style={{ marginInlineEnd: 0 }}>
+            {intl.formatMessage({ id: 'pages.plugins.repoTag' })}
+          </Tag>
+        )}
+        {plugin.chart_type === 'oci' && (
+          <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
+            {intl.formatMessage({ id: 'pages.plugins.ociTag' })}
+          </Tag>
+        )}
+        {plugin.chart_type === 'local' && (
+          <Tag color="purple" style={{ marginInlineEnd: 0 }}>
+            {intl.formatMessage({ id: 'pages.plugins.localTag' })}
+          </Tag>
+        )}
+        {plugin.default_version && <Tag>{plugin.default_version}</Tag>}
+      </Space>
       {/* Single bottom action row — right-aligned (marketplace convention)
           and pushed to the card bottom via marginTop:auto so cards in the
           same flex row visually align even with different content height. */}

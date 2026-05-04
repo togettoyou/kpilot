@@ -11,8 +11,9 @@ export default {
   'pages.plugins.delete.success': '插件已删除',
   'pages.plugins.builtin': '内置',
   'pages.plugins.empty': '暂无插件',
-  'pages.plugins.localTag': '本地',
+  'pages.plugins.repoTag': 'Helm 仓库',
   'pages.plugins.ociTag': 'OCI',
+  'pages.plugins.localTag': '本地',
   'pages.plugins.category.gpu': 'GPU',
   'pages.plugins.category.scheduling': '调度',
   'pages.plugins.category.networking': '网络',
@@ -101,7 +102,8 @@ export default {
   'errors.PLUGIN_NOT_FOUND': '插件不存在',
   'errors.PLUGIN_NAME_EXISTS': '插件名称已存在',
   'errors.PLUGIN_BUILTIN_LOCKED': '内置插件不允许修改或删除',
-  'errors.PLUGIN_CHART_MISSING': '请配置 Chart 来源（仓库地址、OCI 引用或本地文件）',
+  'errors.PLUGIN_CHART_MISSING':
+    '请配置 Chart 来源（仓库地址、OCI 引用或本地文件）',
   'errors.PLUGIN_UPLOAD_TOO_LARGE': '上传文件过大（最大 16MB）',
   'errors.PLUGIN_NAMESPACE_LOCKED':
     '已安装的插件不允许修改命名空间，请先禁用再以新命名空间重新启用',

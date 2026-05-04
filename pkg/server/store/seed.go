@@ -186,7 +186,13 @@ service:
       limits:
         memory: 1Gi
 `,
-		DefaultReleaseNamespace: "envoy-gateway-system",
+		// kpilot-networking matches the kpilot-* convention all other
+		// builtins use (kpilot-gpu / kpilot-monitoring / kpilot-logging).
+		// Workload page treats kpilot-* as read-only so users can't
+		// accidentally `kubectl delete deployment` an Envoy controller
+		// pod from the list. The chart respects --namespace, so we're
+		// not bound to upstream's "envoy-gateway-system" suggestion.
+		DefaultReleaseNamespace: "kpilot-networking",
 	},
 	{
 		Name:        "victoria-logs",
