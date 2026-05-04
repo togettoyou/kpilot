@@ -25,6 +25,7 @@ import {
   Popconfirm,
   Space,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import * as jsyaml from 'js-yaml';
@@ -666,23 +667,29 @@ function WorkloadsContent({
                 because navigating here drops the user out of the
                 Extensions menu's CRD selection (the URL changes from
                 /workloads/customresourcedefinitions to /workloads/_cr,
-                which the menu doesn't know about). Without this they
-                lose their nav anchor. */}
+                which the menu doesn't know about). Icon-only with a
+                tooltip — long kind names (ClientTrafficPolicy etc.)
+                already crowd the title row, so we can't afford the
+                "返回 CRD 列表" label here. */}
             {resourceType === '_cr' && (
-              <Button
-                size="small"
-                type="text"
-                icon={<LeftOutlined />}
-                onClick={() =>
-                  history.push(
-                    `/clusters/${clusterId}/workloads/customresourcedefinitions`,
-                  )
-                }
+              <Tooltip
+                title={intl.formatMessage({
+                  id: 'pages.workloads.crd.backToList',
+                })}
               >
-                {intl.formatMessage({ id: 'pages.workloads.crd.backToList' })}
-              </Button>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<LeftOutlined />}
+                  onClick={() =>
+                    history.push(
+                      `/clusters/${clusterId}/workloads/customresourcedefinitions`,
+                    )
+                  }
+                />
+              </Tooltip>
             )}
-            <Text strong>
+            <Text strong style={{ whiteSpace: 'nowrap' }}>
               {resourceType === '_cr' && cr
                 ? // CR-instances viewer: title is the Kind (e.g. "Plugin")
                   // followed by the group in muted text, so users can tell
@@ -692,7 +699,10 @@ function WorkloadsContent({
                 : resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}
             </Text>
             {resourceType === '_cr' && cr && (
-              <Text type="secondary" style={{ fontWeight: 'normal' }}>
+              <Text
+                type="secondary"
+                style={{ fontWeight: 'normal', whiteSpace: 'nowrap' }}
+              >
                 {cr.group ? `${cr.group}/${cr.version}` : cr.version}
               </Text>
             )}
