@@ -261,6 +261,7 @@ const VALID_TYPES = new Set<string>([
   'secrets',
   'persistentvolumeclaims',
   'persistentvolumes',
+  'storageclasses',
   'customresourcedefinitions',
 ]);
 

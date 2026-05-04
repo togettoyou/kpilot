@@ -72,6 +72,7 @@ var resourceGVK = map[string]gvkInfo{
 	"secrets":                  {"", "v1", "Secret"},
 	"persistentvolumeclaims":   {"", "v1", "PersistentVolumeClaim"},
 	"persistentvolumes":        {"", "v1", "PersistentVolume"},
+	"storageclasses":           {"storage.k8s.io", "v1", "StorageClass"},
 	// API extensions group — exposed under the "扩展" submenu rather
 	// than "工作负载" since these are API-shape resources, not pods.
 	"customresourcedefinitions": {"apiextensions.k8s.io", "v1", "CustomResourceDefinition"},

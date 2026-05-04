@@ -118,6 +118,7 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       children: [
         { path: `${base}/workloads/persistentvolumeclaims`, name: 'pvc' },
         { path: `${base}/workloads/persistentvolumes`, name: 'pv' },
+        { path: `${base}/workloads/storageclasses`, name: 'sc' },
       ],
     },
     {

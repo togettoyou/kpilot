@@ -25,6 +25,7 @@ export default {
   'menu.clusters.storage': '存储',
   'menu.clusters.storage.pvc': 'PVC',
   'menu.clusters.storage.pv': 'PV',
+  'menu.clusters.storage.sc': 'StorageClass',
   'menu.clusters.config': '配置',
   'menu.clusters.config.configmaps': 'ConfigMaps',
   'menu.clusters.config.secrets': 'Secrets',

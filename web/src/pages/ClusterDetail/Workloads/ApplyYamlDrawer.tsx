@@ -329,6 +329,18 @@ spec:
   hostPath:
     path: /tmp/example
 `,
+  // hostpath provisioner ships with k3s/minikube; swap `provisioner`
+  // for the cluster's actual CSI driver in production. WaitForFirstConsumer
+  // is the safer default — Pod scheduling drives volume placement so
+  // the PV lands on the right node when topology constraints exist.
+  storageclasses: `apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: example
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+`,
   // CRDs are typically distributed by the project that owns them
   // (helm chart `crds/` folder, operator install scripts). This is
   // a minimal valid skeleton mostly useful as a "show me the shape"
