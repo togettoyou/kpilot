@@ -6,12 +6,14 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	"k8s.io/client-go/rest"
@@ -32,10 +34,12 @@ const HelmDriver = "secrets"
 
 // HelmRunner wraps the Helm v3 SDK for the operations the reconciler needs.
 // One instance per Worker process — action.Configuration is built per-call
-// because release namespaces vary per Plugin.
+// because release namespaces vary per Plugin. The registry client is shared
+// across all calls (it carries the OCI auth state Helm 3.8+ needs).
 type HelmRunner struct {
-	cfg      *rest.Config
-	settings *cli.EnvSettings
+	cfg            *rest.Config
+	settings       *cli.EnvSettings
+	registryClient *registry.Client
 }
 
 func NewHelmRunner(cfg *rest.Config, dataDir string) *HelmRunner {
@@ -60,7 +64,19 @@ func NewHelmRunner(cfg *rest.Config, dataDir string) *HelmRunner {
 		_ = os.MkdirAll(filepath.Dir(settings.RepositoryConfig), 0o755)
 		_ = os.MkdirAll(settings.RepositoryCache, 0o755)
 	}
-	return &HelmRunner{cfg: cfg, settings: settings}
+	// One registry client process-wide. Helm's OCI flow requires this on
+	// action.Configuration; without it, action.Install of an oci:// chart
+	// returns "registry client is not initialized". We only support
+	// anonymous pulls right now — public registries (docker.io, quay.io,
+	// ghcr.io public namespaces). Private registry auth would attach
+	// credentials here and call rc.Login per-host.
+	rc, err := registry.NewClient()
+	if err != nil {
+		// Degrade gracefully: OCI plugins will fail at install time with
+		// a clear message, but non-OCI plugins keep working.
+		log.Printf("[plugin-helm] registry client init failed: %v (OCI charts will fail until restart)", err)
+	}
+	return &HelmRunner{cfg: cfg, settings: settings, registryClient: rc}
 }
 
 // newConfiguration builds an action.Configuration scoped to the given
@@ -73,6 +89,10 @@ func (h *HelmRunner) newConfiguration(namespace string) (*action.Configuration, 
 	if err := cfg.Init(getter, namespace, HelmDriver, helmLogf); err != nil {
 		return nil, fmt.Errorf("init helm config: %w", err)
 	}
+	// Required for OCI charts. Set even when this install is non-OCI —
+	// it's a no-op for traditional repo charts and the cost is one
+	// pointer assignment.
+	cfg.RegistryClient = h.registryClient
 	return cfg, nil
 }
 
@@ -82,15 +102,16 @@ func helmLogf(format string, args ...interface{}) {
 	log.Printf("[plugin-helm] "+format, args...)
 }
 
-// LoadChart resolves a chart reference. For local charts the path is the
-// cached .tgz; for repo charts we fetch via the chart-repo URL.
-//
-// repoURL is e.g. "https://project-hami.github.io/HAMi/", chartName is
-// "hami". version may be empty (resolves to latest).
+// ChartRef tells LoadChart how to resolve the Helm chart. Exactly one of
+// the source fields is populated:
+//   - LocalPath: ChartType=local, points at a cached .tgz on disk
+//   - OCIRef: ChartType=oci, full `oci://host/path/chart` URL
+//   - RepoURL + Name: ChartType=repo, traditional Helm chart repo
 type ChartRef struct {
-	LocalPath string // populated for ChartType=local
-	RepoURL   string // populated for ChartType=repo
-	Name      string
+	LocalPath string // ChartType=local
+	OCIRef    string // ChartType=oci  (e.g. oci://docker.io/envoyproxy/gateway-helm)
+	RepoURL   string // ChartType=repo (e.g. https://project-hami.github.io/HAMi/)
+	Name      string // ChartType=repo only — chart name within the repo
 	Version   string
 }
 
@@ -98,6 +119,82 @@ func (h *HelmRunner) LoadChart(ref ChartRef) (*chart.Chart, error) {
 	if ref.LocalPath != "" {
 		return loader.Load(ref.LocalPath)
 	}
+	if ref.OCIRef != "" {
+		return h.loadOCI(ref)
+	}
+	return h.loadRepo(ref)
+}
+
+// loadOCI pulls an OCI artifact (Helm 3.8+). The full oci:// URL goes in
+// as the chart argument to Pull — there's no separate "repo" / "name"
+// split for OCI references like there is for traditional repos.
+//
+// Cache layout: oci pulls land in RepositoryCache as <chart>-<version>.tgz
+// where <chart> is the last path segment of the OCI ref (e.g.
+// "gateway-helm" for oci://docker.io/envoyproxy/gateway-helm). Pull
+// writes the file as `<inferred-name>-<version>.tgz`, same as the repo
+// flow, so the cache lookup is symmetric.
+func (h *HelmRunner) loadOCI(ref ChartRef) (*chart.Chart, error) {
+	if h.registryClient == nil {
+		return nil, fmt.Errorf("registry client unavailable; restart worker")
+	}
+	// Cache hit shortcut for pinned versions. The cache file is named
+	// after the last path segment because that's how Helm's Pull writes
+	// it. Same digit-prefix heuristic as loadRepo prevents prefix
+	// collisions (e.g. "gateway-helm" matching "gateway-helm-extras").
+	chartName := ociChartName(ref.OCIRef)
+	if ref.Version != "" && chartName != "" {
+		cached := filepath.Join(
+			h.settings.RepositoryCache,
+			fmt.Sprintf("%s-%s.tgz", chartName, ref.Version),
+		)
+		if _, err := os.Stat(cached); err == nil {
+			return loader.Load(cached)
+		}
+	}
+	cfg := &action.Configuration{RegistryClient: h.registryClient}
+	pull := action.NewPullWithOpts(action.WithConfig(cfg))
+	pull.Settings = h.settings
+	// Crucially: don't set RepoURL for OCI — the full URL IS the chart
+	// argument. Setting RepoURL would make Helm try to interpret it as
+	// an HTTPS repo and fail with "looks like ... is not a valid repo".
+	pull.Version = ref.Version
+	pull.DestDir = h.settings.RepositoryCache
+	pull.Untar = false
+	if _, err := pull.Run(ref.OCIRef); err != nil {
+		return nil, fmt.Errorf("pull oci chart: %w", err)
+	}
+	if ref.Version != "" && chartName != "" {
+		exact := filepath.Join(pull.DestDir, fmt.Sprintf("%s-%s.tgz", chartName, ref.Version))
+		if _, err := os.Stat(exact); err == nil {
+			return loader.Load(exact)
+		}
+	}
+	// Fallback: glob by inferred chart name. If the inferred name is
+	// empty (malformed OCI ref) glob falls through to "*.tgz" — too
+	// promiscuous, so refuse instead.
+	if chartName == "" {
+		return nil, fmt.Errorf("could not infer chart name from %q", ref.OCIRef)
+	}
+	matches, err := filepath.Glob(filepath.Join(pull.DestDir, chartName+"-*.tgz"))
+	if err != nil || len(matches) == 0 {
+		return nil, fmt.Errorf("pulled oci chart not found: %v", err)
+	}
+	target := matches[0]
+	for _, m := range matches[1:] {
+		ai, _ := os.Stat(target)
+		bi, _ := os.Stat(m)
+		if ai != nil && bi != nil && bi.ModTime().After(ai.ModTime()) {
+			target = m
+		}
+	}
+	return loader.Load(target)
+}
+
+// loadRepo handles traditional HTTPS Helm repos (those with index.yaml).
+// Split out from LoadChart now that OCI is also a code path; behavior
+// is unchanged from the prior single-method implementation.
+func (h *HelmRunner) loadRepo(ref ChartRef) (*chart.Chart, error) {
 	// Cache hit: when the user pinned a specific version we can skip the
 	// network round-trip if the .tgz is already on disk. action.NewPull
 	// in v3 always re-downloads even if RepositoryCache is set, so this
@@ -111,7 +208,6 @@ func (h *HelmRunner) LoadChart(ref ChartRef) (*chart.Chart, error) {
 			return loader.Load(cached)
 		}
 	}
-	// Repo flow: Pull downloads the .tgz; loader.Load then opens it.
 	pull := action.NewPullWithOpts(action.WithConfig(&action.Configuration{}))
 	pull.Settings = h.settings
 	pull.RepoURL = ref.RepoURL
@@ -121,11 +217,11 @@ func (h *HelmRunner) LoadChart(ref ChartRef) (*chart.Chart, error) {
 	if _, err := pull.Run(ref.Name); err != nil {
 		return nil, fmt.Errorf("pull chart: %w", err)
 	}
-	// Pull writes the .tgz to DestDir. Prefer the exact-version filename
-	// when we have one — otherwise the glob below would match charts
-	// that share a name prefix (e.g. ref.Name="victoria-metrics" globs
-	// "victoria-metrics-single-*.tgz" too) and a stray cached residual
-	// could win the most-recent-ModTime tiebreaker.
+	// Prefer exact-version filename when we have one — otherwise the
+	// glob below would match charts that share a name prefix (e.g.
+	// ref.Name="victoria-metrics" globs "victoria-metrics-single-*.tgz"
+	// too) and a stray cached residual could win the most-recent-ModTime
+	// tiebreaker.
 	if ref.Version != "" {
 		exact := filepath.Join(pull.DestDir, fmt.Sprintf("%s-%s.tgz", ref.Name, ref.Version))
 		if _, err := os.Stat(exact); err == nil {
@@ -153,7 +249,6 @@ func (h *HelmRunner) LoadChart(ref ChartRef) (*chart.Chart, error) {
 	if len(filtered) > 0 {
 		matches = filtered
 	}
-	// Take the most recent match in case multiple versions are cached.
 	target := matches[0]
 	for _, m := range matches[1:] {
 		ai, _ := os.Stat(target)
@@ -164,6 +259,30 @@ func (h *HelmRunner) LoadChart(ref ChartRef) (*chart.Chart, error) {
 	}
 	return loader.Load(target)
 }
+
+// ociChartName extracts the last path segment of an OCI chart ref. Helm
+// uses this segment as the cache filename prefix — `helm pull
+// oci://docker.io/envoyproxy/gateway-helm --version v1.7.2` writes
+// "gateway-helm-v1.7.2.tgz". Returns "" for inputs that don't look
+// well-formed.
+func ociChartName(ociRef string) string {
+	s := strings.TrimPrefix(ociRef, "oci://")
+	if s == ociRef { // didn't have the prefix
+		return ""
+	}
+	// Discard any tag (...:v1.0) or digest (...@sha256:...) — Helm uses
+	// --version, but defensive in case a future input format includes them.
+	if i := strings.IndexAny(s, ":@"); i >= 0 {
+		s = s[:i]
+	}
+	// Trim trailing slash, then take everything after the last slash.
+	s = strings.TrimRight(s, "/")
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		return s[i+1:]
+	}
+	return s
+}
+
 
 // ParseValues parses a YAML string into the map shape Helm expects.
 // Empty input returns an empty map (Helm handles that fine).

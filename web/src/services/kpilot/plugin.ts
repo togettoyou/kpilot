@@ -1,6 +1,9 @@
 import { request } from '@umijs/max';
 
-export type ChartType = 'repo' | 'local';
+// repo  = traditional Helm repo (https + index.yaml)
+// local = uploaded .tgz, dedup'd by sha256 in PluginBlob
+// oci   = OCI registry (Helm 3.8+); chart_repo holds the full oci:// URL
+export type ChartType = 'repo' | 'local' | 'oci';
 export type PluginCategory =
   | 'gpu'
   | 'scheduling'

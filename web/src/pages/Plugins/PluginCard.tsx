@@ -45,7 +45,9 @@ export function PluginCard({
   actions,
 }: PluginCardProps) {
   const intl = useIntl();
-  const initial = (plugin.display_name || plugin.name).slice(0, 2).toUpperCase();
+  const initial = (plugin.display_name || plugin.name)
+    .slice(0, 2)
+    .toUpperCase();
 
   // Subtitle text under the display name — replaces the in-title tag,
   // which didn't fit when chart names were long (victoria-metrics-k8s-
@@ -87,11 +89,20 @@ export function PluginCard({
         // in secondary grey. Long chart names ellipsis instead of
         // colliding with the top-right tag area. Tooltip shows the
         // repo URL or "local file" depending on chart_type.
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
+        >
           <Avatar size={32} src={plugin.icon_url || undefined}>
             {initial}
           </Avatar>
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              minWidth: 0,
+              flex: 1,
+            }}
+          >
             <span style={{ fontWeight: 500, lineHeight: 1.4 }}>
               {plugin.display_name}
             </span>
@@ -142,11 +153,18 @@ export function PluginCard({
           </div>
         </Tooltip>
       )}
-      {(plugin.default_version || plugin.chart_type === 'local') && (
+      {(plugin.default_version ||
+        plugin.chart_type === 'local' ||
+        plugin.chart_type === 'oci') && (
         <Space size={4} wrap>
           {plugin.chart_type === 'local' && (
             <Tag color="purple" style={{ marginInlineEnd: 0 }}>
               {intl.formatMessage({ id: 'pages.plugins.localTag' })}
+            </Tag>
+          )}
+          {plugin.chart_type === 'oci' && (
+            <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
+              {intl.formatMessage({ id: 'pages.plugins.ociTag' })}
             </Tag>
           )}
           {plugin.default_version && <Tag>{plugin.default_version}</Tag>}
@@ -170,13 +188,21 @@ export function PluginCard({
           wrap
         >
           {onView && (
-            <Button size="small" icon={<EyeOutlined />} onClick={() => onView(plugin)}>
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => onView(plugin)}
+            >
               {intl.formatMessage({ id: 'pages.plugins.view' })}
             </Button>
           )}
           {actions}
           {!plugin.is_builtin && onEdit && (
-            <Button size="small" icon={<EditOutlined />} onClick={() => onEdit(plugin)}>
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => onEdit(plugin)}
+            >
               {intl.formatMessage({ id: 'pages.plugins.edit' })}
             </Button>
           )}

@@ -6,16 +6,21 @@ import (
 
 // ChartType selects how the Worker resolves the Helm chart at install time.
 //
-//   - "repo"  → Helm pulls the chart from `Spec.Chart.Repo` directly.
+//   - "repo"  → Helm pulls the chart from `Spec.Chart.Repo` (HTTPS + index.yaml)
+//     using `Spec.Chart.Name` as the chart name within that repo.
 //   - "local" → Worker reads from /var/lib/kpilot/charts/<sha256>.tgz, which
 //     is populated by the first PluginCommand carrying `blob` for that sha.
 //     If the cache is missing on reconcile, the Plugin enters phase=Failed
 //     until the user re-clicks "enable" (which re-pushes the bytes).
+//   - "oci"   → Helm pulls from an OCI registry. `Spec.Chart.Repo` holds
+//     the full `oci://host/path/chart` reference; `Spec.Chart.Name` is
+//     unused (an OCI chart reference doesn't split into repo + name).
 type ChartType string
 
 const (
 	ChartTypeRepo  ChartType = "repo"
 	ChartTypeLocal ChartType = "local"
+	ChartTypeOCI   ChartType = "oci"
 )
 
 // ChartSource describes WHERE the Helm chart comes from. Note that the .tgz

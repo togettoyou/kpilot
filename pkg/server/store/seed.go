@@ -144,6 +144,23 @@ service:
 		DefaultReleaseNamespace: "kpilot-monitoring",
 	},
 	{
+		Name:        "envoy-gateway",
+		DisplayName: "Envoy Gateway",
+		Description: "K8s Gateway API implementation built on Envoy. Pulled from Docker Hub's OCI registry — first builtin to use ChartType=oci, which is also how most modern projects (Cilium, Karmada, Tanzu, etc.) ship their charts these days.",
+		Category:    PluginCategoryNetworking,
+		IsBuiltin:   true,
+		SortOrder:   10,
+		ChartType:   ChartTypeOCI,
+		// Full oci:// URL; ChartName is unused for OCI references.
+		// docker.io public mirror; matches the upstream README example
+		// `helm install eg oci://docker.io/envoyproxy/gateway-helm \
+		//   --version v1.7.2 -n envoy-gateway-system --create-namespace`.
+		ChartRepo:               "oci://docker.io/envoyproxy/gateway-helm",
+		DefaultVersion:          "v1.7.2",
+		DefaultValues:           "",
+		DefaultReleaseNamespace: "envoy-gateway-system",
+	},
+	{
 		Name:        "victoria-logs",
 		DisplayName: "VictoriaLogs",
 		Description: "Cluster log storage with a built-in Web UI; the bundled Vector DaemonSet collects every pod's logs and ships them via the Elasticsearch-compatible insert API. Out-of-box logging pipeline.",

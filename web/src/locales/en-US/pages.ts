@@ -13,6 +13,7 @@ export default {
   'pages.plugins.builtin': 'Built-in',
   'pages.plugins.empty': 'No plugins',
   'pages.plugins.localTag': 'Local',
+  'pages.plugins.ociTag': 'OCI',
   'pages.plugins.category.gpu': 'GPU',
   'pages.plugins.category.scheduling': 'Scheduling',
   'pages.plugins.category.networking': 'Networking',
@@ -31,7 +32,12 @@ export default {
   'pages.plugins.form.iconURL': 'Icon URL',
   'pages.plugins.form.chartType': 'Chart Source',
   'pages.plugins.form.chartType.repo': 'Helm Repository',
+  'pages.plugins.form.chartType.oci': 'OCI Registry',
   'pages.plugins.form.chartType.local': 'Local File',
+  'pages.plugins.form.ociRef': 'OCI Reference',
+  'pages.plugins.form.ociRef.hint':
+    'Full oci:// URL, e.g. oci://docker.io/envoyproxy/gateway-helm',
+  'pages.plugins.form.ociRef.invalid': 'Must start with oci://',
   'pages.plugins.form.chartRepo': 'Repo URL',
   'pages.plugins.form.chartRepoPlaceholder':
     'e.g. https://project-hami.github.io/HAMi/',
@@ -60,7 +66,8 @@ export default {
   'pages.clusterPlugins.disable.confirm':
     'Disable "{name}"? This will uninstall the Helm release.',
   'pages.clusterPlugins.enableDrawer.title': 'Enable {name}',
-  'pages.clusterPlugins.enableDrawer.viewTitle': 'View {name} — currently applied',
+  'pages.clusterPlugins.enableDrawer.viewTitle':
+    'View {name} — currently applied',
   'pages.clusterPlugins.enableDrawer.values': 'values (YAML)',
   'pages.clusterPlugins.enableDrawer.version': 'Version',
   'pages.clusterPlugins.enableDrawer.versionPlaceholder':
@@ -99,9 +106,10 @@ export default {
     'This namespace is read-only (kube-* / kpilot-* namespaces cannot be edited directly)',
   'errors.PLUGIN_NOT_FOUND': 'Plugin not found',
   'errors.PLUGIN_NAME_EXISTS': 'Plugin name already exists',
-  'errors.PLUGIN_BUILTIN_LOCKED': 'Built-in plugins cannot be modified or deleted',
+  'errors.PLUGIN_BUILTIN_LOCKED':
+    'Built-in plugins cannot be modified or deleted',
   'errors.PLUGIN_CHART_MISSING':
-    'Please configure a chart source (repo URL or local file)',
+    'Please configure a chart source (repo URL, OCI reference, or local file)',
   'errors.PLUGIN_UPLOAD_TOO_LARGE': 'File too large (max 16MB)',
   'errors.PLUGIN_NAMESPACE_LOCKED':
     'Cannot change install namespace after installation. Disable first, then re-enable in the new namespace.',
@@ -128,7 +136,8 @@ export default {
   'pages.clusters.stats.online': 'Online',
   'pages.clusters.stats.offline': 'Offline',
   'pages.clusters.empty.title': 'No clusters yet',
-  'pages.clusters.empty.hint': 'Add your first cluster, deploy Worker, and start managing',
+  'pages.clusters.empty.hint':
+    'Add your first cluster, deploy Worker, and start managing',
   'pages.clusters.empty.action': 'Add Cluster',
   'pages.clusters.card.noDescription': '(no description)',
   'pages.clusters.card.createdAt': 'Created {date}',
@@ -190,7 +199,8 @@ export default {
 
   // workloads
   'pages.workloads.allNamespaces': 'All namespaces',
-  'pages.workloads.searchPlaceholder': 'Search current page (name, namespace, status…)',
+  'pages.workloads.searchPlaceholder':
+    'Search current page (name, namespace, status…)',
   'pages.workloads.col.actions': 'Actions',
   'pages.workloads.view': 'View',
   'pages.workloads.edit': 'Edit',

@@ -40,8 +40,9 @@ const (
 type ChartType string
 
 const (
-	ChartTypeRepo  ChartType = "repo"  // pulled from chart_repo at install time
+	ChartTypeRepo  ChartType = "repo"  // traditional Helm repo (https + index.yaml), pulled at install time
 	ChartTypeLocal ChartType = "local" // .tgz cached on Worker by sha256
+	ChartTypeOCI   ChartType = "oci"   // OCI registry (oci://...), Helm 3.8+; chart_repo holds full URL, chart_name unused
 )
 
 // PluginCategory groups plugins in the registry UI. Built-in plugins use a

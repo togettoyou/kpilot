@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -115,6 +116,15 @@ func (r *pluginRequest) validate() string {
 	switch r.ChartType {
 	case store.ChartTypeRepo:
 		if r.ChartRepo == "" || r.ChartName == "" {
+			return CodePluginChartMissing
+		}
+	case store.ChartTypeOCI:
+		// For OCI we expect a single complete URL; ChartName is unused
+		// (OCI chart references don't split into repo + name).
+		if r.ChartRepo == "" {
+			return CodePluginChartMissing
+		}
+		if !strings.HasPrefix(r.ChartRepo, "oci://") {
 			return CodePluginChartMissing
 		}
 	case store.ChartTypeLocal:
@@ -638,7 +648,9 @@ func buildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin) (*proto.Plugin
 		Version: version,
 	}
 	switch p.ChartType {
-	case store.ChartTypeRepo:
+	case store.ChartTypeRepo, store.ChartTypeOCI:
+		// OCI plugins reuse chart_repo for the full oci:// URL; the
+		// worker reconciler dispatches on Type.
 		chart.Repo = p.ChartRepo
 	case store.ChartTypeLocal:
 		if p.ChartBlobID == nil {

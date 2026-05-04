@@ -126,7 +126,8 @@ func buildEnableCommandForReplay(p *store.Plugin, cp *store.ClusterPlugin) (*pro
 		Version: version,
 	}
 	switch p.ChartType {
-	case store.ChartTypeRepo:
+	case store.ChartTypeRepo, store.ChartTypeOCI:
+		// OCI plugins reuse chart_repo for the full oci:// URL.
 		chart.Repo = p.ChartRepo
 	case store.ChartTypeLocal:
 		if p.ChartBlobID == nil {

@@ -133,6 +133,12 @@ export function PluginEditDrawer({
       // Server still expects chart_name on local entries (used as the
       // human-facing label inside the CRD). Default to display_name.
       if (!body.chart_name) body.chart_name = body.display_name;
+    } else if (chartType === 'oci') {
+      // OCI ref is one URL (chart_repo); chart_name has no place in
+      // an OCI reference, but server's CRD layer still receives the
+      // field — fall back to display_name so it's never empty.
+      body.chart_blob_id = undefined;
+      if (!body.chart_name) body.chart_name = body.display_name;
     } else {
       body.chart_blob_id = undefined;
     }
@@ -279,6 +285,12 @@ export function PluginEditDrawer({
               },
               {
                 label: intl.formatMessage({
+                  id: 'pages.plugins.form.chartType.oci',
+                }),
+                value: 'oci',
+              },
+              {
+                label: intl.formatMessage({
                   id: 'pages.plugins.form.chartType.local',
                 }),
                 value: 'local',
@@ -317,6 +329,30 @@ export function PluginEditDrawer({
               />
             </Form.Item>
           </>
+        ) : chartType === 'oci' ? (
+          <Form.Item
+            name="chart_repo"
+            label={intl.formatMessage({
+              id: 'pages.plugins.form.ociRef',
+            })}
+            rules={[
+              { required: true },
+              {
+                pattern: /^oci:\/\//,
+                message: intl.formatMessage({
+                  id: 'pages.plugins.form.ociRef.invalid',
+                }),
+              },
+            ]}
+            extra={intl.formatMessage({
+              id: 'pages.plugins.form.ociRef.hint',
+            })}
+          >
+            <Input
+              placeholder="oci://docker.io/envoyproxy/gateway-helm"
+              maxLength={512}
+            />
+          </Form.Item>
         ) : (
           <Form.Item
             label={intl.formatMessage({ id: 'pages.plugins.form.upload' })}

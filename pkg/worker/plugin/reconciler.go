@@ -142,6 +142,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			Name:    plugin.Spec.Chart.Name,
 			Version: plugin.Spec.Chart.Version,
 		}
+	case kpilotv1alpha1.ChartTypeOCI:
+		// Spec.Chart.Repo carries the full oci:// URL — there's no
+		// separate "repo + chart name" split for OCI references.
+		chartRef = ChartRef{
+			OCIRef:  plugin.Spec.Chart.Repo,
+			Version: plugin.Spec.Chart.Version,
+		}
 	case kpilotv1alpha1.ChartTypeLocal:
 		path := r.Cache.Path(plugin.Spec.Chart.SHA256)
 		if path == "" {

@@ -12,6 +12,7 @@ export default {
   'pages.plugins.builtin': '内置',
   'pages.plugins.empty': '暂无插件',
   'pages.plugins.localTag': '本地',
+  'pages.plugins.ociTag': 'OCI',
   'pages.plugins.category.gpu': 'GPU',
   'pages.plugins.category.scheduling': '调度',
   'pages.plugins.category.networking': '网络',
@@ -29,7 +30,12 @@ export default {
   'pages.plugins.form.iconURL': '图标 URL',
   'pages.plugins.form.chartType': 'Chart 来源',
   'pages.plugins.form.chartType.repo': 'Helm 仓库',
+  'pages.plugins.form.chartType.oci': 'OCI 注册中心',
   'pages.plugins.form.chartType.local': '本地文件',
+  'pages.plugins.form.ociRef': 'OCI 引用',
+  'pages.plugins.form.ociRef.hint':
+    '完整的 oci:// URL，例如 oci://docker.io/envoyproxy/gateway-helm',
+  'pages.plugins.form.ociRef.invalid': '必须以 oci:// 开头',
   'pages.plugins.form.chartRepo': '仓库地址',
   'pages.plugins.form.chartRepoPlaceholder':
     '例如：https://project-hami.github.io/HAMi/',
@@ -54,14 +60,17 @@ export default {
   // per-cluster plugin page
   'pages.clusterPlugins.enable': '启用',
   'pages.clusterPlugins.disable': '禁用',
-  'pages.clusterPlugins.disable.confirm': '确认禁用 "{name}"？将卸载该 Helm Release。',
+  'pages.clusterPlugins.disable.confirm':
+    '确认禁用 "{name}"？将卸载该 Helm Release。',
   'pages.clusterPlugins.enableDrawer.title': '启用 {name}',
   'pages.clusterPlugins.enableDrawer.viewTitle': '查看 {name} — 当前应用配置',
   'pages.clusterPlugins.enableDrawer.values': 'values（YAML）',
   'pages.clusterPlugins.enableDrawer.version': '版本',
-  'pages.clusterPlugins.enableDrawer.versionPlaceholder': '留空则使用默认 {default}',
+  'pages.clusterPlugins.enableDrawer.versionPlaceholder':
+    '留空则使用默认 {default}',
   'pages.clusterPlugins.enableDrawer.namespace': '安装命名空间',
-  'pages.clusterPlugins.enableDrawer.namespacePlaceholder': '留空则使用默认 {default}',
+  'pages.clusterPlugins.enableDrawer.namespacePlaceholder':
+    '留空则使用默认 {default}',
   'pages.clusterPlugins.enableDrawer.submit': '启用',
   'pages.clusterPlugins.enableDrawer.reset': '重置为默认',
   'pages.clusterPlugins.enable.success': '已发起启用请求',
@@ -87,18 +96,18 @@ export default {
   'errors.WORKER_TIMEOUT': '集群响应超时，请稍后重试',
   'errors.WORKER_ERROR': 'Worker 执行出错',
   'errors.WORKER_CONFLICT': '资源已被其他人修改，请关闭后重新打开重试',
-  'errors.NAMESPACE_PROTECTED': '该命名空间为只读（kube-* / kpilot-* 命名空间不允许直接修改）',
+  'errors.NAMESPACE_PROTECTED':
+    '该命名空间为只读（kube-* / kpilot-* 命名空间不允许直接修改）',
   'errors.PLUGIN_NOT_FOUND': '插件不存在',
   'errors.PLUGIN_NAME_EXISTS': '插件名称已存在',
   'errors.PLUGIN_BUILTIN_LOCKED': '内置插件不允许修改或删除',
-  'errors.PLUGIN_CHART_MISSING': '请配置 Chart 来源（仓库地址或本地文件）',
+  'errors.PLUGIN_CHART_MISSING': '请配置 Chart 来源（仓库地址、OCI 引用或本地文件）',
   'errors.PLUGIN_UPLOAD_TOO_LARGE': '上传文件过大（最大 16MB）',
   'errors.PLUGIN_NAMESPACE_LOCKED':
     '已安装的插件不允许修改命名空间，请先禁用再以新命名空间重新启用',
   'errors.PLUGIN_IN_USE':
     '插件正在被某个集群启用中，请先在所有集群禁用后再删除',
-  'errors.PLUGIN_UNINSTALLING':
-    '插件正在卸载中，请等待卸载完成再启用',
+  'errors.PLUGIN_UNINSTALLING': '插件正在卸载中，请等待卸载完成再启用',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU 算力编排',
