@@ -46,38 +46,55 @@ function rollUp(phase: PluginPhase | undefined, enabled: boolean): PluginGroupSt
   }
 }
 
-// muteAncestorScroll walks up from `el` and stops every scrollable ancestor
-// from scrolling for the lifetime returned by the cleanup. Used so the
-// embedded Grafana iframe's overflow can't chain into ProLayout's content
-// area (or html/body) when the user wheels past the iframe's own bottom.
+// lockScrollChain forces every potential scroll container in the document
+// to overflow:hidden while the iframe is mounted, so wheel events from
+// inside Grafana have absolutely nowhere to chain to. Restored on cleanup.
 //
-// We can't fix this with CSS on the iframe alone: scroll-chaining starts
-// in the iframe's document and bubbles to the first scrollable ancestor
-// in the host document, which is whatever ProLayout sets up — height calc
-// + overflow:hidden on a sibling wrapper doesn't catch the chain.
-function muteAncestorScroll(el: HTMLElement): () => void {
+// Why this is needed: scroll chaining bubbles through the host DOM
+// regardless of CSS position properties. The chain dies only when it
+// encounters an ancestor that has overflow != visible/auto/scroll —
+// or when it runs off the top of the document. Locking html + body +
+// every overflow:auto|scroll ancestor between the wrapper and html
+// guarantees the chain has zero fallback targets.
+//
+// Critically, we DO NOT estimate which classes ProLayout uses for its
+// content area; we walk the actual rendered DOM. Robust to ProLayout
+// upgrades.
+function lockScrollChain(el: HTMLElement): () => void {
   type Saved = { el: HTMLElement; overflowY: string; overflowX: string };
-  const muted: Saved[] = [];
+  const targets: HTMLElement[] = [
+    // html and body always carry the viewport scroll, even when their
+    // computed overflow is "visible". Forcing both to hidden kills the
+    // last possible chain target — without it, a chain that escapes
+    // intermediate ancestors would still scroll the viewport.
+    document.documentElement,
+    document.body,
+  ];
+  // Walk up, collect every intermediate ancestor that's actually
+  // scrollable. ProLayout's content wrapper is one; there may be others
+  // depending on the layout mode.
   let p: HTMLElement | null = el.parentElement;
-  while (p) {
+  while (p && p !== document.body) {
     const cs = getComputedStyle(p);
     if (cs.overflowY === 'auto' || cs.overflowY === 'scroll' ||
       cs.overflowX === 'auto' || cs.overflowX === 'scroll') {
-      muted.push({
-        el: p,
-        overflowY: p.style.overflowY,
-        overflowX: p.style.overflowX,
-      });
-      p.style.overflowY = 'hidden';
-      p.style.overflowX = 'hidden';
+      targets.push(p);
     }
-    if (p === document.documentElement) break;
     p = p.parentElement;
   }
+  const saved: Saved[] = targets.map((t) => ({
+    el: t,
+    overflowX: t.style.overflowX,
+    overflowY: t.style.overflowY,
+  }));
+  for (const t of targets) {
+    t.style.overflowX = 'hidden';
+    t.style.overflowY = 'hidden';
+  }
   return () => {
-    for (const m of muted) {
-      m.el.style.overflowY = m.overflowY;
-      m.el.style.overflowX = m.overflowX;
+    for (const s of saved) {
+      s.el.style.overflowX = s.overflowX;
+      s.el.style.overflowY = s.overflowY;
     }
   };
 }
@@ -136,16 +153,15 @@ const MonitoringPage: React.FC = () => {
     return () => clearInterval(t);
   }, [summary.anyInstalling, refresh]);
 
-  // While the iframe is on screen, freeze every scrollable ancestor so the
-  // wheel event has nowhere to chain when Grafana's own scroll hits a
-  // boundary. Restored on unmount or when the iframe disappears (deps flip
-  // away from allReady), so the rest of the app's scroll behavior is
-  // untouched.
+  // While the iframe is on screen, lock down every scroll container in
+  // the page (html, body, ProLayout's content wrapper, anything else) so
+  // Grafana's internal scroll has no chain target. Restored on unmount or
+  // when allReady flips false, so other pages keep their normal scroll.
   useEffect(() => {
     if (!summary.allReady) return;
     const el = wrapperRef.current;
     if (!el) return;
-    return muteAncestorScroll(el);
+    return lockScrollChain(el);
   }, [summary.allReady]);
 
   const goToPlugins = () => history.push(`/clusters/${clusterId}/plugins`);
@@ -176,23 +192,18 @@ const MonitoringPage: React.FC = () => {
     );
     const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/`;
     return (
-      // Three-layer scroll containment:
-      //   1. muteAncestorScroll (useEffect above) freezes ProLayout's
-      //      content scroll for this page so wheel events have nowhere to
-      //      chain into.
-      //   2. height calc + overflow:hidden on this wrapper clips anything
-      //      that does spill (e.g. if a future Alert pushes content past
-      //      the viewport).
-      //   3. overscroll-behavior on the iframe is a no-op for scroll-chain
-      //      from inside the iframe — kept only because some browsers
-      //      respect it on the iframe element itself for two-finger touch
-      //      scroll on macOS.
+      // Wrapper fills its parent exactly (height:100%) so it never
+      // produces an outer scrollbar of its own. The lockScrollChain
+      // effect above freezes html/body/intermediate ancestors, so the
+      // page is genuinely unscrollable while the iframe is mounted —
+      // there's literally nowhere for an iframe scroll-chain to land.
       <div
         ref={wrapperRef}
         style={{
           display: 'flex',
           flexDirection: 'column',
-          height: 'calc(100vh - 56px)',
+          height: '100%',
+          width: '100%',
           overflow: 'hidden',
         }}
       >
