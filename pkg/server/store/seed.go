@@ -344,15 +344,6 @@ grafana.ini:
     header_name: X-WEBAUTH-USER
     header_property: username
     auto_sign_up: true
-    # Sync the org role from a custom header on every request. Without
-    # this, auto_assign_org_role above is only consulted when the
-    # account is FIRST created — anyone who logged in while the default
-    # was Admin keeps Admin in Grafana's SQLite even after we flip the
-    # default to Viewer. With "Role:X-WEBAUTH-ROLE" + sync_ttl=0,
-    # KPilot's reverse proxy injects the role on every request and
-    # Grafana applies it to existing accounts too.
-    headers: "Role:X-WEBAUTH-ROLE"
-    sync_ttl: 0
   live:
     # Grafana Live's WebSocket endpoint (used by realtime panels) checks
     # the browser's Origin header against the request's same-origin by
