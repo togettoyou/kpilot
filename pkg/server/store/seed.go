@@ -322,7 +322,14 @@ grafana.ini:
     serve_from_sub_path: true
     root_url: "/api/v1/clusters/${KPILOT_CLUSTER_ID}/proxy/grafana/"
   users:
-    auto_assign_org_role: Admin
+    # Auto-created users from auth.proxy land as Viewer — they can open
+    # bundled dashboards and panels but can't add datasources, edit
+    # dashboards, or change Grafana settings. KPilot's own pages are
+    # the supported way to manage configuration; the embedded Grafana
+    # is for consumption only. If a user genuinely needs to author
+    # dashboards, the chart-generated admin password in Secret
+    # <release>-grafana is the escape hatch.
+    auto_assign_org_role: Viewer
     # Follow the OS / browser dark-mode preference. "system" makes
     # Grafana watch prefers-color-scheme at runtime and flip its theme
     # without an iframe reload, so it tracks day/night automatically.
