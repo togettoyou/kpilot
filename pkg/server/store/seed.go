@@ -310,6 +310,16 @@ grafana.ini:
     header_name: X-WEBAUTH-USER
     header_property: username
     auto_sign_up: true
+  live:
+    # Grafana Live's WebSocket endpoint (used by realtime panels) checks
+    # the browser's Origin header against the request's same-origin by
+    # default. KPilot embeds Grafana in an iframe served from KPilot's
+    # own domain, so the browser sends Origin=<kpilot-host> which never
+    # matches Grafana's pod-internal address. "*" trusts the reverse
+    # proxy fronting Grafana — safe here because KPilot's JWT
+    # middleware is what actually authenticates the request before it
+    # ever reaches the WS dial on Worker.
+    allowed_origins: "*"
 `,
 		DefaultReleaseNamespace: "kpilot-monitoring",
 	},

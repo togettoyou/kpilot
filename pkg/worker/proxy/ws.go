@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -100,9 +102,21 @@ func (m *WSManager) Start(sessionID string, req *proto.WSStartRequest) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	conn, _, err := m.dialer.DialContext(ctx, req.Url, header)
+	conn, dialResp, err := m.dialer.DialContext(ctx, req.Url, header)
 	if err != nil {
-		log.Printf("[ws-proxy] dial failed: url=%s err=%v", req.Url, err)
+		// gorilla/websocket reports any non-101 as the generic
+		// "websocket: bad handshake" — useless for diagnosis. The
+		// actual upstream response is available on dialResp; pull
+		// status + a body excerpt so we can see whether the upstream
+		// returned 401 (auth proxy not honored), 403 (Origin check
+		// rejected — see [live] allowed_origins), 404 (wrong path),
+		// or some other failure.
+		extra := ""
+		if dialResp != nil {
+			body := readDialBodyExcerpt(dialResp.Body)
+			extra = fmt.Sprintf(" status=%d body=%q", dialResp.StatusCode, body)
+		}
+		log.Printf("[ws-proxy] dial failed: url=%s err=%v%s", req.Url, err, extra)
 		cancel()
 		_ = m.pusher.SendWSEnd(sessionID, &proto.WSEnd{
 			Reason: "dial: " + err.Error(),
@@ -240,6 +254,23 @@ func (m *WSManager) End(sessionID string, end *proto.WSEnd) {
 		// dispatcher Frame() that races with us. Leaving it un-closed is
 		// safe: the GC reaps it once nothing references the session.
 	})
+}
+
+// readDialBodyExcerpt grabs up to 512 bytes of the upstream's response body
+// for diagnostics. Bad-handshake failures often come with a JSON or HTML
+// error page that explains exactly why the upstream refused the upgrade
+// (Grafana Live "origin not allowed", auth.proxy "missing header", etc.).
+func readDialBodyExcerpt(body io.ReadCloser) string {
+	if body == nil {
+		return ""
+	}
+	defer body.Close()
+	const max = 512
+	buf, _ := io.ReadAll(io.LimitReader(body, max+1))
+	if len(buf) > max {
+		return string(buf[:max]) + "...(truncated)"
+	}
+	return string(buf)
 }
 
 // truncate keeps the WS close-frame Reason inside RFC 6455's 123-byte payload
