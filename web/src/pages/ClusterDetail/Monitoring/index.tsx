@@ -7,6 +7,7 @@ import {
 } from '@ant-design/icons';
 import { history, useIntl, useParams, useRequest } from '@umijs/max';
 import { Alert, Button, Result, Spin, Tooltip } from 'antd';
+import { useThemeMode } from 'antd-style';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -92,6 +93,13 @@ const MonitoringPage: React.FC = () => {
   const { id: clusterId } = useParams<{ id: string }>();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Mirror KPilot's appearance into Grafana via the ?theme=... URL param,
+  // which Grafana respects per-page-load (winning over default_theme and
+  // any stored user preference). isDarkMode comes from antd-style's
+  // ThemeProvider, the same source the KPilot ThemeToggle button writes
+  // to — so flipping the toggle re-renders this page with the new value.
+  const { isDarkMode } = useThemeMode();
+  const grafanaTheme: 'dark' | 'light' = isDarkMode ? 'dark' : 'light';
   // The wrapper's height tracks its parent's clientHeight via ResizeObserver
   // — height:100% would collapse to 0 when ProLayout's content area doesn't
   // hand down an explicit height through every flex/block ancestor, and a
@@ -162,6 +170,32 @@ const MonitoringPage: React.FC = () => {
     return containIframeOverscroll(iframe);
   }, [summary.allReady]);
 
+  // When KPilot's theme flips, retarget the iframe to the same Grafana
+  // path it's currently on but with ?theme=... updated. We don't just
+  // change the iframe's `src` JSX attribute because that would reset
+  // the iframe to its initial URL on every theme flip — losing whichever
+  // dashboard the user navigated to. Reading contentWindow.location works
+  // because the reverse proxy keeps the iframe same-origin; if reading
+  // fails (initial render before iframe loads, or cross-origin redirect)
+  // we just skip — the next mount will use the up-to-date initial src.
+  useEffect(() => {
+    if (!summary.allReady) return;
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    try {
+      const cw = iframe.contentWindow;
+      const cur = cw?.location?.href;
+      if (!cur || cur === 'about:blank' || cur.startsWith('about:')) return;
+      const url = new URL(cur);
+      if (url.searchParams.get('theme') === grafanaTheme) return;
+      url.searchParams.set('theme', grafanaTheme);
+      iframe.src = url.toString();
+    } catch {
+      // SecurityError on cross-origin or sandbox — initial src already
+      // has the correct theme baked in, so no fallback needed here.
+    }
+  }, [grafanaTheme, summary.allReady]);
+
   // Size the wrapper to fit between its top edge and the bottom of the
   // viewport. Uses window.innerHeight - rect.top instead of the more
   // obvious parent.clientHeight because the latter is a feedback loop:
@@ -226,7 +260,7 @@ const MonitoringPage: React.FC = () => {
     const recommendedMissing = summary.recommended.filter(
       (r) => r.state !== 'ready',
     );
-    const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/`;
+    const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/?theme=${grafanaTheme}`;
     return (
       // Wrapper height comes from the ResizeObserver above (containerHeight)
       // so the iframe fills the actual parent box exactly. Falls back to
