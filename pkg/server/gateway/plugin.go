@@ -8,8 +8,14 @@ import (
 	"time"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
+	"github.com/togettoyou/kpilot/pkg/server/dashboards"
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
+
+// builtinPluginGrafanaName matches the seed entry's Name field. Used as
+// the dispatch key for plugin-specific spec rewrites (e.g. baking the
+// dashboards we ship into Grafana's values payload).
+const builtinPluginGrafanaName = "grafana"
 
 // replayPendingPluginCommands re-pushes plugin commands for any
 // (cluster, plugin) row whose state on Server suggests an action is in
@@ -175,6 +181,26 @@ func (g *GatewayServer) BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlu
 		"CLUSTER_ID":     cp.ClusterID,
 		"CLUSTER_DOMAIN": workerDomain,
 	})
+
+	// Plugin-specific spec rewrites. Today only Grafana — its 700 KB of
+	// builtin dashboards are too large to live in the registry row's
+	// default_values (would freeze the EnableDrawer YAML editor), so we
+	// overlay them here right before the PluginCommand goes out. User
+	// values take precedence in deep-merge — they can override or remove
+	// any dashboard / provider entry by writing their own.
+	if p.Name == builtinPluginGrafanaName {
+		merged, err := dashboards.MergeGrafanaExtras(values)
+		if err != nil {
+			// Don't refuse the install — log and continue with the unmerged
+			// values so a YAML parse failure in either source doesn't bring
+			// the whole plugin pipeline down. The dashboards just won't be
+			// pre-provisioned this time; the user can disable + fix the
+			// values + re-enable.
+			log.Printf("[gateway] grafana dashboards overlay failed: plugin=%s err=%v", p.Name, err)
+		} else {
+			values = merged
+		}
+	}
 
 	version := cp.VersionOverride
 	if version == "" {
