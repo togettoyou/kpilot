@@ -223,7 +223,13 @@ export const GrafanaEmbed: React.FC<GrafanaEmbedConfig> = ({
 
   if (summary.allReady) {
     const recommendedMissing = summary.recommended.filter((r) => r.state !== 'ready');
-    const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/d/${dashboardUID}/?theme=${grafanaTheme}`;
+    // kiosk=1 puts Grafana into full-screen mode — hides the left sider
+    // and the dashboard top bar. The toolbar above the iframe (with the
+    // open-in-new-tab button) is plenty of chrome for the embedded view;
+    // Grafana's own header is mostly redundant with KPilot's. The new-tab
+    // URL drops kiosk so the standalone view stays fully featured.
+    const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/d/${dashboardUID}/?theme=${grafanaTheme}&kiosk=1`;
+    const fullscreenURL = `/api/v1/clusters/${clusterId}/proxy/grafana/d/${dashboardUID}/?theme=${grafanaTheme}`;
     return (
       <div
         ref={wrapperRef}
@@ -270,7 +276,7 @@ export const GrafanaEmbed: React.FC<GrafanaEmbedConfig> = ({
               type="text"
               size="small"
               icon={<ExportOutlined />}
-              onClick={() => window.open(grafanaURL, '_blank', 'noopener,noreferrer')}
+              onClick={() => window.open(fullscreenURL, '_blank', 'noopener,noreferrer')}
             >
               {intl.formatMessage({ id: 'pages.embed.openFullscreen' })}
             </Button>
