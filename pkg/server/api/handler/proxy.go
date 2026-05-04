@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -39,6 +40,86 @@ type proxiableService struct {
 // pierce K8s RBAC isolation in surprising ways.
 var proxiableServices = map[string]proxiableService{
 	"grafana": {Service: "grafana", Port: 80},
+}
+
+// proxyResolveTTL is how long a (cluster, plugin) → namespace lookup is
+// reused without hitting the DB. A Grafana dashboard load fans out to 30+
+// parallel requests for assets — without caching, each one repeats the
+// same three queries (cluster + plugin + cluster_plugin row). 30s is
+// short enough that disabling a plugin in one tab kicks in within a
+// dashboard refresh in another.
+const proxyResolveTTL = 30 * time.Second
+
+// proxyResolveEntry is the cached result of validating that a plugin is
+// installed and Running on a cluster. cachedAt is checked on every
+// lookup; on miss we re-query the DB.
+type proxyResolveEntry struct {
+	releaseNS string
+	cachedAt  time.Time
+}
+
+var (
+	proxyResolveMu    sync.RWMutex
+	proxyResolveCache = make(map[string]proxyResolveEntry)
+)
+
+// resolveProxyTarget validates the cluster + plugin combo and returns the
+// release namespace, hitting the cache on the hot path. Errors are gin
+// codes ready to pass to apiErr; success returns ("", nil). On non-cached
+// paths we still re-validate Phase=Running so a freshly disabled plugin
+// stops accepting traffic within proxyResolveTTL.
+func resolveProxyTarget(clusterID, pluginName string) (releaseNS string, code string, err error) {
+	key := clusterID + "/" + pluginName
+
+	proxyResolveMu.RLock()
+	entry, ok := proxyResolveCache[key]
+	proxyResolveMu.RUnlock()
+	if ok && time.Since(entry.cachedAt) < proxyResolveTTL {
+		return entry.releaseNS, "", nil
+	}
+
+	if _, err := store.GetClusterByID(clusterID); err != nil {
+		return "", CodeClusterNotFound, err
+	}
+	plugin, err := store.GetPluginByName(pluginName)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", CodePluginNotFound, err
+		}
+		return "", "", err
+	}
+	cp, err := store.GetClusterPlugin(clusterID, plugin.ID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", CodePluginNotEnabled, err
+		}
+		return "", "", err
+	}
+	if !cp.Enabled || cp.Phase != store.PluginPhaseRunning {
+		return "", CodePluginNotRunning, fmt.Errorf("plugin not running")
+	}
+
+	releaseNS = cp.ReleaseNamespaceOverride
+	if releaseNS == "" {
+		releaseNS = plugin.DefaultReleaseNamespace
+	}
+	proxyResolveMu.Lock()
+	proxyResolveCache[key] = proxyResolveEntry{
+		releaseNS: releaseNS,
+		cachedAt:  time.Now(),
+	}
+	proxyResolveMu.Unlock()
+	return releaseNS, "", nil
+}
+
+// InvalidateProxyResolve drops cached lookups for a (cluster, plugin) so
+// the next proxy request re-checks DB state. Called by the plugin enable/
+// disable handlers when state changes that would affect routing.
+func InvalidateProxyResolve(clusterID, pluginName string) {
+	key := clusterID + "/" + pluginName
+	proxyResolveMu.Lock()
+	delete(proxyResolveCache, key)
+	proxyResolveMu.Unlock()
 }
 
 // proxyMaxBodyBytes caps inbound request bodies forwarded through the gRPC
@@ -109,10 +190,14 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
 		pluginName := c.Param("plugin")
-		// Gin's `*path` puts the wildcard match into `path` param; it
-		// always begins with "/". Treat empty as "/" (some clients hit
-		// /proxy/grafana with no trailing slash).
-		subPath := c.Param("path")
+		// Don't use c.Param("path") for the upstream URL — gin runs the
+		// wildcard value through path-decoding once, so any percent-encoded
+		// characters (spaces, '+', non-ASCII, …) are flattened. Re-encoding
+		// them is fragile (which chars to escape depends on context).
+		// Instead pull EscapedPath() and strip our own route prefix; that
+		// preserves the original encoding byte-for-byte.
+		prefix := fmt.Sprintf("/api/v1/clusters/%s/proxy/%s", clusterID, pluginName)
+		subPath := strings.TrimPrefix(c.Request.URL.EscapedPath(), prefix)
 		if subPath == "" {
 			subPath = "/"
 		}
@@ -123,40 +208,23 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		// Check the cluster + plugin row exists and is Running. Other
-		// phases (Pending/Failed/Uninstalling) wouldn't have a working
-		// Service to proxy to; surfacing 503 is friendlier than letting
-		// the Worker time out.
-		if _, err := store.GetClusterByID(clusterID); err != nil {
-			apiErr(c, http.StatusNotFound, CodeClusterNotFound)
-			return
-		}
-		plugin, err := store.GetPluginByName(pluginName)
+		// Cached resolve: validates cluster + plugin row + Phase=Running
+		// and returns the release namespace. Cache TTL means a freshly
+		// disabled plugin keeps serving up to 30s; we explicitly
+		// invalidate from EnablePlugin/DisablePlugin to short-circuit
+		// that for the common case.
+		releaseNS, code, err := resolveProxyTarget(clusterID, pluginName)
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				apiErr(c, http.StatusNotFound, CodePluginNotFound)
+			if code != "" {
+				status := http.StatusServiceUnavailable
+				if code == CodeClusterNotFound || code == CodePluginNotFound {
+					status = http.StatusNotFound
+				}
+				apiErr(c, status, code)
 				return
 			}
 			apiErrInternal(c, err)
 			return
-		}
-		cp, err := store.GetClusterPlugin(clusterID, plugin.ID)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				apiErr(c, http.StatusServiceUnavailable, CodePluginNotEnabled)
-				return
-			}
-			apiErrInternal(c, err)
-			return
-		}
-		if !cp.Enabled || cp.Phase != store.PluginPhaseRunning {
-			apiErr(c, http.StatusServiceUnavailable, CodePluginNotRunning)
-			return
-		}
-
-		releaseNS := cp.ReleaseNamespaceOverride
-		if releaseNS == "" {
-			releaseNS = plugin.DefaultReleaseNamespace
 		}
 
 		// Branch: WS upgrade has its own pump-driven path (no body, no
@@ -346,6 +414,15 @@ func proxyWebSocket(
 		target += "?" + query
 	}
 
+	// Note on ordering: we Send WSStartRequest first, then Upgrade the
+	// browser conn. There's a tiny window where the worker's upstream
+	// dial completes and starts pushing WSFrame back through the Stream
+	// before the browser pump goroutine is reading. Stream's msgCh is
+	// buffered (256 frames) and Stream.deliver drops on full, so brief
+	// catch-up is fine; Grafana's WS handshake doesn't push pre-handshake
+	// frames anyway. Reversing the order would mean we'd promote the
+	// browser conn before knowing the worker accepted the request — worse
+	// failure mode (already-upgraded conn with no upstream).
 	if err := stream.Send(&proto.WSStartRequest{Url: target, Headers: wsHeaders}); err != nil {
 		stream.Close()
 		apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
@@ -353,10 +430,7 @@ func proxyWebSocket(
 	}
 
 	// Upgrade the browser conn AFTER WSStartRequest is on the wire, so we
-	// don't promote a connection that the worker can't service. We can't
-	// wait for upstream to actually be ready (no ack mechanism for that;
-	// Grafana takes <100ms anyway), but at least we know the stream send
-	// didn't fail.
+	// don't promote a connection that the worker can't service.
 	browserConn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		// Upgrade writes its own response on failure; tell the worker to

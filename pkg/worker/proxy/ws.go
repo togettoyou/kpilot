@@ -38,9 +38,21 @@ type WSManager struct {
 	sessions map[string]*wsSession
 }
 
+// wsSessionWriteBuf is the per-session backlog of browser-originated frames
+// waiting to be written to the upstream conn. Sized big enough that a brief
+// upstream stall doesn't drop frames, small enough that a permanently slow
+// upstream backpressures the tunnel rather than buffering megabytes per
+// session. Grafana Live frames are kilobytes — 64 is generous.
+const wsSessionWriteBuf = 64
+
 type wsSession struct {
 	conn   *websocket.Conn
 	cancel context.CancelFunc
+
+	// writeCh fan-ins browser-originated frames so the tunnel dispatcher
+	// (Frame()) doesn't block on conn.WriteMessage — a slow upstream would
+	// otherwise stall every other session's messages on the same tunnel.
+	writeCh chan *proto.WSFrame
 
 	// closeOnce + closed serialize the teardown so a second End from the
 	// dispatcher / pump / dial-failed path can't double-close conn.
@@ -98,10 +110,42 @@ func (m *WSManager) Start(sessionID string, req *proto.WSStartRequest) {
 		return
 	}
 
-	sess := &wsSession{conn: conn, cancel: cancel}
+	sess := &wsSession{
+		conn:    conn,
+		cancel:  cancel,
+		writeCh: make(chan *proto.WSFrame, wsSessionWriteBuf),
+	}
 	m.mu.Lock()
 	m.sessions[sessionID] = sess
 	m.mu.Unlock()
+
+	// Browser → upstream writer. Pulls frames Frame() pushed onto writeCh
+	// and writes them to the upstream conn. Exits when ctx is cancelled
+	// (End() called). A write error tears the session down via End() so
+	// the upstream-read pump's WSEnd push reaches Server.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case frame, ok := <-sess.writeCh:
+				if !ok {
+					return
+				}
+				op := int(frame.Opcode)
+				if op == 0 {
+					op = websocket.TextMessage
+				}
+				_ = sess.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := sess.conn.WriteMessage(op, frame.Data); err != nil {
+					m.End(sessionID, &proto.WSEnd{
+						Reason: "upstream write: " + err.Error(),
+					})
+					return
+				}
+			}
+		}
+	}()
 
 	// Upstream → Server pump. Exits when the upstream sends a close, the
 	// underlying transport breaks, or End() drops the session and closes
@@ -140,7 +184,14 @@ func (m *WSManager) Start(sessionID string, req *proto.WSStartRequest) {
 	}()
 }
 
-// Frame writes a browser-originated frame to the upstream WS.
+// Frame queues a browser-originated frame for the per-session writer
+// goroutine. Returns immediately — the dispatcher MUST NOT block, or it
+// would head-of-line every other tunnel message (other sessions' frames,
+// resource responses, plugin status) for the duration of an upstream stall.
+//
+// If the writer's backlog is full we tear the session down rather than
+// silently drop, so the browser sees a fail-fast close instead of mysterious
+// dropped frames.
 func (m *WSManager) Frame(sessionID string, frame *proto.WSFrame) {
 	m.mu.Lock()
 	sess, ok := m.sessions[sessionID]
@@ -148,16 +199,11 @@ func (m *WSManager) Frame(sessionID string, frame *proto.WSFrame) {
 	if !ok {
 		return
 	}
-	// Default opcode 1 (text) when zero — older clients may send unset.
-	op := int(frame.Opcode)
-	if op == 0 {
-		op = websocket.TextMessage
-	}
-	_ = sess.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := sess.conn.WriteMessage(op, frame.Data); err != nil {
-		// On write failure tear the session down — the pump goroutine
-		// will emit the WSEnd from the read side.
-		m.End(sessionID, &proto.WSEnd{Reason: "upstream write: " + err.Error()})
+	select {
+	case sess.writeCh <- frame:
+	default:
+		log.Printf("[ws-proxy] write backlog full, dropping session: id=%s", sessionID)
+		m.End(sessionID, &proto.WSEnd{Reason: "upstream too slow"})
 	}
 }
 
@@ -177,7 +223,9 @@ func (m *WSManager) End(sessionID string, end *proto.WSEnd) {
 	}
 	sess.closeOnce.Do(func() {
 		// Best-effort polite close; ignore errors since we're shutting
-		// down regardless.
+		// down regardless. WriteControl is documented as concurrency-safe
+		// with WriteMessage, so the writer goroutine racing on a final
+		// frame can't deadlock here.
 		if end != nil && end.Code != 0 {
 			_ = sess.conn.WriteControl(
 				websocket.CloseMessage,
@@ -187,6 +235,10 @@ func (m *WSManager) End(sessionID string, end *proto.WSEnd) {
 		}
 		_ = sess.conn.Close()
 		sess.cancel()
+		// Don't close(sess.writeCh) — the writer goroutine exits via the
+		// ctx case in its select, and a closed channel would panic any
+		// dispatcher Frame() that races with us. Leaving it un-closed is
+		// safe: the GC reaps it once nothing references the session.
 	})
 }
 

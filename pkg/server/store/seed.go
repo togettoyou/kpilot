@@ -197,7 +197,7 @@ service:
 	{
 		Name:        "grafana",
 		DisplayName: "Grafana",
-		Description: "Dashboards & visualization for cluster metrics. Pre-wired for KPilot reverse-proxy embedding (auth.proxy + sub-path) and with VictoriaMetrics as the default Prometheus-compatible datasource — install victoria-metrics first so Grafana finds it on first launch. Fallback admin credentials admin / admin (KPilot's monitoring page uses auth.proxy and never asks for them).",
+		Description: "Dashboards & visualization for cluster metrics. Pre-wired for KPilot reverse-proxy embedding (auth.proxy + sub-path) and with VictoriaMetrics as the default Prometheus-compatible datasource — install victoria-metrics first so Grafana finds it on first launch. Login is via the embedded session — auth.proxy auto-creates Admin users from KPilot's logged-in user. The chart's auto-generated admin password is in Secret <release>-grafana for kubectl-port-forward debugging if you ever need it.",
 		Category:    PluginCategoryMonitoring,
 		IsBuiltin:   true,
 		// Renders after VictoriaMetrics (10) and Node Exporter (20)
@@ -216,10 +216,11 @@ service:
 		//
 		// - image.registry / image.repository spelled out so private-
 		//   mirror users have a ready hook in the Enable drawer.
-		// - admin creds explicit (admin / admin) ONLY as a fallback for
-		//   kubectl-port-forward debug. KPilot's monitoring page reverse-
-		//   proxies via auth.proxy + X-WEBAUTH-USER, so users never
-		//   actually type a password.
+		// - admin creds intentionally NOT set: chart auto-generates a
+		//   random password into Secret <release>-grafana. KPilot's
+		//   monitoring page logs users in via auth.proxy, so nobody
+		//   inside KPilot ever needs the password — only kubectl-port-
+		//   forward debugging would, and that path can read the Secret.
 		// - persistence enabled with a 10Gi PVC — Grafana stores
 		//   dashboards/datasources in SQLite by default, losing them on
 		//   pod restart is a worse first-run experience than a small PV.
@@ -235,7 +236,7 @@ service:
 		//   <release>-victoria-metrics-single-server). If the user
 		//   renames the VM plugin or reassigns the namespace, edit this
 		//   URL in the Enable drawer accordingly.
-		// - grafana.ini wires up the four ini sections KPilot's reverse-
+		// - grafana.ini wires up the five ini sections KPilot's reverse-
 		//   proxy embedding depends on:
 		//   • [security] allow_embedding=true — Grafana sends X-Frame-
 		//     Options:deny by default; without this, even same-origin
@@ -248,6 +249,12 @@ service:
 		//   • [auth.anonymous] enabled=false — explicitly off so a
 		//     missing X-WEBAUTH-USER header isn't silently accepted as
 		//     "anonymous Viewer".
+		//   • [users] auto_assign_org_role=Admin — controls the role
+		//     the auth.proxy auto-created user gets. Grafana defaults to
+		//     Viewer, which can't add datasources or edit dashboards;
+		//     KPilot is a single-tenant admin tool, so Admin matches
+		//     intent. Without this, a user logging in via KPilot would
+		//     find Grafana mysteriously read-only.
 		//   • [server] serve_from_sub_path=true + relative root_url with
 		//     ${KPILOT_CLUSTER_ID} — the placeholder is replaced by the
 		//     Server before the PluginCommand goes out (see
@@ -260,8 +267,6 @@ service:
   registry: docker.io
   repository: grafana/grafana
   tag: ""
-adminUser: admin
-adminPassword: admin
 service:
   type: ClusterIP
   port: 80
@@ -296,6 +301,8 @@ grafana.ini:
   server:
     serve_from_sub_path: true
     root_url: "/api/v1/clusters/${KPILOT_CLUSTER_ID}/proxy/grafana/"
+  users:
+    auto_assign_org_role: Admin
   auth.anonymous:
     enabled: false
   auth.proxy:

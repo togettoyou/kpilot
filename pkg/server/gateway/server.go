@@ -346,11 +346,17 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 		return nil, fmt.Errorf("send to worker: %w", err)
 	}
 
+	// Watch the worker's stream context too: when the worker disconnects,
+	// gRPC tears the stream down and Stream.Context() is cancelled. Without
+	// this case the caller would block until ctx (typically 30-60s) — long
+	// after the answer is impossible.
 	select {
 	case resp := <-ch:
 		return resp, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-w.Stream.Context().Done():
+		return nil, fmt.Errorf("worker disconnected: cluster=%s", clusterID)
 	}
 }
 
@@ -386,10 +392,15 @@ func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, r
 		return nil, fmt.Errorf("send to worker: %w", err)
 	}
 
+	// Same disconnect-unblocks-pending pattern as SendResourceRequest:
+	// without watching the stream context, an iframe asset request would
+	// hang the full proxyTimeout (60s) every time the worker dies.
 	select {
 	case resp := <-ch:
 		return resp, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-w.Stream.Context().Done():
+		return nil, fmt.Errorf("worker disconnected: cluster=%s", clusterID)
 	}
 }

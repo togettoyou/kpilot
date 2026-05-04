@@ -14,6 +14,13 @@ import (
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
 
+// proxyMaxRespBytes caps the upstream response body the Worker will buffer
+// before sending it back to Server over gRPC. Mirrors the Server's request
+// body cap; combined they keep a single proxied exchange under the 32 MB
+// gRPC message-size ceiling. A malicious or misconfigured Service that
+// streams a huge body otherwise OOMs the Worker pod.
+const proxyMaxRespBytes = 31 * 1024 * 1024
+
 // HTTPProxy forwards reverse-proxy HTTP requests from Server to in-cluster
 // Services (Grafana, VictoriaLogs, …). Worker-side counterpart of
 // gateway.SendHTTPRequest.
@@ -129,9 +136,14 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 	}
 	defer hresp.Body.Close()
 
-	respBody, err := io.ReadAll(hresp.Body)
+	// Cap the body at proxyMaxRespBytes. We allow proxyMaxRespBytes+1 so we
+	// can detect overflow vs an exactly-cap-sized legitimate response.
+	respBody, err := io.ReadAll(io.LimitReader(hresp.Body, proxyMaxRespBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if int64(len(respBody)) > proxyMaxRespBytes {
+		return nil, fmt.Errorf("upstream body exceeds %d bytes", proxyMaxRespBytes)
 	}
 
 	headers := make([]*proto.HTTPHeader, 0, len(hresp.Header))
