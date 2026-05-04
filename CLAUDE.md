@@ -97,13 +97,14 @@ status:
   phase: Running  # Pending / Installing / Running / Failed
 ```
 
-**内置插件**（5 个，category 维度组织）：
+**内置插件**（6 个，category 维度组织）：
 
 | 插件            | 分类       | Chart 来源 | 用途                                          |
 |-----------------|-----------|-----------|------------------------------------------------|
 | HAMi            | gpu       | repo      | GPU 虚拟化，给 Node 打 GPU 标签，支持 vGPU 管理     |
 | VictoriaMetrics | monitoring| repo      | 单节点 TSDB，自带 Web UI + scrape 配置             |
 | Node Exporter   | monitoring| repo      | 节点级硬件 + OS 指标（搭 VM 用）                  |
+| Grafana         | monitoring| **oci**   | 可视化前端，反代嵌入 + 内置 dashboard + auth.proxy  |
 | VictoriaLogs    | logging   | repo      | 日志存储 + 自带 Vector DaemonSet 采集             |
 | Envoy Gateway   | networking| **oci**   | Gateway API 实现，演示 OCI registry chart 装载    |
 
@@ -175,7 +176,13 @@ status:
 - **Namespace 锁**：`helm_revision > 0` 后改 release_namespace_override 返回 400 / `PLUGIN_NAMESPACE_LOCKED`，避免 Helm release 在旧 ns 孤悬
 - **失败错误展示**：Failed phase tag hover 弹 Popover（不是 Tooltip，可滚动 + 复制按钮 + `overscroll-behavior: contain` 防屏抖）
 - **重置默认**：Enable drawer 左下角「重置为默认」按钮，按当前注册表 default_values 重新 prefill
-- **内置插件**（5 个，详见上方"支持的插件"表）：HAMi（GPU，repo）/ VictoriaMetrics（monitoring，repo）/ Node Exporter（monitoring，repo）/ VictoriaLogs（logging，repo）/ Envoy Gateway（networking，**oci**）。Envoy Gateway 是 OCI 类型的演示，引用 `oci://docker.io/envoyproxy/gateway-helm v1.7.2`
+- **内置插件**（6 个，详见上方"支持的插件"表）：HAMi（GPU，repo）/ VictoriaMetrics（monitoring，repo）/ Node Exporter（monitoring，repo）/ Grafana（monitoring，**oci**）/ VictoriaLogs（logging，repo）/ Envoy Gateway（networking，**oci**）。Envoy Gateway 是 OCI 类型的演示，引用 `oci://docker.io/envoyproxy/gateway-helm v1.7.2`；Grafana 引用 `oci://ghcr.io/grafana-community/helm-charts/grafana 12.3.0`，预配 auth.proxy + sub-path embed + VL/VM datasource + 两个内置 dashboard
+- **Server 侧 values 占位符**（`pkg/server/gateway/plugin.go::expandKPilotVars`）：插件启用前 Server 把 values YAML 里的 `${KPILOT_*}` token 替换掉。两个变量：
+  - `${KPILOT_CLUSTER_ID}` —— 集群 UUID。反代插件用它构造 sub-path（如 Grafana root_url=`/api/v1/clusters/${KPILOT_CLUSTER_ID}/proxy/grafana/`）
+  - `${KPILOT_CLUSTER_DOMAIN}` —— K8s DNS suffix（默认 `cluster.local`，Worker 在 register 时上报）。chart 默认 values 写死 in-cluster Service FQDN 时用它
+  - 加新变量：`BuildEnableCommand` 里 `expandKPilotVars` 的 map 加一行就够。token 必须 `[A-Z0-9_]+`（regex 强制大写）
+- **Server 侧 dashboard overlay**（`pkg/server/dashboards/`）：Grafana 的两个内置 dashboard JSON（NodeExporterFull ~660KB / VictoriaLogs Explorer ~30KB）通过 `//go:embed` 编译进 Server 二进制，在 `BuildEnableCommand` 里 deep-merge 到 Grafana plugin 的 values（仅 Grafana 走这条路径）。**没塞进 default_values** 因为 700KB 会让 EnableDrawer 的 CodeMirror 卡死；用户 values 优先级高，可以覆盖任意 dashboard
+- **Reconcile-on-Watch 防抖**（`pkg/worker/plugin/reconciler.go::reconcileTriggerPredicate`）：controller-runtime watch 加了 predicate，只有 spec generation 变化、Create、Delete、新设 DeletionTimestamp 才触发 Reconcile。status-only 写入和 finalizer add/remove 不触发——避开了"reconcile 自己写 status → 触发自己 → cache 没同步 → race"的 install-then-immediate-upgrade bug
 
 ### 5. GPU 管理
 - 依赖 HAMI 插件
@@ -185,11 +192,34 @@ status:
 - LLM 部署管理（创建/查看/删除推理服务）
 - 后续结合 KServe
 
-### 7. 监控中心
-- 代理查询 VictoriaMetrics（依赖 VictoriaMetrics 插件）
+### 7. 监控中心 / 日志中心
+两个页面共享 `web/src/components/GrafanaEmbed/`，区别只在依赖列表 + dashboard UID + i18n 前缀。
+- **路由**：`/clusters/:id/monitoring`（依赖 Grafana + VictoriaMetrics，dashboard UID `rYdddlPWk`）；`/clusters/:id/logging`（依赖 Grafana + VictoriaLogs，dashboard UID `g6mvjz`）
+- **依赖检查**：拉 `/api/v1/clusters/:id/plugins`，按 phase 分四桶（ready / installing / failed / missing）。allReady → 渲染 iframe；其他状态显示 antd `Result` 提示对应错误，installing 期间每 5s 自动 poll 直到完成
+- **iframe URL**：`/api/v1/clusters/:id/proxy/grafana/d/<dashboardUID>/?theme=light|dark`。`<dashboardUID>` 直接打开对应面板，`?theme=` 跟随 KPilot 当前主题（`useThemeMode().isDarkMode`），覆盖 Grafana 自身的 default_theme
+- **主题同步**：KPilot 切主题 → effect 读 `iframe.contentWindow.location.href`（同源所以可读）→ 改 `?theme=` 参数 → 写回 `iframe.src` → iframe 重载但保持当前 dashboard 路径
+- **滚动隔离**：iframe 内部 document（同源）的 `documentElement` 和 `body` 注入 `overscroll-behavior: contain`，从根上让 scroll-chain 死在 iframe 文档里，宿主页 footer 不动；wrapper 高度 = `window.innerHeight - rect.top`（loop-free 测量）
+- **Worker 反代后端**（`pkg/server/api/handler/proxy.go`）：所有 grafana 流量走 KPilot Server 反代→gRPC tunnel→Worker→集群内 Service。HTTP 请求/响应走 `SendHTTPRequest`（一次性，body ≤31MB），WebSocket 走 `OpenStream`（复用 Pod logs/exec 的 Stream 框架）。`proxiableServices` map 是反代白名单（目前只 grafana）
+- **认证链**：浏览器带 KPilot JWT → Server JWT middleware 验证 → `resolveUsername(c)` 提取用户名 → 反代时 inject `X-WEBAUTH-USER` header → Grafana auth.proxy 模块自动建用户登录（auto_sign_up=true，role=Viewer 只读）。`kpilot_token` cookie 通过 `filterKPilotCookies` 精确剥离，Grafana 自己的 session cookie 保留以维护 CSRF / org context
+- **`proxyResolveCache`**（30s TTL）：反代 handler 走热路径时不查 DB，缓存 `(cluster, plugin) → (release_namespace, Phase=Running)`。Grafana dashboard 加载会 fan-out 30+ 并发资源请求，没 cache 每个都 3 次 DB 查。Enable/Disable handler 显式 invalidate
+- **Grafana 配置要点**（`pkg/server/store/seed.go::Grafana`）：
+  - `auth.proxy` 启用 + auto_sign_up + Viewer 角色（只读 embed）
+  - `serve_from_sub_path=true` + 相对 root_url 带 `${KPILOT_CLUSTER_ID}` 占位符
+  - `[security] allow_embedding=true` 让 iframe 嵌入不被 X-Frame-Options 拦
+  - `[live] allowed_origins="*"` 让 Grafana Live WS 接受 KPilot 域的 Origin
+  - `[users] default_theme=system` 跟随 OS 偏好（被 `?theme=` URL 参数覆盖）
+  - 预配 VictoriaMetrics（type=prometheus，走 VM 的 Prometheus API 兼容）和 VictoriaLogs（type=`victoriametrics-logs-datasource`，需要 chart 的 plugins 列表自动从 grafana.com 装 plugin）datasource
+- **Worker 上报 cluster_domain**：`RegisterRequest.cluster_domain` 字段，默认 `cluster.local`，可通过 worker 端 `CLUSTER_DOMAIN` env 覆盖。Server 不在 K8s 也能正确构 FQDN
 
-### 8. 日志中心
-- 代理查询 VictoriaLogs（依赖 VictoriaLogs 插件）
+### 反代 proto 消息（`proto/pilot.proto`）
+
+| 消息 | 方向 | 说明 |
+|------|------|------|
+| `HTTPRequest` | Server→Worker | 一次性反代，body inline |
+| `HTTPResponse` | Worker→Server | 配 request_id 回包 |
+| `WSStartRequest` | Server→Worker | 启动 WS 反代 session |
+| `WSFrame` | 双向 | 数据帧（opcode + bytes），browser↔upstream |
+| `WSEnd` | 双向 | RFC 6455 close code + reason |
 
 ---
 
@@ -208,12 +238,13 @@ kpilot/
 │   │   │   └── router.go    # 路由注册
 │   │   ├── service/         # 业务逻辑层（待实现，目前 handler 直接调 store + gateway）
 │   │   ├── store/           # PostgreSQL CRUD（GORM）
-│   │   └── gateway/         # gRPC Server + Worker 连接管理 + 一次性请求路由 + 流式会话路由
+│   │   ├── dashboards/      # 内置 Grafana dashboard JSON（go:embed）+ values overlay 合并器
+│   │   └── gateway/         # gRPC Server + Worker 连接管理 + 一次性请求路由 + 流式会话路由 + BuildEnableCommand
 │   ├── worker/
 │   │   ├── apis/v1alpha1/   # Plugin CRD Go 类型 + DeepCopy（注册到 controller-runtime scheme）
 │   │   ├── collector/       # 节点信息采集（controller-runtime Watch）
 │   │   ├── plugin/          # Plugin CRD reconciler + Helm SDK + chart cache + manager
-│   │   ├── proxy/           # K8s 资源代理（list/get/apply/delete/describe + LogsManager + ExecManager）
+│   │   ├── proxy/           # K8s 资源代理（list/get/apply/delete/describe + LogsManager + ExecManager + HTTPProxy + WSManager）
 │   │   └── tunnel/          # gRPC Client（注册、心跳、消息分发）
 │   └── common/
 │       ├── proto/           # protobuf 生成代码（不手动编辑）
@@ -263,6 +294,7 @@ kpilot/
 | `SERVER_ADDR` | `localhost:9090` | Server gRPC 地址（Worker 视角） |
 | `CLUSTER_TOKEN` | 空 | 必填，集群创建时 UI 一次性展示的 token |
 | `DATA_DIR` | `/var/lib/kpilot` | 持久化根目录。`charts/` 放 Helm chart .tgz cache，`helm/` 放 Helm 仓库配置 + cache。生产挂 PVC，本地 dev 改 `./data` |
+| `CLUSTER_DOMAIN` | `cluster.local` | K8s 集群 DNS 域。register 时上报给 Server，Server 反代构 FQDN 时用。kubelet 用了非默认 `--cluster-domain` 才需要改 |
 | `HELM_REPOSITORY_CONFIG` / `HELM_REPOSITORY_CACHE` | 空 | Helm SDK 自身的 env 变量，设了优先于 `DATA_DIR` 派生路径（高级场景） |
 
 ### `.env` 加载
@@ -429,12 +461,14 @@ web/src/
 │   ├── ClusterDetail/
 │   │   ├── Nodes/               # 节点概览
 │   │   ├── Workloads/           # 工作负载（YamlEditor / ApplyYamlDrawer / DescribeDrawer / PodLogsDrawer / PodExecDrawer）；CRD 行 + CR 实例浏览器（`/workloads/_cr` 路由）也在这里
-│   │   └── Plugins/             # 集群侧插件管理（启用 / 禁用 / 状态）
+│   │   ├── Plugins/             # 集群侧插件管理（启用 / 禁用 / 状态）
+│   │   ├── Monitoring/          # 监控页（NodeExporterFull dashboard，依赖 Grafana + VictoriaMetrics）
+│   │   └── Logging/             # 日志页（VictoriaLogs Explorer K8S dashboard，依赖 Grafana + VictoriaLogs）
 │   ├── Plugins/                 # 全局插件注册表 CRUD（PluginCard / PluginEditDrawer）
 │   └── exception/404/           # 404 页
 ├── services/kpilot/             # API 服务（auth、cluster、node、workload、pod、plugin）；workload.ts 同时导出 `WorkloadResourceType` / `CRRef` / `CLUSTER_SCOPED_TYPES` / `isProtectedCRDName`
 ├── models/                      # Umi model 全局状态（namespace 等）
-├── components/                  # 公共组件（Footer、HeaderDropdown、RightContent、NamespacePicker）
+├── components/                  # 公共组件（Footer、HeaderDropdown、RightContent、NamespacePicker、GrafanaEmbed）
 ├── locales/                     # zh-CN / en-US（menu.ts、pages.ts）
 ├── global.less                  # 全局样式 + ProLayout CSS 覆盖
 └── app.tsx                      # 全局布局、动态菜单注入（含 Extensions / 网络 GW API 等子项 + 隐藏 `_cr` 子路由）、认证初始化、顶部栏 actionsRender（语言/头像/命名空间选择器）
@@ -490,6 +524,6 @@ web/src/
 | P2 | 集群管理 UI + 节点概览（Worker 采集上报） | ✅ 完成 |
 | P3 | 工作负载管理（CRUD 代理 + 通用 Apply YAML + Describe + Pod 日志/终端 + 全局命名空间选择器 + Pod 日志客户端 grep） | ✅ 完成 |
 | P4 | 插件系统（Plugin CRD + Helm SDK + Server 注册表 + 集群启用/禁用 + 状态同步 + 4 个内置插件） | ✅ 完成 |
-| P5 | GPU 管理（HAMI 集成） | 待开始 ← 下一步 |
-| P6 | 监控中心 + 日志中心 | 待开始 |
-| P7 | 模型管理（LLM + KServe） | 待开始 |
+| P5 | GPU 管理（HAMI 集成） | 待开始 |
+| P6 | 监控中心 + 日志中心（Grafana iframe + auth.proxy + HTTP/WS 反代 + 内置 dashboard overlay） | ✅ 完成 |
+| P7 | 模型管理（LLM + KServe） | 待开始 ← 下一步 |

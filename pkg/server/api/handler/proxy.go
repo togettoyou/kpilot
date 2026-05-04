@@ -516,6 +516,16 @@ func proxyWebSocket(
 			return
 		}
 	}
+	// Channel closed without an explicit end frame — worker disconnect or
+	// the gateway's stream cleanup. Send the browser a polite close so it
+	// doesn't see an abnormal-close (1006) and silently retry forever; a
+	// 1001 Going Away triggers most clients' standard reconnect-with-
+	// backoff path instead.
+	_ = browserConn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseGoingAway, "upstream connection lost"),
+		time.Now().Add(writeWait),
+	)
 }
 
 // kpilotCookieNames are the Set-Cookie names KPilot Server itself owns. We
