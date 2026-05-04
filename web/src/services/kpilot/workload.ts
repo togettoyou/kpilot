@@ -125,3 +125,18 @@ export function applyYAML(clusterId: string, yamlText: string) {
     },
   );
 }
+
+// Mirror of applyYAML — deletes every resource described in the YAML
+// stream by GVK + namespace + name. Doc body itself is discarded after
+// parsing; only identity is needed. Same per-doc result shape so the
+// drawer's success/failure rendering can be reused.
+export function deleteYAML(clusterId: string, yamlText: string) {
+  return request<{ results: ApplyYamlResult[] }>(
+    `/api/v1/clusters/${clusterId}/delete-yaml`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      data: yamlText,
+    },
+  );
+}

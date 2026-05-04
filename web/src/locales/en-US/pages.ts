@@ -280,6 +280,12 @@ export default {
   'pages.applyYaml.title': 'Apply YAML',
   'pages.applyYaml.dropHint': 'Click or drag .yaml / .yml / .json here',
   'pages.applyYaml.apply': 'Apply',
+  'pages.applyYaml.delete': 'Delete',
+  'pages.applyYaml.delete.confirmTitle': 'Delete resources?',
+  'pages.applyYaml.delete.confirmHint':
+    'Every resource in the current YAML (matched by GVK + namespace + name) will be deleted. This cannot be undone.',
+  'pages.applyYaml.delete.confirmOk': 'Delete',
+  'pages.applyYaml.delete.successN': 'Deleted {n} resource(s)',
   'pages.applyYaml.success': 'Applied',
   'pages.applyYaml.successN': 'Applied {n} resource(s)',
   'pages.applyYaml.partial': 'Applied {ok} / {total} — others failed',

@@ -245,6 +245,27 @@ type ApplyYamlResult struct {
 // dependency-style manifests (e.g. namespace before deployment) work as
 // long as the user authored them in order.
 func ApplyYAML(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return yamlBatchHandler(gw, "apply", applyOneDoc)
+}
+
+// DeleteYAML is the inverse of ApplyYAML — same multi-doc YAML stream,
+// each entry's GVK + name + namespace pulled out and passed to the
+// worker's `delete` action. Same fail-soft per-doc results so the user
+// can see exactly which deletions worked. The doc body itself is
+// discarded after parsing — `kubectl delete -f` doesn't need spec/status,
+// only metadata, and neither do we.
+func DeleteYAML(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return yamlBatchHandler(gw, "delete", deleteOneDoc)
+}
+
+// yamlBatchHandler is the shared scaffolding for ApplyYAML / DeleteYAML —
+// read body, parse multi-doc, run perDoc on each, return JSON results.
+// action is only used for the top-level "no manifests" guard message.
+func yamlBatchHandler(
+	gw *gateway.GatewayServer,
+	_ string,
+	perDoc func(ctx context.Context, gw *gateway.GatewayServer, clusterID string, idx int, obj *unstructured.Unstructured) ApplyYamlResult,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
 
@@ -266,7 +287,7 @@ func ApplyYAML(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		results := make([]ApplyYamlResult, 0, len(docs))
 		for i, obj := range docs {
-			results = append(results, applyOneDoc(c.Request.Context(), gw, clusterID, i, obj))
+			results = append(results, perDoc(c.Request.Context(), gw, clusterID, i, obj))
 		}
 		c.JSON(http.StatusOK, gin.H{"results": results})
 	}
@@ -294,7 +315,12 @@ func parseYAMLDocs(body []byte) ([]*unstructured.Unstructured, error) {
 	return out, nil
 }
 
-func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID string, idx int, obj *unstructured.Unstructured) ApplyYamlResult {
+// validateDoc populates ApplyYamlResult.{Index,Kind,Namespace,Name} from
+// the unstructured object and runs the basic guards (kind/version present,
+// name present, namespace not in the read-only kube-* / kpilot-* set).
+// Returns (result, ok) — when ok is false the result already carries the
+// reason in .Error and the caller should append it directly.
+func validateDoc(idx int, obj *unstructured.Unstructured) (ApplyYamlResult, bool) {
 	gvk := obj.GroupVersionKind()
 	r := ApplyYamlResult{
 		Index:     idx,
@@ -302,19 +328,27 @@ func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID strin
 		Namespace: obj.GetNamespace(),
 		Name:      obj.GetName(),
 	}
-
 	if gvk.Kind == "" || gvk.Version == "" {
 		r.Error = "missing apiVersion or kind"
-		return r
+		return r, false
 	}
 	if r.Name == "" {
 		r.Error = "missing metadata.name"
-		return r
+		return r, false
 	}
 	if isProtectedNamespace(r.Namespace) {
 		r.Error = "namespace " + r.Namespace + " is read-only"
+		return r, false
+	}
+	return r, true
+}
+
+func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID string, idx int, obj *unstructured.Unstructured) ApplyYamlResult {
+	r, ok := validateDoc(idx, obj)
+	if !ok {
 		return r
 	}
+	gvk := obj.GroupVersionKind()
 
 	jsonBody, err := obj.MarshalJSON()
 	if err != nil {
@@ -333,6 +367,40 @@ func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID strin
 		Namespace: r.Namespace,
 		Name:      r.Name,
 		Body:      jsonBody,
+	})
+	if err != nil {
+		r.Error = err.Error()
+		return r
+	}
+	if !resp.Success {
+		r.Error = resp.Error
+		return r
+	}
+	r.Success = true
+	return r
+}
+
+// deleteOneDoc is the per-document sibling of applyOneDoc: same shape and
+// guards, but routes Action="delete" to the worker. Body is intentionally
+// not sent — `kubectl delete -f` only needs the doc's identity (GVK +
+// namespace + name), not its spec/status.
+func deleteOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID string, idx int, obj *unstructured.Unstructured) ApplyYamlResult {
+	r, ok := validateDoc(idx, obj)
+	if !ok {
+		return r
+	}
+	gvk := obj.GroupVersionKind()
+
+	cctx, cancel := context.WithTimeout(ctx, workerTimeout)
+	defer cancel()
+
+	resp, err := gw.SendResourceRequest(cctx, clusterID, &proto.ResourceRequest{
+		Action:    "delete",
+		Group:     gvk.Group,
+		Version:   gvk.Version,
+		Kind:      gvk.Kind,
+		Namespace: r.Namespace,
+		Name:      r.Name,
 	})
 	if err != nil {
 		r.Error = err.Error()

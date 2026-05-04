@@ -68,6 +68,7 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.PUT("/:id/workloads/:type/:name", handler.ApplyWorkload(gw))
 		clusters.DELETE("/:id/workloads/:type/:name", handler.DeleteWorkload(gw))
 		clusters.POST("/:id/apply", handler.ApplyYAML(gw))
+		clusters.POST("/:id/delete-yaml", handler.DeleteYAML(gw))
 
 		// Pod streaming endpoints (WebSocket). Auth is the same JWT cookie —
 		// browsers send cookies on the WS handshake, so the Auth middleware

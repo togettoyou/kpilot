@@ -24,7 +24,7 @@ import type {
   ApplyYamlResult,
   WorkloadResourceType,
 } from '@/services/kpilot/workload';
-import { applyYAML } from '@/services/kpilot/workload';
+import { applyYAML, deleteYAML } from '@/services/kpilot/workload';
 import { YamlEditor } from './YamlEditor';
 
 interface ApplyYamlDrawerProps {
@@ -282,11 +282,12 @@ export function ApplyYamlDrawer({
   resourceType,
 }: ApplyYamlDrawerProps) {
   const intl = useIntl();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { token } = antdTheme.useToken();
 
   const [yamlText, setYamlText] = useState('');
   const [applying, setApplying] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [results, setResults] = useState<ApplyYamlResult[] | null>(null);
   // Default to expanded — user just clicked Apply and wants to see the
   // diagnosis. Collapse is one click away when they need editor space
@@ -342,6 +343,55 @@ export function ApplyYamlDrawer({
     }
   };
 
+  // Delete is the inverse of Apply — sends the same YAML body to the
+  // worker's `delete` action per doc. Wrapped in a danger-styled
+  // modal.confirm so the user has an explicit pause before the
+  // destructive batch operation. Same per-doc result rendering as Apply
+  // so partial failures (some deleted, some 404 / locked / etc.) are
+  // visible.
+  const handleDelete = async () => {
+    const trimmed = yamlText.trim();
+    if (!trimmed) {
+      message.warning(intl.formatMessage({ id: 'pages.applyYaml.empty' }));
+      return;
+    }
+    modal.confirm({
+      title: intl.formatMessage({ id: 'pages.applyYaml.delete.confirmTitle' }),
+      content: intl.formatMessage({ id: 'pages.applyYaml.delete.confirmHint' }),
+      okType: 'danger',
+      okText: intl.formatMessage({ id: 'pages.applyYaml.delete.confirmOk' }),
+      onOk: async () => {
+        setDeleting(true);
+        setResults(null);
+        try {
+          const resp = await deleteYAML(clusterId, trimmed);
+          const list = resp.results ?? [];
+          const failed = list.filter((r) => !r.success);
+          if (failed.length === 0) {
+            message.success(
+              intl.formatMessage(
+                { id: 'pages.applyYaml.delete.successN' },
+                { n: list.length },
+              ),
+            );
+            // Keep YAML in editor — user might want to re-apply the same
+            // manifest later. Just close the drawer.
+            onApplied();
+            onClose();
+          } else {
+            setResults(list);
+            setResultsExpanded(true);
+            onApplied();
+          }
+        } catch {
+          // Global toast.
+        } finally {
+          setDeleting(false);
+        }
+      },
+    });
+  };
+
   const uploadProps: UploadProps = {
     accept: '.yaml,.yml,.json',
     beforeUpload: (file) => {
@@ -373,7 +423,23 @@ export function ApplyYamlDrawer({
           <Button onClick={onClose}>
             {intl.formatMessage({ id: 'pages.workloads.cancel' })}
           </Button>
-          <Button type="primary" loading={applying} onClick={handleSubmit}>
+          {/* Danger button gets a tooltip + confirm modal on click — both
+              live in handleDelete. Disabled while an Apply is in flight
+              so the two can't race for the same loading state. */}
+          <Button
+            danger
+            loading={deleting}
+            disabled={applying}
+            onClick={handleDelete}
+          >
+            {intl.formatMessage({ id: 'pages.applyYaml.delete' })}
+          </Button>
+          <Button
+            type="primary"
+            loading={applying}
+            disabled={deleting}
+            onClick={handleSubmit}
+          >
             {intl.formatMessage({ id: 'pages.applyYaml.apply' })}
           </Button>
         </Space>

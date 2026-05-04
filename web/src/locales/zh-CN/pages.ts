@@ -269,6 +269,12 @@ export default {
   'pages.applyYaml.title': '应用 YAML',
   'pages.applyYaml.dropHint': '点击或拖拽 .yaml / .yml / .json 文件到此处',
   'pages.applyYaml.apply': '应用',
+  'pages.applyYaml.delete': '删除',
+  'pages.applyYaml.delete.confirmTitle': '确认删除',
+  'pages.applyYaml.delete.confirmHint':
+    '将删除当前 YAML 中的所有资源（按 GVK + 命名空间 + 名称匹配），此操作不可恢复。',
+  'pages.applyYaml.delete.confirmOk': '删除',
+  'pages.applyYaml.delete.successN': '成功删除 {n} 个资源',
   'pages.applyYaml.success': '已应用',
   'pages.applyYaml.successN': '成功应用 {n} 个资源',
   'pages.applyYaml.partial': '已应用 {ok} / {total} 个资源，其余失败',
