@@ -46,6 +46,9 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 
 	api := r.Group("/api/v1")
 	{
+		// Public — version banner shown in the UI header.
+		api.GET("/version", handler.Version())
+
 		auth := api.Group("/auth")
 		auth.POST("/login", handler.Login(cfg.AdminUsername, cfg.AdminPassword, cfg.JWTSecret))
 		auth.POST("/logout", handler.Logout())

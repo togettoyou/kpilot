@@ -5,11 +5,12 @@ import {
   MoonOutlined,
   SunOutlined,
 } from '@ant-design/icons';
-import { getLocale, setLocale } from '@umijs/max';
+import { getLocale, setLocale, useRequest } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Button } from 'antd';
 import { createStyles, useThemeMode } from 'antd-style';
 import React from 'react';
+import { getVersion } from '@/services/kpilot/system';
 import HeaderDropdown from '../HeaderDropdown';
 
 const LOCALES = [
@@ -28,9 +29,30 @@ const useStyles = createStyles(({ token, css }) => ({
     padding-block: 0 !important;
     border-radius: ${token.borderRadius}px !important;
   `,
+  version: css`
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    padding-inline: 8px;
+    color: ${token.colorTextTertiary};
+    font-size: ${token.fontSizeSM}px;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  `,
 }));
 
 const GITHUB_URL = 'https://github.com/togettoyou/kpilot';
+
+export const VersionBadge: React.FC = () => {
+  const { styles } = useStyles();
+  const { data } = useRequest(getVersion, {
+    formatResult: (res) => res,
+    cacheKey: 'kpilot-version',
+    staleTime: -1,
+  });
+  if (!data?.version) return null;
+  return <span className={styles.version}>{data.version}</span>;
+};
 
 export const GithubLink: React.FC = () => {
   const { styles } = useStyles();

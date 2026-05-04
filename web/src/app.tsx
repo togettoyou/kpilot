@@ -24,6 +24,7 @@ import {
   LangDropdown,
   NamespacePicker,
   ThemeToggle,
+  VersionBadge,
 } from '@/components';
 import { currentUser as queryCurrentUser } from '@/services/kpilot/auth';
 import { errorConfig } from './requestErrorConfig';
@@ -201,6 +202,7 @@ export const layout: RunTimeLayoutConfig = ({
     logo: '/logo.svg',
     actionsRender: () => [
       <NamespacePicker key="ns" />,
+      <VersionBadge key="version" />,
       <GithubLink key="github" />,
       <ThemeToggle key="theme" />,
       <LangDropdown key="lang" />,
