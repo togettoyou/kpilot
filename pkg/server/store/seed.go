@@ -267,6 +267,15 @@ service:
   registry: docker.io
   repository: grafana/grafana
   tag: ""
+# Bootstrap admin username — kept distinct from KPilot's own username
+# space (default ADMIN_USERNAME=admin) so the auth.proxy login doesn't
+# collide with the chart's bootstrap user. Without this rename, KPilot's
+# "admin" user would map onto the chart's "admin" Admin, then auto_assign_
+# org_role: Viewer would try to demote them and fail with "cannot remove
+# last organization admin", surfacing as 401 on every dashboard load.
+# The chart still auto-generates the password into Secret <release>-grafana
+# for kubectl-port-forward debug.
+adminUser: kpilot-grafana-admin
 service:
   type: ClusterIP
   port: 80
