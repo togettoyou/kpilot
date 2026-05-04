@@ -216,7 +216,8 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 			}
 		}
 	case *proto.WorkerMessage_LogsChunk, *proto.WorkerMessage_LogsEnd,
-		*proto.WorkerMessage_ExecOutput, *proto.WorkerMessage_ExecEnd:
+		*proto.WorkerMessage_ExecOutput, *proto.WorkerMessage_ExecEnd,
+		*proto.WorkerMessage_WsFrameRecv, *proto.WorkerMessage_WsEndRecv:
 		g.routeStreamMessage(msg)
 	case *proto.WorkerMessage_HttpResp:
 		g.pendingHTTPMu.Lock()

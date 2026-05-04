@@ -60,6 +60,14 @@ type Client struct {
 	// to the in-cluster Service and reply via SendHTTPResponse.
 	httpHandler func(requestID string, req *proto.HTTPRequest)
 
+	// WebSocket reverse-proxy handlers. Same dispatch contract as the
+	// streaming session handlers above: Start runs in its own goroutine
+	// (owns the upstream dial + bidirectional pump), Frame/End run on
+	// the dispatcher and must hand off quickly.
+	wsStartHandler func(sessionID string, req *proto.WSStartRequest)
+	wsFrameHandler func(sessionID string, frame *proto.WSFrame)
+	wsEndHandler   func(sessionID string, end *proto.WSEnd)
+
 	mu     sync.Mutex
 	sendMu sync.Mutex // serializes concurrent Send calls on the active stream
 	stream proto.PilotService_ConnectClient
@@ -103,6 +111,51 @@ func (c *Client) SendHTTPResponse(requestID string, resp *proto.HTTPResponse) {
 	_ = c.safeSend(s, &proto.WorkerMessage{
 		RequestId: requestID,
 		Payload:   &proto.WorkerMessage_HttpResp{HttpResp: resp},
+	})
+}
+
+// SetWSHandlers wires up the reverse-proxy WebSocket dispatch. Mirrors
+// SetStreamHandlers' contract: Start owns the session lifetime; Frame/End
+// only forward inbound bytes/close frames to the owning session quickly.
+func (c *Client) SetWSHandlers(
+	start func(sessionID string, req *proto.WSStartRequest),
+	frame func(sessionID string, frame *proto.WSFrame),
+	end func(sessionID string, end *proto.WSEnd),
+) {
+	c.wsStartHandler = start
+	c.wsFrameHandler = frame
+	c.wsEndHandler = end
+}
+
+// SendStreamMessage forwards a worker → server WebSocket frame for the
+// reverse-proxy session, tagged with the given session id. Reuses the
+// existing safeSend serialization on the client stream.
+func (c *Client) SendWSFrame(sessionID string, frame *proto.WSFrame) error {
+	c.mu.Lock()
+	s := c.stream
+	c.mu.Unlock()
+	if s == nil {
+		return fmt.Errorf("not connected")
+	}
+	return c.safeSend(s, &proto.WorkerMessage{
+		RequestId: sessionID,
+		Payload:   &proto.WorkerMessage_WsFrameRecv{WsFrameRecv: frame},
+	})
+}
+
+// SendWSEnd notifies the Server that the upstream WS closed (or the local
+// pump errored). Idempotent at the manager level — the manager guards
+// against double-end.
+func (c *Client) SendWSEnd(sessionID string, end *proto.WSEnd) error {
+	c.mu.Lock()
+	s := c.stream
+	c.mu.Unlock()
+	if s == nil {
+		return fmt.Errorf("not connected")
+	}
+	return c.safeSend(s, &proto.WorkerMessage{
+		RequestId: sessionID,
+		Payload:   &proto.WorkerMessage_WsEndRecv{WsEndRecv: end},
 	})
 }
 
@@ -384,6 +437,18 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 	case *proto.ServerMessage_HttpReq:
 		if c.httpHandler != nil {
 			go c.httpHandler(msg.RequestId, p.HttpReq)
+		}
+	case *proto.ServerMessage_WsStart:
+		if c.wsStartHandler != nil {
+			go c.wsStartHandler(msg.RequestId, p.WsStart)
+		}
+	case *proto.ServerMessage_WsFrameSend:
+		if c.wsFrameHandler != nil {
+			c.wsFrameHandler(msg.RequestId, p.WsFrameSend)
+		}
+	case *proto.ServerMessage_WsEndSend:
+		if c.wsEndHandler != nil {
+			c.wsEndHandler(msg.RequestId, p.WsEndSend)
 		}
 	}
 }

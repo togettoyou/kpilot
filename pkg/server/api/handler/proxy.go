@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
@@ -66,9 +67,39 @@ var hopByHopHeadersServer = map[string]struct{}{
 	"Upgrade":             {},
 }
 
+// wsUpgrader handles the browser → KPilot side of a WebSocket reverse-proxy
+// session. CheckOrigin returns true unconditionally because the request has
+// already been authenticated by the JWT middleware — we accept all origins
+// the browser would have set since the proxy is same-origin from KPilot's
+// perspective anyway.
+var wsUpgrader = websocket.Upgrader{
+	ReadBufferSize:  4 * 1024,
+	WriteBufferSize: 32 * 1024,
+	CheckOrigin:     func(r *http.Request) bool { return true },
+}
+
+// isWSUpgrade returns true when the incoming request asks for an HTTP →
+// WebSocket upgrade. Both Connection and Upgrade are case-insensitive in
+// HTTP/1.1; Upgrade-Insecure-Requests does NOT count, only "Upgrade".
+func isWSUpgrade(req *http.Request) bool {
+	if !strings.EqualFold(req.Header.Get("Upgrade"), "websocket") {
+		return false
+	}
+	for _, token := range strings.Split(req.Header.Get("Connection"), ",") {
+		if strings.EqualFold(strings.TrimSpace(token), "upgrade") {
+			return true
+		}
+	}
+	return false
+}
+
 // ProxyPlugin reverse-proxies HTTP traffic from the browser through KPilot
 // Server, over the gRPC tunnel, into an in-cluster Service exposed by an
 // enabled plugin. Bound to /api/v1/clusters/:id/proxy/:plugin/*path.
+//
+// Handles both the regular HTTP path and the WebSocket upgrade path. WS goes
+// through gateway.OpenStream (Pod logs / exec share the same machinery), HTTP
+// goes through gateway.SendHTTPRequest.
 //
 // Auth: the protected route group enforces JWT first; we then know the
 // caller is an authenticated KPilot user and inject X-WEBAUTH-USER so
@@ -126,6 +157,15 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		releaseNS := cp.ReleaseNamespaceOverride
 		if releaseNS == "" {
 			releaseNS = plugin.DefaultReleaseNamespace
+		}
+
+		// Branch: WS upgrade has its own pump-driven path (no body, no
+		// timeout, bidirectional). Everything else flows through the
+		// HTTP request-response path.
+		if isWSUpgrade(c.Request) {
+			username := resolveUsername(c)
+			proxyWebSocket(c, gw, clusterID, svc, releaseNS, subPath, username)
+			return
 		}
 
 		// Read at most proxyMaxBodyBytes of the request body. Browser
@@ -187,13 +227,7 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// middleware ctx — currently always "admin" since we're single-
 		// tenant, but we read it from context anyway so multi-user just
 		// works when we add it.
-		username := "admin"
-		if u, ok := c.Get("username"); ok {
-			if s, ok := u.(string); ok && s != "" {
-				username = s
-			}
-		}
-		headers = append(headers, &proto.HTTPHeader{Name: "X-WEBAUTH-USER", Value: username})
+		headers = append(headers, &proto.HTTPHeader{Name: "X-WEBAUTH-USER", Value: resolveUsername(c)})
 
 		req := &proto.HTTPRequest{
 			Method:  c.Request.Method,
@@ -242,6 +276,147 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		c.Writer.WriteHeader(int(resp.Status))
 		_, _ = c.Writer.Write(resp.Body)
+	}
+}
+
+// resolveUsername pulls the authenticated user from the gin context (set by
+// the JWT middleware). Falls back to "admin" since we're single-tenant; this
+// keeps the proxy from sending an empty X-WEBAUTH-USER if someone bypasses
+// the middleware in dev.
+func resolveUsername(c *gin.Context) string {
+	if u, ok := c.Get("username"); ok {
+		if s, ok := u.(string); ok && s != "" {
+			return s
+		}
+	}
+	return "admin"
+}
+
+// proxyWebSocket runs the bidirectional WS pump for a single browser → KPilot
+// → gRPC tunnel → upstream WebSocket session. Returns when either side closes
+// or the gRPC stream goes away.
+func proxyWebSocket(
+	c *gin.Context,
+	gw *gateway.GatewayServer,
+	clusterID string,
+	svc proxiableService,
+	releaseNS, subPath, username string,
+) {
+	// Open the gRPC stream first — if the worker is gone we shouldn't even
+	// upgrade the browser conn, just return a clean 503.
+	stream, err := gw.OpenStream(clusterID)
+	if err != nil {
+		apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
+		return
+	}
+
+	// Strip Connection / Upgrade / Sec-WebSocket-* before handing the
+	// remaining headers to the worker — gorilla/websocket sets them itself
+	// on the dial side. Same Cookie / X-WEBAUTH-USER rules as the HTTP path.
+	wsHeaders := make([]*proto.HTTPHeader, 0, len(c.Request.Header)+1)
+	for name, values := range c.Request.Header {
+		canon := http.CanonicalHeaderKey(name)
+		if _, hop := hopByHopHeadersServer[canon]; hop {
+			continue
+		}
+		if strings.HasPrefix(canon, "Sec-Websocket-") {
+			continue
+		}
+		if canon == "Authorization" || canon == "X-Webauth-User" {
+			continue
+		}
+		if canon == "Cookie" {
+			for _, v := range values {
+				if filtered := filterKPilotCookies(v); filtered != "" {
+					wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: name, Value: filtered})
+				}
+			}
+			continue
+		}
+		for _, v := range values {
+			wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: name, Value: v})
+		}
+	}
+	wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: "X-WEBAUTH-USER", Value: username})
+
+	query := c.Request.URL.RawQuery
+	target := fmt.Sprintf("ws://%s.%s.svc:%d%s",
+		svc.Service, releaseNS, svc.Port, subPath)
+	if query != "" {
+		target += "?" + query
+	}
+
+	if err := stream.Send(&proto.WSStartRequest{Url: target, Headers: wsHeaders}); err != nil {
+		stream.Close()
+		apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
+		return
+	}
+
+	// Upgrade the browser conn AFTER WSStartRequest is on the wire, so we
+	// don't promote a connection that the worker can't service. We can't
+	// wait for upstream to actually be ready (no ack mechanism for that;
+	// Grafana takes <100ms anyway), but at least we know the stream send
+	// didn't fail.
+	browserConn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		// Upgrade writes its own response on failure; tell the worker to
+		// abandon the upstream dial.
+		_ = stream.SendWSEnd(&proto.WSEnd{Reason: "browser upgrade failed"})
+		stream.Close()
+		return
+	}
+	defer browserConn.Close()
+
+	// Browser → upstream pump.
+	go func() {
+		for {
+			opcode, data, err := browserConn.ReadMessage()
+			if err != nil {
+				var ce *websocket.CloseError
+				if errors.As(err, &ce) {
+					_ = stream.SendWSEnd(&proto.WSEnd{Code: int32(ce.Code), Reason: ce.Text})
+				} else {
+					_ = stream.SendWSEnd(&proto.WSEnd{Reason: err.Error()})
+				}
+				stream.Close()
+				return
+			}
+			if err := stream.SendWSFrame(&proto.WSFrame{Opcode: int32(opcode), Data: data}); err != nil {
+				stream.Close()
+				return
+			}
+		}
+	}()
+
+	// Upstream → browser pump (main loop). Exits when the stream closes
+	// (worker disconnect, end frame, or browser-side closer above).
+	for msg := range stream.Recv() {
+		switch p := msg.Payload.(type) {
+		case *proto.WorkerMessage_WsFrameRecv:
+			frame := p.WsFrameRecv
+			op := int(frame.Opcode)
+			if op == 0 {
+				op = websocket.TextMessage
+			}
+			_ = browserConn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := browserConn.WriteMessage(op, frame.Data); err != nil {
+				stream.Close()
+				return
+			}
+		case *proto.WorkerMessage_WsEndRecv:
+			end := p.WsEndRecv
+			code := int(end.Code)
+			if code == 0 {
+				code = websocket.CloseAbnormalClosure
+			}
+			_ = browserConn.WriteControl(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(code, end.Reason),
+				time.Now().Add(writeWait),
+			)
+			stream.Close()
+			return
+		}
 	}
 }
 

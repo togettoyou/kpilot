@@ -31,6 +31,11 @@ message WorkerMessage {
 
     // Reverse-proxy HTTP (request-response, body up to 32 MB).
     HTTPResponse       http_resp       = 70;
+
+    // Reverse-proxy WebSocket (bidirectional streaming session).
+    // request_id is the session id (same envelope as logs/exec).
+    WSFrame            ws_frame_recv   = 80;
+    WSEnd              ws_end_recv     = 81;
   }
 }
 
@@ -117,6 +122,13 @@ message ServerMessage {
     // in-cluster Service (Grafana, VL vmui, …); Worker writes back via
     // HTTPResponse.
     HTTPRequest       http_req      = 60;
+
+    // Reverse-proxy WebSocket. ws_start opens the upstream dial; ws_frame
+    // streams browser → upstream frames until the browser-side or upstream
+    // side closes; ws_end_send is sent by Server when the browser closes.
+    WSStartRequest    ws_start      = 70;
+    WSFrame           ws_frame_send = 71;
+    WSEnd             ws_end_send   = 72;
   }
 }
 
@@ -283,4 +295,43 @@ message HTTPResponse {
   // dispatch the request (couldn't dial, timeout, etc.) — Server returns
   // 502 with this message so the embedded UI shows something useful.
   string error = 4;
+}
+
+// ─── WebSocket reverse proxy (streaming session) ─────────────────────────────
+//
+// session_id (the envelope's request_id) ties all messages of one WS exchange
+// together — same pattern as Pod logs / exec. Lifecycle:
+//   Server → Worker:   WSStartRequest (open upstream dial)
+//   Worker → Server:   WSEnd (carrying error)        if dial failed
+//                      OR start streaming WSFrame both directions
+//   Either side:       WSFrame (forward a frame)
+//   Either side:       WSEnd  (clean or abnormal close)
+//
+// A close from one side closes the other; the gateway/manager guarantees
+// the session map entry is dropped on the first WSEnd.
+
+message WSStartRequest {
+  // Absolute upstream URL. Server builds this from the same plugin →
+  // Service mapping the HTTP proxy uses, with scheme rewritten to ws://.
+  string url = 1;
+  // Headers to replay (Origin / Sec-WebSocket-Protocol / Cookie / the
+  // injected X-WEBAUTH-USER, etc.). Hop-by-hop headers + KPilot-owned
+  // cookies are filtered Server-side just like the HTTP path.
+  repeated HTTPHeader headers = 2;
+}
+
+message WSFrame {
+  // RFC 6455 opcodes that we forward as-is to the other side.
+  // We only care about 1 (text), 2 (binary). Control frames (close/
+  // ping/pong) are handled by the WS library on each leg, not forwarded.
+  int32 opcode = 1;
+  bytes data   = 2;
+}
+
+message WSEnd {
+  // RFC 6455 close code, e.g. 1000 (Normal), 1006 (Abnormal). 0 if the
+  // close was triggered by the local side (transport / context cancel)
+  // before the peer sent a close frame.
+  int32  code   = 1;
+  string reason = 2;
 }

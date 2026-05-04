@@ -98,6 +98,11 @@ func main() {
 		httpProxy := proxy.NewHTTPProxy(tunnelClient.SendHTTPResponse)
 		tunnelClient.SetHTTPHandler(httpProxy.Handle)
 
+		// WebSocket reverse proxy (Grafana Live, etc.) — sibling to the
+		// HTTP forwarder. Owns one upstream WS conn per session.
+		wsMgr := proxy.NewWSManager(tunnelClient)
+		tunnelClient.SetWSHandlers(wsMgr.Start, wsMgr.Frame, wsMgr.End)
+
 		// Streaming sessions (Pod logs / Exec) need a typed clientset.
 		clientset, err := kubernetes.NewForConfig(k8sCfg)
 		if err != nil {

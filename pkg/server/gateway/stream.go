@@ -14,6 +14,25 @@ import (
 // should never get close to this since it's interactive.
 const streamBufferSize = 256
 
+// wsFrameSendPayload / wsEndSendPayload are tiny wrapper types so the Stream
+// Send switch can disambiguate between "frame the browser just produced"
+// (server → worker, ws_frame_send) and "frame the upstream just produced"
+// (worker → server, ws_frame_recv) — both wrap WSFrame, so we'd otherwise
+// have no way to tell them apart in the type switch. Caller wraps via
+// SendWSFrame / SendWSEnd.
+type wsFrameSendPayload struct{ frame *proto.WSFrame }
+type wsEndSendPayload struct{ end *proto.WSEnd }
+
+// SendWSFrame forwards a WS frame produced by the browser to the Worker.
+func (s *Stream) SendWSFrame(frame *proto.WSFrame) error {
+	return s.Send(&wsFrameSendPayload{frame: frame})
+}
+
+// SendWSEnd notifies the Worker that the browser closed its WS connection.
+func (s *Stream) SendWSEnd(end *proto.WSEnd) error {
+	return s.Send(&wsEndSendPayload{end: end})
+}
+
 // Stream is a server-initiated streaming session with a Worker, used for both
 // Pod logs (Worker pushes chunks) and Exec (bidirectional). Caller pattern:
 //
@@ -67,6 +86,14 @@ func (s *Stream) Send(payload any) error {
 		msg.Payload = &proto.ServerMessage_ExecResize{ExecResize: p}
 	case *proto.ExecCancelRequest:
 		msg.Payload = &proto.ServerMessage_ExecCancel{ExecCancel: p}
+	// WebSocket reverse proxy: WSStart opens the upstream dial; WsFrameSend
+	// streams browser-side frames; WsEndSend tells Worker the browser closed.
+	case *proto.WSStartRequest:
+		msg.Payload = &proto.ServerMessage_WsStart{WsStart: p}
+	case *wsFrameSendPayload:
+		msg.Payload = &proto.ServerMessage_WsFrameSend{WsFrameSend: p.frame}
+	case *wsEndSendPayload:
+		msg.Payload = &proto.ServerMessage_WsEndSend{WsEndSend: p.end}
 	default:
 		return fmt.Errorf("unsupported stream payload type: %T", payload)
 	}
