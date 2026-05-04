@@ -303,6 +303,11 @@ grafana.ini:
     root_url: "/api/v1/clusters/${KPILOT_CLUSTER_ID}/proxy/grafana/"
   users:
     auto_assign_org_role: Admin
+    # Default to light theme so the embedded iframe matches KPilot's
+    # default chrome on first paint. Users who prefer dark can flip it
+    # in Grafana's profile preferences — this only sets the default for
+    # newly auto-created accounts.
+    default_theme: light
   auth.anonymous:
     enabled: false
   auth.proxy:
