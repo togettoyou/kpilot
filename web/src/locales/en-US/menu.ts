@@ -28,6 +28,8 @@ export default {
   'menu.clusters.config': 'Configuration',
   'menu.clusters.config.configmaps': 'ConfigMaps',
   'menu.clusters.config.secrets': 'Secrets',
+  'menu.clusters.extensions': 'Extensions',
+  'menu.clusters.extensions.crds': 'CustomResourceDefinitions',
   'menu.clusters.plugins': 'Plugins',
   'menu.clusters.gpu': 'GPU',
   'menu.clusters.models': 'Models',

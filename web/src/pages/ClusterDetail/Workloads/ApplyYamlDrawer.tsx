@@ -329,6 +329,36 @@ spec:
   hostPath:
     path: /tmp/example
 `,
+  // CRDs are typically distributed by the project that owns them
+  // (helm chart `crds/` folder, operator install scripts). This is
+  // a minimal valid skeleton mostly useful as a "show me the shape"
+  // reference; real CRD specs are usually 100s of lines.
+  customresourcedefinitions: `apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: examples.example.io
+spec:
+  group: example.io
+  names:
+    plural: examples
+    singular: example
+    kind: Example
+    shortNames: [ex]
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                message:
+                  type: string
+`,
 };
 
 const MAX_FILE_BYTES = 1 << 20; // 1 MB — same cap as the server

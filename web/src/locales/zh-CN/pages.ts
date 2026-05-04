@@ -99,6 +99,8 @@ export default {
   'errors.WORKER_CONFLICT': '资源已被其他人修改，请关闭后重新打开重试',
   'errors.NAMESPACE_PROTECTED':
     '该命名空间为只读（kube-* / kpilot-* 命名空间不允许直接修改）',
+  'errors.CRD_PROTECTED':
+    'kpilot 自有 CRD（*.kpilot.io）不允许修改或删除——会破坏插件系统',
   'errors.PLUGIN_NOT_FOUND': '插件不存在',
   'errors.PLUGIN_NAME_EXISTS': '插件名称已存在',
   'errors.PLUGIN_BUILTIN_LOCKED': '内置插件不允许修改或删除',

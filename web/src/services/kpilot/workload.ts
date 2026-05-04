@@ -6,7 +6,8 @@ export type WorkloadResourceType =
   | 'services' | 'ingresses'
   | 'gatewayclasses' | 'gateways' | 'httproutes' | 'grpcroutes'
   | 'configmaps' | 'secrets'
-  | 'persistentvolumeclaims' | 'persistentvolumes';
+  | 'persistentvolumeclaims' | 'persistentvolumes'
+  | 'customresourcedefinitions';
 
 // Cluster-scoped workload kinds — no metadata.namespace, so the global
 // namespace picker hides itself and the table omits the namespace column
@@ -15,7 +16,17 @@ export type WorkloadResourceType =
 export const CLUSTER_SCOPED_TYPES = new Set<WorkloadResourceType>([
   'persistentvolumes',
   'gatewayclasses',
+  'customresourcedefinitions',
 ]);
+
+// CRD names matching this regex (everything ending in .kpilot.io) are
+// protected from edit/delete via the workload UI — the server enforces
+// the same rule and returns 403/CRD_PROTECTED, but doing the gate on
+// the frontend too means hiding the destructive buttons instead of
+// surfacing a "operation forbidden" toast.
+export function isProtectedCRDName(name: string): boolean {
+  return name.endsWith('.kpilot.io');
+}
 
 export interface WorkloadItem {
   name: string;

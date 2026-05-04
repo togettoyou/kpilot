@@ -2,6 +2,7 @@ import {
   ApiOutlined,
   AppstoreAddOutlined,
   AppstoreOutlined,
+  BlockOutlined,
   BulbOutlined,
   DatabaseOutlined,
   DesktopOutlined,
@@ -126,6 +127,17 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       children: [
         { path: `${base}/workloads/configmaps`, name: 'configmaps' },
         { path: `${base}/workloads/secrets`, name: 'secrets' },
+      ],
+    },
+    {
+      path: `${base}/_group/extensions`,
+      name: 'extensions',
+      icon: <BlockOutlined />,
+      children: [
+        {
+          path: `${base}/workloads/customresourcedefinitions`,
+          name: 'crds',
+        },
       ],
     },
     {

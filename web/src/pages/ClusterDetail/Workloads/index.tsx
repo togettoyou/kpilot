@@ -32,6 +32,7 @@ import {
   CLUSTER_SCOPED_TYPES,
   deleteWorkload,
   getWorkload,
+  isProtectedCRDName,
   listWorkloads,
 } from '@/services/kpilot/workload';
 import { ApplyYamlDrawer } from './ApplyYamlDrawer';
@@ -260,6 +261,7 @@ const VALID_TYPES = new Set<string>([
   'secrets',
   'persistentvolumeclaims',
   'persistentvolumes',
+  'customresourcedefinitions',
 ]);
 
 // CLUSTER_SCOPED_TYPES (shared with NamespacePicker) is the source of
@@ -469,13 +471,18 @@ function WorkloadsContent({ clusterId, resourceType }: WorkloadsContentProps) {
       width: isPods ? 300 : 180,
       fixed: 'right',
       render: (_, record) => {
-        // Mirror the backend's protected-namespace list. kube-* covers
-        // control-plane workloads; kpilot-* covers built-in plugin
-        // installs (VictoriaMetrics / Node Exporter / VictoriaLogs / HAMi)
-        // — managing those goes through the Plugins page, not the
-        // workload list.
+        // Mirror the backend's protected lists:
+        //  • kube-* / kpilot-* namespaces (control-plane + built-in
+        //    plugin installs — managing those goes through the Plugins
+        //    page, not the workload list).
+        //  • CRDs ending in .kpilot.io (deleting/editing them would
+        //    brick the running install — see isProtectedCRDName).
         const ns = record.namespace ?? '';
-        const isProtected = ns.startsWith('kube-') || ns.startsWith('kpilot-');
+        const protectedNs = ns.startsWith('kube-') || ns.startsWith('kpilot-');
+        const protectedCRD =
+          resourceType === 'customresourcedefinitions' &&
+          isProtectedCRDName(record.name);
+        const isProtected = protectedNs || protectedCRD;
         const describeBtn = (
           <Button
             key="describe"

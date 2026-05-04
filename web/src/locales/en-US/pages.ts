@@ -105,6 +105,8 @@ export default {
     'Resource was modified by someone else. Close and reopen the editor to retry.',
   'errors.NAMESPACE_PROTECTED':
     'This namespace is read-only (kube-* / kpilot-* namespaces cannot be edited directly)',
+  'errors.CRD_PROTECTED':
+    'kpilot-owned CRDs (*.kpilot.io) cannot be edited or deleted — modifying them would break the plugin system',
   'errors.PLUGIN_NOT_FOUND': 'Plugin not found',
   'errors.PLUGIN_NAME_EXISTS': 'Plugin name already exists',
   'errors.PLUGIN_BUILTIN_LOCKED':

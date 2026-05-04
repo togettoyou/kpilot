@@ -72,6 +72,23 @@ var resourceGVK = map[string]gvkInfo{
 	"secrets":                  {"", "v1", "Secret"},
 	"persistentvolumeclaims":   {"", "v1", "PersistentVolumeClaim"},
 	"persistentvolumes":        {"", "v1", "PersistentVolume"},
+	// API extensions group — exposed under the "扩展" submenu rather
+	// than "工作负载" since these are API-shape resources, not pods.
+	"customresourcedefinitions": {"apiextensions.k8s.io", "v1", "CustomResourceDefinition"},
+}
+
+// isProtectedCRD returns true for CRD names that kpilot itself owns —
+// deleting them via the workload UI would brick the running install
+// (e.g. removing plugins.kpilot.io leaves every ClusterPlugin row
+// pointing at a vanished kind, and the worker reconciler stops being
+// able to Watch / Reconcile anything). The same protection applies to
+// edit (Update would let a user clear schema fields and effectively
+// disable the CRD without removing the row).
+//
+// Match by group suffix rather than name list — anything we own lands
+// under *.kpilot.io, so this auto-extends as we add more kpilot CRDs.
+func isProtectedCRD(name string) bool {
+	return strings.HasSuffix(name, ".kpilot.io")
 }
 
 func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
@@ -178,6 +195,13 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		if isProtectedNamespace(namespace) {
 			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
+			return
+		}
+		// kpilot-owned CRDs are read-only — editing one could clear the
+		// schema and brick the corresponding controller. Same defense
+		// runs in DeleteWorkload below.
+		if resourceType == "customresourcedefinitions" && isProtectedCRD(name) {
+			apiErr(c, http.StatusForbidden, CodeCRDProtected)
 			return
 		}
 
@@ -343,6 +367,13 @@ func validateDoc(idx int, obj *unstructured.Unstructured) (ApplyYamlResult, bool
 		r.Error = "namespace " + r.Namespace + " is read-only"
 		return r, false
 	}
+	// Same protection as the per-row CRD path: refuse SSA / delete on
+	// kpilot-owned CRDs even if the user pasted them into the bulk
+	// Apply YAML drawer.
+	if r.Kind == "CustomResourceDefinition" && isProtectedCRD(r.Name) {
+		r.Error = "CRD " + r.Name + " is owned by kpilot and read-only"
+		return r, false
+	}
 	return r, true
 }
 
@@ -471,6 +502,10 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		if isProtectedNamespace(namespace) {
 			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
+			return
+		}
+		if resourceType == "customresourcedefinitions" && isProtectedCRD(name) {
+			apiErr(c, http.StatusForbidden, CodeCRDProtected)
 			return
 		}
 
