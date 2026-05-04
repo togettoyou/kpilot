@@ -31,6 +31,9 @@ export default {
   'menu.clusters.config.secrets': 'Secrets',
   'menu.clusters.extensions': 'Extensions',
   'menu.clusters.extensions.crds': 'CRD',
+  // Hidden child route — used by breadcrumbs / page titles on the CR
+  // instances browser even though it's hideInMenu: true.
+  'menu.clusters.extensions.crds.crInstances': 'CR Instances',
   'menu.clusters.plugins': 'Plugins',
   'menu.clusters.gpu': 'GPU',
   'menu.clusters.models': 'Models',
