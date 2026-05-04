@@ -155,9 +155,37 @@ service:
 		// docker.io public mirror; matches the upstream README example
 		// `helm install eg oci://docker.io/envoyproxy/gateway-helm \
 		//   --version v1.7.2 -n envoy-gateway-system --create-namespace`.
-		ChartRepo:               "oci://docker.io/envoyproxy/gateway-helm",
-		DefaultVersion:          "v1.7.2",
-		DefaultValues:           "",
+		ChartRepo:      "oci://docker.io/envoyproxy/gateway-helm",
+		DefaultVersion: "v1.7.2",
+		// Two override hooks pre-filled in the form so private-mirror
+		// users have somewhere obvious to land:
+		//
+		// 1. deployment.envoyGateway.image.repository: full registry+path
+		//    (the chart doesn't split it into registry/repository the way
+		//    HAMi/VM do — it's one field). Swap to e.g.
+		//    `your-mirror.example.com/envoyproxy/gateway` and you're done.
+		//
+		// 2. tag empty → chart uses its appVersion, matching --version
+		//    exactly. Leaving it blank avoids the "tag must match k8s
+		//    version" foot-gun HAMi has.
+		//
+		// Resource requests are sized for a small dev cluster; envoy
+		// gateway's controller is a thin Go process so defaults are
+		// modest. Keep limits soft (memory only, no CPU limit) — Envoy's
+		// reconcile loops can briefly burst.
+		DefaultValues: `deployment:
+  replicas: 1
+  envoyGateway:
+    image:
+      repository: docker.io/envoyproxy/gateway
+      tag: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+`,
 		DefaultReleaseNamespace: "envoy-gateway-system",
 	},
 	{

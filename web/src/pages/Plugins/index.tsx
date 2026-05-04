@@ -51,8 +51,10 @@ export default function PluginsPage() {
     const byCat = new Map<PluginCategory, Plugin[]>();
     for (const p of all) {
       const cat = (p.category ?? 'custom') as PluginCategory;
-      if (!byCat.has(cat)) byCat.set(cat, []);
-      byCat.get(cat)!.push(p);
+      // Single Map.get to avoid the has+get+!. pattern biome flags.
+      const list = byCat.get(cat);
+      if (list) list.push(p);
+      else byCat.set(cat, [p]);
     }
     const out: CategorySection[] = [];
     for (const cat of CATEGORY_ORDER) {
@@ -104,7 +106,9 @@ export default function PluginsPage() {
           <Spin />
         </div>
       ) : sections.length === 0 ? (
-        <Empty description={intl.formatMessage({ id: 'pages.plugins.empty' })} />
+        <Empty
+          description={intl.formatMessage({ id: 'pages.plugins.empty' })}
+        />
       ) : (
         sections.map((section) => (
           <div key={section.key} style={{ marginBottom: 24 }}>
