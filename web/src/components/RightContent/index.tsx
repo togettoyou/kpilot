@@ -9,7 +9,7 @@ import { getLocale, setLocale, useRequest } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Button } from 'antd';
 import { createStyles, useThemeMode } from 'antd-style';
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { getVersion } from '@/services/kpilot/system';
 import HeaderDropdown from '../HeaderDropdown';
 
@@ -29,29 +29,48 @@ const useStyles = createStyles(({ token, css }) => ({
     padding-block: 0 !important;
     border-radius: ${token.borderRadius}px !important;
   `,
-  version: css`
-    display: inline-flex;
-    align-items: center;
-    height: 36px;
-    padding-inline: 8px;
-    color: ${token.colorTextTertiary};
-    font-size: ${token.fontSizeSM}px;
-    font-variant-numeric: tabular-nums;
-    user-select: none;
-  `,
 }));
 
 const GITHUB_URL = 'https://github.com/togettoyou/kpilot';
 
 export const VersionBadge: React.FC = () => {
-  const { styles } = useStyles();
   const { data } = useRequest(getVersion, {
     formatResult: (res) => res,
     cacheKey: 'kpilot-version',
     staleTime: -1,
   });
+  const rootRef = useRef<HTMLSpanElement>(null);
+
+  // Strip ProLayout's `*-header-actions-item / -hover` wrapper class so the
+  // version text doesn't pick up button-style hover/padding. Same trick
+  // NamespacePicker uses — :has()/class-chain overrides don't beat the
+  // hashed cssinjs rules in practice.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const wrapper = root.parentElement;
+    if (!wrapper) return;
+    const offenders = Array.from(wrapper.classList).filter(
+      (c) => c.includes('actions-item') || c.includes('actions-hover'),
+    );
+    offenders.forEach((c) => wrapper.classList.remove(c));
+  });
+
   if (!data?.version) return null;
-  return <span className={styles.version}>{data.version}</span>;
+  return (
+    <span
+      ref={rootRef}
+      style={{
+        fontSize: 13,
+        color: 'var(--ant-color-text-tertiary)',
+        fontVariantNumeric: 'tabular-nums',
+        userSelect: 'none',
+        marginInlineEnd: 8,
+      }}
+    >
+      {data.version}
+    </span>
+  );
 };
 
 export const GithubLink: React.FC = () => {
