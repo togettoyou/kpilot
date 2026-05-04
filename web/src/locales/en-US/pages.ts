@@ -1,4 +1,24 @@
 export default {
+  // monitoring page (Grafana iframe + dependency check)
+  'pages.monitoring.depState.ready': 'Running',
+  'pages.monitoring.depState.installing': 'Installing',
+  'pages.monitoring.depState.failed': 'Failed',
+  'pages.monitoring.depState.missing': 'Not enabled',
+  'pages.monitoring.missing.title': 'Monitoring plugins are not enabled yet',
+  'pages.monitoring.missing.subTitle':
+    'Enable Grafana and VictoriaMetrics on this cluster — the dashboard will load here automatically once they finish installing.',
+  'pages.monitoring.installing.title': 'Monitoring plugins are installing',
+  'pages.monitoring.installing.subTitle':
+    "Installation usually takes 1–2 minutes; this page auto-refreshes every 5s and will switch to the dashboard once it's ready.",
+  'pages.monitoring.failed.title': 'Monitoring plugins failed to install',
+  'pages.monitoring.failed.subTitle':
+    'Open the plugins page to inspect the error and re-enable, or adjust values and retry.',
+  'pages.monitoring.cta.goPlugins': 'Go to plugins',
+  'pages.monitoring.cta.refresh': 'Refresh',
+  'pages.monitoring.cta.enable': 'Enable',
+  'pages.monitoring.recommended':
+    'Consider also enabling {names} for richer node-level metrics.',
+
   'pages.layouts.userLayout.title':
     'Kubernetes-native GPU Orchestration Platform',
 

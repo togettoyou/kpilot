@@ -1,6 +1,27 @@
 export default {
   'pages.layouts.userLayout.title': 'Kubernetes-native GPU 算力编排平台',
 
+  // monitoring page (Grafana iframe + dependency check)
+  'pages.monitoring.depState.ready': '已运行',
+  'pages.monitoring.depState.installing': '正在安装',
+  'pages.monitoring.depState.failed': '安装失败',
+  'pages.monitoring.depState.missing': '未启用',
+  'pages.monitoring.missing.title': '监控所需的内置插件尚未启用',
+  'pages.monitoring.missing.subTitle':
+    '请先启用 Grafana 与 VictoriaMetrics，启用完成后此页面会自动显示监控面板。',
+  'pages.monitoring.installing.title': '监控所需的插件正在安装',
+  'pages.monitoring.installing.subTitle':
+    '安装一般需要 1-2 分钟，本页会自动每 5 秒刷新；完成后会自动切换到监控面板。',
+  'pages.monitoring.failed.title': '监控所需的插件安装失败',
+  'pages.monitoring.failed.subTitle':
+    '请前往插件页查看错误详情并重新启用，或调整 values 后重试。',
+  'pages.monitoring.cta.goPlugins': '前往插件管理',
+  'pages.monitoring.cta.refresh': '刷新',
+  'pages.monitoring.cta.enable': '去启用',
+  'pages.monitoring.recommended':
+    '建议同时启用 {names}，可获得更完整的节点级监控指标。',
+
+
   // plugin management
   'pages.plugins.title': '插件管理',
   'pages.plugins.subtitle': '管理 Helm Chart 插件',

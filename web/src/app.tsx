@@ -177,7 +177,6 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       path: `${base}/monitoring`,
       name: 'monitoring',
       icon: <LineChartOutlined />,
-      disabled: true,
     },
     {
       path: `${base}/logging`,
