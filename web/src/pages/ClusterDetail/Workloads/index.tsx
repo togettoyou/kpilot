@@ -706,7 +706,7 @@ function WorkloadsContent({
                 {cr.group ? `${cr.group}/${cr.version}` : cr.version}
               </Text>
             )}
-            <Text type="secondary">
+            <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
               {isFiltering
                 ? `(${filteredItems.length} / ${
                     totalKnown != null
