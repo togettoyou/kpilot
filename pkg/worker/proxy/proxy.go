@@ -241,17 +241,30 @@ func (p *Proxy) update(ctx context.Context, mapping *apimeta.RESTMapping, namesp
 	return marshal(result)
 }
 
-// describe returns the same human-readable text that `kubectl describe` would
-// produce, by delegating to the official k8s.io/kubectl describer for the
-// resource's GroupKind. ShowEvents=true so the output includes the recent
-// events block — that's the most useful part for debugging.
+// describe returns the same human-readable text that `kubectl describe`
+// would produce, by delegating to the official k8s.io/kubectl describer.
+//
+// For built-in K8s kinds (Pod, Deployment, Service, …) DescriberFor
+// returns a per-kind specialized describer that knows about field
+// semantics (e.g. Pod's container statuses, Service's endpoints).
+//
+// For CRDs (Gateway API, Envoy Gateway policies, custom plugin CRDs,
+// etc.) there's no specialized describer registered, so we fall back
+// to GenericDescriberFor — the same fallback `kubectl describe` itself
+// uses. It pretty-prints metadata + spec + status fields and includes
+// the events block, which is what users actually want for "describe".
+//
+// ShowEvents=true so output always includes the recent events block.
 func (p *Proxy) describe(mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {
 	if name == "" {
 		return fail("name is required for describe")
 	}
 	describer, ok := describe.DescriberFor(mapping.GroupVersionKind.GroupKind(), p.cfg)
 	if !ok {
-		return fail(fmt.Sprintf("no describer for %s", mapping.GroupVersionKind.Kind))
+		describer, ok = describe.GenericDescriberFor(mapping, p.cfg)
+		if !ok {
+			return fail(fmt.Sprintf("no describer for %s", mapping.GroupVersionKind.Kind))
+		}
 	}
 	output, err := describer.Describe(namespace, name, describe.DescriberSettings{ShowEvents: true})
 	if err != nil {
