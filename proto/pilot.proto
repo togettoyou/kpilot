@@ -28,6 +28,9 @@ message WorkerMessage {
     LogsEnd            logs_end        = 51;
     ExecOutput         exec_output     = 60;
     ExecEnd            exec_end        = 61;
+
+    // Reverse-proxy HTTP (request-response, body up to 32 MB).
+    HTTPResponse       http_resp       = 70;
   }
 }
 
@@ -109,6 +112,11 @@ message ServerMessage {
     ExecStdin         exec_stdin    = 51;
     ExecResize        exec_resize   = 52;
     ExecCancelRequest exec_cancel   = 53;
+
+    // Reverse-proxy HTTP — Server forwards a browser request to an
+    // in-cluster Service (Grafana, VL vmui, …); Worker writes back via
+    // HTTPResponse.
+    HTTPRequest       http_req      = 60;
   }
 }
 
@@ -228,4 +236,51 @@ message ExecOutput {
 message ExecEnd {
   int32  exit_code = 1;
   string error     = 2;
+}
+
+// ─── HTTP reverse proxy (request-response) ───────────────────────────────────
+
+// HTTPHeader is one (Name, Value) pair. Repeated entries with the same name
+// are allowed (e.g. Set-Cookie) and preserve order on the wire.
+message HTTPHeader {
+  string name  = 1;
+  string value = 2;
+}
+
+message HTTPRequest {
+  // HTTP method (GET / POST / PUT / DELETE / PATCH / HEAD / OPTIONS).
+  string method = 1;
+
+  // Absolute URL of the in-cluster Service the Worker should forward to.
+  // Server resolves this from the plugin name + the ClusterPlugin's
+  // release namespace (e.g. http://grafana.kpilot-monitoring.svc:80).
+  // Includes the path being requested AND the query string, e.g.
+  //   http://grafana.kpilot-monitoring.svc:80/login?redirect=/d/abc
+  // The Worker doesn't need to know which plugin this is — it just hits
+  // the URL.
+  string url = 2;
+
+  // Request headers (Host is rewritten by the Worker to match url's host;
+  // X-WEBAUTH-USER is injected by the Server before sending so Grafana's
+  // auth.proxy module accepts the request).
+  repeated HTTPHeader headers = 3;
+
+  // Request body. Empty for GET/HEAD. Capped at 32 MB by the gRPC
+  // message-size limit shared with chart blobs.
+  bytes body = 4;
+}
+
+message HTTPResponse {
+  // Status code from the upstream Service. 502 if the Worker couldn't
+  // reach the Service at all (DNS/connect/timeout); the `error` field
+  // carries the underlying reason in that case so Server can log it.
+  int32 status = 1;
+
+  repeated HTTPHeader headers = 2;
+  bytes body = 3;
+
+  // Empty on success (any HTTP status). Set when the Worker failed to
+  // dispatch the request (couldn't dial, timeout, etc.) — Server returns
+  // 502 with this message so the embedded UI shows something useful.
+  string error = 4;
 }

@@ -38,6 +38,7 @@ type WorkerMessage struct {
 	//	*WorkerMessage_LogsEnd
 	//	*WorkerMessage_ExecOutput
 	//	*WorkerMessage_ExecEnd
+	//	*WorkerMessage_HttpResp
 	Payload       isWorkerMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -168,6 +169,15 @@ func (x *WorkerMessage) GetExecEnd() *ExecEnd {
 	return nil
 }
 
+func (x *WorkerMessage) GetHttpResp() *HTTPResponse {
+	if x != nil {
+		if x, ok := x.Payload.(*WorkerMessage_HttpResp); ok {
+			return x.HttpResp
+		}
+	}
+	return nil
+}
+
 type isWorkerMessage_Payload interface {
 	isWorkerMessage_Payload()
 }
@@ -209,6 +219,11 @@ type WorkerMessage_ExecEnd struct {
 	ExecEnd *ExecEnd `protobuf:"bytes,61,opt,name=exec_end,json=execEnd,proto3,oneof"`
 }
 
+type WorkerMessage_HttpResp struct {
+	// Reverse-proxy HTTP (request-response, body up to 32 MB).
+	HttpResp *HTTPResponse `protobuf:"bytes,70,opt,name=http_resp,json=httpResp,proto3,oneof"`
+}
+
 func (*WorkerMessage_Register) isWorkerMessage_Payload() {}
 
 func (*WorkerMessage_Heartbeat) isWorkerMessage_Payload() {}
@@ -226,6 +241,8 @@ func (*WorkerMessage_LogsEnd) isWorkerMessage_Payload() {}
 func (*WorkerMessage_ExecOutput) isWorkerMessage_Payload() {}
 
 func (*WorkerMessage_ExecEnd) isWorkerMessage_Payload() {}
+
+func (*WorkerMessage_HttpResp) isWorkerMessage_Payload() {}
 
 type RegisterRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -706,6 +723,7 @@ type ServerMessage struct {
 	//	*ServerMessage_ExecStdin
 	//	*ServerMessage_ExecResize
 	//	*ServerMessage_ExecCancel
+	//	*ServerMessage_HttpReq
 	Payload       isServerMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -836,6 +854,15 @@ func (x *ServerMessage) GetExecCancel() *ExecCancelRequest {
 	return nil
 }
 
+func (x *ServerMessage) GetHttpReq() *HTTPRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_HttpReq); ok {
+			return x.HttpReq
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Payload interface {
 	isServerMessage_Payload()
 }
@@ -877,6 +904,13 @@ type ServerMessage_ExecCancel struct {
 	ExecCancel *ExecCancelRequest `protobuf:"bytes,53,opt,name=exec_cancel,json=execCancel,proto3,oneof"`
 }
 
+type ServerMessage_HttpReq struct {
+	// Reverse-proxy HTTP — Server forwards a browser request to an
+	// in-cluster Service (Grafana, VL vmui, …); Worker writes back via
+	// HTTPResponse.
+	HttpReq *HTTPRequest `protobuf:"bytes,60,opt,name=http_req,json=httpReq,proto3,oneof"`
+}
+
 func (*ServerMessage_RegisterAck) isServerMessage_Payload() {}
 
 func (*ServerMessage_ResourceReq) isServerMessage_Payload() {}
@@ -894,6 +928,8 @@ func (*ServerMessage_ExecStdin) isServerMessage_Payload() {}
 func (*ServerMessage_ExecResize) isServerMessage_Payload() {}
 
 func (*ServerMessage_ExecCancel) isServerMessage_Payload() {}
+
+func (*ServerMessage_HttpReq) isServerMessage_Payload() {}
 
 type RegisterAck struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1853,11 +1889,222 @@ func (x *ExecEnd) GetError() string {
 	return ""
 }
 
+// HTTPHeader is one (Name, Value) pair. Repeated entries with the same name
+// are allowed (e.g. Set-Cookie) and preserve order on the wire.
+type HTTPHeader struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HTTPHeader) Reset() {
+	*x = HTTPHeader{}
+	mi := &file_pilot_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HTTPHeader) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HTTPHeader) ProtoMessage() {}
+
+func (x *HTTPHeader) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HTTPHeader.ProtoReflect.Descriptor instead.
+func (*HTTPHeader) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *HTTPHeader) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *HTTPHeader) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+type HTTPRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// HTTP method (GET / POST / PUT / DELETE / PATCH / HEAD / OPTIONS).
+	Method string `protobuf:"bytes,1,opt,name=method,proto3" json:"method,omitempty"`
+	// Absolute URL of the in-cluster Service the Worker should forward to.
+	// Server resolves this from the plugin name + the ClusterPlugin's
+	// release namespace (e.g. http://grafana.kpilot-monitoring.svc:80).
+	// Includes the path being requested AND the query string, e.g.
+	//
+	//	http://grafana.kpilot-monitoring.svc:80/login?redirect=/d/abc
+	//
+	// The Worker doesn't need to know which plugin this is — it just hits
+	// the URL.
+	Url string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	// Request headers (Host is rewritten by the Worker to match url's host;
+	// X-WEBAUTH-USER is injected by the Server before sending so Grafana's
+	// auth.proxy module accepts the request).
+	Headers []*HTTPHeader `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty"`
+	// Request body. Empty for GET/HEAD. Capped at 32 MB by the gRPC
+	// message-size limit shared with chart blobs.
+	Body          []byte `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HTTPRequest) Reset() {
+	*x = HTTPRequest{}
+	mi := &file_pilot_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HTTPRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HTTPRequest) ProtoMessage() {}
+
+func (x *HTTPRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HTTPRequest.ProtoReflect.Descriptor instead.
+func (*HTTPRequest) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *HTTPRequest) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *HTTPRequest) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *HTTPRequest) GetHeaders() []*HTTPHeader {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *HTTPRequest) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+type HTTPResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Status code from the upstream Service. 502 if the Worker couldn't
+	// reach the Service at all (DNS/connect/timeout); the `error` field
+	// carries the underlying reason in that case so Server can log it.
+	Status  int32         `protobuf:"varint,1,opt,name=status,proto3" json:"status,omitempty"`
+	Headers []*HTTPHeader `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty"`
+	Body    []byte        `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	// Empty on success (any HTTP status). Set when the Worker failed to
+	// dispatch the request (couldn't dial, timeout, etc.) — Server returns
+	// 502 with this message so the embedded UI shows something useful.
+	Error         string `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HTTPResponse) Reset() {
+	*x = HTTPResponse{}
+	mi := &file_pilot_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HTTPResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HTTPResponse) ProtoMessage() {}
+
+func (x *HTTPResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pilot_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HTTPResponse.ProtoReflect.Descriptor instead.
+func (*HTTPResponse) Descriptor() ([]byte, []int) {
+	return file_pilot_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *HTTPResponse) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *HTTPResponse) GetHeaders() []*HTTPHeader {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *HTTPResponse) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+func (x *HTTPResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_pilot_proto protoreflect.FileDescriptor
 
 const file_pilot_proto_rawDesc = "" +
 	"\n" +
-	"\vpilot.proto\x12\bpilot.v1\"\xba\x04\n" +
+	"\vpilot.proto\x12\bpilot.v1\"\xf1\x04\n" +
 	"\rWorkerMessage\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x127\n" +
@@ -1872,7 +2119,8 @@ const file_pilot_proto_rawDesc = "" +
 	"\blogs_end\x183 \x01(\v2\x11.pilot.v1.LogsEndH\x00R\alogsEnd\x127\n" +
 	"\vexec_output\x18< \x01(\v2\x14.pilot.v1.ExecOutputH\x00R\n" +
 	"execOutput\x12.\n" +
-	"\bexec_end\x18= \x01(\v2\x11.pilot.v1.ExecEndH\x00R\aexecEndB\t\n" +
+	"\bexec_end\x18= \x01(\v2\x11.pilot.v1.ExecEndH\x00R\aexecEnd\x125\n" +
+	"\thttp_resp\x18F \x01(\v2\x16.pilot.v1.HTTPResponseH\x00R\bhttpRespB\t\n" +
 	"\apayload\"]\n" +
 	"\x0fRegisterRequest\x12#\n" +
 	"\rcluster_token\x18\x01 \x01(\tR\fclusterToken\x12%\n" +
@@ -1918,7 +2166,7 @@ const file_pilot_proto_rawDesc = "" +
 	"\x14observed_values_hash\x18\x05 \x01(\tR\x12observedValuesHash\x12#\n" +
 	"\rhelm_revision\x18\x06 \x01(\x05R\fhelmRevision\x12!\n" +
 	"\finstalled_at\x18\a \x01(\x03R\vinstalledAt\x12&\n" +
-	"\x0flast_updated_at\x18\b \x01(\x03R\rlastUpdatedAt\"\xd8\x04\n" +
+	"\x0flast_updated_at\x18\b \x01(\x03R\rlastUpdatedAt\"\x8c\x05\n" +
 	"\rServerMessage\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12:\n" +
@@ -1938,7 +2186,8 @@ const file_pilot_proto_rawDesc = "" +
 	"\vexec_resize\x184 \x01(\v2\x14.pilot.v1.ExecResizeH\x00R\n" +
 	"execResize\x12>\n" +
 	"\vexec_cancel\x185 \x01(\v2\x1b.pilot.v1.ExecCancelRequestH\x00R\n" +
-	"execCancelB\t\n" +
+	"execCancel\x122\n" +
+	"\bhttp_req\x18< \x01(\v2\x15.pilot.v1.HTTPRequestH\x00R\ahttpReqB\t\n" +
 	"\apayload\"`\n" +
 	"\vRegisterAck\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1d\n" +
@@ -2009,7 +2258,21 @@ const file_pilot_proto_rawDesc = "" +
 	"\x04data\x18\x02 \x01(\fR\x04data\"<\n" +
 	"\aExecEnd\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error2O\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"6\n" +
+	"\n" +
+	"HTTPHeader\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"{\n" +
+	"\vHTTPRequest\x12\x16\n" +
+	"\x06method\x18\x01 \x01(\tR\x06method\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12.\n" +
+	"\aheaders\x18\x03 \x03(\v2\x14.pilot.v1.HTTPHeaderR\aheaders\x12\x12\n" +
+	"\x04body\x18\x04 \x01(\fR\x04body\"\x80\x01\n" +
+	"\fHTTPResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\x05R\x06status\x12.\n" +
+	"\aheaders\x18\x02 \x03(\v2\x14.pilot.v1.HTTPHeaderR\aheaders\x12\x12\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error2O\n" +
 	"\fPilotService\x12?\n" +
 	"\aConnect\x12\x17.pilot.v1.WorkerMessage\x1a\x17.pilot.v1.ServerMessage(\x010\x01B5Z3github.com/togettoyou/kpilot/pkg/common/proto;protob\x06proto3"
 
@@ -2025,7 +2288,7 @@ func file_pilot_proto_rawDescGZIP() []byte {
 	return file_pilot_proto_rawDescData
 }
 
-var file_pilot_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_pilot_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_pilot_proto_goTypes = []any{
 	(*WorkerMessage)(nil),     // 0: pilot.v1.WorkerMessage
 	(*RegisterRequest)(nil),   // 1: pilot.v1.RegisterRequest
@@ -2050,8 +2313,11 @@ var file_pilot_proto_goTypes = []any{
 	(*ExecCancelRequest)(nil), // 20: pilot.v1.ExecCancelRequest
 	(*ExecOutput)(nil),        // 21: pilot.v1.ExecOutput
 	(*ExecEnd)(nil),           // 22: pilot.v1.ExecEnd
-	nil,                       // 23: pilot.v1.NodeInfo.LabelsEntry
-	nil,                       // 24: pilot.v1.NodeInfo.AnnotationsEntry
+	(*HTTPHeader)(nil),        // 23: pilot.v1.HTTPHeader
+	(*HTTPRequest)(nil),       // 24: pilot.v1.HTTPRequest
+	(*HTTPResponse)(nil),      // 25: pilot.v1.HTTPResponse
+	nil,                       // 26: pilot.v1.NodeInfo.LabelsEntry
+	nil,                       // 27: pilot.v1.NodeInfo.AnnotationsEntry
 }
 var file_pilot_proto_depIdxs = []int32{
 	1,  // 0: pilot.v1.WorkerMessage.register:type_name -> pilot.v1.RegisterRequest
@@ -2063,27 +2329,31 @@ var file_pilot_proto_depIdxs = []int32{
 	16, // 6: pilot.v1.WorkerMessage.logs_end:type_name -> pilot.v1.LogsEnd
 	21, // 7: pilot.v1.WorkerMessage.exec_output:type_name -> pilot.v1.ExecOutput
 	22, // 8: pilot.v1.WorkerMessage.exec_end:type_name -> pilot.v1.ExecEnd
-	4,  // 9: pilot.v1.NodeListPush.nodes:type_name -> pilot.v1.NodeInfo
-	23, // 10: pilot.v1.NodeInfo.labels:type_name -> pilot.v1.NodeInfo.LabelsEntry
-	24, // 11: pilot.v1.NodeInfo.annotations:type_name -> pilot.v1.NodeInfo.AnnotationsEntry
-	8,  // 12: pilot.v1.ServerMessage.register_ack:type_name -> pilot.v1.RegisterAck
-	9,  // 13: pilot.v1.ServerMessage.resource_req:type_name -> pilot.v1.ResourceRequest
-	10, // 14: pilot.v1.ServerMessage.plugin_cmd:type_name -> pilot.v1.PluginCommand
-	13, // 15: pilot.v1.ServerMessage.logs_start:type_name -> pilot.v1.LogsStartRequest
-	14, // 16: pilot.v1.ServerMessage.logs_cancel:type_name -> pilot.v1.LogsCancelRequest
-	17, // 17: pilot.v1.ServerMessage.exec_start:type_name -> pilot.v1.ExecStartRequest
-	18, // 18: pilot.v1.ServerMessage.exec_stdin:type_name -> pilot.v1.ExecStdin
-	19, // 19: pilot.v1.ServerMessage.exec_resize:type_name -> pilot.v1.ExecResize
-	20, // 20: pilot.v1.ServerMessage.exec_cancel:type_name -> pilot.v1.ExecCancelRequest
-	11, // 21: pilot.v1.PluginCommand.spec:type_name -> pilot.v1.PluginSpec
-	12, // 22: pilot.v1.PluginSpec.chart:type_name -> pilot.v1.ChartSource
-	0,  // 23: pilot.v1.PilotService.Connect:input_type -> pilot.v1.WorkerMessage
-	7,  // 24: pilot.v1.PilotService.Connect:output_type -> pilot.v1.ServerMessage
-	24, // [24:25] is the sub-list for method output_type
-	23, // [23:24] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	25, // 9: pilot.v1.WorkerMessage.http_resp:type_name -> pilot.v1.HTTPResponse
+	4,  // 10: pilot.v1.NodeListPush.nodes:type_name -> pilot.v1.NodeInfo
+	26, // 11: pilot.v1.NodeInfo.labels:type_name -> pilot.v1.NodeInfo.LabelsEntry
+	27, // 12: pilot.v1.NodeInfo.annotations:type_name -> pilot.v1.NodeInfo.AnnotationsEntry
+	8,  // 13: pilot.v1.ServerMessage.register_ack:type_name -> pilot.v1.RegisterAck
+	9,  // 14: pilot.v1.ServerMessage.resource_req:type_name -> pilot.v1.ResourceRequest
+	10, // 15: pilot.v1.ServerMessage.plugin_cmd:type_name -> pilot.v1.PluginCommand
+	13, // 16: pilot.v1.ServerMessage.logs_start:type_name -> pilot.v1.LogsStartRequest
+	14, // 17: pilot.v1.ServerMessage.logs_cancel:type_name -> pilot.v1.LogsCancelRequest
+	17, // 18: pilot.v1.ServerMessage.exec_start:type_name -> pilot.v1.ExecStartRequest
+	18, // 19: pilot.v1.ServerMessage.exec_stdin:type_name -> pilot.v1.ExecStdin
+	19, // 20: pilot.v1.ServerMessage.exec_resize:type_name -> pilot.v1.ExecResize
+	20, // 21: pilot.v1.ServerMessage.exec_cancel:type_name -> pilot.v1.ExecCancelRequest
+	24, // 22: pilot.v1.ServerMessage.http_req:type_name -> pilot.v1.HTTPRequest
+	11, // 23: pilot.v1.PluginCommand.spec:type_name -> pilot.v1.PluginSpec
+	12, // 24: pilot.v1.PluginSpec.chart:type_name -> pilot.v1.ChartSource
+	23, // 25: pilot.v1.HTTPRequest.headers:type_name -> pilot.v1.HTTPHeader
+	23, // 26: pilot.v1.HTTPResponse.headers:type_name -> pilot.v1.HTTPHeader
+	0,  // 27: pilot.v1.PilotService.Connect:input_type -> pilot.v1.WorkerMessage
+	7,  // 28: pilot.v1.PilotService.Connect:output_type -> pilot.v1.ServerMessage
+	28, // [28:29] is the sub-list for method output_type
+	27, // [27:28] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_pilot_proto_init() }
@@ -2101,6 +2371,7 @@ func file_pilot_proto_init() {
 		(*WorkerMessage_LogsEnd)(nil),
 		(*WorkerMessage_ExecOutput)(nil),
 		(*WorkerMessage_ExecEnd)(nil),
+		(*WorkerMessage_HttpResp)(nil),
 	}
 	file_pilot_proto_msgTypes[7].OneofWrappers = []any{
 		(*ServerMessage_RegisterAck)(nil),
@@ -2112,6 +2383,7 @@ func file_pilot_proto_init() {
 		(*ServerMessage_ExecStdin)(nil),
 		(*ServerMessage_ExecResize)(nil),
 		(*ServerMessage_ExecCancel)(nil),
+		(*ServerMessage_HttpReq)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2119,7 +2391,7 @@ func file_pilot_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pilot_proto_rawDesc), len(file_pilot_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

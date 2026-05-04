@@ -112,6 +112,8 @@ export default {
   'errors.PLUGIN_IN_USE':
     '插件正在被某个集群启用中，请先在所有集群禁用后再删除',
   'errors.PLUGIN_UNINSTALLING': '插件正在卸载中，请等待卸载完成再启用',
+  'errors.PLUGIN_NOT_ENABLED': '插件尚未启用',
+  'errors.PLUGIN_NOT_RUNNING': '插件未处于运行中状态',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU 算力编排',

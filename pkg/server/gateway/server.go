@@ -40,6 +40,13 @@ type GatewayServer struct {
 	pendingMu sync.Mutex
 	pending   map[string]chan *proto.ResourceResponse
 
+	// pendingHTTPMu guards request-response for the reverse-proxy
+	// (Server → Worker → in-cluster Service). Separate from pending
+	// so a slow HTTP forward can't head-of-line a list/get on the same
+	// gateway.
+	pendingHTTPMu sync.Mutex
+	pendingHTTP   map[string]chan *proto.HTTPResponse
+
 	// streamMu guards active streaming sessions (Pod logs / Exec).
 	// Keyed by session_id (which is sent as request_id on the wire).
 	streamMu sync.Mutex
@@ -48,10 +55,11 @@ type GatewayServer struct {
 
 func NewGatewayServer() *GatewayServer {
 	return &GatewayServer{
-		workers:   make(map[string]*ConnectedWorker),
-		nodeCache: make(map[string][]*proto.NodeInfo),
-		pending:   make(map[string]chan *proto.ResourceResponse),
-		streams:   make(map[string]*Stream),
+		workers:     make(map[string]*ConnectedWorker),
+		nodeCache:   make(map[string][]*proto.NodeInfo),
+		pending:     make(map[string]chan *proto.ResourceResponse),
+		pendingHTTP: make(map[string]chan *proto.HTTPResponse),
+		streams:     make(map[string]*Stream),
 	}
 }
 
@@ -210,6 +218,19 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 	case *proto.WorkerMessage_LogsChunk, *proto.WorkerMessage_LogsEnd,
 		*proto.WorkerMessage_ExecOutput, *proto.WorkerMessage_ExecEnd:
 		g.routeStreamMessage(msg)
+	case *proto.WorkerMessage_HttpResp:
+		g.pendingHTTPMu.Lock()
+		ch, ok := g.pendingHTTP[msg.RequestId]
+		g.pendingHTTPMu.Unlock()
+		if ok {
+			// Same non-blocking pattern as ResourceResp — buffered chan
+			// of size 1, late/duplicate frames silently dropped if the
+			// caller already moved on.
+			select {
+			case ch <- p.HttpResp:
+			default:
+			}
+		}
 	}
 }
 
@@ -318,6 +339,46 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 		Payload: &proto.ServerMessage_ResourceReq{
 			ResourceReq: req,
 		},
+	})
+	w.sendMu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("send to worker: %w", err)
+	}
+
+	select {
+	case resp := <-ch:
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// SendHTTPRequest forwards an HTTP request through the Worker to an in-
+// cluster Service and blocks until the Worker writes back HTTPResponse or
+// ctx is cancelled. Used by the reverse-proxy handler that embeds Grafana
+// (and similar plugin UIs) inside KPilot.
+func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
+	w, ok := g.GetWorker(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+
+	requestID := uuid.New().String()
+	ch := make(chan *proto.HTTPResponse, 1)
+
+	g.pendingHTTPMu.Lock()
+	g.pendingHTTP[requestID] = ch
+	g.pendingHTTPMu.Unlock()
+	defer func() {
+		g.pendingHTTPMu.Lock()
+		delete(g.pendingHTTP, requestID)
+		g.pendingHTTPMu.Unlock()
+	}()
+
+	w.sendMu.Lock()
+	err := w.Stream.Send(&proto.ServerMessage{
+		RequestId: requestID,
+		Payload:   &proto.ServerMessage_HttpReq{HttpReq: req},
 	})
 	w.sendMu.Unlock()
 	if err != nil {

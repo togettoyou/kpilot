@@ -55,6 +55,11 @@ type Client struct {
 	execResizeHandler func(sessionID string, cols, rows uint32)
 	execCancelHandler func(sessionID string)
 
+	// httpHandler is invoked (in a new goroutine) when Server forwards a
+	// reverse-proxy HTTP request. The handler should perform the HTTP call
+	// to the in-cluster Service and reply via SendHTTPResponse.
+	httpHandler func(requestID string, req *proto.HTTPRequest)
+
 	mu     sync.Mutex
 	sendMu sync.Mutex // serializes concurrent Send calls on the active stream
 	stream proto.PilotService_ConnectClient
@@ -77,6 +82,28 @@ func (c *Client) SetOnConnected(fn func(context.Context)) {
 // the Server sends a ResourceRequest. Used by the P3 proxy layer.
 func (c *Client) SetResourceHandler(fn func(requestID string, req *proto.ResourceRequest)) {
 	c.resourceHandler = fn
+}
+
+// SetHTTPHandler registers a callback invoked (in a new goroutine) when the
+// Server forwards a reverse-proxy HTTP request to an in-cluster Service.
+func (c *Client) SetHTTPHandler(fn func(requestID string, req *proto.HTTPRequest)) {
+	c.httpHandler = fn
+}
+
+// SendHTTPResponse writes the HTTP response back to Server. Counterpart to
+// SetHTTPHandler; the requestID echoes the originating HTTPRequest's wire
+// request_id so Server can route it to the waiting handler.
+func (c *Client) SendHTTPResponse(requestID string, resp *proto.HTTPResponse) {
+	c.mu.Lock()
+	s := c.stream
+	c.mu.Unlock()
+	if s == nil {
+		return
+	}
+	_ = c.safeSend(s, &proto.WorkerMessage{
+		RequestId: requestID,
+		Payload:   &proto.WorkerMessage_HttpResp{HttpResp: resp},
+	})
 }
 
 // SetPluginHandler registers a callback invoked (in a new goroutine) when
@@ -353,6 +380,10 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 	case *proto.ServerMessage_ExecCancel:
 		if c.execCancelHandler != nil {
 			c.execCancelHandler(msg.RequestId)
+		}
+	case *proto.ServerMessage_HttpReq:
+		if c.httpHandler != nil {
+			go c.httpHandler(msg.RequestId, p.HttpReq)
 		}
 	}
 }

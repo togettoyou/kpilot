@@ -92,6 +92,12 @@ func main() {
 		}
 		tunnelClient.SetResourceHandler(p.Handle)
 
+		// Reverse-proxy HTTP forwarder (Server → in-cluster Service for
+		// embedded plugin UIs like Grafana). Independent of the resource
+		// proxy — it doesn't touch K8s APIs at all, just forwards HTTP.
+		httpProxy := proxy.NewHTTPProxy(tunnelClient.SendHTTPResponse)
+		tunnelClient.SetHTTPHandler(httpProxy.Handle)
+
 		// Streaming sessions (Pod logs / Exec) need a typed clientset.
 		clientset, err := kubernetes.NewForConfig(k8sCfg)
 		if err != nil {

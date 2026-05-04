@@ -84,6 +84,17 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.POST("/:id/plugins/:name/enable", handler.EnablePlugin(gw))
 		clusters.POST("/:id/plugins/:name/disable", handler.DisablePlugin(gw))
 
+		// Reverse proxy to plugin-managed in-cluster Services. The browser
+		// loads /api/v1/clusters/<id>/proxy/grafana/... and KPilot Server
+		// forwards through the gRPC tunnel to the cluster's Grafana
+		// Service. Auth lives in the JWT middleware above; the proxy
+		// handler injects X-WEBAUTH-USER so the upstream sees a logged-in
+		// session without ever asking for a password.
+		//
+		// `Any` covers GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS — Grafana's
+		// API uses all of them.
+		clusters.Any("/:id/proxy/:plugin/*path", handler.ProxyPlugin(gw))
+
 		// Global plugin registry
 		plugins := protected.Group("/plugins")
 		plugins.GET("", handler.ListPlugins)

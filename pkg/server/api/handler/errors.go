@@ -27,6 +27,8 @@ const (
 	CodePluginNamespaceLock  = "PLUGIN_NAMESPACE_LOCKED"
 	CodePluginInUse          = "PLUGIN_IN_USE"
 	CodePluginUninstalling   = "PLUGIN_UNINSTALLING"
+	CodePluginNotEnabled     = "PLUGIN_NOT_ENABLED"
+	CodePluginNotRunning     = "PLUGIN_NOT_RUNNING"
 	CodeLoginIncorrect       = "LOGIN_INCORRECT"
 )
 

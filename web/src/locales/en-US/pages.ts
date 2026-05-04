@@ -120,6 +120,8 @@ export default {
     'Plugin is currently enabled on at least one cluster. Disable it everywhere before deleting.',
   'errors.PLUGIN_UNINSTALLING':
     'Plugin is currently uninstalling. Wait for it to finish before re-enabling.',
+  'errors.PLUGIN_NOT_ENABLED': 'Plugin is not enabled on this cluster',
+  'errors.PLUGIN_NOT_RUNNING': 'Plugin is not in Running state',
 
   // login
   'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',
