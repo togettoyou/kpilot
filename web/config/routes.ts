@@ -44,8 +44,30 @@ export default [
         component: './ClusterDetail/Plugins/index',
       },
       {
+        // Old single GPU page — keep the redirect for any deep links
+        // that already exist (menu update is sufficient for new traffic).
         path: '/clusters/:id/gpu',
-        component: './ClusterDetail/GPU/index',
+        redirect: '/clusters/:id/compute/overview',
+      },
+      {
+        path: '/clusters/:id/compute',
+        redirect: '/clusters/:id/compute/overview',
+      },
+      {
+        path: '/clusters/:id/compute/overview',
+        component: './ClusterDetail/Compute/Overview/index',
+      },
+      {
+        path: '/clusters/:id/compute/nodes',
+        component: './ClusterDetail/Compute/Nodes/index',
+      },
+      {
+        path: '/clusters/:id/compute/cards',
+        component: './ClusterDetail/Compute/Cards/index',
+      },
+      {
+        path: '/clusters/:id/compute/tasks',
+        component: './ClusterDetail/Compute/Tasks/index',
       },
       {
         path: '/clusters/:id/monitoring',

@@ -162,21 +162,41 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       icon: <AppstoreAddOutlined />,
     },
     {
-      // Virtual parent — no route, just a sider grouping for the
-      // GPU + model subtree. Children render as expandable items.
+      // 智算 group: GPU resource overview + node / card / task drilldowns.
+      // Default landing is overview when the parent itself is clicked.
       path: `${base}/compute`,
       name: 'compute',
       icon: <ThunderboltOutlined />,
       children: [
         {
-          path: `${base}/gpu`,
-          name: 'gpu',
-          icon: <ThunderboltOutlined />,
+          path: `${base}/compute/overview`,
+          name: 'overview',
         },
         {
-          path: `${base}/models`,
-          name: 'models',
-          icon: <BulbOutlined />,
+          path: `${base}/compute/nodes`,
+          name: 'nodes',
+        },
+        {
+          path: `${base}/compute/cards`,
+          name: 'cards',
+        },
+        {
+          path: `${base}/compute/tasks`,
+          name: 'tasks',
+        },
+      ],
+    },
+    {
+      // 模型 is its own parent group — children land in P7. For now a
+      // single placeholder child keeps the menu shape consistent so the
+      // navigation doesn't reorder when we ship the inference page.
+      path: `${base}/models`,
+      name: 'models',
+      icon: <BulbOutlined />,
+      children: [
+        {
+          path: `${base}/models/inference`,
+          name: 'inference',
           disabled: true,
         },
       ],

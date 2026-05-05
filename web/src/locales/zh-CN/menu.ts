@@ -35,11 +35,16 @@ export default {
   // instances browser even though it's hideInMenu: true.
   'menu.clusters.extensions.crds.crInstances': 'CR 实例',
   'menu.clusters.plugins': '插件',
-  // 智算 = GPU + Model serving group. Parent is a virtual menu node
-  // (no route); children own the actual pages.
+  // 智算 = GPU resource group. Parent shows children: overview / nodes
+  // / cards / tasks (mirrors HAMi-WebUI's four-page layout).
   'menu.clusters.compute': '智算',
-  'menu.clusters.compute.gpu': 'GPU',
-  'menu.clusters.compute.models': '模型',
+  'menu.clusters.compute.overview': '资源概览',
+  'menu.clusters.compute.nodes': '节点管理',
+  'menu.clusters.compute.cards': '显卡管理',
+  'menu.clusters.compute.tasks': '任务管理',
+  // 模型 — model serving group. Children land in P7.
+  'menu.clusters.models': '模型',
+  'menu.clusters.models.inference': '推理服务',
   'menu.clusters.monitoring': '监控',
   'menu.clusters.logging': '日志',
 };

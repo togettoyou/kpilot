@@ -35,11 +35,16 @@ export default {
   // instances browser even though it's hideInMenu: true.
   'menu.clusters.extensions.crds.crInstances': 'CR Instances',
   'menu.clusters.plugins': 'Plugins',
-  // AI Compute group: GPU + Model serving. Parent is a virtual menu
-  // node (no route); children own the actual pages.
+  // AI Compute group: GPU resources. Children: overview / nodes / cards
+  // / tasks (mirrors HAMi-WebUI's four-page layout).
   'menu.clusters.compute': 'AI Compute',
-  'menu.clusters.compute.gpu': 'GPU',
-  'menu.clusters.compute.models': 'Models',
+  'menu.clusters.compute.overview': 'Resource Overview',
+  'menu.clusters.compute.nodes': 'Nodes',
+  'menu.clusters.compute.cards': 'Cards',
+  'menu.clusters.compute.tasks': 'Tasks',
+  // Model serving group. Children land in P7.
+  'menu.clusters.models': 'Models',
+  'menu.clusters.models.inference': 'Inference',
   'menu.clusters.monitoring': 'Monitoring',
   'menu.clusters.logging': 'Logging',
 };
