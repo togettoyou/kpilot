@@ -5,6 +5,7 @@ import {
   ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
+import { Bar, Pie } from '@ant-design/plots';
 import { useIntl, useParams } from '@umijs/max';
 import {
   Button,
@@ -14,13 +15,13 @@ import {
   Progress,
   Row,
   Space,
-  Statistic,
   Table,
   Tabs,
   Tag,
   Tooltip,
   Typography,
 } from 'antd';
+import { useThemeMode } from 'antd-style';
 import React, { useMemo, useState } from 'react';
 
 import type {
@@ -129,6 +130,8 @@ const ComputeOverview: React.FC = () => {
       <div style={{ padding: 24 }}>
         <Header
           title={intl.formatMessage({ id: 'pages.compute.overview.title' })}
+          nodes={kpis.nodes}
+          cards={kpis.cards}
           loading={data.gpuLoading}
           onRefresh={data.refreshGPU}
         />
@@ -178,11 +181,17 @@ const ComputeOverview: React.FC = () => {
   );
 };
 
+// Header carries the page title plus a fleet-size subtitle ("X 节点 ·
+// Y 物理卡"). The counts used to be standalone count cards in the KPI
+// strip, but they're context — not measurements — so they fit better
+// as page meta. Frees the KPI strip up to be three equal-width gauges.
 const Header: React.FC<{
   title: string;
+  nodes: number;
+  cards: number;
   loading: boolean;
   onRefresh: () => void;
-}> = ({ title, loading, onRefresh }) => {
+}> = ({ title, nodes, cards, loading, onRefresh }) => {
   const intl = useIntl();
   return (
     <div
@@ -193,9 +202,18 @@ const Header: React.FC<{
         marginBottom: 16,
       }}
     >
-      <Typography.Title level={4} style={{ margin: 0 }}>
-        {title}
-      </Typography.Title>
+      <Space size={12} align="baseline">
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          {title}
+        </Typography.Title>
+        <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+          <ThunderboltOutlined style={{ color: '#1677ff', marginRight: 4 }} />
+          {intl.formatMessage(
+            { id: 'pages.compute.overview.fleet' },
+            { nodes, cards },
+          )}
+        </Typography.Text>
+      </Space>
       <Button icon={<ReloadOutlined spin={loading} />} onClick={onRefresh}>
         {intl.formatMessage({ id: 'pages.gpu.cta.refresh' })}
       </Button>
@@ -204,96 +222,110 @@ const Header: React.FC<{
 };
 
 // ─── Section 1: KPI strip ─────────────────────────────────────────────────
-
+//
+// Three equal-width gauges — vGPU slots / memory / cores. Counts
+// (nodes, cards) live in the page header subtitle now: they're context,
+// not measurements, and squeezing them in here as separate count cards
+// produced an awkward "small box + big box" mismatch in the same row.
 const KPIStrip: React.FC<{ kpis: ClusterKPIs }> = ({ kpis }) => {
   const intl = useIntl();
   const slotPct =
-    kpis.vGpuTotal > 0
-      ? Math.round((kpis.vGpuUsed / kpis.vGpuTotal) * 100)
-      : 0;
+    kpis.vGpuTotal > 0 ? kpis.vGpuUsed / kpis.vGpuTotal : 0;
   const memPct =
-    kpis.vGpuMemTotalMB > 0
-      ? Math.round((kpis.vGpuMemUsedMB / kpis.vGpuMemTotalMB) * 100)
-      : 0;
+    kpis.vGpuMemTotalMB > 0 ? kpis.vGpuMemUsedMB / kpis.vGpuMemTotalMB : 0;
   const corePct =
-    kpis.vGpuCoresTotal > 0
-      ? Math.round((kpis.vGpuCoresUsed / kpis.vGpuCoresTotal) * 100)
-      : 0;
+    kpis.vGpuCoresTotal > 0 ? kpis.vGpuCoresUsed / kpis.vGpuCoresTotal : 0;
   return (
-    <Row gutter={16} style={{ marginBottom: 16 }}>
-      <Col xs={12} md={8} lg={4}>
-        <Card>
-          <Statistic
-            title={intl.formatMessage({ id: 'pages.gpu.kpi.nodes' })}
-            value={kpis.nodes}
-            prefix={<ThunderboltOutlined style={{ color: '#1677ff' }} />}
-          />
-        </Card>
+    <Row gutter={16} style={{ marginBottom: 16 }} align="stretch">
+      <Col xs={24} md={8} style={{ display: 'flex' }}>
+        <GaugeCard
+          title={intl.formatMessage({ id: 'pages.gpu.kpi.vgpuUsage' })}
+          ratio={slotPct}
+          footer={`${kpis.vGpuUsed} / ${kpis.vGpuTotal}`}
+        />
       </Col>
-      <Col xs={12} md={8} lg={4}>
-        <Card>
-          <Statistic
-            title={intl.formatMessage({ id: 'pages.gpu.kpi.cards' })}
-            value={kpis.cards}
-          />
-        </Card>
+      <Col xs={24} md={8} style={{ display: 'flex' }}>
+        <GaugeCard
+          title={intl.formatMessage({ id: 'pages.gpu.kpi.memUsage' })}
+          ratio={memPct}
+          footer={`${formatMB(kpis.vGpuMemUsedMB)} / ${formatMB(kpis.vGpuMemTotalMB)}`}
+        />
       </Col>
-      <Col xs={24} md={8} lg={5}>
-        <Card>
-          <Statistic
-            title={intl.formatMessage({ id: 'pages.gpu.kpi.vgpuUsage' })}
-            value={kpis.vGpuUsed}
-            suffix={`/ ${kpis.vGpuTotal}`}
-          />
-          <Progress
-            percent={slotPct}
-            size="small"
-            showInfo={false}
-            style={{ marginTop: 8 }}
-          />
-        </Card>
-      </Col>
-      <Col xs={24} md={12} lg={5}>
-        <Card>
-          <Statistic
-            title={intl.formatMessage({ id: 'pages.gpu.kpi.memUsage' })}
-            value={formatMB(kpis.vGpuMemUsedMB)}
-            suffix={`/ ${formatMB(kpis.vGpuMemTotalMB)}`}
-          />
-          <Progress
-            percent={memPct}
-            size="small"
-            showInfo={false}
-            style={{ marginTop: 8 }}
-          />
-        </Card>
-      </Col>
-      <Col xs={24} md={12} lg={6}>
-        <Card>
-          <Statistic
-            title={intl.formatMessage({ id: 'pages.gpu.kpi.coreUsage' })}
-            value={kpis.vGpuCoresUsed}
-            suffix={`/ ${kpis.vGpuCoresTotal}%`}
-          />
-          <Progress
-            percent={corePct}
-            size="small"
-            showInfo={false}
-            style={{ marginTop: 8 }}
-          />
-        </Card>
+      <Col xs={24} md={8} style={{ display: 'flex' }}>
+        <GaugeCard
+          title={intl.formatMessage({ id: 'pages.gpu.kpi.coreUsage' })}
+          ratio={corePct}
+          footer={`${kpis.vGpuCoresUsed}% / ${kpis.vGpuCoresTotal}%`}
+        />
       </Col>
     </Row>
   );
 };
 
-// ─── Section 2a: GPU model distribution ───────────────────────────────────
+// GaugeCard uses antd's built-in Progress type="dashboard" — that's
+// effectively a 3/4-arc gauge already. Tried @ant-design/plots Gauge
+// first but it renders blank under autoFit; the upstream demos all
+// set autoFit:false + explicit width/height. Progress dashboard
+// gives the same gauge silhouette with zero layout fuss and one
+// less chart-engine to keep happy. Color shifts amber/red past
+// 70% / 90% so over-utilized resources jump out without reading
+// the percent.
+const GaugeCard: React.FC<{
+  title: string;
+  ratio: number;
+  footer: string;
+}> = ({ title, ratio, footer }) => {
+  const { isDarkMode } = useThemeMode();
+  const pct = Math.max(0, Math.min(1, ratio));
+  const pctRound = Math.round(pct * 100);
+  const stroke =
+    pct >= 0.9 ? '#ff4d4f' : pct >= 0.7 ? '#faad14' : '#1677ff';
+  return (
+    <Card style={{ width: '100%' }}>
+      <div
+        style={{
+          fontSize: 14,
+          color: isDarkMode ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)',
+          marginBottom: 8,
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <Progress
+          type="dashboard"
+          percent={pctRound}
+          strokeColor={stroke}
+          size={120}
+          format={(p) => `${p}%`}
+        />
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          color: isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)',
+          textAlign: 'center',
+          marginTop: 4,
+        }}
+      >
+        {footer}
+      </div>
+    </Card>
+  );
+};
 
+// ─── Section 2a: GPU model distribution ───────────────────────────────────
+//
+// Donut form factor (innerRadius 0.6) instead of full pie — the empty
+// center reads less heavy and lets us put the total card count there
+// later if needed. Legend on the right lists model + count so users
+// can match colors back to types without hovering each slice.
 const ModelDistribution: React.FC<{
   dist: { type: string; count: number }[];
   totalCards: number;
 }> = ({ dist, totalCards }) => {
   const intl = useIntl();
+  const { isDarkMode } = useThemeMode();
   return (
     <Card
       title={intl.formatMessage({ id: 'pages.compute.overview.modelDist' })}
@@ -304,36 +336,33 @@ const ModelDistribution: React.FC<{
           {intl.formatMessage({ id: 'pages.gpu.empty' })}
         </Typography.Text>
       ) : (
-        <Space direction="vertical" size={8} style={{ width: '100%' }}>
-          {dist.map(({ type, count }) => {
-            const pct = totalCards > 0
-              ? Math.round((count / totalCards) * 100)
-              : 0;
-            return (
-              <div key={type}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontSize: 13,
-                    marginBottom: 2,
-                  }}
-                >
-                  <Typography.Text>{type}</Typography.Text>
-                  <Typography.Text type="secondary">
-                    {count} ({pct}%)
-                  </Typography.Text>
-                </div>
-                <Progress
-                  percent={pct}
-                  size="small"
-                  showInfo={false}
-                  strokeColor="#1677ff"
-                />
-              </div>
-            );
-          })}
-        </Space>
+        <div style={{ height: 260 }}>
+          <Pie
+            autoFit
+            theme={isDarkMode ? 'classicDark' : 'classic'}
+            data={dist}
+            angleField="count"
+            colorField="type"
+            radius={0.9}
+            innerRadius={0.6}
+            label={{
+              position: 'spider',
+              text: (d: { type: string; count: number }) =>
+                `${d.type} ${Math.round((d.count / totalCards) * 100)}%`,
+              style: { fontSize: 11 },
+            }}
+            legend={{
+              color: {
+                position: 'right',
+                rowPadding: 4,
+              },
+            }}
+            tooltip={(d: { type: string; count: number }) => ({
+              name: d.type,
+              value: `${d.count} (${Math.round((d.count / totalCards) * 100)}%)`,
+            })}
+          />
+        </div>
       )}
     </Card>
   );
@@ -351,6 +380,7 @@ interface ConsumerRow {
 
 const TopConsumers: React.FC<{ nodes: GPUNodeSummary[] }> = ({ nodes }) => {
   const intl = useIntl();
+  const { isDarkMode } = useThemeMode();
   const rows = useMemo<ConsumerRow[]>(() => {
     const out: ConsumerRow[] = [];
     for (const n of nodes) {
@@ -369,52 +399,64 @@ const TopConsumers: React.FC<{ nodes: GPUNodeSummary[] }> = ({ nodes }) => {
     out.sort((a, b) => b.mem - a.mem);
     return out.slice(0, 5);
   }, [nodes]);
-  const peak = rows[0]?.mem ?? 0;
+
+  // Bar chart wants {label, mem} — concat ns/name into label and clip
+  // long names so the y-axis stays readable. Tooltip carries the full
+  // identifier on hover.
+  const data = useMemo(
+    () =>
+      rows.map((r) => {
+        const ident = `${r.namespace}/${r.name}`;
+        return {
+          label: ident.length > 28 ? ident.slice(0, 28) + '…' : ident,
+          memMB: r.mem,
+          memHuman: formatMB(r.mem),
+          cardType: r.cardType,
+          fullIdent: ident,
+        };
+      }),
+    [rows],
+  );
 
   return (
     <Card
       title={intl.formatMessage({ id: 'pages.compute.overview.topConsumers' })}
       style={{ height: '100%' }}
     >
-      {rows.length === 0 ? (
+      {data.length === 0 ? (
         <Typography.Text type="secondary">
           {intl.formatMessage({ id: 'pages.compute.tasks.empty' })}
         </Typography.Text>
       ) : (
-        <Space direction="vertical" size={8} style={{ width: '100%' }}>
-          {rows.map((r) => {
-            const pct = peak > 0 ? Math.round((r.mem / peak) * 100) : 0;
-            return (
-              <div key={`${r.namespace}/${r.name}/${r.node}`}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontSize: 13,
-                    marginBottom: 2,
-                    gap: 8,
-                  }}
-                >
-                  <Typography.Text ellipsis style={{ flex: 1 }}>
-                    <Tag color="blue" style={{ marginRight: 4 }}>
-                      {r.cardType}
-                    </Tag>
-                    {r.namespace}/{r.name}
-                  </Typography.Text>
-                  <Typography.Text type="secondary">
-                    {formatMB(r.mem)}
-                  </Typography.Text>
-                </div>
-                <Progress
-                  percent={pct}
-                  size="small"
-                  showInfo={false}
-                  strokeColor="#52c41a"
-                />
-              </div>
-            );
-          })}
-        </Space>
+        <div style={{ height: 260 }}>
+          {/* v2 horizontal Bar: xField is the numeric value (bar
+              length), yField is the category (vertical position).
+              I had them swapped — that produced a vertical column
+              with no labels. */}
+          <Bar
+            autoFit
+            theme={isDarkMode ? 'classicDark' : 'classic'}
+            data={data}
+            xField="memMB"
+            yField="label"
+            colorField="cardType"
+            sort={{ reverse: true, by: 'x' }}
+            axis={{
+              x: {
+                labelFormatter: (v: number) => formatMB(v),
+                labelFontSize: 11,
+              },
+              y: { labelFontSize: 11 },
+            }}
+            tooltip={(d: { fullIdent: string; memHuman: string; cardType: string }) => ({
+              name: d.fullIdent,
+              value: `${d.memHuman} · ${d.cardType}`,
+            })}
+            legend={{
+              color: { position: 'top', layout: { justifyContent: 'flex-start' } },
+            }}
+          />
+        </div>
       )}
     </Card>
   );

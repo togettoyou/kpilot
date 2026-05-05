@@ -43,6 +43,8 @@ export default {
   'pages.gpu.card.podCores': 'Allocated cores',
   // AI Compute sub-pages
   'pages.compute.overview.title': 'Resource Overview',
+  'pages.compute.overview.fleet':
+    '{nodes, plural, one {# GPU node} other {# GPU nodes}} · {cards, plural, one {# physical card} other {# physical cards}}',
   'pages.compute.overview.modelDist': 'GPU model distribution',
   'pages.compute.overview.topConsumers': 'Top 5 by allocated memory',
   'pages.compute.overview.col.node': 'Node',

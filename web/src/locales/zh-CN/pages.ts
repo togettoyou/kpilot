@@ -45,6 +45,7 @@ export default {
   'pages.gpu.card.podCores': '分配算力',
   // 智算 sub-pages
   'pages.compute.overview.title': '资源概览',
+  'pages.compute.overview.fleet': '{nodes} 个 GPU 节点 · {cards} 张物理卡',
   'pages.compute.overview.modelDist': '型号分布',
   'pages.compute.overview.topConsumers': 'Top 5 显存占用',
   'pages.compute.overview.col.node': '节点',
