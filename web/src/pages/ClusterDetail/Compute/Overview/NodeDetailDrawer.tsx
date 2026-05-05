@@ -21,15 +21,33 @@ const NodeDetailDrawer: React.FC<Props> = ({ node, open, onClose }) => {
   const intl = useIntl();
   if (!node) return null;
 
-  const slotsTotal =
-    node.allocatable?.[RES_GPU] ?? node.capacity?.[RES_GPU] ?? 0;
-  const slotsUsed = node.used?.[RES_GPU] ?? 0;
-  const memTotal =
-    node.allocatable?.[RES_GPUMEM] ?? node.capacity?.[RES_GPUMEM] ?? 0;
-  const memUsed = node.used?.[RES_GPUMEM] ?? 0;
+  // Prefer per-card sums when present — node-level capacity / used
+  // maps don't always carry slot or memory totals (HAMi reports
+  // physical card count in nvidia.com/gpu, kwok mocks omit gpumem
+  // entirely). See rollupKPIs in Overview/index.tsx for the same
+  // fallback shape.
   const cards = node.cards ?? [];
   const pods = node.pods ?? [];
   const hasCardDetail = cards.length > 0;
+  let slotsTotal = 0;
+  let slotsUsed = 0;
+  let memTotal = 0;
+  let memUsed = 0;
+  if (hasCardDetail) {
+    for (const c of cards) {
+      slotsTotal += c.slots;
+      slotsUsed += c.usedSlots;
+      memTotal += c.devmem;
+      memUsed += c.usedMem;
+    }
+  } else {
+    slotsTotal =
+      node.allocatable?.[RES_GPU] ?? node.capacity?.[RES_GPU] ?? 0;
+    slotsUsed = node.used?.[RES_GPU] ?? 0;
+    memTotal =
+      node.allocatable?.[RES_GPUMEM] ?? node.capacity?.[RES_GPUMEM] ?? 0;
+    memUsed = node.used?.[RES_GPUMEM] ?? 0;
+  }
 
   return (
     <Drawer

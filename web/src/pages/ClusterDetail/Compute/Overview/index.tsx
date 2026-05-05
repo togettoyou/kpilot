@@ -64,14 +64,38 @@ function rollupKPIs(nodes: GPUNodeSummary[]): ClusterKPIs {
   const modelMap = new Map<string, number>();
   for (const n of nodes) {
     k.cards += n.devices?.length ?? 0;
-    k.vGpuTotal += n.allocatable?.[RES_GPU] ?? n.capacity?.[RES_GPU] ?? 0;
-    k.vGpuUsed += n.used?.[RES_GPU] ?? 0;
-    k.vGpuMemTotalMB +=
-      n.allocatable?.[RES_GPUMEM] ?? n.capacity?.[RES_GPUMEM] ?? 0;
-    k.vGpuMemUsedMB += n.used?.[RES_GPUMEM] ?? 0;
-    k.vGpuCoresTotal +=
-      n.allocatable?.[RES_GPUCORES] ?? n.capacity?.[RES_GPUCORES] ?? 0;
-    k.vGpuCoresUsed += n.used?.[RES_GPUCORES] ?? 0;
+    // Prefer per-card sums over the node-level capacity/used maps.
+    // Reasons:
+    //   - HAMi advertises `nvidia.com/gpu` as physical card count
+    //     (not slot count), so summing slots from cards gives the
+    //     real vGPU capacity (e.g. 2 cards × 10 slots = 20).
+    //   - kwok mock and some HAMi configs don't populate gpumem /
+    //     gpucores at all in node-level capacity, so node-level
+    //     reads return 0 and the KPI looks broken.
+    //   - Per-card detail is the source of truth from HAMi's
+    //     hami.io/node-nvidia-register annotation; node resources
+    //     only mirror a subset.
+    // Fallback to node-level only when the node has no card detail
+    // (vanilla NVIDIA device plugin, no HAMi registration).
+    if (n.cards && n.cards.length > 0) {
+      for (const c of n.cards) {
+        k.vGpuTotal += c.slots;
+        k.vGpuUsed += c.usedSlots;
+        k.vGpuMemTotalMB += c.devmem;
+        k.vGpuMemUsedMB += c.usedMem;
+        k.vGpuCoresTotal += c.devcore;
+        k.vGpuCoresUsed += c.usedCores;
+      }
+    } else {
+      k.vGpuTotal += n.allocatable?.[RES_GPU] ?? n.capacity?.[RES_GPU] ?? 0;
+      k.vGpuUsed += n.used?.[RES_GPU] ?? 0;
+      k.vGpuMemTotalMB +=
+        n.allocatable?.[RES_GPUMEM] ?? n.capacity?.[RES_GPUMEM] ?? 0;
+      k.vGpuMemUsedMB += n.used?.[RES_GPUMEM] ?? 0;
+      k.vGpuCoresTotal +=
+        n.allocatable?.[RES_GPUCORES] ?? n.capacity?.[RES_GPUCORES] ?? 0;
+      k.vGpuCoresUsed += n.used?.[RES_GPUCORES] ?? 0;
+    }
     for (const d of n.devices ?? []) {
       modelMap.set(d.type, (modelMap.get(d.type) ?? 0) + 1);
     }
@@ -425,15 +449,33 @@ const NodeTile: React.FC<{
   onDetail: () => void;
 }> = ({ node, onDetail }) => {
   const intl = useIntl();
-  const slotsTotal =
-    node.allocatable?.[RES_GPU] ?? node.capacity?.[RES_GPU] ?? 0;
-  const slotsUsed = node.used?.[RES_GPU] ?? 0;
-  const memTotal =
-    node.allocatable?.[RES_GPUMEM] ?? node.capacity?.[RES_GPUMEM] ?? 0;
-  const memUsed = node.used?.[RES_GPUMEM] ?? 0;
-  const coresTotal =
-    node.allocatable?.[RES_GPUCORES] ?? node.capacity?.[RES_GPUCORES] ?? 0;
-  const coresUsed = node.used?.[RES_GPUCORES] ?? 0;
+  // Sum from cards when present (same reason as rollupKPIs above —
+  // node-level resource maps don't always carry slot/mem/cores totals).
+  let slotsTotal = 0;
+  let slotsUsed = 0;
+  let memTotal = 0;
+  let memUsed = 0;
+  let coresTotal = 0;
+  let coresUsed = 0;
+  if (node.cards && node.cards.length > 0) {
+    for (const c of node.cards) {
+      slotsTotal += c.slots;
+      slotsUsed += c.usedSlots;
+      memTotal += c.devmem;
+      memUsed += c.usedMem;
+      coresTotal += c.devcore;
+      coresUsed += c.usedCores;
+    }
+  } else {
+    slotsTotal = node.allocatable?.[RES_GPU] ?? node.capacity?.[RES_GPU] ?? 0;
+    slotsUsed = node.used?.[RES_GPU] ?? 0;
+    memTotal =
+      node.allocatable?.[RES_GPUMEM] ?? node.capacity?.[RES_GPUMEM] ?? 0;
+    memUsed = node.used?.[RES_GPUMEM] ?? 0;
+    coresTotal =
+      node.allocatable?.[RES_GPUCORES] ?? node.capacity?.[RES_GPUCORES] ?? 0;
+    coresUsed = node.used?.[RES_GPUCORES] ?? 0;
+  }
   const cardCount = node.devices?.length ?? 0;
 
   // Pick the dominant model and a "+N" suffix when the node is mixed.
