@@ -181,8 +181,11 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       icon: <AppstoreAddOutlined />,
     },
     {
-      // 智算 group: GPU resource overview + node / card / task drilldowns.
-      // Default landing is overview when the parent itself is clicked.
+      // 智算 group: GPU resource overview. Used to be split across
+      // overview / nodes / cards / tasks but they were merged into a
+      // single dashboard. Group kept as a single-child parent so the
+      // navigation grouping is consistent with 模型 below (and leaves
+      // room for GPU-monitoring / future siblings).
       path: `${base}/compute`,
       name: 'compute',
       icon: <ThunderboltOutlined />,
@@ -190,18 +193,6 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
         {
           path: `${base}/compute/overview`,
           name: 'overview',
-        },
-        {
-          path: `${base}/compute/nodes`,
-          name: 'nodes',
-        },
-        {
-          path: `${base}/compute/cards`,
-          name: 'cards',
-        },
-        {
-          path: `${base}/compute/tasks`,
-          name: 'tasks',
         },
       ],
     },

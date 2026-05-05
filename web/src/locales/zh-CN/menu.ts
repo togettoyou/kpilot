@@ -42,13 +42,10 @@ export default {
   'menu.clusters.extensions.dra.deviceclasses': 'DeviceClasses',
   'menu.clusters.extensions.dra.resourceslices': 'ResourceSlices',
   'menu.clusters.plugins': '插件',
-  // 智算 = GPU resource group. Parent shows children: overview / nodes
-  // / cards / tasks (mirrors HAMi-WebUI's four-page layout).
+  // 智算 = GPU resource group. Single-child parent — node / card /
+  // task views were merged into the unified 资源概览 dashboard.
   'menu.clusters.compute': '智算',
   'menu.clusters.compute.overview': '资源概览',
-  'menu.clusters.compute.nodes': '节点管理',
-  'menu.clusters.compute.cards': '显卡管理',
-  'menu.clusters.compute.tasks': '任务管理',
   // 模型 — model serving group. Children land in P7.
   'menu.clusters.models': '模型',
   'menu.clusters.models.inference': '推理服务',

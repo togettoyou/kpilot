@@ -57,17 +57,19 @@ export default [
         path: '/clusters/:id/compute/overview',
         component: './ClusterDetail/Compute/Overview/index',
       },
+      // Old per-pivot pages were merged into the unified Resource
+      // Overview dashboard. Redirects keep deep links / bookmarks alive.
       {
         path: '/clusters/:id/compute/nodes',
-        component: './ClusterDetail/Compute/Nodes/index',
+        redirect: '/clusters/:id/compute/overview',
       },
       {
         path: '/clusters/:id/compute/cards',
-        component: './ClusterDetail/Compute/Cards/index',
+        redirect: '/clusters/:id/compute/overview',
       },
       {
         path: '/clusters/:id/compute/tasks',
-        component: './ClusterDetail/Compute/Tasks/index',
+        redirect: '/clusters/:id/compute/overview',
       },
       {
         path: '/clusters/:id/monitoring',

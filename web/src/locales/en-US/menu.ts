@@ -42,13 +42,10 @@ export default {
   'menu.clusters.extensions.dra.deviceclasses': 'DeviceClasses',
   'menu.clusters.extensions.dra.resourceslices': 'ResourceSlices',
   'menu.clusters.plugins': 'Plugins',
-  // AI Compute group: GPU resources. Children: overview / nodes / cards
-  // / tasks (mirrors HAMi-WebUI's four-page layout).
+  // AI Compute group: GPU resources. Single-child parent — node / card
+  // / task views were merged into the unified Resource Overview.
   'menu.clusters.compute': 'AI Compute',
   'menu.clusters.compute.overview': 'Resource Overview',
-  'menu.clusters.compute.nodes': 'Nodes',
-  'menu.clusters.compute.cards': 'Cards',
-  'menu.clusters.compute.tasks': 'Tasks',
   // Model serving group. Children land in P7.
   'menu.clusters.models': 'Models',
   'menu.clusters.models.inference': 'Inference',

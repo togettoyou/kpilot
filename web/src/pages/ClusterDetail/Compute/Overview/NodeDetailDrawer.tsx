@@ -13,9 +13,10 @@ interface Props {
   onClose: () => void;
 }
 
-// NodeDetailDrawer is the full per-node view that the original combined
-// page rendered inline. Pulled into a drawer so the Nodes table can stay
-// terse and the detail still has space to show every card + pod.
+// NodeDetailDrawer is the full per-node view: node-level utilization
+// gauges + every physical card on the node with its pods inline. Lives
+// under Overview/ so the unified dashboard's per-node tile can drill in
+// without losing any information from the original Nodes page.
 const NodeDetailDrawer: React.FC<Props> = ({ node, open, onClose }) => {
   const intl = useIntl();
   if (!node) return null;
@@ -108,9 +109,6 @@ const NodeDetailDrawer: React.FC<Props> = ({ node, open, onClose }) => {
   );
 };
 
-// CardDetail wraps the shared CardBody with the per-card chrome used
-// inside the Node detail drawer (compact title row + small Progress
-// bars; many cards stacked together).
 const CardDetail: React.FC<{ card: GPUCardSummary }> = ({ card }) => {
   const intl = useIntl();
   return (

@@ -13,9 +13,10 @@ interface Props {
   onClose: () => void;
 }
 
-// CardDetailDrawer is the per-physical-card view: the same content as
-// the inline card section in the original combined page, but reachable
-// from both the Nodes detail (via NodeDetailDrawer) and the Cards page.
+// CardDetailDrawer is the per-physical-card view, opened from the
+// 显卡明细 tab. The drawer prepends UUID copy / node / mode / NUMA
+// context (the flat list strips those) and then defers to CardBody
+// for the three utilization bars + per-card pod list.
 const CardDetailDrawer: React.FC<Props> = ({ card, nodeName, open, onClose }) => {
   const intl = useIntl();
   if (!card) return null;
@@ -41,11 +42,6 @@ const CardDetailDrawer: React.FC<Props> = ({ card, nodeName, open, onClose }) =>
       maskClosable={false}
       size="large"
     >
-      {/* The drawer adds its own context (UUID copy / node / NUMA) on
-          top of the shared CardBody — useful here because the user
-          opened this drawer from a flat list and needs to know which
-          node the card belongs to. NodeDetailDrawer doesn't need the
-          extra context (already inside a node card). */}
       <Descriptions
         column={1}
         size="small"
