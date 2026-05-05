@@ -73,6 +73,16 @@ var resourceGVK = map[string]gvkInfo{
 	"persistentvolumeclaims":   {"", "v1", "PersistentVolumeClaim"},
 	"persistentvolumes":        {"", "v1", "PersistentVolume"},
 	"storageclasses":           {"storage.k8s.io", "v1", "StorageClass"},
+	// Dynamic Resource Allocation (resource.k8s.io). Pinned to v1beta1
+	// for max cluster compat: v1beta1 is served on K8s 1.32+ (where
+	// DRA first went beta), while the v1 GA only landed in 1.34.
+	// Older clusters without DRA enabled return 404 from the worker —
+	// the page surfaces that as a worker error, same pattern as the
+	// Gateway API kinds when those CRDs aren't installed.
+	"resourceclaims":         {"resource.k8s.io", "v1beta1", "ResourceClaim"},
+	"resourceclaimtemplates": {"resource.k8s.io", "v1beta1", "ResourceClaimTemplate"},
+	"deviceclasses":          {"resource.k8s.io", "v1beta1", "DeviceClass"},
+	"resourceslices":         {"resource.k8s.io", "v1beta1", "ResourceSlice"},
 	// API extensions group — exposed under the "扩展" submenu rather
 	// than "工作负载" since these are API-shape resources, not pods.
 	"customresourcedefinitions": {"apiextensions.k8s.io", "v1", "CustomResourceDefinition"},

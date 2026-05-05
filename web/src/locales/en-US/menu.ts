@@ -34,6 +34,13 @@ export default {
   // Hidden child route — used by breadcrumbs / page titles on the CR
   // instances browser even though it's hideInMenu: true.
   'menu.clusters.extensions.crds.crInstances': 'CR Instances',
+  // DRA (Dynamic Resource Allocation) — accelerator / device scheduling.
+  // Nested under Extensions since DRA, like CRD, is an extension mechanism.
+  'menu.clusters.extensions.dra': 'DRA',
+  'menu.clusters.extensions.dra.resourceclaims': 'ResourceClaims',
+  'menu.clusters.extensions.dra.resourceclaimtemplates': 'ClaimTemplates',
+  'menu.clusters.extensions.dra.deviceclasses': 'DeviceClasses',
+  'menu.clusters.extensions.dra.resourceslices': 'ResourceSlices',
   'menu.clusters.plugins': 'Plugins',
   // AI Compute group: GPU resources. Children: overview / nodes / cards
   // / tasks (mirrors HAMi-WebUI's four-page layout).

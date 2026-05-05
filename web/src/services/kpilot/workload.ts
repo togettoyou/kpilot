@@ -7,6 +7,7 @@ export type WorkloadResourceType =
   | 'gatewayclasses' | 'gateways' | 'httproutes' | 'grpcroutes'
   | 'configmaps' | 'secrets'
   | 'persistentvolumeclaims' | 'persistentvolumes' | 'storageclasses'
+  | 'resourceclaims' | 'resourceclaimtemplates' | 'deviceclasses' | 'resourceslices'
   | 'customresourcedefinitions';
 
 // Cluster-scoped workload kinds — no metadata.namespace, so the global
@@ -17,6 +18,8 @@ export const CLUSTER_SCOPED_TYPES = new Set<WorkloadResourceType>([
   'persistentvolumes',
   'storageclasses',
   'gatewayclasses',
+  'deviceclasses',
+  'resourceslices',
   'customresourcedefinitions',
 ]);
 

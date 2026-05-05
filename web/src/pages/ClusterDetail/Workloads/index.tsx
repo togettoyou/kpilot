@@ -271,6 +271,10 @@ const VALID_TYPES = new Set<string>([
   'persistentvolumeclaims',
   'persistentvolumes',
   'storageclasses',
+  'resourceclaims',
+  'resourceclaimtemplates',
+  'deviceclasses',
+  'resourceslices',
   'customresourcedefinitions',
 ]);
 

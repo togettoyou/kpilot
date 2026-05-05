@@ -5,6 +5,7 @@ import {
   BlockOutlined,
   BulbOutlined,
   DatabaseOutlined,
+  DeploymentUnitOutlined,
   DesktopOutlined,
   FileTextOutlined,
   LineChartOutlined,
@@ -152,6 +153,24 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
               name: 'crInstances',
               hideInMenu: true,
             },
+          ],
+        },
+        {
+          // DRA (Dynamic Resource Allocation) — K8s 1.32+ scheduling
+          // primitive for accelerators / pluggable devices. Nested
+          // under 扩展 alongside CRDs because both are extension-
+          // mechanism kinds rather than core workload primitives.
+          path: `${base}/_group/extensions/dra`,
+          name: 'dra',
+          icon: <DeploymentUnitOutlined />,
+          children: [
+            { path: `${base}/workloads/resourceclaims`, name: 'resourceclaims' },
+            {
+              path: `${base}/workloads/resourceclaimtemplates`,
+              name: 'resourceclaimtemplates',
+            },
+            { path: `${base}/workloads/deviceclasses`, name: 'deviceclasses' },
+            { path: `${base}/workloads/resourceslices`, name: 'resourceslices' },
           ],
         },
       ],

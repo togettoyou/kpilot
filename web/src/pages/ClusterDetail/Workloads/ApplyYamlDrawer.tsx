@@ -346,6 +346,61 @@ provisioner: rancher.io/local-path
 volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Delete
 `,
+  // DRA — v1beta1 is served on K8s 1.32+; v1 only stable in 1.34. Driver
+  // name and DeviceClass are placeholders — real values come from the
+  // DRA driver running on the node (e.g. `gpu.nvidia.com`).
+  resourceclaims: `apiVersion: resource.k8s.io/v1beta1
+kind: ResourceClaim
+metadata:
+  name: example
+  namespace: default
+spec:
+  devices:
+    requests:
+      - name: gpu
+        deviceClassName: gpu.example.com
+`,
+  resourceclaimtemplates: `apiVersion: resource.k8s.io/v1beta1
+kind: ResourceClaimTemplate
+metadata:
+  name: example
+  namespace: default
+spec:
+  spec:
+    devices:
+      requests:
+        - name: gpu
+          deviceClassName: gpu.example.com
+`,
+  deviceclasses: `apiVersion: resource.k8s.io/v1beta1
+kind: DeviceClass
+metadata:
+  name: example.gpu.example.com
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "gpu.example.com"
+`,
+  // ResourceSlices are normally published by a DRA driver DaemonSet —
+  // manual creation is rare, mostly useful for debugging the scheduler.
+  resourceslices: `apiVersion: resource.k8s.io/v1beta1
+kind: ResourceSlice
+metadata:
+  name: node-0-gpu
+spec:
+  driver: gpu.example.com
+  pool:
+    name: node-0
+    generation: 1
+    resourceSliceCount: 1
+  nodeName: node-0
+  devices:
+    - name: gpu-0
+      basic:
+        attributes:
+          model:
+            string: h100
+`,
   // CRDs are typically distributed by the project that owns them
   // (helm chart `crds/` folder, operator install scripts). This is
   // a minimal valid skeleton mostly useful as a "show me the shape"
