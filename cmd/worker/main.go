@@ -22,6 +22,7 @@ import (
 	"github.com/togettoyou/kpilot/pkg/worker/config"
 	"github.com/togettoyou/kpilot/pkg/worker/plugin"
 	"github.com/togettoyou/kpilot/pkg/worker/proxy"
+	"github.com/togettoyou/kpilot/pkg/worker/snapshot"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
 )
 
@@ -86,7 +87,21 @@ func main() {
 		}
 		tunnelClient.SetOnConnected(nc.Sync)
 
-		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper(), tunnelClient.SendResourceResponse)
+		// Snapshot cache for cluster-wide Node + Pod reads (used by the
+		// GPU summary endpoint and any future bulk-read action). Wait
+		// for initial sync before constructing the proxy so a request
+		// arriving immediately after register doesn't hit an empty
+		// cache and report "no GPU nodes".
+		clientsetForCache, err := kubernetes.NewForConfig(k8sCfg)
+		if err != nil {
+			log.Fatalf("[worker] failed to create clientset for snapshot: %v", err)
+		}
+		snap, err := snapshot.New(clientsetForCache, ctx.Done())
+		if err != nil {
+			log.Fatalf("[worker] snapshot init: %v", err)
+		}
+
+		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper(), snap, tunnelClient.SendResourceResponse)
 		if err != nil {
 			log.Fatalf("[worker] failed to create proxy: %v", err)
 		}

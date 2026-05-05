@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
@@ -109,10 +108,17 @@ type gpuPodSummary struct {
 // gpuSummary builds the cluster-wide GPU view. Always returns a top-level
 // JSON array (possibly empty) so the frontend renders an empty state
 // rather than choking on null.
+//
+// Reads from the local snapshot cache, NOT a fresh API server List —
+// each call is a few microseconds + one slice copy regardless of how
+// many users are polling the GPU page in parallel. Watch events keep
+// the cache live; the data is at most ~hundreds of milliseconds stale.
 func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
-	nodes, err := p.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	_ = ctx // cache reads are non-blocking; ctx is here for future use
+
+	nodes, err := p.snap.Nodes()
 	if err != nil {
-		return fail(fmt.Sprintf("list nodes: %v", err))
+		return fail(fmt.Sprintf("snapshot nodes: %v", err))
 	}
 
 	byNode := make(map[string]*gpuNodeSummary)
@@ -121,8 +127,7 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 	// because HAMI UUIDs are globally unique (it embeds the GPU's true
 	// hardware UUID).
 	cardIndex := map[string]*gpuCardSummary{}
-	for i := range nodes.Items {
-		n := &nodes.Items[i]
+	for _, n := range nodes {
 		devices := parseHAMIDevices(n.Annotations)
 		cap := extractGPUResources(n.Status.Capacity)
 		alloc := extractGPUResources(n.Status.Allocatable)
@@ -139,7 +144,7 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 		}
 		for j := range devices {
 			d := devices[j]
-			card := &gpuCardSummary{
+			card := gpuCardSummary{
 				UUID:    d.ID,
 				Type:    d.Type,
 				Health:  d.Health,
@@ -148,7 +153,7 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 				DevMem:  d.DevMem,
 				DevCore: d.DevCore,
 			}
-			summary.Cards = append(summary.Cards, *card)
+			summary.Cards = append(summary.Cards, card)
 			// Index by UUID — append-after-copy means we re-fetch from
 			// the slice for mutation, not from the local copy.
 			cardIndex[d.ID] = &summary.Cards[len(summary.Cards)-1]
@@ -156,12 +161,11 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 		byNode[n.Name] = summary
 	}
 
-	pods, err := p.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	pods, err := p.snap.Pods()
 	if err != nil {
-		return fail(fmt.Sprintf("list pods: %v", err))
+		return fail(fmt.Sprintf("snapshot pods: %v", err))
 	}
-	for i := range pods.Items {
-		pod := &pods.Items[i]
+	for _, pod := range pods {
 		if pod.Spec.NodeName == "" {
 			continue
 		}
