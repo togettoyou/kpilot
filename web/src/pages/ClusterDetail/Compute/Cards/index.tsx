@@ -15,6 +15,7 @@ import CardDetailDrawer from './CardDetailDrawer';
 interface CardRow {
   uuid: string;
   type: string;
+  mode?: string;
   health: boolean;
   numa: number;
   nodeName: string;
@@ -34,6 +35,7 @@ function flatten(nodes: GPUNodeSummary[]): CardRow[] {
       out.push({
         uuid: c.uuid,
         type: c.type,
+        mode: c.mode,
         health: c.health,
         numa: c.numa,
         nodeName: n.name,
@@ -109,6 +111,13 @@ const ComputeCards: React.FC = () => {
                 {
                   title: intl.formatMessage({ id: 'pages.compute.cards.col.type' }),
                   dataIndex: 'type',
+                },
+                {
+                  title: intl.formatMessage({ id: 'pages.compute.cards.col.mode' }),
+                  dataIndex: 'mode',
+                  width: 110,
+                  render: (v: string | undefined) =>
+                    v ? <Tag>{v}</Tag> : '—',
                 },
                 {
                   title: intl.formatMessage({ id: 'pages.compute.cards.col.node' }),

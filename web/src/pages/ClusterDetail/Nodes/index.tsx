@@ -64,20 +64,6 @@ function getOS(labels: Record<string, string>): string {
   return labels['kubernetes.io/os'] || labels['beta.kubernetes.io/os'] || '';
 }
 
-function getGPUInfo(labels: Record<string, string>) {
-  const model =
-    labels['nvidia.com/gpu.product'] ||
-    labels['gpu.product'] ||
-    labels['hami.io/gpu-product'] ||
-    null;
-  const count =
-    labels['nvidia.com/gpu.count'] ||
-    labels['gpu.count'] ||
-    labels['hami.io/gpu-count'] ||
-    null;
-  return { model, count };
-}
-
 export default function NodesPage() {
   const { id: clusterId } = useParams<{ id: string }>();
   const intl = useIntl();
@@ -226,26 +212,10 @@ export default function NodesPage() {
             render: (_, r) =>
               `${formatMemory(r.memory_allocatable)} / ${formatMemory(r.memory_capacity)}`,
           },
-          {
-            title: intl.formatMessage({ id: 'pages.nodes.col.gpuModel' }),
-            width: 180,
-            render: (_, r) => {
-              const { model } = getGPUInfo(r.labels);
-              return model ? (
-                <Tag color="purple">{model}</Tag>
-              ) : (
-                <Text type="secondary">—</Text>
-              );
-            },
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.nodes.col.gpuCount' }),
-            width: 100,
-            render: (_, r) => {
-              const { count } = getGPUInfo(r.labels);
-              return count ?? <Text type="secondary">—</Text>;
-            },
-          },
+          // GPU columns moved out: 智算 / 节点管理 page covers GPU
+          // visibility now (with model + cards + slot/memory usage).
+          // Keeping the K8s 节点概览 strictly about K8s primitives so
+          // it doesn't bloat as we add more accelerator types.
         ]}
       />
     </div>

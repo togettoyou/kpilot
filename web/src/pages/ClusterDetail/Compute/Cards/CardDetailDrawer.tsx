@@ -61,6 +61,10 @@ const CardDetailDrawer: React.FC<Props> = ({ card, nodeName, open, onClose }) =>
             children: nodeName,
           },
           {
+            label: intl.formatMessage({ id: 'pages.compute.cards.col.mode' }),
+            children: card.mode || '—',
+          },
+          {
             label: 'NUMA',
             children: card.numa,
           },

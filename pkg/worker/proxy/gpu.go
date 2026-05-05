@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -26,6 +27,16 @@ const (
 	// much memory / cores got carved out of each. Lets us attribute
 	// utilization to specific cards rather than just node totals.
 	hamiPodAllocAnnotation = "hami.io/vgpu-devices-allocated"
+	// hamiResourcePoolAnnotation + hamiFlavorAnnotation are HAMI
+	// scheduler hints — surfaced in the Tasks UI so operators can see
+	// which pool / flavor a pod was scheduled under.
+	hamiResourcePoolAnnotation = "hami.io/resource-pool"
+	hamiFlavorAnnotation       = "hami.io/flavor"
+	// nvidiaPriorityAnnotation is HAMI's per-container priority knob
+	// (0 / 1 / 2 — low / medium / high). Joined as comma-separated
+	// per-container; we surface the first/dominant value to keep the
+	// Tasks table compact.
+	nvidiaPriorityAnnotation = "nvidia.com/priority"
 	// HAMI's encoded list separators. : between devices, , between
 	// fields of one device, ; between containers of one pod (only used
 	// in the pod-side annotation).
@@ -34,17 +45,31 @@ const (
 	hamiContainerSep = ";"
 )
 
+// Standard application-name labels we look at, in priority order. Most
+// charts set app.kubernetes.io/name (recommended labels); workloads
+// without that fall back to plain "app". Empty string when neither is
+// set — the UI just shows a dash.
+var appNameLabels = []string{
+	"app.kubernetes.io/name",
+	"app",
+}
+
 // hamiDevice mirrors one entry of the node-side register. Field tags
 // match HAMI's snake-cased JSON schema; the legacy colon/comma format
 // is parsed positionally instead.
 type hamiDevice struct {
 	ID      string `json:"id"`
-	Count   int32  `json:"count"`   // vGPU slot count after slicing
-	DevMem  int32  `json:"devmem"`  // physical memory MB (per card, total)
-	DevCore int32  `json:"devcore"` // compute percent total (typically 100)
-	Type    string `json:"type"`    // GPU model name
+	Count   int32  `json:"count"`           // vGPU slot count after slicing
+	DevMem  int32  `json:"devmem"`          // physical memory MB (per card, total)
+	DevCore int32  `json:"devcore"`         // compute percent total (typically 100)
+	Type    string `json:"type"`            // GPU model name
 	NUMA    int32  `json:"numa"`
 	Health  bool   `json:"health"`
+	// Mode comes from HAMI's newer 9-field encoded format / JSON
+	// schema. Values: "hami-core" (default vGPU split), "mig" (NVIDIA
+	// MIG instance), and a few less common ones. Empty when running
+	// on older HAMI (7-field encoding) — UI then just shows a dash.
+	Mode string `json:"mode,omitempty"`
 }
 
 // gpuNodeSummary is the per-node payload Server forwards to the UI.
@@ -71,6 +96,7 @@ type gpuNodeSummary struct {
 type gpuCardSummary struct {
 	UUID      string         `json:"uuid"`
 	Type      string         `json:"type"`
+	Mode      string         `json:"mode,omitempty"` // hami-core / mig / etc, when reported
 	Health    bool           `json:"health"`
 	NUMA      int32          `json:"numa"`
 	Slots     int32          `json:"slots"`     // vGPU slot capacity (== device.Count)
@@ -98,11 +124,24 @@ type gpuPodOnCard struct {
 // any pod requesting nvidia.com/* on a GPU node, regardless of whether
 // HAMI is installed — gives us a usable fallback view when the
 // allocation annotation is absent.
+//
+// Extra metadata fields (CreatedAt / AppName / ResourcePool / Flavor /
+// Priority) line up with HAMi-WebUI's container.proto schema so the
+// Tasks page can give operators the same context: when did this land,
+// which app/pool/priority does it belong to. Each is optional —
+// emitted as "" when the source label/annotation is missing rather
+// than tripping up JSON unmarshal on the frontend.
 type gpuPodSummary struct {
-	Namespace string           `json:"namespace"`
-	Name      string           `json:"name"`
-	Phase     string           `json:"phase"`
-	Requests  map[string]int64 `json:"requests"`
+	Namespace    string           `json:"namespace"`
+	Name         string           `json:"name"`
+	Phase        string           `json:"phase"`
+	Requests     map[string]int64 `json:"requests"`
+	CreatedAt    string           `json:"createdAt,omitempty"`    // RFC3339; from PodScheduled condition
+	StartedAt    string           `json:"startedAt,omitempty"`    // RFC3339; from PodInitialized condition
+	AppName      string           `json:"appName,omitempty"`      // label app.kubernetes.io/name or app
+	ResourcePool string           `json:"resourcePool,omitempty"` // hami.io/resource-pool
+	Flavor       string           `json:"flavor,omitempty"`       // hami.io/flavor
+	Priority     string           `json:"priority,omitempty"`     // nvidia.com/priority (first value)
 }
 
 // gpuSummary builds the cluster-wide GPU view. Always returns a top-level
@@ -147,6 +186,7 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 			card := gpuCardSummary{
 				UUID:    d.ID,
 				Type:    d.Type,
+				Mode:    d.Mode,
 				Health:  d.Health,
 				NUMA:    d.NUMA,
 				Slots:   d.Count,
@@ -210,10 +250,16 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 			node.Used[k] += v
 		}
 		node.Pods = append(node.Pods, gpuPodSummary{
-			Namespace: pod.Namespace,
-			Name:      pod.Name,
-			Phase:     string(pod.Status.Phase),
-			Requests:  req,
+			Namespace:    pod.Namespace,
+			Name:         pod.Name,
+			Phase:        string(pod.Status.Phase),
+			Requests:     req,
+			CreatedAt:    podCreatedAt(pod),
+			StartedAt:    podStartedAt(pod),
+			AppName:      podAppName(pod),
+			ResourcePool: pod.Annotations[hamiResourcePoolAnnotation],
+			Flavor:       pod.Annotations[hamiFlavorAnnotation],
+			Priority:     podPriority(pod),
 		})
 	}
 
@@ -253,10 +299,11 @@ func parseHAMIDevices(annotations map[string]string) []hamiDevice {
 // decodeHAMIDevicesEncoded parses the colon/comma format HAMI uses pre-JSON.
 // Layout per device (7 or 9 fields, : separated):
 //
-//	UUID,count,memory,cores,type,numa,health
-//	UUID,count,memory,cores,type,numa,health,index,mode  (newer)
+//	UUID,count,memory,cores,type,numa,health                        (7 fields)
+//	UUID,count,memory,cores,type,numa,health,index,mode             (9 fields, newer)
 //
-// We only consume the first 7; index/mode aren't needed for the UI today.
+// We pull mode out of the 9-field variant when present so the UI can
+// distinguish hami-core / mig / etc; index isn't surfaced today.
 // Returns nil on any unrecognized structure so callers can fall through
 // to JSON parsing.
 func decodeHAMIDevicesEncoded(raw string) []hamiDevice {
@@ -283,7 +330,7 @@ func decodeHAMIDevicesEncoded(raw string) []hamiDevice {
 		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
 			return nil
 		}
-		out = append(out, hamiDevice{
+		dev := hamiDevice{
 			ID:      f[0],
 			Count:   int32(count),
 			DevMem:  int32(mem),
@@ -291,7 +338,11 @@ func decodeHAMIDevicesEncoded(raw string) []hamiDevice {
 			Type:    f[4],
 			NUMA:    int32(numa),
 			Health:  health,
-		})
+		}
+		if len(f) >= 9 {
+			dev.Mode = f[8]
+		}
+		out = append(out, dev)
 	}
 	return out
 }
@@ -413,6 +464,63 @@ func podGPURequests(pod *corev1.Pod) map[string]int64 {
 
 func isGPUResourceName(name string) bool {
 	return strings.HasPrefix(name, "nvidia.com/")
+}
+
+// podCreatedAt returns the RFC3339 timestamp of when the scheduler
+// bound this pod to a node. We use PodScheduled rather than
+// CreationTimestamp because the latter ticks when the API object was
+// created (could be much earlier than scheduling for queued pods);
+// PodScheduled is what HAMi-WebUI shows as create_time too.
+func podCreatedAt(pod *corev1.Pod) string {
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionTrue {
+			return c.LastTransitionTime.UTC().Format(time.RFC3339)
+		}
+	}
+	return ""
+}
+
+// podStartedAt returns when containers first transitioned to running.
+// Falls back to pod.Status.StartTime which is set once the kubelet
+// admits the pod — close enough for the Tasks page's "duration so far"
+// calculation.
+func podStartedAt(pod *corev1.Pod) string {
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodInitialized && c.Status == corev1.ConditionTrue {
+			return c.LastTransitionTime.UTC().Format(time.RFC3339)
+		}
+	}
+	if pod.Status.StartTime != nil {
+		return pod.Status.StartTime.UTC().Format(time.RFC3339)
+	}
+	return ""
+}
+
+// podAppName picks the most-likely "application" label, in priority
+// order. Empty string when nothing matches — UI shows a dash.
+func podAppName(pod *corev1.Pod) string {
+	for _, key := range appNameLabels {
+		if v, ok := pod.Labels[key]; ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// podPriority returns the first comma-separated value of the
+// nvidia.com/priority annotation. HAMi can write per-container
+// priorities ("0,1,2" for a 3-container pod); the Tasks UI surfaces
+// the first as the dominant priority since most pods only have one
+// GPU container anyway. Empty when the annotation is missing.
+func podPriority(pod *corev1.Pod) string {
+	raw, ok := pod.Annotations[nvidiaPriorityAnnotation]
+	if !ok || raw == "" {
+		return ""
+	}
+	if i := strings.Index(raw, hamiFieldSep); i >= 0 {
+		return strings.TrimSpace(raw[:i])
+	}
+	return strings.TrimSpace(raw)
 }
 
 // derivedNodeStatus reduces the conditions array down to a Ready/NotReady/

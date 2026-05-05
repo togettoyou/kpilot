@@ -11,6 +11,9 @@ export interface GPUDevice {
   type: string;
   numa: number;
   health: boolean;
+  // mode: hami-core / mig / etc. Empty when running on older HAMI
+  // (legacy 7-field encoding) — UI shows a dash.
+  mode?: string;
 }
 
 // GPUPodOnCard is one pod's allocation on a single physical GPU. mem is
@@ -29,6 +32,7 @@ export interface GPUPodOnCard {
 export interface GPUCardSummary {
   uuid: string;
   type: string;
+  mode?: string;     // hami-core / mig / etc; empty on older HAMI
   health: boolean;
   numa: number;
   slots: number;     // total vGPU slot capacity
@@ -44,11 +48,21 @@ export interface GPUCardSummary {
 // Requests is keyed by the K8s extended-resource name. Always populated
 // for any pod requesting nvidia.com/* — fallback view when HAMI's per-card
 // allocation annotation isn't present.
+//
+// Extra metadata fields (createdAt / appName / resourcePool / flavor /
+// priority) line up with HAMi-WebUI's container schema so the Tasks
+// page can show the same context.
 export interface GPUPodSummary {
   namespace: string;
   name: string;
   phase: string;
   requests: Record<string, number>;
+  createdAt?: string;    // RFC3339
+  startedAt?: string;    // RFC3339
+  appName?: string;      // label app.kubernetes.io/name or app
+  resourcePool?: string; // hami.io/resource-pool annotation
+  flavor?: string;       // hami.io/flavor annotation
+  priority?: string;     // nvidia.com/priority annotation (first value)
 }
 
 // GPUNodeSummary is the per-node payload. Cards (from HAMI) is the
