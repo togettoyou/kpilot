@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -12,16 +13,31 @@ import (
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
 
-// hamiNodeRegisterAnnotation is the JSON-encoded per-card register HAMI
-// writes to GPU nodes. Documented at
-// https://project-hami.io/docs/core-concepts/gpu-virtualization. Each entry
-// is a physical GPU with its UUID, slice count, memory, compute percent,
-// model name, NUMA, and health flag — the canonical source for per-card
-// detail (the labels HAMI also writes carry only node-level summaries).
-const hamiNodeRegisterAnnotation = "hami.io/node-nvidia-register"
+// HAMI annotation keys. HAMI changes its on-the-wire format across
+// versions; we look at both schemas (legacy colon/comma encoded vs newer
+// JSON) before giving up. Documented at
+// https://project-hami.io/docs/core-concepts/gpu-virtualization.
+const (
+	// hamiNodeRegisterAnnotation lists the physical GPUs a node reports
+	// to the HAMI scheduler. UUID, vGPU slot count, memory, cores, model
+	// name, NUMA, health, and (newer schema) device index + mode.
+	hamiNodeRegisterAnnotation = "hami.io/node-nvidia-register"
+	// hamiPodAllocAnnotation carries the scheduler's per-container
+	// per-card allocation: which physical GPU UUIDs were chosen and how
+	// much memory / cores got carved out of each. Lets us attribute
+	// utilization to specific cards rather than just node totals.
+	hamiPodAllocAnnotation = "hami.io/vgpu-devices-allocated"
+	// HAMI's encoded list separators. : between devices, , between
+	// fields of one device, ; between containers of one pod (only used
+	// in the pod-side annotation).
+	hamiDeviceSep    = ":"
+	hamiFieldSep     = ","
+	hamiContainerSep = ";"
+)
 
-// hamiDevice mirrors one entry of the annotation JSON. Field tags must
-// match HAMI's snake-cased schema exactly.
+// hamiDevice mirrors one entry of the node-side register. Field tags
+// match HAMI's snake-cased JSON schema; the legacy colon/comma format
+// is parsed positionally instead.
 type hamiDevice struct {
 	ID      string `json:"id"`
 	Count   int32  `json:"count"`   // vGPU slot count after slicing
@@ -32,31 +48,67 @@ type hamiDevice struct {
 	Health  bool   `json:"health"`
 }
 
-// gpuNodeSummary is the per-node payload Server forwards to the UI. JSON
-// keys are camelCase to match the existing frontend convention.
+// gpuNodeSummary is the per-node payload Server forwards to the UI.
 type gpuNodeSummary struct {
 	Name        string           `json:"name"`
 	Status      string           `json:"status"`
-	Devices     []hamiDevice     `json:"devices"`     // per-card; empty if no HAMI annotation
+	Devices     []hamiDevice     `json:"devices"`     // physical cards (HAMI annotation only)
 	Capacity    map[string]int64 `json:"capacity"`    // nvidia.com/* node-level totals
 	Allocatable map[string]int64 `json:"allocatable"` // same, after reservations
 	Used        map[string]int64 `json:"used"`        // sum of pod requests on this node
-	Pods        []gpuPodSummary  `json:"pods"`
+	// Cards is the per-physical-card breakdown — derived from each pod's
+	// hami.io/vgpu-devices-allocated annotation. Only populated when HAMI
+	// gave us the node device list. Empty on standard NVIDIA-device-plugin
+	// installs (frontend then falls back to the node-level Used + flat
+	// Pods list).
+	Cards []gpuCardSummary `json:"cards"`
+	Pods  []gpuPodSummary  `json:"pods"`
 }
 
-// gpuPodSummary is one Pod that reserves a GPU resource on a GPU node.
+// gpuCardSummary aggregates pods running on one specific physical GPU,
+// keyed by the device's UUID. Each entry shows actual scheduler-side
+// allocations (post-split) rather than user requests, which lines up with
+// how HAMI's own UI reports utilization.
+type gpuCardSummary struct {
+	UUID      string         `json:"uuid"`
+	Type      string         `json:"type"`
+	Health    bool           `json:"health"`
+	NUMA      int32          `json:"numa"`
+	Slots     int32          `json:"slots"`     // vGPU slot capacity (== device.Count)
+	DevMem    int32          `json:"devmem"`    // physical memory MB
+	DevCore   int32          `json:"devcore"`   // total compute %
+	UsedSlots int32          `json:"usedSlots"` // how many vGPU slots taken
+	UsedMem   int32          `json:"usedMem"`   // sum of mem allocated to pods
+	UsedCores int32          `json:"usedCores"` // sum of cores allocated to pods
+	Pods      []gpuPodOnCard `json:"pods"`
+}
+
+// gpuPodOnCard is one pod's allocation on a single physical GPU. A pod
+// requesting multiple cards shows up once per card with its per-card
+// share. Container-level breakdown is omitted to keep the UI simple;
+// for "this pod's full footprint", the node-level Pods list still
+// carries the user request.
+type gpuPodOnCard struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Mem       int32  `json:"mem"`   // MB allocated to this pod on this card
+	Cores     int32  `json:"cores"` // % allocated to this pod on this card
+}
+
+// gpuPodSummary is the legacy node-level pod entry. Always populated for
+// any pod requesting nvidia.com/* on a GPU node, regardless of whether
+// HAMI is installed — gives us a usable fallback view when the
+// allocation annotation is absent.
 type gpuPodSummary struct {
 	Namespace string           `json:"namespace"`
 	Name      string           `json:"name"`
 	Phase     string           `json:"phase"`
-	Requests  map[string]int64 `json:"requests"` // nvidia.com/* names → values
+	Requests  map[string]int64 `json:"requests"`
 }
 
 // gpuSummary builds the cluster-wide GPU view. Always returns a top-level
 // JSON array (possibly empty) so the frontend renders an empty state
-// rather than choking on null. List operations use the typed clientset
-// rather than the dynamic one for cheaper deserialization on large
-// clusters (typed informers re-use schema-aware decoders).
+// rather than choking on null.
 func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 	nodes, err := p.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -64,32 +116,46 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 	}
 
 	byNode := make(map[string]*gpuNodeSummary)
+	// cardIndex helps the pod loop find a card's summary record by UUID
+	// without re-scanning every node's Cards slice. Keyed by UUID alone
+	// because HAMI UUIDs are globally unique (it embeds the GPU's true
+	// hardware UUID).
+	cardIndex := map[string]*gpuCardSummary{}
 	for i := range nodes.Items {
 		n := &nodes.Items[i]
-		// Devices come from the HAMI annotation when present; we still
-		// publish capacity/allocatable from K8s extended resources so the
-		// page works on a vanilla NVIDIA device-plugin install too (no
-		// per-card detail in that mode, just node-level totals).
 		devices := parseHAMIDevices(n.Annotations)
 		cap := extractGPUResources(n.Status.Capacity)
 		alloc := extractGPUResources(n.Status.Allocatable)
 		if len(devices) == 0 && len(cap) == 0 {
 			continue // not a GPU node by either signal
 		}
-		byNode[n.Name] = &gpuNodeSummary{
+		summary := &gpuNodeSummary{
 			Name:        n.Name,
 			Status:      derivedNodeStatus(n),
 			Devices:     devices,
 			Capacity:    cap,
 			Allocatable: alloc,
 			Used:        map[string]int64{},
-			Pods:        nil,
 		}
+		for j := range devices {
+			d := devices[j]
+			card := &gpuCardSummary{
+				UUID:    d.ID,
+				Type:    d.Type,
+				Health:  d.Health,
+				NUMA:    d.NUMA,
+				Slots:   d.Count,
+				DevMem:  d.DevMem,
+				DevCore: d.DevCore,
+			}
+			summary.Cards = append(summary.Cards, *card)
+			// Index by UUID — append-after-copy means we re-fetch from
+			// the slice for mutation, not from the local copy.
+			cardIndex[d.ID] = &summary.Cards[len(summary.Cards)-1]
+		}
+		byNode[n.Name] = summary
 	}
 
-	// One ListAll call rather than per-node fetch. Even on a 1k-pod cluster
-	// the response is a few MB; we filter to just GPU-requesting pods on
-	// GPU nodes after that.
 	pods, err := p.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fail(fmt.Sprintf("list pods: %v", err))
@@ -103,15 +169,37 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 		if !ok {
 			continue
 		}
-		// Terminated pods don't actually hold resources from the
-		// scheduler's perspective; aligning with how K8s itself accounts
-		// for usage avoids double-counting after a Job finishes but the
-		// Pod object lingers.
 		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+			// Terminated pods don't hold resources from the scheduler's
+			// perspective. Skip both the request rollup and the per-card
+			// attribution.
 			continue
 		}
+
 		req := podGPURequests(pod)
-		if len(req) == 0 {
+		// Per-card attribution: walk the HAMI allocation annotation and
+		// land each container's slice on the right card. Pods without
+		// the annotation (vanilla NVIDIA device plugin or pre-HAMI-2.x)
+		// won't show up in card-level views — fall back to the node-
+		// level summary for them.
+		allocs := parsePodAllocations(pod)
+		for _, a := range allocs {
+			card, ok := cardIndex[a.UUID]
+			if !ok {
+				continue // pod's annotation references an UUID not on any node we know about
+			}
+			card.UsedSlots++
+			card.UsedMem += a.Mem
+			card.UsedCores += a.Cores
+			card.Pods = append(card.Pods, gpuPodOnCard{
+				Namespace: pod.Namespace,
+				Name:      pod.Name,
+				Mem:       a.Mem,
+				Cores:     a.Cores,
+			})
+		}
+
+		if len(req) == 0 && len(allocs) == 0 {
 			continue
 		}
 		for k, v := range req {
@@ -125,8 +213,6 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 		})
 	}
 
-	// Stable order (sorted by node name) so the UI doesn't reshuffle on
-	// every poll.
 	out := make([]*gpuNodeSummary, 0, len(byNode))
 	for _, n := range byNode {
 		out = append(out, n)
@@ -141,20 +227,130 @@ func (p *Proxy) gpuSummary(ctx context.Context) *proto.ResourceResponse {
 }
 
 // parseHAMIDevices reads the per-card register from a node's annotations.
-// Returns empty (not error) if the annotation is missing or malformed —
-// HAMI may not be installed, or may be on an older version writing a
-// different schema, and we'd still want the page to render with whatever
-// node-level GPU info is available.
+// Tries the legacy colon/comma encoding first (HAMI <= 2.4-ish) and falls
+// through to JSON for newer versions. Either failure mode (missing key,
+// unparseable string) returns nil so the page degrades to node-level
+// info instead of erroring.
 func parseHAMIDevices(annotations map[string]string) []hamiDevice {
 	raw, ok := annotations[hamiNodeRegisterAnnotation]
 	if !ok || raw == "" {
 		return nil
+	}
+	if devices := decodeHAMIDevicesEncoded(raw); len(devices) > 0 {
+		return devices
 	}
 	var devices []hamiDevice
 	if err := json.Unmarshal([]byte(raw), &devices); err != nil {
 		return nil
 	}
 	return devices
+}
+
+// decodeHAMIDevicesEncoded parses the colon/comma format HAMI uses pre-JSON.
+// Layout per device (7 or 9 fields, : separated):
+//
+//	UUID,count,memory,cores,type,numa,health
+//	UUID,count,memory,cores,type,numa,health,index,mode  (newer)
+//
+// We only consume the first 7; index/mode aren't needed for the UI today.
+// Returns nil on any unrecognized structure so callers can fall through
+// to JSON parsing.
+func decodeHAMIDevicesEncoded(raw string) []hamiDevice {
+	if !strings.Contains(raw, hamiDeviceSep) {
+		return nil
+	}
+	var out []hamiDevice
+	for _, entry := range strings.Split(raw, hamiDeviceSep) {
+		entry = strings.TrimSpace(entry)
+		if entry == "" || !strings.Contains(entry, hamiFieldSep) {
+			continue
+		}
+		f := strings.Split(entry, hamiFieldSep)
+		if len(f) < 7 {
+			// Bail entirely rather than emit a partial device — the JSON
+			// branch may still succeed.
+			return nil
+		}
+		count, err1 := strconv.ParseInt(f[1], 10, 32)
+		mem, err2 := strconv.ParseInt(f[2], 10, 32)
+		cores, err3 := strconv.ParseInt(f[3], 10, 32)
+		numa, err4 := strconv.Atoi(f[5])
+		health, err5 := strconv.ParseBool(f[6])
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
+			return nil
+		}
+		out = append(out, hamiDevice{
+			ID:      f[0],
+			Count:   int32(count),
+			DevMem:  int32(mem),
+			DevCore: int32(cores),
+			Type:    f[4],
+			NUMA:    int32(numa),
+			Health:  health,
+		})
+	}
+	return out
+}
+
+// hamiPodDeviceAlloc is one (pod, container, physical-card) tuple from
+// the pod-side allocation annotation. Multiple per pod when the pod
+// requested multiple cards, or when it has multiple containers each
+// holding a card.
+type hamiPodDeviceAlloc struct {
+	UUID  string
+	Type  string
+	Mem   int32
+	Cores int32
+}
+
+// parsePodAllocations decodes hami.io/vgpu-devices-allocated into a flat
+// list of (UUID, mem, cores) tuples — the scheduler's view of where this
+// pod's GPU shares actually landed.
+//
+// Format (each container's chunk is an entry, ; separated):
+//
+//	<UUID>,<type>,<mem>,<cores>:<UUID>,<type>,<mem>,<cores>;<next container>
+//
+// Empty containers (no device) appear as an empty chunk; we just skip
+// them. Malformed entries inside a non-empty chunk are dropped silently
+// — better to render the cards we DID parse than fail-closed on a single
+// weird annotation.
+func parsePodAllocations(pod *corev1.Pod) []hamiPodDeviceAlloc {
+	raw, ok := pod.Annotations[hamiPodAllocAnnotation]
+	if !ok || raw == "" {
+		return nil
+	}
+	var out []hamiPodDeviceAlloc
+	for _, container := range strings.Split(raw, hamiContainerSep) {
+		if container == "" {
+			continue
+		}
+		for _, dev := range strings.Split(container, hamiDeviceSep) {
+			dev = strings.TrimSpace(dev)
+			if dev == "" || !strings.Contains(dev, hamiFieldSep) {
+				continue
+			}
+			f := strings.Split(dev, hamiFieldSep)
+			if len(f) < 4 {
+				continue
+			}
+			mem, _ := strconv.ParseInt(f[2], 10, 32)
+			cores, _ := strconv.ParseInt(f[3], 10, 32)
+			// HAMI writes "cores=0" to mean "unrestricted / give the
+			// whole card". Mirror their UI's convention of treating
+			// that as 100% so the totals don't look misleadingly low.
+			if cores == 0 {
+				cores = 100
+			}
+			out = append(out, hamiPodDeviceAlloc{
+				UUID:  f[0],
+				Type:  f[1],
+				Mem:   int32(mem),
+				Cores: int32(cores),
+			})
+		}
+	}
+	return out
 }
 
 // extractGPUResources picks out nvidia.com/* extended resources from a
@@ -217,8 +413,7 @@ func isGPUResourceName(name string) bool {
 
 // derivedNodeStatus reduces the conditions array down to a Ready/NotReady/
 // Unknown summary, matching what the existing collector reports for the
-// regular node list. Kept here rather than imported to avoid cross-package
-// dep just for one helper.
+// regular node list.
 func derivedNodeStatus(n *corev1.Node) string {
 	for _, c := range n.Status.Conditions {
 		if c.Type == corev1.NodeReady {
@@ -236,9 +431,6 @@ func derivedNodeStatus(n *corev1.Node) string {
 }
 
 func sortNodesByName(s []*gpuNodeSummary) {
-	// std-lib sort.Slice would pull in another import for one use; this
-	// inline insertion sort is fine — GPU node count is bounded by physical
-	// hardware (rarely > 20) so O(n²) is negligible.
 	for i := 1; i < len(s); i++ {
 		for j := i; j > 0 && s[j-1].Name > s[j].Name; j-- {
 			s[j-1], s[j] = s[j], s[j-1]

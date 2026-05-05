@@ -2,7 +2,7 @@ import { request } from '@umijs/max';
 
 // GPUDevice mirrors one entry of HAMI's hami.io/node-nvidia-register
 // annotation. Empty when the node has GPUs (extended resources reported)
-// but HAMI isn't installed or running an older schema.
+// but HAMI isn't installed.
 export interface GPUDevice {
   id: string;
   count: number;
@@ -13,9 +13,37 @@ export interface GPUDevice {
   health: boolean;
 }
 
-// GPUPodSummary is one Pod that requested a GPU resource on a GPU node.
-// Phase comes from pod.Status.Phase; Requests is keyed by the K8s
-// extended-resource name (e.g. "nvidia.com/gpu", "nvidia.com/gpumem").
+// GPUPodOnCard is one pod's allocation on a single physical GPU. mem is
+// MB, cores is percent — these come from the scheduler's actual decision
+// (hami.io/vgpu-devices-allocated annotation), not from user requests.
+export interface GPUPodOnCard {
+  namespace: string;
+  name: string;
+  mem: number;
+  cores: number;
+}
+
+// GPUCardSummary is the per-physical-card breakdown. Only present when
+// HAMI is providing per-card visibility; standard NVIDIA-device-plugin
+// installs leave this empty and the UI falls back to GPUPodSummary.
+export interface GPUCardSummary {
+  uuid: string;
+  type: string;
+  health: boolean;
+  numa: number;
+  slots: number;     // total vGPU slot capacity
+  devmem: number;    // total physical memory MB
+  devcore: number;   // total compute %
+  usedSlots: number; // taken slots
+  usedMem: number;   // sum of mem allocated to pods
+  usedCores: number; // sum of cores allocated to pods
+  pods: GPUPodOnCard[] | null;
+}
+
+// GPUPodSummary is the per-pod node-level entry. Phase from pod.Status.Phase;
+// Requests is keyed by the K8s extended-resource name. Always populated
+// for any pod requesting nvidia.com/* — fallback view when HAMI's per-card
+// allocation annotation isn't present.
 export interface GPUPodSummary {
   namespace: string;
   name: string;
@@ -23,10 +51,9 @@ export interface GPUPodSummary {
   requests: Record<string, number>;
 }
 
-// GPUNodeSummary is the per-node payload. Capacity / Allocatable / Used
-// values are integers; the exact meaning depends on the resource name
-// (slot count for nvidia.com/gpu, MB for nvidia.com/gpumem, percent for
-// nvidia.com/gpucores).
+// GPUNodeSummary is the per-node payload. Cards (from HAMI) is the
+// preferred view; Pods is the fallback for non-HAMI clusters or pods
+// without the allocation annotation.
 export interface GPUNodeSummary {
   name: string;
   status: string;
@@ -34,6 +61,7 @@ export interface GPUNodeSummary {
   capacity: Record<string, number> | null;
   allocatable: Record<string, number> | null;
   used: Record<string, number>;
+  cards: GPUCardSummary[] | null;
   pods: GPUPodSummary[] | null;
 }
 

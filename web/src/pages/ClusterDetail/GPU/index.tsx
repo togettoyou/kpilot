@@ -23,7 +23,11 @@ import {
 } from 'antd';
 import React, { useEffect, useMemo } from 'react';
 
-import { getClusterGPU, type GPUNodeSummary } from '@/services/kpilot/gpu';
+import {
+  getClusterGPU,
+  type GPUCardSummary,
+  type GPUNodeSummary,
+} from '@/services/kpilot/gpu';
 import { listClusterPlugins } from '@/services/kpilot/plugin';
 
 const HAMI_PLUGIN_NAME = 'hami';
@@ -276,8 +280,12 @@ const NodeCard: React.FC<{ node: GPUNodeSummary }> = ({ node }) => {
     }
   })();
 
-  const devices = node.devices ?? [];
+  const cards = node.cards ?? [];
   const pods = node.pods ?? [];
+  // We prefer per-card view when HAMI's annotation gave us at least one
+  // physical card on this node; otherwise fall back to the flat pod
+  // table (vanilla NVIDIA plugin, or HAMI not yet labeling this node).
+  const hasCardDetail = cards.length > 0;
 
   return (
     <Card
@@ -288,12 +296,10 @@ const NodeCard: React.FC<{ node: GPUNodeSummary }> = ({ node }) => {
           {statusTag}
         </Space>
       }
-      // Footer-style sub-content via `extra` would crowd the title; use
-      // body sections instead.
     >
-      {/* Utilization bars: vGPU slots + memory. Show both even if HAMI
-          isn't doing memory virtualization (memTotal=0 just hides the
-          bar). */}
+      {/* Node-level utilization bars: vGPU slots + memory. Even with the
+          per-card view below these stay useful as the "total" headline
+          for the node. */}
       <Row gutter={16}>
         <Col xs={24} md={12}>
           <Typography.Text type="secondary">
@@ -318,83 +324,159 @@ const NodeCard: React.FC<{ node: GPUNodeSummary }> = ({ node }) => {
         )}
       </Row>
 
-      {/* Per-card detail from HAMI annotation. Hidden on standard NVIDIA
-          plugin (no devices array). */}
-      {devices.length > 0 && (
+      {hasCardDetail ? (
         <>
           <Typography.Title level={5} style={{ marginTop: 16 }}>
-            {intl.formatMessage({ id: 'pages.gpu.node.devices' })}
+            {intl.formatMessage({ id: 'pages.gpu.node.cards' })}
           </Typography.Title>
-          <Table
-            size="small"
-            rowKey="id"
-            pagination={false}
-            dataSource={devices}
-            columns={[
-              {
-                title: intl.formatMessage({ id: 'pages.gpu.node.devices.type' }),
-                dataIndex: 'type',
-              },
-              {
-                title: intl.formatMessage({ id: 'pages.gpu.node.devices.id' }),
-                dataIndex: 'id',
-                render: (v: string) => (
-                  <Tooltip title={v}>
-                    <Typography.Text code style={{ fontSize: 12 }}>
-                      {v.length > 20 ? v.slice(0, 20) + '…' : v}
-                    </Typography.Text>
-                  </Tooltip>
-                ),
-              },
-              {
-                title: intl.formatMessage({ id: 'pages.gpu.node.devices.slots' }),
-                dataIndex: 'count',
-                width: 80,
-                align: 'right',
-              },
-              {
-                title: intl.formatMessage({ id: 'pages.gpu.node.devices.memory' }),
-                dataIndex: 'devmem',
-                width: 120,
-                align: 'right',
-                render: (v: number) => formatMB(v),
-              },
-              {
-                title: intl.formatMessage({ id: 'pages.gpu.node.devices.cores' }),
-                dataIndex: 'devcore',
-                width: 80,
-                align: 'right',
-                render: (v: number) => `${v}%`,
-              },
-              {
-                title: intl.formatMessage({ id: 'pages.gpu.node.devices.numa' }),
-                dataIndex: 'numa',
-                width: 60,
-                align: 'right',
-              },
-              {
-                title: intl.formatMessage({ id: 'pages.gpu.node.devices.health' }),
-                dataIndex: 'health',
-                width: 80,
-                render: (v: boolean) =>
-                  v ? (
-                    <Tag color="success">{intl.formatMessage({ id: 'pages.gpu.node.devices.health.ok' })}</Tag>
-                  ) : (
-                    <Tag color="error">{intl.formatMessage({ id: 'pages.gpu.node.devices.health.bad' })}</Tag>
-                  ),
-              },
-            ]}
-          />
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            {cards.map((c) => (
+              <CardDetail key={c.uuid} card={c} />
+            ))}
+          </Space>
+        </>
+      ) : (
+        <>
+          {/* Fallback view: no HAMI per-card data, list pods at node level. */}
+          <Typography.Title level={5} style={{ marginTop: 16 }}>
+            {intl.formatMessage({ id: 'pages.gpu.node.pods' })}
+          </Typography.Title>
+          {pods.length === 0 ? (
+            <Typography.Text type="secondary">
+              {intl.formatMessage({ id: 'pages.gpu.node.pods.empty' })}
+            </Typography.Text>
+          ) : (
+            <Table
+              size="small"
+              rowKey={(r) => `${r.namespace}/${r.name}`}
+              pagination={false}
+              dataSource={pods}
+              columns={[
+                {
+                  title: intl.formatMessage({ id: 'pages.gpu.node.pods.namespace' }),
+                  dataIndex: 'namespace',
+                },
+                {
+                  title: intl.formatMessage({ id: 'pages.gpu.node.pods.name' }),
+                  dataIndex: 'name',
+                },
+                {
+                  title: intl.formatMessage({ id: 'pages.gpu.node.pods.phase' }),
+                  dataIndex: 'phase',
+                  width: 100,
+                  render: (v: string) => <Tag>{v}</Tag>,
+                },
+                {
+                  title: intl.formatMessage({ id: 'pages.gpu.node.pods.gpu' }),
+                  key: 'gpu',
+                  width: 80,
+                  align: 'right',
+                  render: (_, r) => r.requests[RES_GPU] ?? 0,
+                },
+                {
+                  title: intl.formatMessage({ id: 'pages.gpu.node.pods.gpumem' }),
+                  key: 'gpumem',
+                  width: 120,
+                  align: 'right',
+                  render: (_, r) => formatMB(r.requests[RES_GPUMEM] ?? 0),
+                },
+                {
+                  title: intl.formatMessage({ id: 'pages.gpu.node.pods.gpucores' }),
+                  key: 'gpucores',
+                  width: 100,
+                  align: 'right',
+                  render: (_, r) => `${r.requests[RES_GPUCORES] ?? 0}%`,
+                },
+              ]}
+            />
+          )}
         </>
       )}
+    </Card>
+  );
+};
 
-      {/* Pods using GPU on this node. */}
-      <Typography.Title level={5} style={{ marginTop: 16 }}>
-        {intl.formatMessage({ id: 'pages.gpu.node.pods' })}
-      </Typography.Title>
+// CardDetail renders one physical GPU: model + UUID + utilization bars
+// driven by scheduler-side allocations, with the list of pods that landed
+// on this specific card.
+const CardDetail: React.FC<{ card: GPUCardSummary }> = ({ card }) => {
+  const intl = useIntl();
+  const memPct = card.devmem > 0
+    ? Math.round((card.usedMem / card.devmem) * 100)
+    : 0;
+  const corePct = card.devcore > 0
+    ? Math.round((card.usedCores / card.devcore) * 100)
+    : 0;
+  const slotPct = card.slots > 0
+    ? Math.round((card.usedSlots / card.slots) * 100)
+    : 0;
+  const pods = card.pods ?? [];
+  const healthy = card.health;
+
+  return (
+    // type="inner" gives a lighter chrome than the outer node card,
+    // visually nesting per-card under per-node.
+    <Card
+      type="inner"
+      size="small"
+      title={
+        <Space>
+          <span style={{ fontWeight: 500 }}>{card.type}</span>
+          <Tooltip title={card.uuid}>
+            <Typography.Text code style={{ fontSize: 11 }}>
+              {card.uuid.length > 18 ? card.uuid.slice(0, 18) + '…' : card.uuid}
+            </Typography.Text>
+          </Tooltip>
+          {healthy ? (
+            <Tag color="success">
+              {intl.formatMessage({ id: 'pages.gpu.node.devices.health.ok' })}
+            </Tag>
+          ) : (
+            <Tag color="error">
+              {intl.formatMessage({ id: 'pages.gpu.node.devices.health.bad' })}
+            </Tag>
+          )}
+          {card.numa >= 0 && (
+            <Tag>NUMA {card.numa}</Tag>
+          )}
+        </Space>
+      }
+    >
+      <Row gutter={16} style={{ marginBottom: 8 }}>
+        <Col xs={24} md={8}>
+          <Typography.Text type="secondary">
+            {intl.formatMessage({ id: 'pages.gpu.card.slots' })}
+          </Typography.Text>
+          <Progress
+            percent={slotPct}
+            size="small"
+            format={() => `${card.usedSlots} / ${card.slots}`}
+          />
+        </Col>
+        <Col xs={24} md={8}>
+          <Typography.Text type="secondary">
+            {intl.formatMessage({ id: 'pages.gpu.card.memory' })}
+          </Typography.Text>
+          <Progress
+            percent={memPct}
+            size="small"
+            format={() => `${formatMB(card.usedMem)} / ${formatMB(card.devmem)}`}
+          />
+        </Col>
+        <Col xs={24} md={8}>
+          <Typography.Text type="secondary">
+            {intl.formatMessage({ id: 'pages.gpu.card.cores' })}
+          </Typography.Text>
+          <Progress
+            percent={corePct}
+            size="small"
+            format={() => `${card.usedCores}% / ${card.devcore}%`}
+          />
+        </Col>
+      </Row>
       {pods.length === 0 ? (
         <Typography.Text type="secondary">
-          {intl.formatMessage({ id: 'pages.gpu.node.pods.empty' })}
+          {intl.formatMessage({ id: 'pages.gpu.card.idle' })}
         </Typography.Text>
       ) : (
         <Table
@@ -412,31 +494,18 @@ const NodeCard: React.FC<{ node: GPUNodeSummary }> = ({ node }) => {
               dataIndex: 'name',
             },
             {
-              title: intl.formatMessage({ id: 'pages.gpu.node.pods.phase' }),
-              dataIndex: 'phase',
-              width: 100,
-              render: (v: string) => <Tag>{v}</Tag>,
-            },
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.node.pods.gpu' }),
-              key: 'gpu',
-              width: 80,
-              align: 'right',
-              render: (_, r) => r.requests[RES_GPU] ?? 0,
-            },
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.node.pods.gpumem' }),
-              key: 'gpumem',
+              title: intl.formatMessage({ id: 'pages.gpu.card.podMem' }),
+              dataIndex: 'mem',
               width: 120,
               align: 'right',
-              render: (_, r) => formatMB(r.requests[RES_GPUMEM] ?? 0),
+              render: (v: number) => formatMB(v),
             },
             {
-              title: intl.formatMessage({ id: 'pages.gpu.node.pods.gpucores' }),
-              key: 'gpucores',
+              title: intl.formatMessage({ id: 'pages.gpu.card.podCores' }),
+              dataIndex: 'cores',
               width: 100,
               align: 'right',
-              render: (_, r) => `${r.requests[RES_GPUCORES] ?? 0}%`,
+              render: (v: number) => `${v}%`,
             },
           ]}
         />
