@@ -35,8 +35,11 @@ export default {
   // instances browser even though it's hideInMenu: true.
   'menu.clusters.extensions.crds.crInstances': 'CR Instances',
   'menu.clusters.plugins': 'Plugins',
-  'menu.clusters.gpu': 'GPU',
-  'menu.clusters.models': 'Models',
+  // AI Compute group: GPU + Model serving. Parent is a virtual menu
+  // node (no route); children own the actual pages.
+  'menu.clusters.compute': 'AI Compute',
+  'menu.clusters.compute.gpu': 'GPU',
+  'menu.clusters.compute.models': 'Models',
   'menu.clusters.monitoring': 'Monitoring',
   'menu.clusters.logging': 'Logging',
 };

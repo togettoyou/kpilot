@@ -184,13 +184,22 @@ status:
 - **Server 侧 dashboard overlay**（`pkg/server/dashboards/`）：Grafana 的两个内置 dashboard JSON（NodeExporterFull ~660KB / VictoriaLogs Explorer ~30KB）通过 `//go:embed` 编译进 Server 二进制，在 `BuildEnableCommand` 里 deep-merge 到 Grafana plugin 的 values（仅 Grafana 走这条路径）。**没塞进 default_values** 因为 700KB 会让 EnableDrawer 的 CodeMirror 卡死；用户 values 优先级高，可以覆盖任意 dashboard
 - **Reconcile-on-Watch 防抖**（`pkg/worker/plugin/reconciler.go::reconcileTriggerPredicate`）：controller-runtime watch 加了 predicate，只有 spec generation 变化、Create、Delete、新设 DeletionTimestamp 才触发 Reconcile。status-only 写入和 finalizer add/remove 不触发——避开了"reconcile 自己写 status → 触发自己 → cache 没同步 → race"的 install-then-immediate-upgrade bug
 
-### 5. GPU 管理
-- 依赖 HAMI 插件
-- 管理 vGPU 分配，查看 GPU 使用详情（已分配/总量算力、显存）
+### 5. 智算（GPU + 模型服务）
+集群详情菜单下挂一个 `智算` 父分组（i18n key `menu.clusters.compute`，无路由 / 仅 sider 展开），下面两项都做完才算完整闭环：
 
-### 6. 模型管理
-- LLM 部署管理（创建/查看/删除推理服务）
-- 后续结合 KServe
+#### 5.1 GPU 中心
+- 路由 `/clusters/:id/gpu`，依赖 HAMI 插件（监控页同款 dep-check 套路）
+- **集群级 KPI**：总 GPU 数 / 已分配 / 空闲 / 型号分布
+- **节点维度卡片**：GPU 型号、物理卡数、总显存、已分配 / 可用、vGPU 切分情况、被哪个 Pod 占用
+- 数据来源：`NodeInfo.labels` 已经在 P2 推上来，HAMI 写的 `nvidia.com/gpu.product` / `nvidia.com/gpu.memory` 直接解析；占用情况 list pods 累加 `nvidia.com/gpu` request
+- **GPU 监控 dashboard**（5b）：内置插件 `dcgm-exporter`（NVIDIA 官方）+ "NVIDIA DCGM Full" 社区 dashboard，跟 P6 监控页同样模式（`GrafanaEmbed` 复用）
+
+#### 5.2 模型服务
+- 路由 `/clusters/:id/models`（集群侧）+ `/models`（全局仓库）
+- **全局模型仓库**：`Model` 表（name / runtime=`vllm|sglang|tgi` / image / default_args / recommended_gpu）。内置预设若干（Qwen / DeepSeek / Llama 等）
+- **集群侧推理部署**：选模型 + 选 GPU 数 + 副本数 → 后端拼 Deployment + Service manifest → SSA 到集群。可选启用 KPilot 反代（路径 `/api/v1/clusters/:id/proxy/inference/<deploy-name>`）暴露 OpenAI-compat API
+- **内置测试 chat**：抽屉打开简易 chat UI → 调部署好的 endpoint → 流式返回。验证 + 演示用
+- 不上 KServe（Knative 依赖太重），直接 Deployment + Service。等核心稳了再考虑作为高级模式可选
 
 ### 7. 监控中心 / 日志中心
 两个页面共享 `web/src/components/GrafanaEmbed/`，区别只在依赖列表 + dashboard UID + i18n 前缀。
@@ -524,6 +533,12 @@ web/src/
 | P2 | 集群管理 UI + 节点概览（Worker 采集上报） | ✅ 完成 |
 | P3 | 工作负载管理（CRUD 代理 + 通用 Apply YAML + Describe + Pod 日志/终端 + 全局命名空间选择器 + Pod 日志客户端 grep） | ✅ 完成 |
 | P4 | 插件系统（Plugin CRD + Helm SDK + Server 注册表 + 集群启用/禁用 + 状态同步 + 4 个内置插件） | ✅ 完成 |
-| P5 | GPU 管理（HAMI 集成） | 待开始 |
 | P6 | 监控中心 + 日志中心（Grafana iframe + auth.proxy + HTTP/WS 反代 + 内置 dashboard overlay） | ✅ 完成 |
-| P7 | 模型管理（LLM + KServe） | 待开始 ← 下一步 |
+| P5a | GPU 中心：节点维度看板（GPU 型号 / 切分 / 占用，依赖 HAMI） | 待开始 ← 下一步 |
+| P5b | GPU 监控：DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard | 待开始 |
+| P7a | 模型仓库 + 内置预设（Qwen / DeepSeek / Llama 等 vLLM 启动模板） | 待开始 |
+| P7b | 集群侧推理部署 + 内置测试 chat + 可选反代 endpoint | 待开始 |
+
+P5a/b + P7a/b 整套合起来约两周量，做完 KPilot 在产品上算完成「智算平台 v1」的闭环——装好 → 看到 GPU → 部署模型 → 试聊 → 看监控。
+
+后续可拓展但不阻塞 v1：跨集群算力联邦、模型版本灰度、租户配额、计费 / GPU-hour 统计、训练任务支持。

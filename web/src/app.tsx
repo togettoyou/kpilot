@@ -162,16 +162,25 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       icon: <AppstoreAddOutlined />,
     },
     {
-      path: `${base}/gpu`,
-      name: 'gpu',
+      // Virtual parent — no route, just a sider grouping for the
+      // GPU + model subtree. Children render as expandable items.
+      path: `${base}/compute`,
+      name: 'compute',
       icon: <ThunderboltOutlined />,
-      disabled: true,
-    },
-    {
-      path: `${base}/models`,
-      name: 'models',
-      icon: <BulbOutlined />,
-      disabled: true,
+      children: [
+        {
+          path: `${base}/gpu`,
+          name: 'gpu',
+          icon: <ThunderboltOutlined />,
+          disabled: true,
+        },
+        {
+          path: `${base}/models`,
+          name: 'models',
+          icon: <BulbOutlined />,
+          disabled: true,
+        },
+      ],
     },
     {
       path: `${base}/monitoring`,

@@ -35,8 +35,11 @@ export default {
   // instances browser even though it's hideInMenu: true.
   'menu.clusters.extensions.crds.crInstances': 'CR 实例',
   'menu.clusters.plugins': '插件',
-  'menu.clusters.gpu': 'GPU',
-  'menu.clusters.models': '模型',
+  // 智算 = GPU + Model serving group. Parent is a virtual menu node
+  // (no route); children own the actual pages.
+  'menu.clusters.compute': '智算',
+  'menu.clusters.compute.gpu': 'GPU',
+  'menu.clusters.compute.models': '模型',
   'menu.clusters.monitoring': '监控',
   'menu.clusters.logging': '日志',
 };
