@@ -243,7 +243,11 @@ export const layout: RunTimeLayoutConfig = ({
     layout: 'mix',
     splitMenus: true,
     suppressSiderWhenMenuEmpty: true,
-    siderWidth: 208,
+    // 220 not 208 (ProLayout default) — minor bump to keep three-level
+    // nesting (扩展 → DRA → ResourceClaims etc.) from clipping the
+    // English kind names without making the main content area noticeably
+    // narrower.
+    siderWidth: 220,
     logo: '/logo.svg',
     actionsRender: () => [
       <NamespacePicker key="ns" />,

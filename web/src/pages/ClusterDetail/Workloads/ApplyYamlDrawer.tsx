@@ -349,7 +349,7 @@ reclaimPolicy: Delete
   // DRA — v1beta1 is served on K8s 1.32+; v1 only stable in 1.34. Driver
   // name and DeviceClass are placeholders — real values come from the
   // DRA driver running on the node (e.g. `gpu.nvidia.com`).
-  resourceclaims: `apiVersion: resource.k8s.io/v1beta1
+  resourceclaims: `apiVersion: resource.k8s.io/v1
 kind: ResourceClaim
 metadata:
   name: example
@@ -360,7 +360,7 @@ spec:
       - name: gpu
         deviceClassName: gpu.example.com
 `,
-  resourceclaimtemplates: `apiVersion: resource.k8s.io/v1beta1
+  resourceclaimtemplates: `apiVersion: resource.k8s.io/v1
 kind: ResourceClaimTemplate
 metadata:
   name: example
@@ -372,7 +372,7 @@ spec:
         - name: gpu
           deviceClassName: gpu.example.com
 `,
-  deviceclasses: `apiVersion: resource.k8s.io/v1beta1
+  deviceclasses: `apiVersion: resource.k8s.io/v1
 kind: DeviceClass
 metadata:
   name: example.gpu.example.com
@@ -383,7 +383,7 @@ spec:
 `,
   // ResourceSlices are normally published by a DRA driver DaemonSet —
   // manual creation is rare, mostly useful for debugging the scheduler.
-  resourceslices: `apiVersion: resource.k8s.io/v1beta1
+  resourceslices: `apiVersion: resource.k8s.io/v1
 kind: ResourceSlice
 metadata:
   name: node-0-gpu
