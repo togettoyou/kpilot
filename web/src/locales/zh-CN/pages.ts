@@ -13,6 +13,46 @@ export default {
   'pages.embed.openFullscreen.tooltip':
     '在新标签页全屏打开 Grafana,便于多面板展开浏览',
 
+  // GPU center (deps: HAMI plugin)
+  'pages.gpu.title': 'GPU 概览',
+  'pages.gpu.cta.goPlugins': '前往插件管理',
+  'pages.gpu.cta.refresh': '刷新',
+  'pages.gpu.missing.title': 'GPU 中心需要先启用 HAMi 插件',
+  'pages.gpu.missing.subTitle':
+    'HAMi 提供 vGPU 切分能力,启用并部署到 GPU 节点后,这里会展示算力 / 显存 / 切分明细。',
+  'pages.gpu.installing.title': 'HAMi 正在安装',
+  'pages.gpu.installing.subTitle':
+    '安装一般需要 1-2 分钟,本页会自动每 5 秒刷新;完成后会自动加载 GPU 数据。',
+  'pages.gpu.failed.title': 'HAMi 插件安装失败',
+  'pages.gpu.failed.subTitle':
+    '请前往插件页查看错误详情并重新启用,或调整 values 后重试。',
+  'pages.gpu.empty':
+    '集群里没有检测到 GPU 节点。HAMi 已就绪,但 GPU 节点可能还未上线或没有打到调度器视野里。',
+  'pages.gpu.kpi.nodes': 'GPU 节点',
+  'pages.gpu.kpi.cards': '物理卡数',
+  'pages.gpu.kpi.vgpuUsage': 'vGPU 使用',
+  'pages.gpu.kpi.memUsage': '显存使用',
+  'pages.gpu.node.slots': 'vGPU 切片占用',
+  'pages.gpu.node.memory': '显存占用',
+  'pages.gpu.node.devices': '物理卡明细',
+  'pages.gpu.node.devices.type': '型号',
+  'pages.gpu.node.devices.id': 'UUID',
+  'pages.gpu.node.devices.slots': '切片数',
+  'pages.gpu.node.devices.memory': '显存',
+  'pages.gpu.node.devices.cores': '算力',
+  'pages.gpu.node.devices.numa': 'NUMA',
+  'pages.gpu.node.devices.health': '健康',
+  'pages.gpu.node.devices.health.ok': '正常',
+  'pages.gpu.node.devices.health.bad': '异常',
+  'pages.gpu.node.pods': '使用中的 Pod',
+  'pages.gpu.node.pods.empty': '当前没有 Pod 在该节点占用 GPU 资源',
+  'pages.gpu.node.pods.namespace': '命名空间',
+  'pages.gpu.node.pods.name': '名称',
+  'pages.gpu.node.pods.phase': '状态',
+  'pages.gpu.node.pods.gpu': 'GPU 切片',
+  'pages.gpu.node.pods.gpumem': '显存',
+  'pages.gpu.node.pods.gpucores': '算力',
+
   // monitoring page (deps: grafana + victoria-metrics, dashboard: NodeExporterFull)
   'pages.monitoring.missing.title': '监控所需的内置插件尚未启用',
   'pages.monitoring.missing.subTitle':

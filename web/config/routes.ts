@@ -44,6 +44,10 @@ export default [
         component: './ClusterDetail/Plugins/index',
       },
       {
+        path: '/clusters/:id/gpu',
+        component: './ClusterDetail/GPU/index',
+      },
+      {
         path: '/clusters/:id/monitoring',
         component: './ClusterDetail/Monitoring/index',
       },

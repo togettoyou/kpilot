@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/describe"
 
@@ -42,6 +43,7 @@ type Proxy struct {
 	cfg        *rest.Config
 	httpClient *http.Client // reused for Table API list requests
 	dyn        dynamic.Interface
+	clientset  kubernetes.Interface // typed client used by gpu-summary
 	mapper     apimeta.RESTMapper
 	sendFn     func(requestID string, resp *proto.ResourceResponse)
 }
@@ -78,13 +80,24 @@ func New(cfg *rest.Config, mapper apimeta.RESTMapper, sendFn func(string, *proto
 	if err != nil {
 		return nil, fmt.Errorf("dynamic client: %w", err)
 	}
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("clientset: %w", err)
+	}
 	// rest.HTTPClientFor builds an *http.Client with the TLS/auth transport
 	// from the rest.Config (bearer token, client cert, CA, etc.).
 	httpClient, err := rest.HTTPClientFor(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("http client: %w", err)
 	}
-	return &Proxy{cfg: cfg, httpClient: httpClient, dyn: dyn, mapper: mapper, sendFn: sendFn}, nil
+	return &Proxy{
+		cfg:        cfg,
+		httpClient: httpClient,
+		dyn:        dyn,
+		clientset:  clientset,
+		mapper:     mapper,
+		sendFn:     sendFn,
+	}, nil
 }
 
 // Handle satisfies the tunnel.Client.SetResourceHandler signature.
@@ -97,6 +110,12 @@ func (p *Proxy) Handle(requestID string, req *proto.ResourceRequest) {
 }
 
 func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.ResourceResponse {
+	// Special-case actions that don't bind to a single GVK and so don't
+	// need (and would error on) the RESTMapping lookup below.
+	if req.Action == "gpu-summary" {
+		return p.gpuSummary(ctx)
+	}
+
 	gvk := schema.GroupVersionKind{
 		Group:   req.Group,
 		Version: req.Version,

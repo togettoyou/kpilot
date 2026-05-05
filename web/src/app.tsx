@@ -172,7 +172,6 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
           path: `${base}/gpu`,
           name: 'gpu',
           icon: <ThunderboltOutlined />,
-          disabled: true,
         },
         {
           path: `${base}/models`,

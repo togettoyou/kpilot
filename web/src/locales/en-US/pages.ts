@@ -11,6 +11,46 @@ export default {
   'pages.embed.openFullscreen.tooltip':
     'Open Grafana fullscreen in a new tab for a wider dashboard view.',
 
+  // GPU center (deps: HAMI plugin)
+  'pages.gpu.title': 'GPU Overview',
+  'pages.gpu.cta.goPlugins': 'Go to plugins',
+  'pages.gpu.cta.refresh': 'Refresh',
+  'pages.gpu.missing.title': 'GPU center needs the HAMi plugin enabled',
+  'pages.gpu.missing.subTitle':
+    'HAMi provides vGPU slicing. Enable it and roll it out to the GPU nodes; this page will then show compute / memory / slot detail.',
+  'pages.gpu.installing.title': 'HAMi is installing',
+  'pages.gpu.installing.subTitle':
+    'Install usually takes 1-2 minutes; this page auto-refreshes every 5 seconds and loads GPU data once it completes.',
+  'pages.gpu.failed.title': 'HAMi failed to install',
+  'pages.gpu.failed.subTitle':
+    'Open the plugins page to inspect the error and re-enable, or tweak values and retry.',
+  'pages.gpu.empty':
+    'No GPU nodes detected in the cluster. HAMi is ready, but GPU nodes may not have joined or registered with the scheduler yet.',
+  'pages.gpu.kpi.nodes': 'GPU Nodes',
+  'pages.gpu.kpi.cards': 'Physical Cards',
+  'pages.gpu.kpi.vgpuUsage': 'vGPU Usage',
+  'pages.gpu.kpi.memUsage': 'Memory Usage',
+  'pages.gpu.node.slots': 'vGPU slot usage',
+  'pages.gpu.node.memory': 'Memory usage',
+  'pages.gpu.node.devices': 'Physical cards',
+  'pages.gpu.node.devices.type': 'Model',
+  'pages.gpu.node.devices.id': 'UUID',
+  'pages.gpu.node.devices.slots': 'Slots',
+  'pages.gpu.node.devices.memory': 'Memory',
+  'pages.gpu.node.devices.cores': 'Cores',
+  'pages.gpu.node.devices.numa': 'NUMA',
+  'pages.gpu.node.devices.health': 'Health',
+  'pages.gpu.node.devices.health.ok': 'OK',
+  'pages.gpu.node.devices.health.bad': 'Failed',
+  'pages.gpu.node.pods': 'Pods using GPU',
+  'pages.gpu.node.pods.empty': 'No pod currently holds GPU resources on this node',
+  'pages.gpu.node.pods.namespace': 'Namespace',
+  'pages.gpu.node.pods.name': 'Name',
+  'pages.gpu.node.pods.phase': 'Phase',
+  'pages.gpu.node.pods.gpu': 'GPU slots',
+  'pages.gpu.node.pods.gpumem': 'Memory',
+  'pages.gpu.node.pods.gpucores': 'Cores',
+
   // monitoring page (deps: grafana + victoria-metrics, dashboard: NodeExporterFull)
   'pages.monitoring.missing.title': 'Monitoring plugins are not enabled yet',
   'pages.monitoring.missing.subTitle':
