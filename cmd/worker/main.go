@@ -87,16 +87,22 @@ func main() {
 		}
 		tunnelClient.SetOnConnected(nc.Sync)
 
+		// One typed clientset shared by everyone who needs one: the
+		// snapshot informer cache, Pod logs, and Pod exec. Building
+		// three of these (one per consumer) wastes connection pools
+		// on the same kube-apiserver target — they don't share an
+		// underlying http.Transport even with identical configs.
+		clientset, err := kubernetes.NewForConfig(k8sCfg)
+		if err != nil {
+			log.Fatalf("[worker] failed to create clientset: %v", err)
+		}
+
 		// Snapshot cache for cluster-wide Node + Pod reads (used by the
 		// GPU summary endpoint and any future bulk-read action). Wait
 		// for initial sync before constructing the proxy so a request
 		// arriving immediately after register doesn't hit an empty
 		// cache and report "no GPU nodes".
-		clientsetForCache, err := kubernetes.NewForConfig(k8sCfg)
-		if err != nil {
-			log.Fatalf("[worker] failed to create clientset for snapshot: %v", err)
-		}
-		snap, err := snapshot.New(clientsetForCache, ctx.Done())
+		snap, err := snapshot.New(clientset, ctx.Done())
 		if err != nil {
 			log.Fatalf("[worker] snapshot init: %v", err)
 		}
@@ -118,11 +124,6 @@ func main() {
 		wsMgr := proxy.NewWSManager(tunnelClient)
 		tunnelClient.SetWSHandlers(wsMgr.Start, wsMgr.Frame, wsMgr.End)
 
-		// Streaming sessions (Pod logs / Exec) need a typed clientset.
-		clientset, err := kubernetes.NewForConfig(k8sCfg)
-		if err != nil {
-			log.Fatalf("[worker] failed to create clientset: %v", err)
-		}
 		logsMgr := proxy.NewLogsManager(clientset, tunnelClient)
 		execMgr := proxy.NewExecManager(k8sCfg, clientset, tunnelClient)
 		tunnelClient.SetStreamHandlers(

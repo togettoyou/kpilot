@@ -1,10 +1,10 @@
 import { useIntl } from '@umijs/max';
-import { Col, Descriptions, Drawer, Progress, Row, Space, Table, Tag, Typography } from 'antd';
+import { Descriptions, Drawer, Space, Tag, Typography } from 'antd';
 import React from 'react';
 
 import type { GPUCardSummary } from '@/services/kpilot/gpu';
 
-import { formatMB } from '../format';
+import CardBody from '../CardBody';
 
 interface Props {
   card: GPUCardSummary | null;
@@ -19,10 +19,6 @@ interface Props {
 const CardDetailDrawer: React.FC<Props> = ({ card, nodeName, open, onClose }) => {
   const intl = useIntl();
   if (!card) return null;
-  const memPct = card.devmem > 0 ? Math.round((card.usedMem / card.devmem) * 100) : 0;
-  const corePct = card.devcore > 0 ? Math.round((card.usedCores / card.devcore) * 100) : 0;
-  const slotPct = card.slots > 0 ? Math.round((card.usedSlots / card.slots) * 100) : 0;
-  const pods = card.pods ?? [];
 
   return (
     <Drawer
@@ -45,6 +41,11 @@ const CardDetailDrawer: React.FC<Props> = ({ card, nodeName, open, onClose }) =>
       maskClosable={false}
       size="large"
     >
+      {/* The drawer adds its own context (UUID copy / node / NUMA) on
+          top of the shared CardBody — useful here because the user
+          opened this drawer from a flat list and needs to know which
+          node the card belongs to. NodeDetailDrawer doesn't need the
+          extra context (already inside a node card). */}
       <Descriptions
         column={1}
         size="small"
@@ -65,71 +66,7 @@ const CardDetailDrawer: React.FC<Props> = ({ card, nodeName, open, onClose }) =>
           },
         ]}
       />
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col xs={24} md={8}>
-          <Typography.Text type="secondary">
-            {intl.formatMessage({ id: 'pages.gpu.card.slots' })}
-          </Typography.Text>
-          <Progress percent={slotPct} format={() => `${card.usedSlots} / ${card.slots}`} />
-        </Col>
-        <Col xs={24} md={8}>
-          <Typography.Text type="secondary">
-            {intl.formatMessage({ id: 'pages.gpu.card.memory' })}
-          </Typography.Text>
-          <Progress
-            percent={memPct}
-            format={() => `${formatMB(card.usedMem)} / ${formatMB(card.devmem)}`}
-          />
-        </Col>
-        <Col xs={24} md={8}>
-          <Typography.Text type="secondary">
-            {intl.formatMessage({ id: 'pages.gpu.card.cores' })}
-          </Typography.Text>
-          <Progress
-            percent={corePct}
-            format={() => `${card.usedCores}% / ${card.devcore}%`}
-          />
-        </Col>
-      </Row>
-      <Typography.Title level={5}>
-        {intl.formatMessage({ id: 'pages.gpu.node.pods' })}
-      </Typography.Title>
-      {pods.length === 0 ? (
-        <Typography.Text type="secondary">
-          {intl.formatMessage({ id: 'pages.gpu.card.idle' })}
-        </Typography.Text>
-      ) : (
-        <Table
-          size="small"
-          rowKey={(r) => `${r.namespace}/${r.name}`}
-          pagination={false}
-          dataSource={pods}
-          columns={[
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.node.pods.namespace' }),
-              dataIndex: 'namespace',
-            },
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.node.pods.name' }),
-              dataIndex: 'name',
-            },
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.card.podMem' }),
-              dataIndex: 'mem',
-              width: 120,
-              align: 'right',
-              render: (v: number) => formatMB(v),
-            },
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.card.podCores' }),
-              dataIndex: 'cores',
-              width: 100,
-              align: 'right',
-              render: (v: number) => `${v}%`,
-            },
-          ]}
-        />
-      )}
+      <CardBody card={card} />
     </Drawer>
   );
 };

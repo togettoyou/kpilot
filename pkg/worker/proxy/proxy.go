@@ -18,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/describe"
 
@@ -44,7 +43,6 @@ type Proxy struct {
 	cfg        *rest.Config
 	httpClient *http.Client // reused for Table API list requests
 	dyn        dynamic.Interface
-	clientset  kubernetes.Interface // typed client (still used for raw API calls)
 	// snap is the lister-backed cache used for actions that read the
 	// whole-cluster Node/Pod state on every request (e.g. gpu-summary).
 	// Workload list/get etc. still go through the dynamic client + Table
@@ -95,10 +93,6 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("dynamic client: %w", err)
 	}
-	clientset, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("clientset: %w", err)
-	}
 	// rest.HTTPClientFor builds an *http.Client with the TLS/auth transport
 	// from the rest.Config (bearer token, client cert, CA, etc.).
 	httpClient, err := rest.HTTPClientFor(cfg)
@@ -109,7 +103,6 @@ func New(
 		cfg:        cfg,
 		httpClient: httpClient,
 		dyn:        dyn,
-		clientset:  clientset,
 		snap:       snap,
 		mapper:     mapper,
 		sendFn:     sendFn,

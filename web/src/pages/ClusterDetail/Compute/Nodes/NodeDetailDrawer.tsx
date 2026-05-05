@@ -4,6 +4,7 @@ import React from 'react';
 
 import type { GPUCardSummary, GPUNodeSummary } from '@/services/kpilot/gpu';
 
+import CardBody from '../CardBody';
 import { formatMB, RES_GPU, RES_GPUMEM } from '../format';
 
 interface Props {
@@ -107,13 +108,11 @@ const NodeDetailDrawer: React.FC<Props> = ({ node, open, onClose }) => {
   );
 };
 
+// CardDetail wraps the shared CardBody with the per-card chrome used
+// inside the Node detail drawer (compact title row + small Progress
+// bars; many cards stacked together).
 const CardDetail: React.FC<{ card: GPUCardSummary }> = ({ card }) => {
   const intl = useIntl();
-  const memPct = card.devmem > 0 ? Math.round((card.usedMem / card.devmem) * 100) : 0;
-  const corePct = card.devcore > 0 ? Math.round((card.usedCores / card.devcore) * 100) : 0;
-  const slotPct = card.slots > 0 ? Math.round((card.usedSlots / card.slots) * 100) : 0;
-  const pods = card.pods ?? [];
-
   return (
     <Card
       type="inner"
@@ -139,70 +138,7 @@ const CardDetail: React.FC<{ card: GPUCardSummary }> = ({ card }) => {
         </Space>
       }
     >
-      <Row gutter={16} style={{ marginBottom: 8 }}>
-        <Col xs={24} md={8}>
-          <Typography.Text type="secondary">
-            {intl.formatMessage({ id: 'pages.gpu.card.slots' })}
-          </Typography.Text>
-          <Progress percent={slotPct} size="small" format={() => `${card.usedSlots} / ${card.slots}`} />
-        </Col>
-        <Col xs={24} md={8}>
-          <Typography.Text type="secondary">
-            {intl.formatMessage({ id: 'pages.gpu.card.memory' })}
-          </Typography.Text>
-          <Progress
-            percent={memPct}
-            size="small"
-            format={() => `${formatMB(card.usedMem)} / ${formatMB(card.devmem)}`}
-          />
-        </Col>
-        <Col xs={24} md={8}>
-          <Typography.Text type="secondary">
-            {intl.formatMessage({ id: 'pages.gpu.card.cores' })}
-          </Typography.Text>
-          <Progress
-            percent={corePct}
-            size="small"
-            format={() => `${card.usedCores}% / ${card.devcore}%`}
-          />
-        </Col>
-      </Row>
-      {pods.length === 0 ? (
-        <Typography.Text type="secondary">
-          {intl.formatMessage({ id: 'pages.gpu.card.idle' })}
-        </Typography.Text>
-      ) : (
-        <Table
-          size="small"
-          rowKey={(r) => `${r.namespace}/${r.name}`}
-          pagination={false}
-          dataSource={pods}
-          columns={[
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.node.pods.namespace' }),
-              dataIndex: 'namespace',
-            },
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.node.pods.name' }),
-              dataIndex: 'name',
-            },
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.card.podMem' }),
-              dataIndex: 'mem',
-              width: 120,
-              align: 'right',
-              render: (v: number) => formatMB(v),
-            },
-            {
-              title: intl.formatMessage({ id: 'pages.gpu.card.podCores' }),
-              dataIndex: 'cores',
-              width: 100,
-              align: 'right',
-              render: (v: number) => `${v}%`,
-            },
-          ]}
-        />
-      )}
+      <CardBody card={card} size="small" />
     </Card>
   );
 };
