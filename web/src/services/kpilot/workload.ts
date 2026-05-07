@@ -8,7 +8,13 @@ export type WorkloadResourceType =
   | 'configmaps' | 'secrets'
   | 'persistentvolumeclaims' | 'persistentvolumes' | 'storageclasses'
   | 'resourceclaims' | 'resourceclaimtemplates' | 'deviceclasses' | 'resourceslices'
-  | 'customresourcedefinitions';
+  | 'customresourcedefinitions'
+  // `nodes` is accessed by the dedicated /clusters/:id/nodes page,
+  // not the Workloads index page (Workloads VALID_TYPES set doesn't
+  // include it, so /workloads/nodes URL still redirects). Listed here
+  // so DescribeDrawer / describeWorkload can be reused for Node
+  // describe text without a parallel service.
+  | 'nodes';
 
 // Cluster-scoped workload kinds — no metadata.namespace, so the global
 // namespace picker hides itself and the table omits the namespace column
@@ -21,6 +27,7 @@ export const CLUSTER_SCOPED_TYPES = new Set<WorkloadResourceType>([
   'deviceclasses',
   'resourceslices',
   'customresourcedefinitions',
+  'nodes',
 ]);
 
 // CRD names matching this regex (everything ending in .kpilot.io) are

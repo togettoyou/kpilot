@@ -53,7 +53,11 @@ interface ApplyYamlDrawerProps {
 // the pod's prometheus.io scrape annotations, applying any of these
 // templates produces metrics in the VM UI within 15 s. Image is on
 // Docker Hub, the most reliably reachable registry from CN networks.
-const TEMPLATES: Record<WorkloadResourceType, string> = {
+// Partial — types that don't ship a starter template (e.g. `nodes`,
+// which is blocked from Apply YAML server-side anyway) are intentionally
+// missing. Lookups for those return undefined and the editor opens
+// empty, same as the CR-instances form.
+const TEMPLATES: Partial<Record<WorkloadResourceType, string>> = {
   deployments: `apiVersion: apps/v1
 kind: Deployment
 metadata:

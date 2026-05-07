@@ -21,6 +21,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { cordonNode, listNodes } from '@/services/kpilot/node';
 
+import { DescribeDrawer } from '../Workloads/DescribeDrawer';
 import NodeDetailDrawer from './NodeDetailDrawer';
 import NodeYamlDrawer from './NodeYamlDrawer';
 
@@ -172,7 +173,12 @@ export default function NodesPage() {
     return () => clearInterval(timer);
   }, [pollingInterval, refresh]);
 
-  const [active, setActive] = useState<{ name: string; mode: 'detail' | 'yaml' } | null>(null);
+  // Three drawers, one at a time. `describe` is the kubectl describe
+  // text dump (consistent with the Workloads page's 详情 button);
+  // `overview` is the structured field/card view (Node-only, lives in
+  // NodeDetailDrawer); `yaml` is the read-only YAML viewer.
+  type Mode = 'describe' | 'overview' | 'yaml';
+  const [active, setActive] = useState<{ name: string; mode: Mode } | null>(null);
 
   const handleCordon = (name: string, cordoned: boolean) => {
     const next = !cordoned;
@@ -285,7 +291,7 @@ export default function NodesPage() {
           {
             title: intl.formatMessage({ id: 'pages.nodes.col.action' }),
             key: 'action',
-            width: 220,
+            width: 280,
             fixed: 'right',
             render: (_, r) => {
               const status =
@@ -296,9 +302,16 @@ export default function NodesPage() {
                   <Button
                     type="link"
                     size="small"
-                    onClick={() => setActive({ name: r.name, mode: 'detail' })}
+                    onClick={() => setActive({ name: r.name, mode: 'describe' })}
                   >
-                    {intl.formatMessage({ id: 'pages.nodes.action.detail' })}
+                    {intl.formatMessage({ id: 'pages.nodes.action.describe' })}
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => setActive({ name: r.name, mode: 'overview' })}
+                  >
+                    {intl.formatMessage({ id: 'pages.nodes.action.overview' })}
                   </Button>
                   <Button
                     type="link"
@@ -352,10 +365,18 @@ export default function NodesPage() {
           />
         </div>
       )}
+      <DescribeDrawer
+        clusterId={clusterId!}
+        resourceType="nodes"
+        name={active?.mode === 'describe' ? active.name : ''}
+        namespace=""
+        open={active?.mode === 'describe'}
+        onClose={() => setActive(null)}
+      />
       <NodeDetailDrawer
         clusterId={clusterId!}
-        name={active?.mode === 'detail' ? active.name : null}
-        open={active?.mode === 'detail'}
+        name={active?.mode === 'overview' ? active.name : null}
+        open={active?.mode === 'overview'}
         onClose={() => setActive(null)}
       />
       <NodeYamlDrawer
