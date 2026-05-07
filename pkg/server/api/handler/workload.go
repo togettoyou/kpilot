@@ -469,8 +469,7 @@ func validateDoc(idx int, obj *unstructured.Unstructured) (ApplyYamlResult, bool
 	}
 	// All write protections gate on the resolved GVK (apiVersion + kind
 	// from the unstructured doc), never on the URL :type — same
-	// principle as the per-row handlers.
-	gvk := obj.GroupVersionKind()
+	// principle as the per-row handlers. (gvk declared above.)
 	if isProtectedCRDDefinitionGVK(gvkInfo{group: gvk.Group, version: gvk.Version, kind: gvk.Kind}, r.Name) {
 		r.Error = "CRD " + r.Name + " is owned by kpilot and read-only"
 		return r, false
