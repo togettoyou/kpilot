@@ -1,9 +1,13 @@
+import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { Descriptions, Empty, Space, Spin, Tag, Typography } from 'antd';
-import React, { useMemo } from 'react';
+import { App, Button, Modal, Space, Tag, Typography } from 'antd';
+import React, { useMemo, useState } from 'react';
 
-import { getNode, listNodes } from '@/services/kpilot/node';
+import { cordonNode, listNodes } from '@/services/kpilot/node';
+
+import NodeDetailDrawer from './NodeDetailDrawer';
+import NodeYamlDrawer from './NodeYamlDrawer';
 
 const { Text } = Typography;
 
@@ -12,10 +16,24 @@ interface NodeRow {
   cells: any[];
 }
 
+// Map kubectl Table column names → our i18n keys. K8s Table API
+// returns hardcoded English headers; we translate them here so zh-CN
+// users see Chinese. Same pattern as Workloads/index.tsx::COL_I18N.
+const COL_I18N: Record<string, string> = {
+  Name: 'pages.nodes.col.name',
+  Status: 'pages.nodes.col.status',
+  Roles: 'pages.nodes.col.roles',
+  Age: 'pages.nodes.col.age',
+  Version: 'pages.nodes.col.version',
+  'Internal-IP': 'pages.nodes.col.internalIp',
+  'External-IP': 'pages.nodes.col.externalIp',
+  'OS-Image': 'pages.nodes.col.osImage',
+  'Kernel-Version': 'pages.nodes.col.kernelVersion',
+  'Container-Runtime': 'pages.nodes.col.containerRuntime',
+};
+
 // renderCell maps a kubectl column to a tag/text representation.
-// kubectl's printer joins multi-state STATUS with commas (e.g.
-// "Ready,SchedulingDisabled" for cordoned nodes), and ROLES with
-// commas too — split + tag each so the row reads at a glance.
+// kubectl's printer joins multi-state STATUS / ROLES with commas.
 function renderCell(name: string, value: unknown): React.ReactNode {
   if (value === null || value === undefined || value === '' || value === '<none>') {
     return <Text type="secondary">—</Text>;
@@ -26,7 +44,10 @@ function renderCell(name: string, value: unknown): React.ReactNode {
     return (
       <Space size={4} wrap>
         {parts.map((r) => (
-          <Tag key={r} color={r === 'control-plane' || r === 'master' ? 'blue' : 'default'}>
+          <Tag
+            key={r}
+            color={r === 'control-plane' || r === 'master' ? 'blue' : 'default'}
+          >
             {r}
           </Tag>
         ))}
@@ -54,14 +75,16 @@ const StatusCell: React.FC<{ status: string }> = ({ status }) => {
 export default function NodesPage() {
   const { id: clusterId } = useParams<{ id: string }>();
   const intl = useIntl();
+  const { message, modal } = App.useApp();
 
-  const { data, loading } = useRequest(() => listNodes(clusterId!), {
+  const { data, loading, refresh } = useRequest(() => listNodes(clusterId!), {
     pollingInterval: 15_000,
     formatResult: (res) => res,
     pollingWhenHidden: false,
   });
 
   const cols = data?.columnDefinitions ?? [];
+  const statusColIdx = cols.findIndex((c) => c.name === 'Status');
   const rows: NodeRow[] = useMemo(
     () =>
       (data?.rows ?? []).map((r) => ({
@@ -70,6 +93,49 @@ export default function NodesPage() {
       })),
     [data?.rows],
   );
+
+  // active === { name, mode: 'detail' | 'yaml' } → which drawer is open.
+  // Single state instead of two booleans so opening one auto-closes the
+  // other and we don't end up with both drawers stacked at the same time.
+  const [active, setActive] = useState<{ name: string; mode: 'detail' | 'yaml' } | null>(null);
+
+  // handleCordon prompts confirm + flips spec.unschedulable. The current
+  // schedulable state is derived from the Status cell ("SchedulingDisabled"
+  // suffix kubectl appends when a node is cordoned) — saves a Get just to
+  // pick the right verb.
+  const handleCordon = (name: string, cordoned: boolean) => {
+    const next = !cordoned;
+    modal.confirm({
+      title: intl.formatMessage({
+        id: next ? 'pages.nodes.cordon.confirmTitle' : 'pages.nodes.uncordon.confirmTitle',
+      }),
+      content: intl.formatMessage(
+        {
+          id: next ? 'pages.nodes.cordon.confirmBody' : 'pages.nodes.uncordon.confirmBody',
+        },
+        { name },
+      ),
+      icon: <ExclamationCircleOutlined />,
+      okText: intl.formatMessage({
+        id: next ? 'pages.nodes.cordon.ok' : 'pages.nodes.uncordon.ok',
+      }),
+      okButtonProps: next ? { danger: true } : undefined,
+      cancelText: intl.formatMessage({ id: 'pages.nodes.cordon.cancel' }),
+      onOk: async () => {
+        try {
+          await cordonNode(clusterId!, name, next);
+          message.success(
+            intl.formatMessage({
+              id: next ? 'pages.nodes.cordon.success' : 'pages.nodes.uncordon.success',
+            }),
+          );
+          refresh();
+        } catch (e: any) {
+          message.error(String(e?.message ?? e));
+        }
+      },
+    });
+  };
 
   return (
     <div className="p-6">
@@ -89,102 +155,70 @@ export default function NodesPage() {
         search={false}
         pagination={false}
         options={{ reload: false }}
-        expandable={{
-          expandedRowRender: (record) => (
-            <NodeDetail clusterId={clusterId!} name={record.name} />
-          ),
-        }}
-        columns={cols.map((c, idx) => ({
-          title: c.name,
-          key: `col-${idx}`,
-          width: idx === 0 ? 220 : undefined,
-          render: (_, r) => renderCell(c.name, r.cells[idx]),
-        }))}
+        columns={[
+          ...cols.map((c, idx) => ({
+            title: COL_I18N[c.name]
+              ? intl.formatMessage({ id: COL_I18N[c.name] })
+              : c.name,
+            key: `col-${idx}`,
+            width: idx === 0 ? 220 : undefined,
+            render: (_: any, r: NodeRow) => renderCell(c.name, r.cells[idx]),
+          })),
+          {
+            title: intl.formatMessage({ id: 'pages.nodes.col.action' }),
+            key: 'action',
+            width: 220,
+            fixed: 'right',
+            render: (_, r) => {
+              const status =
+                statusColIdx >= 0 ? String(r.cells[statusColIdx] ?? '') : '';
+              const cordoned = status.includes('SchedulingDisabled');
+              return (
+                <Space size={4}>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => setActive({ name: r.name, mode: 'detail' })}
+                  >
+                    {intl.formatMessage({ id: 'pages.nodes.action.detail' })}
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => setActive({ name: r.name, mode: 'yaml' })}
+                  >
+                    {intl.formatMessage({ id: 'pages.nodes.action.view' })}
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    danger={!cordoned}
+                    onClick={() => handleCordon(r.name, cordoned)}
+                  >
+                    {intl.formatMessage({
+                      id: cordoned
+                        ? 'pages.nodes.action.uncordon'
+                        : 'pages.nodes.action.cordon',
+                    })}
+                  </Button>
+                </Space>
+              );
+            },
+          },
+        ]}
+      />
+      <NodeDetailDrawer
+        clusterId={clusterId!}
+        name={active?.mode === 'detail' ? active.name : null}
+        open={active?.mode === 'detail'}
+        onClose={() => setActive(null)}
+      />
+      <NodeYamlDrawer
+        clusterId={clusterId!}
+        name={active?.mode === 'yaml' ? active.name : null}
+        open={active?.mode === 'yaml'}
+        onClose={() => setActive(null)}
       />
     </div>
   );
 }
-
-// NodeDetail lazy-fetches the full Node JSON for the expand row, so
-// the list call stays cheap (cells only) and we only pay for the
-// detail when a user actually opens a row. Pod CIDR + taints +
-// labels + annotations live in spec/metadata, not in Table cells.
-const NodeDetail: React.FC<{ clusterId: string; name: string }> = ({
-  clusterId,
-  name,
-}) => {
-  const intl = useIntl();
-  const { data, loading } = useRequest(() => getNode(clusterId, name), {
-    formatResult: (res) => res,
-  });
-  if (loading) return <div className="p-4"><Spin /></div>;
-  if (!data) return <div className="p-4"><Empty /></div>;
-
-  const labels: Record<string, string> = data?.metadata?.labels ?? {};
-  const annotations: Record<string, string> = data?.metadata?.annotations ?? {};
-  const taints: { key: string; value?: string; effect: string }[] =
-    data?.spec?.taints ?? [];
-  const podCIDR: string = data?.spec?.podCIDR ?? '';
-  const unschedulable: boolean = data?.spec?.unschedulable ?? false;
-
-  return (
-    <div className="p-4 flex flex-col gap-4">
-      <Descriptions
-        size="small"
-        column={3}
-        bordered
-        items={[
-          {
-            key: 'podCIDR',
-            label: intl.formatMessage({ id: 'pages.nodes.detail.podCIDR' }),
-            children: podCIDR || '—',
-          },
-          {
-            key: 'unschedulable',
-            label: intl.formatMessage({ id: 'pages.nodes.detail.unschedulable' }),
-            children: unschedulable ? <Tag color="warning">true</Tag> : 'false',
-          },
-          {
-            key: 'taints',
-            label: intl.formatMessage({ id: 'pages.nodes.detail.taints' }),
-            children: taints.length === 0 ? (
-              '—'
-            ) : (
-              <Space size={4} wrap>
-                {taints.map((t, i) => (
-                  <Tag key={`${t.key}-${i}`}>
-                    {t.key}{t.value ? `=${t.value}` : ''}:{t.effect}
-                  </Tag>
-                ))}
-              </Space>
-            ),
-          },
-        ]}
-      />
-      <div className="grid grid-cols-2 gap-4">
-        <Descriptions
-          title="Labels"
-          size="small"
-          column={1}
-          bordered
-          items={Object.entries(labels).map(([k, v]) => ({
-            key: k,
-            label: k,
-            children: v,
-          }))}
-        />
-        <Descriptions
-          title="Annotations"
-          size="small"
-          column={1}
-          bordered
-          items={Object.entries(annotations).map(([k, v]) => ({
-            key: k,
-            label: k,
-            children: v,
-          }))}
-        />
-      </div>
-    </div>
-  );
-};
