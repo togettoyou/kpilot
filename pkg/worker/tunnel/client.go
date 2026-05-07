@@ -36,8 +36,7 @@ var ErrTokenRejected = errors.New("token rejected by server")
 type Client struct {
 	serverAddr      string
 	clusterToken    string
-	clusterDomain   string                // K8s DNS suffix reported to Server on register
-	onConnected     func(context.Context) // called in a goroutine after each successful registration
+	clusterDomain   string // K8s DNS suffix reported to Server on register
 	resourceHandler func(requestID string, req *proto.ResourceRequest)
 
 	// pluginHandler is invoked (in a new goroutine) when the Server pushes
@@ -80,12 +79,6 @@ func NewClient(serverAddr, clusterToken, clusterDomain string) *Client {
 		clusterToken:  clusterToken,
 		clusterDomain: clusterDomain,
 	}
-}
-
-// SetOnConnected registers a callback invoked (in a new goroutine) each time
-// the Worker successfully registers with the Server.
-func (c *Client) SetOnConnected(fn func(context.Context)) {
-	c.onConnected = fn
 }
 
 // SetResourceHandler registers a callback invoked (in a new goroutine) when
@@ -342,9 +335,6 @@ func (c *Client) connect(ctx context.Context) error {
 	c.stream = stream
 	c.mu.Unlock()
 
-	if c.onConnected != nil {
-		go c.onConnected(ctx)
-	}
 	defer func() {
 		c.mu.Lock()
 		c.stream = nil

@@ -60,12 +60,26 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 	}
 }
 
+// isSecureRequest returns true when the request reached the server
+// over TLS — either directly (c.Request.TLS != nil) or through a
+// reverse proxy that sets X-Forwarded-Proto=https. Used to decide
+// whether the auth cookie should carry the Secure flag: forcing
+// Secure=true on plain-HTTP localhost would prevent the cookie from
+// being sent at all on dev. Production behind HTTPS picks it up
+// automatically without needing a separate env var.
+func isSecureRequest(c *gin.Context) bool {
+	if c.Request.TLS != nil {
+		return true
+	}
+	return c.GetHeader("X-Forwarded-Proto") == "https"
+}
+
 func SetCookie(c *gin.Context, token string) {
 	c.SetSameSite(sameSite)
-	c.SetCookie(cookieName, token, int(tokenTTL.Seconds()), "/", "", false, true)
+	c.SetCookie(cookieName, token, int(tokenTTL.Seconds()), "/", "", isSecureRequest(c), true)
 }
 
 func ClearCookie(c *gin.Context) {
 	c.SetSameSite(sameSite)
-	c.SetCookie(cookieName, "", -1, "/", "", false, true)
+	c.SetCookie(cookieName, "", -1, "/", "", isSecureRequest(c), true)
 }
