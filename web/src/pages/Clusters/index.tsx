@@ -1,6 +1,9 @@
 import {
+  CheckCircleFilled,
   CheckCircleOutlined,
+  CloseCircleFilled,
   ClusterOutlined,
+  DatabaseFilled,
   DeleteOutlined,
   EditOutlined,
   KeyOutlined,
@@ -10,6 +13,7 @@ import {
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { history, useIntl, useRequest } from '@umijs/max';
+import { useThemeMode } from 'antd-style';
 import type { MenuProps } from 'antd';
 import {
   App,
@@ -106,23 +110,48 @@ interface StatTileProps {
   color: 'blue' | 'green' | 'gray';
 }
 
-const STAT_COLOR_CLASSES: Record<StatTileProps['color'], string> = {
-  blue: 'bg-blue-50 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400',
-  green: 'bg-green-50 text-green-500 dark:bg-green-900/30 dark:text-green-400',
-  gray: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+// Bubble palette is keyed off the app's theme (`useThemeMode`), not
+// Tailwind's `dark:` variant. `dark:` follows the OS `prefers-color-scheme`,
+// which decouples from the in-app theme switcher and produces dark bubbles
+// on a light page when the user runs Windows in dark mode but picks the
+// light theme inside KPilot.
+const STAT_COLOR_CLASSES: Record<
+  StatTileProps['color'],
+  { light: string; dark: string }
+> = {
+  blue: {
+    light: 'bg-blue-50 text-blue-500',
+    dark: 'bg-blue-900/30 text-blue-400',
+  },
+  green: {
+    light: 'bg-green-50 text-green-500',
+    dark: 'bg-green-900/30 text-green-400',
+  },
+  gray: {
+    light: 'bg-gray-100 text-gray-500',
+    dark: 'bg-gray-800 text-gray-400',
+  },
 };
 
 const StatTile: React.FC<StatTileProps> = ({ title, value, icon, color }) => {
+  const { isDarkMode } = useThemeMode();
+  const palette = STAT_COLOR_CLASSES[color];
   return (
     <Card>
       <div className="flex items-center gap-4">
         <div
-          className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full ${STAT_COLOR_CLASSES[color]}`}
+          className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full ${
+            isDarkMode ? palette.dark : palette.light
+          }`}
         >
           <span className="text-2xl">{icon}</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm text-gray-500 dark:text-gray-400">
+          <div
+            className={`text-sm ${
+              isDarkMode ? 'text-gray-400' : 'text-gray-500'
+            }`}
+          >
             {title}
           </div>
           <div className="mt-1 text-3xl font-semibold tabular-nums">
@@ -384,19 +413,19 @@ export default function ClustersPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <StatTile
           color="blue"
-          icon={<ClusterOutlined />}
+          icon={<DatabaseFilled />}
           title={intl.formatMessage({ id: 'pages.clusters.stats.total' })}
           value={stats.total}
         />
         <StatTile
           color="green"
-          icon={<CheckCircleOutlined />}
+          icon={<CheckCircleFilled />}
           title={intl.formatMessage({ id: 'pages.clusters.stats.online' })}
           value={stats.online}
         />
         <StatTile
           color="gray"
-          icon={<MinusCircleOutlined />}
+          icon={<CloseCircleFilled />}
           title={intl.formatMessage({ id: 'pages.clusters.stats.offline' })}
           value={stats.offline}
         />
