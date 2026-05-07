@@ -132,8 +132,9 @@ status:
   - 网络：Service / Ingress / GatewayClass / Gateway / HTTPRoute / GRPCRoute
   - 存储：PVC / PV / StorageClass
   - 配置：ConfigMap / Secret
-  - 扩展：CRD（菜单缩写「CRD」，跟 PVC/PV 同风格）
-- **集群级资源**：`CLUSTER_SCOPED_TYPES`（在 `web/src/services/kpilot/workload.ts` 共享给页面 + NamespacePicker）目前包含 `persistentvolumes` / `storageclasses` / `gatewayclasses` / `customresourcedefinitions`。这类资源命名空间列和顶部命名空间选择器都自动隐藏
+  - 扩展：CRD + DRA（DRA 是 sub-group，含 ResourceClaim / ClaimTemplate / DeviceClass / ResourceSlice）。三级嵌套吃缩进，全局 `siderWidth` 从 ProLayout 默认的 208 抬到 220 才不截字
+- **集群级资源**：`CLUSTER_SCOPED_TYPES`（在 `web/src/services/kpilot/workload.ts` 共享给页面 + NamespacePicker）目前包含 `persistentvolumes` / `storageclasses` / `gatewayclasses` / `deviceclasses` / `resourceslices` / `customresourcedefinitions`。这类资源命名空间列和顶部命名空间选择器都自动隐藏
+- **DRA（Dynamic Resource Allocation）**：`resource.k8s.io/v1` 一族（GA since K8s 1.34）。原本想用 v1beta1 兼容 1.32-1.33，但 OrbStack 等发行版默认没开 DRA feature gate（`api-resources --api-group=resource.k8s.io` 空），不论 v1beta1 还是 v1 都会返 `no matches for kind`——所以直接锁定 v1 跟其他 GA 资源对齐。降级路径跟 Gateway API 没装 CRD 时同款（前端展示 worker error）
 - 列表使用 K8s Table API（同 kubectl 默认展示，server 端计算列，仅传输元数据+单元格值，不传输完整 YAML）
 - 展示全部列（含 wide 列，等价于 `kubectl -o wide`）
 - 服务端游标分页（limit + continue token），支持前后翻页
@@ -185,22 +186,26 @@ status:
 - **Reconcile-on-Watch 防抖**（`pkg/worker/plugin/reconciler.go::reconcileTriggerPredicate`）：controller-runtime watch 加了 predicate，只有 spec generation 变化、Create、Delete、新设 DeletionTimestamp 才触发 Reconcile。status-only 写入和 finalizer add/remove 不触发——避开了"reconcile 自己写 status → 触发自己 → cache 没同步 → race"的 install-then-immediate-upgrade bug
 
 ### 5. 智算（GPU 视图）
-集群详情菜单下 `智算` 父分组（i18n key `menu.clusters.compute`，无路由 / 仅 sider 展开），4 个子页面对齐 HAMi-WebUI 的信息架构：
-- `资源概览` `/compute/overview` —— KPI strip（GPU 节点 / 物理卡 / vGPU 占用 / 显存占用）+ GPU 型号分布 tags + Top 5 显存占用 pods
-- `节点管理` `/compute/nodes` —— GPU 节点表，状态 + 物理卡数 + 型号 + slot/memory 利用率 bar，「详情」抽屉打开节点级嵌套（每张物理卡 + 卡上 pods）
-- `显卡管理` `/compute/cards` —— 跨节点扁平卡列表（UUID / 型号 / mode / 节点 / health / NUMA / 三轴 utilization），「详情」抽屉打开单卡详情
-- `任务管理` `/compute/tasks` —— 跨集群 GPU 占用 pod 列表，含 namespace / app / phase / node / cards in use / 总显存 / 总算力 / 资源池 / 规格 / 优先级 / age；ProTable 内置客户端排序 + 分页 + 列过滤
+集群详情菜单下 `智算` 父分组（i18n key `menu.clusters.compute`，无路由 / 仅 sider 展开），单一子页面：
 
-依赖 HAMi 插件（dep-check 跟监控页同款）。路由旧 `/clusters/:id/gpu` 重定向到 `/compute/overview`。
+- `资源概览` `/compute/overview` —— **单页 dashboard**，自上而下：
+  - **页头**：标题 + 副标题展示集群规模（"X 个 GPU 节点 · Y 张物理卡"）+ 刷新按钮。计数挪到副标题——整数计数跟比例 KPI 性质不同，混在 KPI strip 视觉违和（小箱子 + 大箱子）
+  - **KPI 三联仪表盘**：vGPU / 显存 / 算力，三张等宽 dashboard-style Progress（3/4 弧 gauge）
+  - **型号分布 + Top 5 显存占用**：两栏可视化，每行一个 Progress 条 + 标签 + 实际值
+  - **节点利用率网格**：每个节点一张 mini-card（节点名 + 状态徽章 + 卡数 + 三轴 mini progress + 详情按钮），点详情打开 `NodeDetailDrawer` 复现节点级嵌套（每张物理卡 + 卡上 pods）
+  - **Tabs 详情**：底部 Tabs 切换「显卡明细」/「任务明细」两个表格。显卡表带 `CardDetailDrawer`，任务表带 namespace/phase/node 列过滤 + 客户端排序分页
+
+依赖 HAMi 插件（dep-check 跟监控页同款）。路由 `/clusters/:id/gpu`、`/compute/{nodes,cards,tasks}` 全部 redirect 到 `/compute/overview`，旧链接保活。
 
 #### 智算关键设计说明
 
-- **数据获取**：单端点 `/api/v1/clusters/:id/gpu` → Worker `gpu-summary` action 聚合返回（无新 proto 消息，复用 ResourceRequest action 字段）。`useGPUData` hook 一份 fetch + dep check + 自动轮询，4 个页面都复用；HAMi Running 时每 10s 重拉
+- **数据获取**：单端点 `/api/v1/clusters/:id/gpu` → Worker `gpu-summary` action 聚合返回（无新 proto 消息，复用 ResourceRequest action 字段）。`useGPUData` hook 一份 fetch + dep check + 自动轮询；HAMi Running 时每 10s 重拉
 - **后端解析**（`pkg/worker/proxy/gpu.go`）：
   - **节点端**：`hami.io/node-nvidia-register` annotation，**先尝试 colon-comma 编码格式**（HAMi <= 2.4，7 或 9 字段）**再 fallback JSON**（新版本）。两种 schema 跟 HAMi-WebUI 上游对齐
   - **Pod 端**：`hami.io/vgpu-devices-allocated` annotation 解出每容器/每卡的 (UUID, type, mem, cores) 元组，attribute 到具体物理卡。`cores=0 → 100%` 跟 HAMi-WebUI 同款约定
   - **Pod 元数据**：`createdAt` / `startedAt` 走 PodScheduled / PodInitialized condition，`appName` 取 `app.kubernetes.io/name` 或 `app` label，`resourcePool` / `flavor` / `priority` 各取对应 annotation。终止态 pod (Succeeded/Failed) 不计入占用
   - **Init container** 取 max 不取 sum，跟 K8s 调度器 effective-request 一致
+- **KPI 优先 cards 求和**：`rollupKPIs` / `NodeTile` / `NodeDetailDrawer` 都先看 `node.cards[]`，从每张卡的 `slots / devmem / devcore / used*` 累加。**只有 cards 为空才回落 node 级 `allocatable / capacity`**。原因：HAMi 在 Node 上报的 `nvidia.com/gpu` 是物理卡数（不是 slot 数），kwok mock + 部分 HAMi 配置完全没在 capacity 里塞 `nvidia.com/gpumem` 和 `nvidia.com/gpucores`，靠 node 级读会显示 `0/2` 或 `0/0` 这种不直观的结果——per-card 视图才是真值
 - **缓存**（`pkg/worker/snapshot/`）：client-go SharedInformerFactory，启动时 List 一次 + watch 长连接，WaitForCacheSync 阻塞到 ready 才进 tunnel.Run。`gpuSummary` 从 lister 读（微秒级，zero API call）。**跟 collector 那个 controller-runtime informer 不共享**——两套并存，几 MB 内存代价小，保持职责隔离
 - **Worker clientset 单例**：snapshot / logs manager / exec manager 共享一份 `kubernetes.NewForConfig`，避免每个 consumer 各自维护一套 http.Transport 连接池
 - **共享前端组件**：
@@ -208,8 +213,10 @@ status:
   - `pages/ClusterDetail/Compute/DepGate.tsx` HAMi 缺位时的 Result 页统一
   - `pages/ClusterDetail/Compute/CardBody.tsx` 物理卡内容渲染（3 条 Progress + 卡上 pod 表），被 NodeDetailDrawer 和 CardDetailDrawer 共用
   - `pages/ClusterDetail/Compute/format.ts` `formatMB` + 资源 key 常量
-- **客户端分页 vs 服务端分页**：故意走客户端。GPU pod 数量天花板 = 集群总 vGPU 切片数（典型几百，极端几千），ProTable 客户端分页/排序/列过滤足以应对。服务端分页要拆"集群级 KPI + 分页 items + total"双轨响应，4 套不同 filter 参数序列化，1 天工作量，投资回报不成正比。等真有客户跑万级 GPU 集群再加
-- **节点页解耦**：K8s 节点概览（P2，`pages/ClusterDetail/Nodes/`）只管 K8s 原语（CPU / Memory / 状态），GPU 信息全去 `智算 / 节点管理`。避免 K8s 节点页随着加速器种类（后续可能加 TPU / FPGA）持续膨胀
+  - `pages/ClusterDetail/Compute/Overview/{index,NodeDetailDrawer,CardDetailDrawer}.tsx` 单页 dashboard + 两个抽屉
+- **客户端分页**：故意走客户端。GPU pod 数量天花板 = 集群总 vGPU 切片数（典型几百，极端几千），ProTable 客户端分页/排序/列过滤足以应对。等真有客户跑万级 GPU 集群再加服务端分页
+- **节点页解耦**：K8s 节点概览（P2，`pages/ClusterDetail/Nodes/`）只管 K8s 原语（CPU / Memory / 状态），GPU 信息全去 `智算 / 资源概览`。避免 K8s 节点页随着加速器种类（后续可能加 TPU / FPGA）持续膨胀
+- **从 4 页合并为单页（v2 演进）**：原本对齐 HAMi-WebUI 拆了「资源概览 / 节点管理 / 显卡管理 / 任务管理」4 个 sider 子项，但 4 页共享同一份 `useGPUData`，本质是切了 4 个不同 pivot 给用户。整合成单页 dashboard 后用户不需要"先到节点页 → 想看卡就跳 → 想看 pod 再跳"，一屏滚动到底就拿全。`NodeDetailDrawer` / `CardDetailDrawer` 完整保留为抽屉，原 4 页旧路由 redirect 到 overview 保活
 
 ### 6. 模型服务（待开发，P7）
 集群详情菜单下 `模型` 父分组（i18n key `menu.clusters.models`，与智算同级），目前只有 disabled 占位子项「推理服务」。设计：
@@ -490,7 +497,7 @@ web/src/
 │   │   ├── Nodes/               # K8s 节点概览（CPU / Memory / 状态，纯 K8s 视角不含 GPU）
 │   │   ├── Workloads/           # 工作负载（YamlEditor / ApplyYamlDrawer / DescribeDrawer / PodLogsDrawer / PodExecDrawer）；CRD 行 + CR 实例浏览器（`/workloads/_cr` 路由）也在这里
 │   │   ├── Plugins/             # 集群侧插件管理（启用 / 禁用 / 状态）
-│   │   ├── Compute/             # 智算 4 个子页面：Overview / Nodes / Cards / Tasks + 共享 useGPUData / DepGate / CardBody
+│   │   ├── Compute/             # 智算单页 dashboard（Overview/index.tsx + NodeDetailDrawer + CardDetailDrawer）+ 共享 useGPUData / DepGate / CardBody / format
 │   │   ├── Monitoring/          # 监控页（NodeExporterFull dashboard，依赖 Grafana + VictoriaMetrics）
 │   │   └── Logging/             # 日志页（VictoriaLogs Explorer K8S dashboard，依赖 Grafana + VictoriaLogs）
 │   ├── Plugins/                 # 全局插件注册表 CRUD（PluginCard / PluginEditDrawer）
@@ -551,10 +558,10 @@ web/src/
 |------|------|------|
 | P1 | 项目脚手架 + Proto 设计 + gRPC 连接/注册 + PostgreSQL schema + JWT 认证 | ✅ 完成 |
 | P2 | 集群管理 UI + 节点概览（Worker 采集上报） | ✅ 完成 |
-| P3 | 工作负载管理（CRUD 代理 + 通用 Apply YAML + Describe + Pod 日志/终端 + 全局命名空间选择器 + Pod 日志客户端 grep） | ✅ 完成 |
+| P3 | 工作负载管理（CRUD 代理 + 通用 Apply YAML + Describe + Pod 日志/终端 + 全局命名空间选择器 + Pod 日志客户端 grep + DRA 资源 v1） | ✅ 完成 |
 | P4 | 插件系统（Plugin CRD + Helm SDK + Server 注册表 + 集群启用/禁用 + 状态同步 + 4 个内置插件） | ✅ 完成 |
 | P6 | 监控中心 + 日志中心（Grafana iframe + auth.proxy + HTTP/WS 反代 + 内置 dashboard overlay） | ✅ 完成 |
-| P5a | 智算 4 页（资源概览 / 节点 / 显卡 / 任务）+ HAMi annotation 双格式解析 + Pod-to-card 归属 + Snapshot informer 缓存 + Pod 元数据补齐（createdAt / app / pool / flavor / priority）+ ProTable 客户端排序分页过滤 | ✅ 完成 |
+| P5a | 智算单页 dashboard（KPI 仪表盘 + 型号分布 + Top 占用 + 节点利用率网格 + 显卡/任务 Tabs）+ HAMi annotation 双格式解析 + Pod-to-card 归属 + Snapshot informer 缓存 + Pod 元数据补齐 + KPI 优先 cards 求和 | ✅ 完成 |
 | P5b | GPU 监控：DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard | 待开始 ← 下一步 |
 | P7a | 模型仓库 + 内置预设（Qwen / DeepSeek / Llama 等 vLLM 启动模板） | 待开始 |
 | P7b | 集群侧推理部署 + 内置测试 chat + 可选反代 endpoint | 待开始 |
