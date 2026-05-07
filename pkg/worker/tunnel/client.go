@@ -257,21 +257,6 @@ func (c *Client) SendResourceResponse(requestID string, resp *proto.ResourceResp
 	})
 }
 
-// PushNodes is called by the collector to push node info on the active stream.
-func (c *Client) PushNodes(nodes []*proto.NodeInfo) {
-	c.mu.Lock()
-	s := c.stream
-	c.mu.Unlock()
-	if s == nil {
-		return
-	}
-	_ = c.safeSend(s, &proto.WorkerMessage{
-		Payload: &proto.WorkerMessage_NodeList{
-			NodeList: &proto.NodeListPush{Nodes: nodes},
-		},
-	})
-}
-
 // Run blocks and reconnects automatically. Returns ErrTokenRejected on fatal
 // token rejection; callers should exit the process.
 func (c *Client) Run(ctx context.Context) error {

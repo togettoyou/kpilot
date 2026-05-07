@@ -1,223 +1,190 @@
-import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  QuestionCircleOutlined,
-} from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { Descriptions, Space, Tag, Typography } from 'antd';
-import React from 'react';
-import { listNodes, type NodeInfo } from '@/services/kpilot/node';
+import { Descriptions, Empty, Space, Spin, Tag, Typography } from 'antd';
+import React, { useMemo } from 'react';
+
+import { getNode, listNodes } from '@/services/kpilot/node';
 
 const { Text } = Typography;
 
-function formatCPU(millicores: number): string {
-  if (millicores >= 1000) return `${(millicores / 1000).toFixed(1)} cores`;
-  return `${millicores}m`;
+interface NodeRow {
+  name: string;
+  cells: any[];
 }
 
-function formatMemory(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} Gi`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} Mi`;
-  return `${bytes} B`;
+// renderCell maps a kubectl column to a tag/text representation.
+// kubectl's printer joins multi-state STATUS with commas (e.g.
+// "Ready,SchedulingDisabled" for cordoned nodes), and ROLES with
+// commas too — split + tag each so the row reads at a glance.
+function renderCell(name: string, value: unknown): React.ReactNode {
+  if (value === null || value === undefined || value === '' || value === '<none>') {
+    return <Text type="secondary">—</Text>;
+  }
+  if (name === 'Status') return <StatusCell status={String(value)} />;
+  if (name === 'Roles') {
+    const parts = String(value).split(',').map((s) => s.trim()).filter(Boolean);
+    return (
+      <Space size={4} wrap>
+        {parts.map((r) => (
+          <Tag key={r} color={r === 'control-plane' || r === 'master' ? 'blue' : 'default'}>
+            {r}
+          </Tag>
+        ))}
+      </Space>
+    );
+  }
+  return String(value);
 }
 
-const NodeStatus: React.FC<{ status: NodeInfo['status'] }> = ({ status }) => {
-  if (status === 'Ready')
-    return (
-      <Tag icon={<CheckCircleOutlined />} color="success">
-        Ready
-      </Tag>
-    );
-  if (status === 'NotReady')
-    return (
-      <Tag icon={<CloseCircleOutlined />} color="error">
-        NotReady
-      </Tag>
-    );
+const StatusCell: React.FC<{ status: string }> = ({ status }) => {
+  const parts = status.split(',').map((p) => p.trim()).filter(Boolean);
   return (
-    <Tag icon={<QuestionCircleOutlined />} color="default">
-      Unknown
-    </Tag>
+    <Space size={4} wrap>
+      {parts.map((p) => {
+        const color =
+          p === 'Ready' ? 'success' :
+          p === 'NotReady' ? 'error' :
+          p === 'SchedulingDisabled' ? 'warning' : 'default';
+        return <Tag key={p} color={color}>{p}</Tag>;
+      })}
+    </Space>
   );
 };
-
-function getNodeRole(
-  labels: Record<string, string>,
-): 'control-plane' | 'worker' {
-  if (
-    labels['node-role.kubernetes.io/control-plane'] === 'true' ||
-    labels['node-role.kubernetes.io/master'] === 'true'
-  ) {
-    return 'control-plane';
-  }
-  return 'worker';
-}
-
-function getArch(labels: Record<string, string>): string {
-  return (
-    labels['kubernetes.io/arch'] || labels['beta.kubernetes.io/arch'] || ''
-  );
-}
-
-function getOS(labels: Record<string, string>): string {
-  return labels['kubernetes.io/os'] || labels['beta.kubernetes.io/os'] || '';
-}
 
 export default function NodesPage() {
   const { id: clusterId } = useParams<{ id: string }>();
   const intl = useIntl();
 
   const { data, loading } = useRequest(() => listNodes(clusterId!), {
-    pollingInterval: 15000,
+    pollingInterval: 15_000,
     formatResult: (res) => res,
     pollingWhenHidden: false,
   });
-  const nodes: NodeInfo[] = Array.isArray(data) ? data : [];
+
+  const cols = data?.columnDefinitions ?? [];
+  const rows: NodeRow[] = useMemo(
+    () =>
+      (data?.rows ?? []).map((r) => ({
+        name: r.cells?.[0] ? String(r.cells[0]) : '',
+        cells: r.cells ?? [],
+      })),
+    [data?.rows],
+  );
 
   return (
     <div className="p-6">
-      <ProTable<NodeInfo>
-        expandable={{
-          expandedRowRender: (record) => (
-            <div className="p-4 flex flex-col gap-4">
-              <Descriptions
-                size="small"
-                column={3}
-                bordered
-                items={[
-                  {
-                    key: 'ip',
-                    label: intl.formatMessage({ id: 'pages.nodes.detail.ip' }),
-                    children: record.internal_ip || '—',
-                  },
-                  {
-                    key: 'podCIDR',
-                    label: intl.formatMessage({
-                      id: 'pages.nodes.detail.podCIDR',
-                    }),
-                    children: record.pod_cidr || '—',
-                  },
-                  {
-                    key: 'os',
-                    label: intl.formatMessage({ id: 'pages.nodes.detail.os' }),
-                    children: record.os_image || '—',
-                  },
-                  {
-                    key: 'kernel',
-                    label: intl.formatMessage({
-                      id: 'pages.nodes.detail.kernel',
-                    }),
-                    children: record.kernel_version || '—',
-                  },
-                  {
-                    key: 'runtime',
-                    label: intl.formatMessage({
-                      id: 'pages.nodes.detail.runtime',
-                    }),
-                    children: record.container_runtime || '—',
-                  },
-                  {
-                    key: 'kubelet',
-                    label: intl.formatMessage({
-                      id: 'pages.nodes.detail.kubelet',
-                    }),
-                    children: record.kubelet_version || '—',
-                  },
-                ]}
-              />
-              <div className="grid grid-cols-2 gap-4">
-                <Descriptions
-                  title="Labels"
-                  size="small"
-                  column={1}
-                  bordered
-                  items={Object.entries(record.labels).map(([k, v]) => ({
-                    key: k,
-                    label: k,
-                    children: v,
-                  }))}
-                />
-                <Descriptions
-                  title="Annotations"
-                  size="small"
-                  column={1}
-                  bordered
-                  items={Object.entries(record.annotations ?? {}).map(
-                    ([k, v]) => ({ key: k, label: k, children: v }),
-                  )}
-                />
-              </div>
-            </div>
-          ),
-        }}
+      <ProTable<NodeRow>
         headerTitle={
           <Space>
             <Text strong>
               {intl.formatMessage({ id: 'pages.nodes.title' })}
             </Text>
-            <Text type="secondary">({nodes.length})</Text>
+            <Text type="secondary">({rows.length})</Text>
           </Space>
         }
         rowKey="name"
         loading={loading}
-        dataSource={nodes}
+        dataSource={rows}
         scroll={{ x: 'max-content' }}
         search={false}
         pagination={false}
         options={{ reload: false }}
-        columns={[
-          {
-            title: intl.formatMessage({ id: 'pages.nodes.col.name' }),
-            dataIndex: 'name',
-            width: 200,
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.nodes.col.status' }),
-            dataIndex: 'status',
-            width: 110,
-            render: (_, record) => <NodeStatus status={record.status} />,
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.nodes.col.role' }),
-            width: 130,
-            render: (_, record) => {
-              const role = getNodeRole(record.labels);
-              return role === 'control-plane' ? (
-                <Tag color="blue">control-plane</Tag>
-              ) : (
-                <Tag color="default">worker</Tag>
-              );
-            },
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.nodes.col.osArch' }),
-            width: 130,
-            render: (_, record) => {
-              const os = getOS(record.labels);
-              const arch = getArch(record.labels);
-              if (!os && !arch) return <Text type="secondary">—</Text>;
-              return <Text>{[os, arch].filter(Boolean).join(' / ')}</Text>;
-            },
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.nodes.col.cpu' }),
-            width: 180,
-            render: (_, r) =>
-              `${formatCPU(r.cpu_allocatable)} / ${formatCPU(r.cpu_capacity)}`,
-          },
-          {
-            title: intl.formatMessage({ id: 'pages.nodes.col.memory' }),
-            width: 200,
-            render: (_, r) =>
-              `${formatMemory(r.memory_allocatable)} / ${formatMemory(r.memory_capacity)}`,
-          },
-          // GPU columns moved out: 智算 / 节点管理 page covers GPU
-          // visibility now (with model + cards + slot/memory usage).
-          // Keeping the K8s 节点概览 strictly about K8s primitives so
-          // it doesn't bloat as we add more accelerator types.
-        ]}
+        expandable={{
+          expandedRowRender: (record) => (
+            <NodeDetail clusterId={clusterId!} name={record.name} />
+          ),
+        }}
+        columns={cols.map((c, idx) => ({
+          title: c.name,
+          key: `col-${idx}`,
+          width: idx === 0 ? 220 : undefined,
+          render: (_, r) => renderCell(c.name, r.cells[idx]),
+        }))}
       />
     </div>
   );
 }
+
+// NodeDetail lazy-fetches the full Node JSON for the expand row, so
+// the list call stays cheap (cells only) and we only pay for the
+// detail when a user actually opens a row. Pod CIDR + taints +
+// labels + annotations live in spec/metadata, not in Table cells.
+const NodeDetail: React.FC<{ clusterId: string; name: string }> = ({
+  clusterId,
+  name,
+}) => {
+  const intl = useIntl();
+  const { data, loading } = useRequest(() => getNode(clusterId, name), {
+    formatResult: (res) => res,
+  });
+  if (loading) return <div className="p-4"><Spin /></div>;
+  if (!data) return <div className="p-4"><Empty /></div>;
+
+  const labels: Record<string, string> = data?.metadata?.labels ?? {};
+  const annotations: Record<string, string> = data?.metadata?.annotations ?? {};
+  const taints: { key: string; value?: string; effect: string }[] =
+    data?.spec?.taints ?? [];
+  const podCIDR: string = data?.spec?.podCIDR ?? '';
+  const unschedulable: boolean = data?.spec?.unschedulable ?? false;
+
+  return (
+    <div className="p-4 flex flex-col gap-4">
+      <Descriptions
+        size="small"
+        column={3}
+        bordered
+        items={[
+          {
+            key: 'podCIDR',
+            label: intl.formatMessage({ id: 'pages.nodes.detail.podCIDR' }),
+            children: podCIDR || '—',
+          },
+          {
+            key: 'unschedulable',
+            label: intl.formatMessage({ id: 'pages.nodes.detail.unschedulable' }),
+            children: unschedulable ? <Tag color="warning">true</Tag> : 'false',
+          },
+          {
+            key: 'taints',
+            label: intl.formatMessage({ id: 'pages.nodes.detail.taints' }),
+            children: taints.length === 0 ? (
+              '—'
+            ) : (
+              <Space size={4} wrap>
+                {taints.map((t, i) => (
+                  <Tag key={`${t.key}-${i}`}>
+                    {t.key}{t.value ? `=${t.value}` : ''}:{t.effect}
+                  </Tag>
+                ))}
+              </Space>
+            ),
+          },
+        ]}
+      />
+      <div className="grid grid-cols-2 gap-4">
+        <Descriptions
+          title="Labels"
+          size="small"
+          column={1}
+          bordered
+          items={Object.entries(labels).map(([k, v]) => ({
+            key: k,
+            label: k,
+            children: v,
+          }))}
+        />
+        <Descriptions
+          title="Annotations"
+          size="small"
+          column={1}
+          bordered
+          items={Object.entries(annotations).map(([k, v]) => ({
+            key: k,
+            label: k,
+            children: v,
+          }))}
+        />
+      </div>
+    </div>
+  );
+};

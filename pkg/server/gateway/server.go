@@ -36,9 +36,8 @@ type ConnectedWorker struct {
 type GatewayServer struct {
 	proto.UnimplementedPilotServiceServer
 
-	mu        sync.RWMutex
-	workers   map[string]*ConnectedWorker
-	nodeCache map[string][]*proto.NodeInfo
+	mu      sync.RWMutex
+	workers map[string]*ConnectedWorker
 
 	// pendingMu guards the pending request-response map used by P3.
 	pendingMu sync.Mutex
@@ -60,7 +59,6 @@ type GatewayServer struct {
 func NewGatewayServer() *GatewayServer {
 	return &GatewayServer{
 		workers:     make(map[string]*ConnectedWorker),
-		nodeCache:   make(map[string][]*proto.NodeInfo),
 		pending:     make(map[string]chan *proto.ResourceResponse),
 		pendingHTTP: make(map[string]chan *proto.HTTPResponse),
 		streams:     make(map[string]*Stream),
@@ -198,10 +196,6 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 	case *proto.WorkerMessage_Heartbeat:
 		w.LastSeen = time.Now()
 		_ = p
-	case *proto.WorkerMessage_NodeList:
-		g.mu.Lock()
-		g.nodeCache[w.ClusterID] = p.NodeList.Nodes
-		g.mu.Unlock()
 	case *proto.WorkerMessage_PluginStatus:
 		g.handlePluginStatus(w, p.PluginStatus)
 	case *proto.WorkerMessage_ResourceResp:
@@ -310,12 +304,6 @@ func (g *GatewayServer) GetWorker(clusterID string) (*ConnectedWorker, bool) {
 	defer g.mu.RUnlock()
 	w, ok := g.workers[clusterID]
 	return w, ok
-}
-
-func (g *GatewayServer) GetNodes(clusterID string) []*proto.NodeInfo {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.nodeCache[clusterID]
 }
 
 // SendResourceRequest sends a ResourceRequest to the connected Worker for the

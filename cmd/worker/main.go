@@ -18,7 +18,6 @@ import (
 
 	pb "github.com/togettoyou/kpilot/pkg/common/proto"
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
-	"github.com/togettoyou/kpilot/pkg/worker/collector"
 	"github.com/togettoyou/kpilot/pkg/worker/config"
 	"github.com/togettoyou/kpilot/pkg/worker/plugin"
 	"github.com/togettoyou/kpilot/pkg/worker/proxy"
@@ -80,12 +79,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("[worker] failed to create manager: %v", err)
 		}
-
-		nc, err := collector.SetupNodeReconciler(mgr, tunnelClient.PushNodes)
-		if err != nil {
-			log.Fatalf("[worker] failed to setup node reconciler: %v", err)
-		}
-		tunnelClient.SetOnConnected(nc.Sync)
 
 		// One typed clientset shared by everyone who needs one: the
 		// snapshot informer cache, Pod logs, and Pod exec. Building

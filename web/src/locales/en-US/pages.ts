@@ -311,18 +311,11 @@ export default {
 
   // nodes
   'pages.nodes.title': 'Nodes',
-  'pages.nodes.col.name': 'Name',
-  'pages.nodes.col.status': 'Status',
-  'pages.nodes.col.role': 'Role',
-  'pages.nodes.col.osArch': 'OS / Arch',
-  'pages.nodes.col.cpu': 'CPU (alloc / total)',
-  'pages.nodes.col.memory': 'Memory (alloc / total)',
-  'pages.nodes.detail.ip': 'Internal IP',
+  // Column names come from the K8s Table API (kubectl printer) verbatim,
+  // no frontend i18n needed.
   'pages.nodes.detail.podCIDR': 'Pod CIDR',
-  'pages.nodes.detail.os': 'OS Image',
-  'pages.nodes.detail.kernel': 'Kernel Version',
-  'pages.nodes.detail.runtime': 'Container Runtime',
-  'pages.nodes.detail.kubelet': 'Kubelet Version',
+  'pages.nodes.detail.unschedulable': 'Unschedulable',
+  'pages.nodes.detail.taints': 'Taints',
 
   // workloads
   'pages.workloads.allNamespaces': 'All namespaces',

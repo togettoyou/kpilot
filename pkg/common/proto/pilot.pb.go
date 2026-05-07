@@ -23,7 +23,7 @@ const (
 
 type WorkerMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Empty for one-off pushes (NodeListPush, Heartbeat).
+	// Empty for one-off pushes (PluginStatusPush, Heartbeat).
 	// For Resource: matches the request_id of the originating ResourceRequest.
 	// For Logs/Exec: session_id (stable across all messages of the same session).
 	RequestId string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -31,7 +31,6 @@ type WorkerMessage struct {
 	//
 	//	*WorkerMessage_Register
 	//	*WorkerMessage_Heartbeat
-	//	*WorkerMessage_NodeList
 	//	*WorkerMessage_ResourceResp
 	//	*WorkerMessage_PluginStatus
 	//	*WorkerMessage_LogsChunk
@@ -103,15 +102,6 @@ func (x *WorkerMessage) GetHeartbeat() *HeartbeatRequest {
 	if x != nil {
 		if x, ok := x.Payload.(*WorkerMessage_Heartbeat); ok {
 			return x.Heartbeat
-		}
-	}
-	return nil
-}
-
-func (x *WorkerMessage) GetNodeList() *NodeListPush {
-	if x != nil {
-		if x, ok := x.Payload.(*WorkerMessage_NodeList); ok {
-			return x.NodeList
 		}
 	}
 	return nil
@@ -210,11 +200,8 @@ type WorkerMessage_Heartbeat struct {
 	Heartbeat *HeartbeatRequest `protobuf:"bytes,11,opt,name=heartbeat,proto3,oneof"`
 }
 
-type WorkerMessage_NodeList struct {
-	NodeList *NodeListPush `protobuf:"bytes,20,opt,name=node_list,json=nodeList,proto3,oneof"`
-}
-
 type WorkerMessage_ResourceResp struct {
+	// tag 20 was NodeListPush — removed when nodes moved to Table API proxy.
 	ResourceResp *ResourceResponse `protobuf:"bytes,30,opt,name=resource_resp,json=resourceResp,proto3,oneof"`
 }
 
@@ -257,8 +244,6 @@ type WorkerMessage_WsEndRecv struct {
 func (*WorkerMessage_Register) isWorkerMessage_Payload() {}
 
 func (*WorkerMessage_Heartbeat) isWorkerMessage_Payload() {}
-
-func (*WorkerMessage_NodeList) isWorkerMessage_Payload() {}
 
 func (*WorkerMessage_ResourceResp) isWorkerMessage_Payload() {}
 
@@ -387,202 +372,6 @@ func (x *HeartbeatRequest) GetTimestamp() int64 {
 	return 0
 }
 
-type NodeListPush struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Nodes         []*NodeInfo            `protobuf:"bytes,1,rep,name=nodes,proto3" json:"nodes,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NodeListPush) Reset() {
-	*x = NodeListPush{}
-	mi := &file_pilot_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NodeListPush) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NodeListPush) ProtoMessage() {}
-
-func (x *NodeListPush) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NodeListPush.ProtoReflect.Descriptor instead.
-func (*NodeListPush) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *NodeListPush) GetNodes() []*NodeInfo {
-	if x != nil {
-		return x.Nodes
-	}
-	return nil
-}
-
-type NodeInfo struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Name   string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Status string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"` // Ready / NotReady / Unknown
-	// 来自 node.Status.Capacity / Allocatable（millicores / bytes）
-	CpuCapacity       int64             `protobuf:"varint,3,opt,name=cpu_capacity,json=cpuCapacity,proto3" json:"cpu_capacity,omitempty"`
-	CpuAllocatable    int64             `protobuf:"varint,4,opt,name=cpu_allocatable,json=cpuAllocatable,proto3" json:"cpu_allocatable,omitempty"`
-	MemoryCapacity    int64             `protobuf:"varint,5,opt,name=memory_capacity,json=memoryCapacity,proto3" json:"memory_capacity,omitempty"`
-	MemoryAllocatable int64             `protobuf:"varint,6,opt,name=memory_allocatable,json=memoryAllocatable,proto3" json:"memory_allocatable,omitempty"`
-	Labels            map[string]string `protobuf:"bytes,7,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Annotations       map[string]string `protobuf:"bytes,8,rep,name=annotations,proto3" json:"annotations,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// 来自 node.Status.NodeInfo
-	OsImage          string `protobuf:"bytes,9,opt,name=os_image,json=osImage,proto3" json:"os_image,omitempty"` // e.g. "Ubuntu 24.04.4 LTS"
-	KernelVersion    string `protobuf:"bytes,10,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"`
-	ContainerRuntime string `protobuf:"bytes,11,opt,name=container_runtime,json=containerRuntime,proto3" json:"container_runtime,omitempty"` // e.g. "containerd://2.2.1"
-	KubeletVersion   string `protobuf:"bytes,12,opt,name=kubelet_version,json=kubeletVersion,proto3" json:"kubelet_version,omitempty"`
-	// 来自 node.Status.Addresses
-	InternalIp string `protobuf:"bytes,13,opt,name=internal_ip,json=internalIp,proto3" json:"internal_ip,omitempty"`
-	// 来自 node.Spec
-	PodCidr       string `protobuf:"bytes,14,opt,name=pod_cidr,json=podCidr,proto3" json:"pod_cidr,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NodeInfo) Reset() {
-	*x = NodeInfo{}
-	mi := &file_pilot_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NodeInfo) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NodeInfo) ProtoMessage() {}
-
-func (x *NodeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NodeInfo.ProtoReflect.Descriptor instead.
-func (*NodeInfo) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *NodeInfo) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *NodeInfo) GetStatus() string {
-	if x != nil {
-		return x.Status
-	}
-	return ""
-}
-
-func (x *NodeInfo) GetCpuCapacity() int64 {
-	if x != nil {
-		return x.CpuCapacity
-	}
-	return 0
-}
-
-func (x *NodeInfo) GetCpuAllocatable() int64 {
-	if x != nil {
-		return x.CpuAllocatable
-	}
-	return 0
-}
-
-func (x *NodeInfo) GetMemoryCapacity() int64 {
-	if x != nil {
-		return x.MemoryCapacity
-	}
-	return 0
-}
-
-func (x *NodeInfo) GetMemoryAllocatable() int64 {
-	if x != nil {
-		return x.MemoryAllocatable
-	}
-	return 0
-}
-
-func (x *NodeInfo) GetLabels() map[string]string {
-	if x != nil {
-		return x.Labels
-	}
-	return nil
-}
-
-func (x *NodeInfo) GetAnnotations() map[string]string {
-	if x != nil {
-		return x.Annotations
-	}
-	return nil
-}
-
-func (x *NodeInfo) GetOsImage() string {
-	if x != nil {
-		return x.OsImage
-	}
-	return ""
-}
-
-func (x *NodeInfo) GetKernelVersion() string {
-	if x != nil {
-		return x.KernelVersion
-	}
-	return ""
-}
-
-func (x *NodeInfo) GetContainerRuntime() string {
-	if x != nil {
-		return x.ContainerRuntime
-	}
-	return ""
-}
-
-func (x *NodeInfo) GetKubeletVersion() string {
-	if x != nil {
-		return x.KubeletVersion
-	}
-	return ""
-}
-
-func (x *NodeInfo) GetInternalIp() string {
-	if x != nil {
-		return x.InternalIp
-	}
-	return ""
-}
-
-func (x *NodeInfo) GetPodCidr() string {
-	if x != nil {
-		return x.PodCidr
-	}
-	return ""
-}
-
 type ResourceResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -595,7 +384,7 @@ type ResourceResponse struct {
 
 func (x *ResourceResponse) Reset() {
 	*x = ResourceResponse{}
-	mi := &file_pilot_proto_msgTypes[5]
+	mi := &file_pilot_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -607,7 +396,7 @@ func (x *ResourceResponse) String() string {
 func (*ResourceResponse) ProtoMessage() {}
 
 func (x *ResourceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[5]
+	mi := &file_pilot_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -620,7 +409,7 @@ func (x *ResourceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceResponse.ProtoReflect.Descriptor instead.
 func (*ResourceResponse) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{5}
+	return file_pilot_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ResourceResponse) GetRequestId() string {
@@ -672,7 +461,7 @@ type PluginStatusPush struct {
 
 func (x *PluginStatusPush) Reset() {
 	*x = PluginStatusPush{}
-	mi := &file_pilot_proto_msgTypes[6]
+	mi := &file_pilot_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -684,7 +473,7 @@ func (x *PluginStatusPush) String() string {
 func (*PluginStatusPush) ProtoMessage() {}
 
 func (x *PluginStatusPush) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[6]
+	mi := &file_pilot_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -697,7 +486,7 @@ func (x *PluginStatusPush) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginStatusPush.ProtoReflect.Descriptor instead.
 func (*PluginStatusPush) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{6}
+	return file_pilot_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *PluginStatusPush) GetCrdName() string {
@@ -781,7 +570,7 @@ type ServerMessage struct {
 
 func (x *ServerMessage) Reset() {
 	*x = ServerMessage{}
-	mi := &file_pilot_proto_msgTypes[7]
+	mi := &file_pilot_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -793,7 +582,7 @@ func (x *ServerMessage) String() string {
 func (*ServerMessage) ProtoMessage() {}
 
 func (x *ServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[7]
+	mi := &file_pilot_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -806,7 +595,7 @@ func (x *ServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
 func (*ServerMessage) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{7}
+	return file_pilot_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ServerMessage) GetRequestId() string {
@@ -1040,7 +829,7 @@ type RegisterAck struct {
 
 func (x *RegisterAck) Reset() {
 	*x = RegisterAck{}
-	mi := &file_pilot_proto_msgTypes[8]
+	mi := &file_pilot_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1052,7 +841,7 @@ func (x *RegisterAck) String() string {
 func (*RegisterAck) ProtoMessage() {}
 
 func (x *RegisterAck) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[8]
+	mi := &file_pilot_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1065,7 +854,7 @@ func (x *RegisterAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterAck.ProtoReflect.Descriptor instead.
 func (*RegisterAck) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{8}
+	return file_pilot_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RegisterAck) GetSuccess() bool {
@@ -1107,7 +896,7 @@ type ResourceRequest struct {
 
 func (x *ResourceRequest) Reset() {
 	*x = ResourceRequest{}
-	mi := &file_pilot_proto_msgTypes[9]
+	mi := &file_pilot_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1119,7 +908,7 @@ func (x *ResourceRequest) String() string {
 func (*ResourceRequest) ProtoMessage() {}
 
 func (x *ResourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[9]
+	mi := &file_pilot_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1132,7 +921,7 @@ func (x *ResourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceRequest.ProtoReflect.Descriptor instead.
 func (*ResourceRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{9}
+	return file_pilot_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ResourceRequest) GetAction() string {
@@ -1215,7 +1004,7 @@ type PluginCommand struct {
 
 func (x *PluginCommand) Reset() {
 	*x = PluginCommand{}
-	mi := &file_pilot_proto_msgTypes[10]
+	mi := &file_pilot_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1227,7 +1016,7 @@ func (x *PluginCommand) String() string {
 func (*PluginCommand) ProtoMessage() {}
 
 func (x *PluginCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[10]
+	mi := &file_pilot_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1240,7 +1029,7 @@ func (x *PluginCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginCommand.ProtoReflect.Descriptor instead.
 func (*PluginCommand) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{10}
+	return file_pilot_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PluginCommand) GetAction() string {
@@ -1280,7 +1069,7 @@ type PluginSpec struct {
 
 func (x *PluginSpec) Reset() {
 	*x = PluginSpec{}
-	mi := &file_pilot_proto_msgTypes[11]
+	mi := &file_pilot_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1292,7 +1081,7 @@ func (x *PluginSpec) String() string {
 func (*PluginSpec) ProtoMessage() {}
 
 func (x *PluginSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[11]
+	mi := &file_pilot_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1305,7 +1094,7 @@ func (x *PluginSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginSpec.ProtoReflect.Descriptor instead.
 func (*PluginSpec) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{11}
+	return file_pilot_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PluginSpec) GetPluginId() string {
@@ -1373,7 +1162,7 @@ type ChartSource struct {
 
 func (x *ChartSource) Reset() {
 	*x = ChartSource{}
-	mi := &file_pilot_proto_msgTypes[12]
+	mi := &file_pilot_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1385,7 +1174,7 @@ func (x *ChartSource) String() string {
 func (*ChartSource) ProtoMessage() {}
 
 func (x *ChartSource) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[12]
+	mi := &file_pilot_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1398,7 +1187,7 @@ func (x *ChartSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChartSource.ProtoReflect.Descriptor instead.
 func (*ChartSource) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{12}
+	return file_pilot_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ChartSource) GetType() string {
@@ -1458,7 +1247,7 @@ type LogsStartRequest struct {
 
 func (x *LogsStartRequest) Reset() {
 	*x = LogsStartRequest{}
-	mi := &file_pilot_proto_msgTypes[13]
+	mi := &file_pilot_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1470,7 +1259,7 @@ func (x *LogsStartRequest) String() string {
 func (*LogsStartRequest) ProtoMessage() {}
 
 func (x *LogsStartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[13]
+	mi := &file_pilot_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1483,7 +1272,7 @@ func (x *LogsStartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsStartRequest.ProtoReflect.Descriptor instead.
 func (*LogsStartRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{13}
+	return file_pilot_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *LogsStartRequest) GetNamespace() string {
@@ -1543,7 +1332,7 @@ type LogsCancelRequest struct {
 
 func (x *LogsCancelRequest) Reset() {
 	*x = LogsCancelRequest{}
-	mi := &file_pilot_proto_msgTypes[14]
+	mi := &file_pilot_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1555,7 +1344,7 @@ func (x *LogsCancelRequest) String() string {
 func (*LogsCancelRequest) ProtoMessage() {}
 
 func (x *LogsCancelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[14]
+	mi := &file_pilot_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1568,7 +1357,7 @@ func (x *LogsCancelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsCancelRequest.ProtoReflect.Descriptor instead.
 func (*LogsCancelRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{14}
+	return file_pilot_proto_rawDescGZIP(), []int{12}
 }
 
 type LogsChunk struct {
@@ -1580,7 +1369,7 @@ type LogsChunk struct {
 
 func (x *LogsChunk) Reset() {
 	*x = LogsChunk{}
-	mi := &file_pilot_proto_msgTypes[15]
+	mi := &file_pilot_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1592,7 +1381,7 @@ func (x *LogsChunk) String() string {
 func (*LogsChunk) ProtoMessage() {}
 
 func (x *LogsChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[15]
+	mi := &file_pilot_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1605,7 +1394,7 @@ func (x *LogsChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsChunk.ProtoReflect.Descriptor instead.
 func (*LogsChunk) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{15}
+	return file_pilot_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *LogsChunk) GetData() []byte {
@@ -1624,7 +1413,7 @@ type LogsEnd struct {
 
 func (x *LogsEnd) Reset() {
 	*x = LogsEnd{}
-	mi := &file_pilot_proto_msgTypes[16]
+	mi := &file_pilot_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1636,7 +1425,7 @@ func (x *LogsEnd) String() string {
 func (*LogsEnd) ProtoMessage() {}
 
 func (x *LogsEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[16]
+	mi := &file_pilot_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1649,7 +1438,7 @@ func (x *LogsEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsEnd.ProtoReflect.Descriptor instead.
 func (*LogsEnd) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{16}
+	return file_pilot_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *LogsEnd) GetError() string {
@@ -1674,7 +1463,7 @@ type ExecStartRequest struct {
 
 func (x *ExecStartRequest) Reset() {
 	*x = ExecStartRequest{}
-	mi := &file_pilot_proto_msgTypes[17]
+	mi := &file_pilot_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1686,7 +1475,7 @@ func (x *ExecStartRequest) String() string {
 func (*ExecStartRequest) ProtoMessage() {}
 
 func (x *ExecStartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[17]
+	mi := &file_pilot_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1699,7 +1488,7 @@ func (x *ExecStartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecStartRequest.ProtoReflect.Descriptor instead.
 func (*ExecStartRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{17}
+	return file_pilot_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ExecStartRequest) GetNamespace() string {
@@ -1760,7 +1549,7 @@ type ExecStdin struct {
 
 func (x *ExecStdin) Reset() {
 	*x = ExecStdin{}
-	mi := &file_pilot_proto_msgTypes[18]
+	mi := &file_pilot_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1772,7 +1561,7 @@ func (x *ExecStdin) String() string {
 func (*ExecStdin) ProtoMessage() {}
 
 func (x *ExecStdin) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[18]
+	mi := &file_pilot_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1785,7 +1574,7 @@ func (x *ExecStdin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecStdin.ProtoReflect.Descriptor instead.
 func (*ExecStdin) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{18}
+	return file_pilot_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ExecStdin) GetData() []byte {
@@ -1805,7 +1594,7 @@ type ExecResize struct {
 
 func (x *ExecResize) Reset() {
 	*x = ExecResize{}
-	mi := &file_pilot_proto_msgTypes[19]
+	mi := &file_pilot_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1817,7 +1606,7 @@ func (x *ExecResize) String() string {
 func (*ExecResize) ProtoMessage() {}
 
 func (x *ExecResize) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[19]
+	mi := &file_pilot_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1830,7 +1619,7 @@ func (x *ExecResize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResize.ProtoReflect.Descriptor instead.
 func (*ExecResize) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{19}
+	return file_pilot_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ExecResize) GetCols() uint32 {
@@ -1855,7 +1644,7 @@ type ExecCancelRequest struct {
 
 func (x *ExecCancelRequest) Reset() {
 	*x = ExecCancelRequest{}
-	mi := &file_pilot_proto_msgTypes[20]
+	mi := &file_pilot_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1867,7 +1656,7 @@ func (x *ExecCancelRequest) String() string {
 func (*ExecCancelRequest) ProtoMessage() {}
 
 func (x *ExecCancelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[20]
+	mi := &file_pilot_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1880,7 +1669,7 @@ func (x *ExecCancelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecCancelRequest.ProtoReflect.Descriptor instead.
 func (*ExecCancelRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{20}
+	return file_pilot_proto_rawDescGZIP(), []int{18}
 }
 
 type ExecOutput struct {
@@ -1893,7 +1682,7 @@ type ExecOutput struct {
 
 func (x *ExecOutput) Reset() {
 	*x = ExecOutput{}
-	mi := &file_pilot_proto_msgTypes[21]
+	mi := &file_pilot_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1905,7 +1694,7 @@ func (x *ExecOutput) String() string {
 func (*ExecOutput) ProtoMessage() {}
 
 func (x *ExecOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[21]
+	mi := &file_pilot_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1918,7 +1707,7 @@ func (x *ExecOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecOutput.ProtoReflect.Descriptor instead.
 func (*ExecOutput) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{21}
+	return file_pilot_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ExecOutput) GetStream() uint32 {
@@ -1945,7 +1734,7 @@ type ExecEnd struct {
 
 func (x *ExecEnd) Reset() {
 	*x = ExecEnd{}
-	mi := &file_pilot_proto_msgTypes[22]
+	mi := &file_pilot_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1957,7 +1746,7 @@ func (x *ExecEnd) String() string {
 func (*ExecEnd) ProtoMessage() {}
 
 func (x *ExecEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[22]
+	mi := &file_pilot_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1970,7 +1759,7 @@ func (x *ExecEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecEnd.ProtoReflect.Descriptor instead.
 func (*ExecEnd) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{22}
+	return file_pilot_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ExecEnd) GetExitCode() int32 {
@@ -1999,7 +1788,7 @@ type HTTPHeader struct {
 
 func (x *HTTPHeader) Reset() {
 	*x = HTTPHeader{}
-	mi := &file_pilot_proto_msgTypes[23]
+	mi := &file_pilot_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2011,7 +1800,7 @@ func (x *HTTPHeader) String() string {
 func (*HTTPHeader) ProtoMessage() {}
 
 func (x *HTTPHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[23]
+	mi := &file_pilot_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2024,7 +1813,7 @@ func (x *HTTPHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HTTPHeader.ProtoReflect.Descriptor instead.
 func (*HTTPHeader) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{23}
+	return file_pilot_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *HTTPHeader) GetName() string {
@@ -2068,7 +1857,7 @@ type HTTPRequest struct {
 
 func (x *HTTPRequest) Reset() {
 	*x = HTTPRequest{}
-	mi := &file_pilot_proto_msgTypes[24]
+	mi := &file_pilot_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2080,7 +1869,7 @@ func (x *HTTPRequest) String() string {
 func (*HTTPRequest) ProtoMessage() {}
 
 func (x *HTTPRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[24]
+	mi := &file_pilot_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2093,7 +1882,7 @@ func (x *HTTPRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HTTPRequest.ProtoReflect.Descriptor instead.
 func (*HTTPRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{24}
+	return file_pilot_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *HTTPRequest) GetMethod() string {
@@ -2142,7 +1931,7 @@ type HTTPResponse struct {
 
 func (x *HTTPResponse) Reset() {
 	*x = HTTPResponse{}
-	mi := &file_pilot_proto_msgTypes[25]
+	mi := &file_pilot_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2154,7 +1943,7 @@ func (x *HTTPResponse) String() string {
 func (*HTTPResponse) ProtoMessage() {}
 
 func (x *HTTPResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[25]
+	mi := &file_pilot_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2167,7 +1956,7 @@ func (x *HTTPResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HTTPResponse.ProtoReflect.Descriptor instead.
 func (*HTTPResponse) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{25}
+	return file_pilot_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *HTTPResponse) GetStatus() int32 {
@@ -2213,7 +2002,7 @@ type WSStartRequest struct {
 
 func (x *WSStartRequest) Reset() {
 	*x = WSStartRequest{}
-	mi := &file_pilot_proto_msgTypes[26]
+	mi := &file_pilot_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2225,7 +2014,7 @@ func (x *WSStartRequest) String() string {
 func (*WSStartRequest) ProtoMessage() {}
 
 func (x *WSStartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[26]
+	mi := &file_pilot_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2238,7 +2027,7 @@ func (x *WSStartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WSStartRequest.ProtoReflect.Descriptor instead.
 func (*WSStartRequest) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{26}
+	return file_pilot_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *WSStartRequest) GetUrl() string {
@@ -2268,7 +2057,7 @@ type WSFrame struct {
 
 func (x *WSFrame) Reset() {
 	*x = WSFrame{}
-	mi := &file_pilot_proto_msgTypes[27]
+	mi := &file_pilot_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2280,7 +2069,7 @@ func (x *WSFrame) String() string {
 func (*WSFrame) ProtoMessage() {}
 
 func (x *WSFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[27]
+	mi := &file_pilot_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2293,7 +2082,7 @@ func (x *WSFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WSFrame.ProtoReflect.Descriptor instead.
 func (*WSFrame) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{27}
+	return file_pilot_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *WSFrame) GetOpcode() int32 {
@@ -2323,7 +2112,7 @@ type WSEnd struct {
 
 func (x *WSEnd) Reset() {
 	*x = WSEnd{}
-	mi := &file_pilot_proto_msgTypes[28]
+	mi := &file_pilot_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2335,7 +2124,7 @@ func (x *WSEnd) String() string {
 func (*WSEnd) ProtoMessage() {}
 
 func (x *WSEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_pilot_proto_msgTypes[28]
+	mi := &file_pilot_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2348,7 +2137,7 @@ func (x *WSEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WSEnd.ProtoReflect.Descriptor instead.
 func (*WSEnd) Descriptor() ([]byte, []int) {
-	return file_pilot_proto_rawDescGZIP(), []int{28}
+	return file_pilot_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *WSEnd) GetCode() int32 {
@@ -2369,14 +2158,13 @@ var File_pilot_proto protoreflect.FileDescriptor
 
 const file_pilot_proto_rawDesc = "" +
 	"\n" +
-	"\vpilot.proto\x12\bpilot.v1\"\xdd\x05\n" +
+	"\vpilot.proto\x12\bpilot.v1\"\xa6\x05\n" +
 	"\rWorkerMessage\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x127\n" +
 	"\bregister\x18\n" +
 	" \x01(\v2\x19.pilot.v1.RegisterRequestH\x00R\bregister\x12:\n" +
-	"\theartbeat\x18\v \x01(\v2\x1a.pilot.v1.HeartbeatRequestH\x00R\theartbeat\x125\n" +
-	"\tnode_list\x18\x14 \x01(\v2\x16.pilot.v1.NodeListPushH\x00R\bnodeList\x12A\n" +
+	"\theartbeat\x18\v \x01(\v2\x1a.pilot.v1.HeartbeatRequestH\x00R\theartbeat\x12A\n" +
 	"\rresource_resp\x18\x1e \x01(\v2\x1a.pilot.v1.ResourceResponseH\x00R\fresourceResp\x12A\n" +
 	"\rplugin_status\x18( \x01(\v2\x1a.pilot.v1.PluginStatusPushH\x00R\fpluginStatus\x124\n" +
 	"\n" +
@@ -2394,32 +2182,7 @@ const file_pilot_proto_rawDesc = "" +
 	"\x0eworker_version\x18\x02 \x01(\tR\rworkerVersion\x12%\n" +
 	"\x0ecluster_domain\x18\x03 \x01(\tR\rclusterDomain\"0\n" +
 	"\x10HeartbeatRequest\x12\x1c\n" +
-	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"8\n" +
-	"\fNodeListPush\x12(\n" +
-	"\x05nodes\x18\x01 \x03(\v2\x12.pilot.v1.NodeInfoR\x05nodes\"\xa8\x05\n" +
-	"\bNodeInfo\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\x12!\n" +
-	"\fcpu_capacity\x18\x03 \x01(\x03R\vcpuCapacity\x12'\n" +
-	"\x0fcpu_allocatable\x18\x04 \x01(\x03R\x0ecpuAllocatable\x12'\n" +
-	"\x0fmemory_capacity\x18\x05 \x01(\x03R\x0ememoryCapacity\x12-\n" +
-	"\x12memory_allocatable\x18\x06 \x01(\x03R\x11memoryAllocatable\x126\n" +
-	"\x06labels\x18\a \x03(\v2\x1e.pilot.v1.NodeInfo.LabelsEntryR\x06labels\x12E\n" +
-	"\vannotations\x18\b \x03(\v2#.pilot.v1.NodeInfo.AnnotationsEntryR\vannotations\x12\x19\n" +
-	"\bos_image\x18\t \x01(\tR\aosImage\x12%\n" +
-	"\x0ekernel_version\x18\n" +
-	" \x01(\tR\rkernelVersion\x12+\n" +
-	"\x11container_runtime\x18\v \x01(\tR\x10containerRuntime\x12'\n" +
-	"\x0fkubelet_version\x18\f \x01(\tR\x0ekubeletVersion\x12\x1f\n" +
-	"\vinternal_ip\x18\r \x01(\tR\n" +
-	"internalIp\x12\x19\n" +
-	"\bpod_cidr\x18\x0e \x01(\tR\apodCidr\x1a9\n" +
-	"\vLabelsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
-	"\x10AnnotationsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"u\n" +
+	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"u\n" +
 	"\x10ResourceResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x18\n" +
@@ -2568,81 +2331,73 @@ func file_pilot_proto_rawDescGZIP() []byte {
 	return file_pilot_proto_rawDescData
 }
 
-var file_pilot_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_pilot_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_pilot_proto_goTypes = []any{
 	(*WorkerMessage)(nil),     // 0: pilot.v1.WorkerMessage
 	(*RegisterRequest)(nil),   // 1: pilot.v1.RegisterRequest
 	(*HeartbeatRequest)(nil),  // 2: pilot.v1.HeartbeatRequest
-	(*NodeListPush)(nil),      // 3: pilot.v1.NodeListPush
-	(*NodeInfo)(nil),          // 4: pilot.v1.NodeInfo
-	(*ResourceResponse)(nil),  // 5: pilot.v1.ResourceResponse
-	(*PluginStatusPush)(nil),  // 6: pilot.v1.PluginStatusPush
-	(*ServerMessage)(nil),     // 7: pilot.v1.ServerMessage
-	(*RegisterAck)(nil),       // 8: pilot.v1.RegisterAck
-	(*ResourceRequest)(nil),   // 9: pilot.v1.ResourceRequest
-	(*PluginCommand)(nil),     // 10: pilot.v1.PluginCommand
-	(*PluginSpec)(nil),        // 11: pilot.v1.PluginSpec
-	(*ChartSource)(nil),       // 12: pilot.v1.ChartSource
-	(*LogsStartRequest)(nil),  // 13: pilot.v1.LogsStartRequest
-	(*LogsCancelRequest)(nil), // 14: pilot.v1.LogsCancelRequest
-	(*LogsChunk)(nil),         // 15: pilot.v1.LogsChunk
-	(*LogsEnd)(nil),           // 16: pilot.v1.LogsEnd
-	(*ExecStartRequest)(nil),  // 17: pilot.v1.ExecStartRequest
-	(*ExecStdin)(nil),         // 18: pilot.v1.ExecStdin
-	(*ExecResize)(nil),        // 19: pilot.v1.ExecResize
-	(*ExecCancelRequest)(nil), // 20: pilot.v1.ExecCancelRequest
-	(*ExecOutput)(nil),        // 21: pilot.v1.ExecOutput
-	(*ExecEnd)(nil),           // 22: pilot.v1.ExecEnd
-	(*HTTPHeader)(nil),        // 23: pilot.v1.HTTPHeader
-	(*HTTPRequest)(nil),       // 24: pilot.v1.HTTPRequest
-	(*HTTPResponse)(nil),      // 25: pilot.v1.HTTPResponse
-	(*WSStartRequest)(nil),    // 26: pilot.v1.WSStartRequest
-	(*WSFrame)(nil),           // 27: pilot.v1.WSFrame
-	(*WSEnd)(nil),             // 28: pilot.v1.WSEnd
-	nil,                       // 29: pilot.v1.NodeInfo.LabelsEntry
-	nil,                       // 30: pilot.v1.NodeInfo.AnnotationsEntry
+	(*ResourceResponse)(nil),  // 3: pilot.v1.ResourceResponse
+	(*PluginStatusPush)(nil),  // 4: pilot.v1.PluginStatusPush
+	(*ServerMessage)(nil),     // 5: pilot.v1.ServerMessage
+	(*RegisterAck)(nil),       // 6: pilot.v1.RegisterAck
+	(*ResourceRequest)(nil),   // 7: pilot.v1.ResourceRequest
+	(*PluginCommand)(nil),     // 8: pilot.v1.PluginCommand
+	(*PluginSpec)(nil),        // 9: pilot.v1.PluginSpec
+	(*ChartSource)(nil),       // 10: pilot.v1.ChartSource
+	(*LogsStartRequest)(nil),  // 11: pilot.v1.LogsStartRequest
+	(*LogsCancelRequest)(nil), // 12: pilot.v1.LogsCancelRequest
+	(*LogsChunk)(nil),         // 13: pilot.v1.LogsChunk
+	(*LogsEnd)(nil),           // 14: pilot.v1.LogsEnd
+	(*ExecStartRequest)(nil),  // 15: pilot.v1.ExecStartRequest
+	(*ExecStdin)(nil),         // 16: pilot.v1.ExecStdin
+	(*ExecResize)(nil),        // 17: pilot.v1.ExecResize
+	(*ExecCancelRequest)(nil), // 18: pilot.v1.ExecCancelRequest
+	(*ExecOutput)(nil),        // 19: pilot.v1.ExecOutput
+	(*ExecEnd)(nil),           // 20: pilot.v1.ExecEnd
+	(*HTTPHeader)(nil),        // 21: pilot.v1.HTTPHeader
+	(*HTTPRequest)(nil),       // 22: pilot.v1.HTTPRequest
+	(*HTTPResponse)(nil),      // 23: pilot.v1.HTTPResponse
+	(*WSStartRequest)(nil),    // 24: pilot.v1.WSStartRequest
+	(*WSFrame)(nil),           // 25: pilot.v1.WSFrame
+	(*WSEnd)(nil),             // 26: pilot.v1.WSEnd
 }
 var file_pilot_proto_depIdxs = []int32{
 	1,  // 0: pilot.v1.WorkerMessage.register:type_name -> pilot.v1.RegisterRequest
 	2,  // 1: pilot.v1.WorkerMessage.heartbeat:type_name -> pilot.v1.HeartbeatRequest
-	3,  // 2: pilot.v1.WorkerMessage.node_list:type_name -> pilot.v1.NodeListPush
-	5,  // 3: pilot.v1.WorkerMessage.resource_resp:type_name -> pilot.v1.ResourceResponse
-	6,  // 4: pilot.v1.WorkerMessage.plugin_status:type_name -> pilot.v1.PluginStatusPush
-	15, // 5: pilot.v1.WorkerMessage.logs_chunk:type_name -> pilot.v1.LogsChunk
-	16, // 6: pilot.v1.WorkerMessage.logs_end:type_name -> pilot.v1.LogsEnd
-	21, // 7: pilot.v1.WorkerMessage.exec_output:type_name -> pilot.v1.ExecOutput
-	22, // 8: pilot.v1.WorkerMessage.exec_end:type_name -> pilot.v1.ExecEnd
-	25, // 9: pilot.v1.WorkerMessage.http_resp:type_name -> pilot.v1.HTTPResponse
-	27, // 10: pilot.v1.WorkerMessage.ws_frame_recv:type_name -> pilot.v1.WSFrame
-	28, // 11: pilot.v1.WorkerMessage.ws_end_recv:type_name -> pilot.v1.WSEnd
-	4,  // 12: pilot.v1.NodeListPush.nodes:type_name -> pilot.v1.NodeInfo
-	29, // 13: pilot.v1.NodeInfo.labels:type_name -> pilot.v1.NodeInfo.LabelsEntry
-	30, // 14: pilot.v1.NodeInfo.annotations:type_name -> pilot.v1.NodeInfo.AnnotationsEntry
-	8,  // 15: pilot.v1.ServerMessage.register_ack:type_name -> pilot.v1.RegisterAck
-	9,  // 16: pilot.v1.ServerMessage.resource_req:type_name -> pilot.v1.ResourceRequest
-	10, // 17: pilot.v1.ServerMessage.plugin_cmd:type_name -> pilot.v1.PluginCommand
-	13, // 18: pilot.v1.ServerMessage.logs_start:type_name -> pilot.v1.LogsStartRequest
-	14, // 19: pilot.v1.ServerMessage.logs_cancel:type_name -> pilot.v1.LogsCancelRequest
-	17, // 20: pilot.v1.ServerMessage.exec_start:type_name -> pilot.v1.ExecStartRequest
-	18, // 21: pilot.v1.ServerMessage.exec_stdin:type_name -> pilot.v1.ExecStdin
-	19, // 22: pilot.v1.ServerMessage.exec_resize:type_name -> pilot.v1.ExecResize
-	20, // 23: pilot.v1.ServerMessage.exec_cancel:type_name -> pilot.v1.ExecCancelRequest
-	24, // 24: pilot.v1.ServerMessage.http_req:type_name -> pilot.v1.HTTPRequest
-	26, // 25: pilot.v1.ServerMessage.ws_start:type_name -> pilot.v1.WSStartRequest
-	27, // 26: pilot.v1.ServerMessage.ws_frame_send:type_name -> pilot.v1.WSFrame
-	28, // 27: pilot.v1.ServerMessage.ws_end_send:type_name -> pilot.v1.WSEnd
-	11, // 28: pilot.v1.PluginCommand.spec:type_name -> pilot.v1.PluginSpec
-	12, // 29: pilot.v1.PluginSpec.chart:type_name -> pilot.v1.ChartSource
-	23, // 30: pilot.v1.HTTPRequest.headers:type_name -> pilot.v1.HTTPHeader
-	23, // 31: pilot.v1.HTTPResponse.headers:type_name -> pilot.v1.HTTPHeader
-	23, // 32: pilot.v1.WSStartRequest.headers:type_name -> pilot.v1.HTTPHeader
-	0,  // 33: pilot.v1.PilotService.Connect:input_type -> pilot.v1.WorkerMessage
-	7,  // 34: pilot.v1.PilotService.Connect:output_type -> pilot.v1.ServerMessage
-	34, // [34:35] is the sub-list for method output_type
-	33, // [33:34] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	3,  // 2: pilot.v1.WorkerMessage.resource_resp:type_name -> pilot.v1.ResourceResponse
+	4,  // 3: pilot.v1.WorkerMessage.plugin_status:type_name -> pilot.v1.PluginStatusPush
+	13, // 4: pilot.v1.WorkerMessage.logs_chunk:type_name -> pilot.v1.LogsChunk
+	14, // 5: pilot.v1.WorkerMessage.logs_end:type_name -> pilot.v1.LogsEnd
+	19, // 6: pilot.v1.WorkerMessage.exec_output:type_name -> pilot.v1.ExecOutput
+	20, // 7: pilot.v1.WorkerMessage.exec_end:type_name -> pilot.v1.ExecEnd
+	23, // 8: pilot.v1.WorkerMessage.http_resp:type_name -> pilot.v1.HTTPResponse
+	25, // 9: pilot.v1.WorkerMessage.ws_frame_recv:type_name -> pilot.v1.WSFrame
+	26, // 10: pilot.v1.WorkerMessage.ws_end_recv:type_name -> pilot.v1.WSEnd
+	6,  // 11: pilot.v1.ServerMessage.register_ack:type_name -> pilot.v1.RegisterAck
+	7,  // 12: pilot.v1.ServerMessage.resource_req:type_name -> pilot.v1.ResourceRequest
+	8,  // 13: pilot.v1.ServerMessage.plugin_cmd:type_name -> pilot.v1.PluginCommand
+	11, // 14: pilot.v1.ServerMessage.logs_start:type_name -> pilot.v1.LogsStartRequest
+	12, // 15: pilot.v1.ServerMessage.logs_cancel:type_name -> pilot.v1.LogsCancelRequest
+	15, // 16: pilot.v1.ServerMessage.exec_start:type_name -> pilot.v1.ExecStartRequest
+	16, // 17: pilot.v1.ServerMessage.exec_stdin:type_name -> pilot.v1.ExecStdin
+	17, // 18: pilot.v1.ServerMessage.exec_resize:type_name -> pilot.v1.ExecResize
+	18, // 19: pilot.v1.ServerMessage.exec_cancel:type_name -> pilot.v1.ExecCancelRequest
+	22, // 20: pilot.v1.ServerMessage.http_req:type_name -> pilot.v1.HTTPRequest
+	24, // 21: pilot.v1.ServerMessage.ws_start:type_name -> pilot.v1.WSStartRequest
+	25, // 22: pilot.v1.ServerMessage.ws_frame_send:type_name -> pilot.v1.WSFrame
+	26, // 23: pilot.v1.ServerMessage.ws_end_send:type_name -> pilot.v1.WSEnd
+	9,  // 24: pilot.v1.PluginCommand.spec:type_name -> pilot.v1.PluginSpec
+	10, // 25: pilot.v1.PluginSpec.chart:type_name -> pilot.v1.ChartSource
+	21, // 26: pilot.v1.HTTPRequest.headers:type_name -> pilot.v1.HTTPHeader
+	21, // 27: pilot.v1.HTTPResponse.headers:type_name -> pilot.v1.HTTPHeader
+	21, // 28: pilot.v1.WSStartRequest.headers:type_name -> pilot.v1.HTTPHeader
+	0,  // 29: pilot.v1.PilotService.Connect:input_type -> pilot.v1.WorkerMessage
+	5,  // 30: pilot.v1.PilotService.Connect:output_type -> pilot.v1.ServerMessage
+	30, // [30:31] is the sub-list for method output_type
+	29, // [29:30] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_pilot_proto_init() }
@@ -2653,7 +2408,6 @@ func file_pilot_proto_init() {
 	file_pilot_proto_msgTypes[0].OneofWrappers = []any{
 		(*WorkerMessage_Register)(nil),
 		(*WorkerMessage_Heartbeat)(nil),
-		(*WorkerMessage_NodeList)(nil),
 		(*WorkerMessage_ResourceResp)(nil),
 		(*WorkerMessage_PluginStatus)(nil),
 		(*WorkerMessage_LogsChunk)(nil),
@@ -2664,7 +2418,7 @@ func file_pilot_proto_init() {
 		(*WorkerMessage_WsFrameRecv)(nil),
 		(*WorkerMessage_WsEndRecv)(nil),
 	}
-	file_pilot_proto_msgTypes[7].OneofWrappers = []any{
+	file_pilot_proto_msgTypes[5].OneofWrappers = []any{
 		(*ServerMessage_RegisterAck)(nil),
 		(*ServerMessage_ResourceReq)(nil),
 		(*ServerMessage_PluginCmd)(nil),
@@ -2685,7 +2439,7 @@ func file_pilot_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pilot_proto_rawDesc), len(file_pilot_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   31,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -55,6 +55,12 @@ type gvkInfo struct {
 // Gateway page on a cluster without the CRD just yields a 404
 // "no such kind", which the UI surfaces as the worker error.
 var resourceGVK = map[string]gvkInfo{
+	// Cluster-scoped Node — used by the dedicated /nodes UI page (which
+	// calls /workloads/nodes under the hood). Listing through the
+	// workloads proxy gives us kubectl-default + wide columns from the
+	// Table API for free; no node menu entry under 工作负载 / 网络 / 存储
+	// (the dedicated Nodes sider link covers it).
+	"nodes":                    {"", "v1", "Node"},
 	"deployments":              {"apps", "v1", "Deployment"},
 	"statefulsets":             {"apps", "v1", "StatefulSet"},
 	"daemonsets":               {"apps", "v1", "DaemonSet"},

@@ -300,18 +300,10 @@ export default {
 
   // nodes
   'pages.nodes.title': '节点',
-  'pages.nodes.col.name': '名称',
-  'pages.nodes.col.status': '状态',
-  'pages.nodes.col.role': '角色',
-  'pages.nodes.col.osArch': 'OS / 架构',
-  'pages.nodes.col.cpu': 'CPU（可分配 / 总量）',
-  'pages.nodes.col.memory': '内存（可分配 / 总量）',
-  'pages.nodes.detail.ip': '内网 IP',
+  // 列名直接来自 K8s Table API（kubectl printer），不走前端 i18n。
   'pages.nodes.detail.podCIDR': 'Pod CIDR',
-  'pages.nodes.detail.os': 'OS 镜像',
-  'pages.nodes.detail.kernel': '内核版本',
-  'pages.nodes.detail.runtime': '容器运行时',
-  'pages.nodes.detail.kubelet': 'Kubelet 版本',
+  'pages.nodes.detail.unschedulable': '不可调度',
+  'pages.nodes.detail.taints': 'Taints',
 
   // workloads
   'pages.workloads.allNamespaces': '全部命名空间',
