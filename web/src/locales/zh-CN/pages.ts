@@ -45,7 +45,7 @@ export default {
   'pages.gpu.card.podCores': '分配算力',
   // 智算 sub-pages
   'pages.compute.landing.title': '算力管理',
-  'pages.compute.landing.subtitle': '选择一个集群进入 GPU 资源运营面板',
+  'pages.compute.landing.subtitle': '选择一个集群',
   'pages.compute.landing.empty.title': '暂无集群',
   'pages.compute.landing.empty.hint': '先在「集群管理」中添加并连接一个集群，再回到这里进入算力管理',
   'pages.compute.landing.empty.action': '前往集群管理',

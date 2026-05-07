@@ -104,7 +104,7 @@ const PickerCard: React.FC<{ cluster: Cluster; onEnter: () => void }> = ({
           style={{ marginBottom: 0, minHeight: 40 }}
         >
           {cluster.description ||
-            intl.formatMessage({ id: 'pages.clusters.noDescription' })}
+            intl.formatMessage({ id: 'pages.clusters.card.noDescription' })}
         </Paragraph>
       </Space>
     </Card>

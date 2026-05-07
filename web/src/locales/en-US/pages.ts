@@ -43,7 +43,7 @@ export default {
   'pages.gpu.card.podCores': 'Allocated cores',
   // AI Compute sub-pages
   'pages.compute.landing.title': 'Compute',
-  'pages.compute.landing.subtitle': 'Select a cluster to enter the GPU ops panel',
+  'pages.compute.landing.subtitle': 'Select a cluster',
   'pages.compute.landing.empty.title': 'No clusters yet',
   'pages.compute.landing.empty.hint':
     'Add and connect a cluster in Cluster Management first, then come back here',
