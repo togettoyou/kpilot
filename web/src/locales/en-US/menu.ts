@@ -1,11 +1,14 @@
 export default {
   'menu.login': 'Login',
-  'menu.clusters': 'Clusters',
-  'menu.plugins': 'Plugin Management',
 
-  // Cluster detail (dynamically injected when a cluster is selected).
-  // Locale keys are auto-derived as `menu.clusters.{name}` (parent prefix +
-  // item name), so these MUST stay aligned with names in buildClusterSubMenu.
+  // Top-level platforms (4 modules).
+  'menu.clusters': 'Clusters',
+  'menu.compute': 'Compute',
+  'menu.models': 'Models',
+  'menu.plugins': 'Plugins',
+
+  // Cluster detail sider — injected when a cluster is selected under
+  // /clusters/:id/*. Locale keys auto-derive as menu.clusters.{name}.
   'menu.clusters.nodes': 'Nodes',
   'menu.clusters.workloads': 'Workloads',
   'menu.clusters.workloads.deployments': 'Deployments',
@@ -42,13 +45,10 @@ export default {
   'menu.clusters.extensions.dra.deviceclasses': 'DeviceClasses',
   'menu.clusters.extensions.dra.resourceslices': 'ResourceSlices',
   'menu.clusters.plugins': 'Plugins',
-  // AI Compute group: GPU resources. Single-child parent — node / card
-  // / task views were merged into the unified Resource Overview.
-  'menu.clusters.compute': 'AI Compute',
-  'menu.clusters.compute.overview': 'Resource Overview',
-  // Model serving group. Children land in P7.
-  'menu.clusters.models': 'Models',
-  'menu.clusters.models.inference': 'Inference',
   'menu.clusters.monitoring': 'Monitoring',
   'menu.clusters.logging': 'Logging',
+
+  // Compute platform sider — injected when a cluster is selected under
+  // /compute/:id/*.
+  'menu.compute.overview': 'Resource Overview',
 };

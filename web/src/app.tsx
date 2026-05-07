@@ -3,7 +3,6 @@ import {
   AppstoreAddOutlined,
   AppstoreOutlined,
   BlockOutlined,
-  BulbOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
   DesktopOutlined,
@@ -40,8 +39,14 @@ export type InitialState = {
   currentClusterId?: string | null;
 };
 
+// extractClusterId reads the cluster id out of the URL whether the
+// user is in the K8s management platform (`/clusters/:id/...`) or the
+// Compute platform (`/compute/:id/...`). Both share the same physical
+// cluster — only the perspective changes — so it's a single global
+// "current cluster" state, used by menuDataRender to decide which
+// platform's sider sub-menu to inject.
 function extractClusterId(pathname: string): string | null {
-  const m = pathname.match(/^\/clusters\/([^/]+)(?:\/|$)/);
+  const m = pathname.match(/^\/(?:clusters|compute)\/([^/]+)(?:\/|$)/);
   return m ? m[1] : null;
 }
 
@@ -181,37 +186,6 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       icon: <AppstoreAddOutlined />,
     },
     {
-      // 智算 group: GPU resource overview. Used to be split across
-      // overview / nodes / cards / tasks but they were merged into a
-      // single dashboard. Group kept as a single-child parent so the
-      // navigation grouping is consistent with 模型 below (and leaves
-      // room for GPU-monitoring / future siblings).
-      path: `${base}/compute`,
-      name: 'compute',
-      icon: <ThunderboltOutlined />,
-      children: [
-        {
-          path: `${base}/compute/overview`,
-          name: 'overview',
-        },
-      ],
-    },
-    {
-      // 模型 is its own parent group — children land in P7. For now a
-      // single placeholder child keeps the menu shape consistent so the
-      // navigation doesn't reorder when we ship the inference page.
-      path: `${base}/models`,
-      name: 'models',
-      icon: <BulbOutlined />,
-      children: [
-        {
-          path: `${base}/models/inference`,
-          name: 'inference',
-          disabled: true,
-        },
-      ],
-    },
-    {
       path: `${base}/monitoring`,
       name: 'monitoring',
       icon: <LineChartOutlined />,
@@ -220,6 +194,20 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       path: `${base}/logging`,
       name: 'logging',
       icon: <FileTextOutlined />,
+    },
+  ];
+}
+
+// buildComputeSubMenu — sider items for the Compute platform once a
+// cluster is selected. Phase 0 has only the resource overview; P5b
+// adds GPU monitoring, P5c+ adds task management / health / etc.
+function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
+  const base = `/compute/${clusterId}`;
+  return [
+    {
+      path: `${base}/overview`,
+      name: 'overview',
+      icon: <ThunderboltOutlined />,
     },
   ];
 }
@@ -302,6 +290,13 @@ export const layout: RunTimeLayoutConfig = ({
           return {
             ...item,
             children: buildClusterSubMenu(currentClusterId),
+            routes: undefined,
+          };
+        }
+        if (item.path === '/compute') {
+          return {
+            ...item,
+            children: buildComputeSubMenu(currentClusterId),
             routes: undefined,
           };
         }

@@ -1,11 +1,14 @@
 export default {
   'menu.login': '登录',
+
+  // Top-level platforms (4 modules).
   'menu.clusters': '集群管理',
+  'menu.compute': '算力管理',
+  'menu.models': '模型管理',
   'menu.plugins': '插件管理',
 
-  // Cluster detail (dynamically injected when a cluster is selected).
-  // Locale keys are auto-derived as `menu.clusters.{name}` (parent prefix +
-  // item name), so these MUST stay aligned with names in buildClusterSubMenu.
+  // Cluster detail sider — injected when a cluster is selected under
+  // /clusters/:id/*. Locale keys auto-derive as menu.clusters.{name}.
   'menu.clusters.nodes': '节点概览',
   'menu.clusters.workloads': '工作负载',
   'menu.clusters.workloads.deployments': 'Deployments',
@@ -42,13 +45,10 @@ export default {
   'menu.clusters.extensions.dra.deviceclasses': 'DeviceClasses',
   'menu.clusters.extensions.dra.resourceslices': 'ResourceSlices',
   'menu.clusters.plugins': '插件',
-  // 智算 = GPU resource group. Single-child parent — node / card /
-  // task views were merged into the unified 资源概览 dashboard.
-  'menu.clusters.compute': '智算',
-  'menu.clusters.compute.overview': '资源概览',
-  // 模型 — model serving group. Children land in P7.
-  'menu.clusters.models': '模型',
-  'menu.clusters.models.inference': '推理服务',
   'menu.clusters.monitoring': '监控',
   'menu.clusters.logging': '日志',
+
+  // Compute platform sider — injected when a cluster is selected under
+  // /compute/:id/*. P5b will add GPU monitoring as a sibling.
+  'menu.compute.overview': '资源概览',
 };

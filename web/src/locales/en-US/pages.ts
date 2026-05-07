@@ -42,6 +42,28 @@ export default {
   'pages.gpu.card.podMem': 'Allocated memory',
   'pages.gpu.card.podCores': 'Allocated cores',
   // AI Compute sub-pages
+  'pages.compute.landing.title': 'Compute',
+  'pages.compute.landing.subtitle': 'Select a cluster to enter the GPU ops panel',
+  'pages.compute.landing.empty.title': 'No clusters yet',
+  'pages.compute.landing.empty.hint':
+    'Add and connect a cluster in Cluster Management first, then come back here',
+  'pages.compute.landing.empty.action': 'Go to Cluster Management',
+  'pages.models.landing.title': 'Models',
+  'pages.models.landing.subtitle':
+    'Registry, deployment, chat playground, and routing — coming soon',
+  'pages.models.landing.comingSoon': 'Coming soon',
+  'pages.models.landing.registry.title': 'Model registry',
+  'pages.models.landing.registry.desc':
+    'Curated catalog of deployable models: runtime (vLLM / SGLang / TGI), images, recommended GPU shape',
+  'pages.models.landing.deploy.title': 'Deployment',
+  'pages.models.landing.deploy.desc':
+    'Pick a model + target cluster + GPU count + replicas; produces Deployment + Service applied to the cluster',
+  'pages.models.landing.chat.title': 'Chat playground',
+  'pages.models.landing.chat.desc':
+    'Built-in chat UI to verify a deployed model is up and behaving',
+  'pages.models.landing.routing.title': 'Routing',
+  'pages.models.landing.routing.desc':
+    'OpenAI-compatible gateway: route by model param, support canary / A/B',
   'pages.compute.overview.title': 'Resource Overview',
   'pages.compute.overview.fleet':
     '{nodes, plural, one {# GPU node} other {# GPU nodes}} · {cards, plural, one {# physical card} other {# physical cards}}',
