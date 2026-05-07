@@ -95,6 +95,36 @@ var resourceGVK = map[string]gvkInfo{
 	"customresourcedefinitions": {"apiextensions.k8s.io", "v1", "CustomResourceDefinition"},
 }
 
+// isNoGenericWriteGVK returns true when the resolved GVK is read-only
+// via the generic /workloads/:type/:name PUT and DELETE endpoints
+// (currently: core Node, which has the dedicated /cordon endpoint).
+//
+// **Critical**: this gates on the resolved GVK rather than the URL
+// `:type` segment. The earlier `rt == "nodes"` form was bypassable
+// via the `_cr` URL — `_cr?group=&version=v1&kind=Node` resolved to
+// the same GVK but `:type="_cr"`, slipping past the gate. Always
+// reason about protection on what the request actually targets.
+//
+// Cluster-scoped infrastructure types in particular (Node) get this
+// treatment because misedits propagate fleet-wide.
+func isNoGenericWriteGVK(gvk gvkInfo) bool {
+	return gvk.group == "" && gvk.kind == "Node"
+}
+
+// isProtectedCRDDefinitionGVK returns true for CRD-definition writes
+// that target a kpilot-owned CRD (`*.kpilot.io`). Same `_cr` bypass
+// concern as `isNoGenericWriteGVK`: a request like
+// `_cr?group=apiextensions.k8s.io&kind=CustomResourceDefinition&
+// name=plugins.kpilot.io` would skip a `:type=="customresourcedefinitions"`
+// gate, so we look at the resolved GVK instead. Group is required —
+// custom resources whose Kind happens to be "CustomResourceDefinition"
+// in some other group must not collide.
+func isProtectedCRDDefinitionGVK(gvk gvkInfo, name string) bool {
+	return gvk.group == "apiextensions.k8s.io" &&
+		gvk.kind == "CustomResourceDefinition" &&
+		isProtectedCRD(name)
+}
+
 // isProtectedCRD returns true for CRD names that kpilot itself owns —
 // deleting them via the workload UI would brick the running install
 // (e.g. removing plugins.kpilot.io leaves every ClusterPlugin row
@@ -240,7 +270,7 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, resourceType, ok := resolveGVK(c)
+		gvk, _, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -250,19 +280,28 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
 			return
 		}
-		// kpilot-owned CRDs are read-only — editing one could clear the
-		// schema and brick the corresponding controller. Same defense
-		// runs in DeleteWorkload below.
-		if resourceType == "customresourcedefinitions" && isProtectedCRD(name) {
+		// kpilot-owned CRDs are read-only — editing one would clear the
+		// schema and brick the corresponding controller. Gate on GVK so
+		// `_cr?group=apiextensions.k8s.io&kind=CRD&name=plugins.kpilot.io`
+		// can't bypass.
+		if isProtectedCRDDefinitionGVK(gvk, name) {
 			apiErr(c, http.StatusForbidden, CodeCRDProtected)
 			return
 		}
 		// CR instances under kpilot.io groups are reconciler-managed —
 		// the user should drive them through the dedicated UI (Plugins
-		// page etc.), not the generic CR viewer. Reject edit/delete
-		// here just like the CRD-definition guard above.
-		if resourceType == "_cr" && isProtectedCRGroup(gvk.group) {
+		// page etc.), not the generic CR viewer. Group check is the
+		// authoritative one (works for both `:type=_cr` and any future
+		// builtin path with a kpilot.io kind).
+		if isProtectedCRGroup(gvk.group) {
 			apiErr(c, http.StatusForbidden, CodeCRDProtected)
+			return
+		}
+		// Node has a scoped /cordon endpoint; the generic Edit-YAML PUT
+		// path is closed off so the only way to mutate Node spec via the
+		// UI is through the constrained patch.
+		if isNoGenericWriteGVK(gvk) {
+			apiErr(c, http.StatusForbidden, CodeNodeProtected)
 			return
 		}
 
@@ -428,21 +467,24 @@ func validateDoc(idx int, obj *unstructured.Unstructured) (ApplyYamlResult, bool
 		r.Error = "namespace " + r.Namespace + " is read-only"
 		return r, false
 	}
-	// Same protection as the per-row CRD path: refuse SSA / delete on
-	// kpilot-owned CRDs even if the user pasted them into the bulk
-	// Apply YAML drawer.
-	if r.Kind == "CustomResourceDefinition" && isProtectedCRD(r.Name) {
+	// All write protections gate on the resolved GVK (apiVersion + kind
+	// from the unstructured doc), never on the URL :type — same
+	// principle as the per-row handlers.
+	gvk := obj.GroupVersionKind()
+	if isProtectedCRDDefinitionGVK(gvkInfo{group: gvk.Group, version: gvk.Version, kind: gvk.Kind}, r.Name) {
 		r.Error = "CRD " + r.Name + " is owned by kpilot and read-only"
 		return r, false
 	}
-	// And the same for CR instances under kpilot.io groups (Plugin etc.)
-	// — the per-row apply/delete handlers reject these via the `_cr`
-	// guard, so the bulk drawer needs to too or it becomes the obvious
-	// bypass. obj.GroupVersionKind() reads apiVersion + kind out of
-	// the unstructured doc.
-	if isProtectedCRGroup(obj.GroupVersionKind().Group) {
-		r.Error = r.Kind + "." + obj.GroupVersionKind().Group +
+	// CR instances under kpilot.io groups (Plugin etc.) are
+	// reconciler-managed; per-row handlers reject them too.
+	if isProtectedCRGroup(gvk.Group) {
+		r.Error = r.Kind + "." + gvk.Group +
 			" is owned by kpilot and read-only"
+		return r, false
+	}
+	// Node: scoped /cordon endpoint is the only mutation path.
+	if isNoGenericWriteGVK(gvkInfo{group: gvk.Group, version: gvk.Version, kind: gvk.Kind}) {
+		r.Error = "Node is read-only via Apply YAML; use the cordon button"
 		return r, false
 	}
 	return r, true
@@ -563,7 +605,7 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, resourceType, ok := resolveGVK(c)
+		gvk, _, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -573,12 +615,20 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
 			return
 		}
-		if resourceType == "customresourcedefinitions" && isProtectedCRD(name) {
+		// All gates here mirror ApplyWorkload — see the comments there
+		// for why we check resolved GVK rather than the URL `:type`.
+		if isProtectedCRDDefinitionGVK(gvk, name) {
 			apiErr(c, http.StatusForbidden, CodeCRDProtected)
 			return
 		}
-		if resourceType == "_cr" && isProtectedCRGroup(gvk.group) {
+		if isProtectedCRGroup(gvk.group) {
 			apiErr(c, http.StatusForbidden, CodeCRDProtected)
+			return
+		}
+		// Node has no generic delete via this endpoint — drain + remove
+		// is a multi-step admin op, not an Edit-YAML-adjacent button.
+		if isNoGenericWriteGVK(gvk) {
+			apiErr(c, http.StatusForbidden, CodeNodeProtected)
 			return
 		}
 
@@ -657,4 +707,65 @@ func handleWorkerErr(c *gin.Context, err error) {
 	}
 	// "cluster X not connected" — worker is offline
 	apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
+}
+
+// CordonNode toggles spec.unschedulable on a Node via Strategic Merge
+// Patch. The patch payload is constructed server-side from a single
+// boolean — the client can't smuggle in extra fields, even if the
+// request body has more keys, this handler ignores them. Paired with
+// the no-generic-write guard in ApplyWorkload / DeleteWorkload above
+// so the only way to mutate a Node is this endpoint (or admin-side
+// kubectl, which is out of scope for the UI).
+func CordonNode(gw *gateway.GatewayServer) gin.HandlerFunc {
+	type body struct {
+		Cordon bool `json:"cordon"`
+	}
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		name := c.Param("name")
+		if name == "" {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		var req body
+		if err := c.ShouldBindJSON(&req); err != nil {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		// Server constructs the patch — never accept a raw patch body
+		// from the client. This is the whole reason we don't reuse the
+		// generic update path.
+		patch, err := json.Marshal(map[string]any{
+			"spec": map[string]any{
+				"unschedulable": req.Cordon,
+			},
+		})
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:  "patch",
+			Group:   "",
+			Version: "v1",
+			Kind:    "Node",
+			Name:    name,
+			Body:    patch,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			apiErrWorker(c, resp.Error)
+			return
+		}
+		c.Data(http.StatusOK, "application/json", resp.Data)
+	}
 }

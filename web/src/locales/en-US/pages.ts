@@ -231,6 +231,8 @@ export default {
     'This namespace is read-only (kube-* / kpilot-* namespaces cannot be edited directly)',
   'errors.CRD_PROTECTED':
     'kpilot-owned CRDs (*.kpilot.io) cannot be edited or deleted — modifying them would break the plugin system',
+  'errors.NODE_PROTECTED':
+    'Nodes don\'t support generic edit/delete; use the scoped buttons (e.g. cordon) instead',
   'errors.PLUGIN_NOT_FOUND': 'Plugin not found',
   'errors.PLUGIN_NAME_EXISTS': 'Plugin name already exists',
   'errors.PLUGIN_BUILTIN_LOCKED':
@@ -311,6 +313,7 @@ export default {
 
   // nodes
   'pages.nodes.title': 'Nodes',
+  'pages.nodes.searchPlaceholder': 'Search name / role / status / IP…',
   // Column titles: K8s Table API returns kubectl printer headers in English;
   // the frontend translates them through this set of keys.
   'pages.nodes.col.name': 'Name',

@@ -1,8 +1,23 @@
-import { ExclamationCircleOutlined } from '@ant-design/icons';
+import {
+  DownOutlined,
+  ExclamationCircleOutlined,
+  LeftOutlined,
+  ReloadOutlined,
+  RightOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { App, Button, Modal, Space, Tag, Typography } from 'antd';
-import React, { useMemo, useState } from 'react';
+import {
+  App,
+  Button,
+  Dropdown,
+  Input,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { cordonNode, listNodes } from '@/services/kpilot/node';
 
@@ -10,6 +25,11 @@ import NodeDetailDrawer from './NodeDetailDrawer';
 import NodeYamlDrawer from './NodeYamlDrawer';
 
 const { Text } = Typography;
+
+// Match Workloads' chunk size — Node count is bounded enough that
+// the user almost always lands on a single page, but pagination
+// kicks in cleanly on huge clusters without a separate code path.
+const PAGE_SIZE = 100;
 
 interface NodeRow {
   name: string;
@@ -32,8 +52,6 @@ const COL_I18N: Record<string, string> = {
   'Container-Runtime': 'pages.nodes.col.containerRuntime',
 };
 
-// renderCell maps a kubectl column to a tag/text representation.
-// kubectl's printer joins multi-state STATUS / ROLES with commas.
 function renderCell(name: string, value: unknown): React.ReactNode {
   if (value === null || value === undefined || value === '' || value === '<none>') {
     return <Text type="secondary">—</Text>;
@@ -77,14 +95,30 @@ export default function NodesPage() {
   const intl = useIntl();
   const { message, modal } = App.useApp();
 
-  const { data, loading, refresh } = useRequest(() => listNodes(clusterId!), {
-    pollingInterval: 15_000,
-    formatResult: (res) => res,
-    pollingWhenHidden: false,
-  });
+  const [pollingInterval, setPollingInterval] = useState(0);
+  const [search, setSearch] = useState('');
+
+  // Server-side cursor pagination — same shape as the Workloads page
+  // (see comments there). pageTokens[i] = continue token for page i;
+  // pageTokens[0] is always '' (first page).
+  const [pageTokens, setPageTokens] = useState<string[]>(['']);
+  const [pageIdx, setPageIdx] = useState(0);
+  const currentToken = pageTokens[pageIdx] ?? '';
+
+  const { data, loading, refresh } = useRequest(
+    () => listNodes(clusterId!, PAGE_SIZE, currentToken),
+    {
+      refreshDeps: [currentToken],
+      formatResult: (res) => res,
+      pollingWhenHidden: false,
+    },
+  );
 
   const cols = data?.columnDefinitions ?? [];
   const statusColIdx = cols.findIndex((c) => c.name === 'Status');
+  const nameColIdx = cols.findIndex((c) => c.name === 'Name');
+  const rolesColIdx = cols.findIndex((c) => c.name === 'Roles');
+
   const rows: NodeRow[] = useMemo(
     () =>
       (data?.rows ?? []).map((r) => ({
@@ -94,15 +128,52 @@ export default function NodesPage() {
     [data?.rows],
   );
 
-  // active === { name, mode: 'detail' | 'yaml' } → which drawer is open.
-  // Single state instead of two booleans so opening one auto-closes the
-  // other and we don't end up with both drawers stacked at the same time.
+  // Client-side substring filter on what's already loaded — covers
+  // name + roles + every other cell. Same as kubectl/Lens; the
+  // K8s API has no substring search (fieldSelector on metadata.name
+  // is exact-equality only).
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      for (const cell of r.cells) {
+        if (cell != null && String(cell).toLowerCase().includes(q)) return true;
+      }
+      return false;
+    });
+  }, [rows, search]);
+  const isFiltering = search.trim().length > 0;
+
+  const nextToken = data?.metadata?.continue ?? '';
+  const hasMore = !!nextToken;
+  const remaining = data?.metadata?.remainingItemCount;
+  const totalKnown =
+    remaining != null ? pageIdx * PAGE_SIZE + rows.length + remaining : undefined;
+
+  // Save the next page's token once we receive it so the user can
+  // page forward + back without refetching.
+  useEffect(() => {
+    if (!nextToken) return;
+    setPageTokens((prev) => {
+      if (prev[pageIdx + 1]) return prev;
+      const next = [...prev];
+      next[pageIdx + 1] = nextToken;
+      return next;
+    });
+  }, [nextToken, pageIdx]);
+
+  // Manual setInterval (not useRequest's pollingInterval) because the
+  // user-selected interval is dynamic state — useRequest captures the
+  // initial value and ignores subsequent changes. Same pattern as
+  // Workloads/index.tsx; documented in CLAUDE.md.
+  useEffect(() => {
+    if (pollingInterval <= 0) return;
+    const timer = setInterval(refresh, pollingInterval);
+    return () => clearInterval(timer);
+  }, [pollingInterval, refresh]);
+
   const [active, setActive] = useState<{ name: string; mode: 'detail' | 'yaml' } | null>(null);
 
-  // handleCordon prompts confirm + flips spec.unschedulable. The current
-  // schedulable state is derived from the Status cell ("SchedulingDisabled"
-  // suffix kubectl appends when a node is cordoned) — saves a Get just to
-  // pick the right verb.
   const handleCordon = (name: string, cordoned: boolean) => {
     const next = !cordoned;
     modal.confirm({
@@ -137,6 +208,11 @@ export default function NodesPage() {
     });
   };
 
+  // void-mark unused col indexes so eslint doesn't warn (kept around
+  // for future use — name/roles filtering split etc.).
+  void nameColIdx;
+  void rolesColIdx;
+
   return (
     <div className="p-6">
       <ProTable<NodeRow>
@@ -145,12 +221,54 @@ export default function NodesPage() {
             <Text strong>
               {intl.formatMessage({ id: 'pages.nodes.title' })}
             </Text>
-            <Text type="secondary">({rows.length})</Text>
+            <Text type="secondary">
+              {isFiltering
+                ? `(${filteredRows.length} / ${rows.length})`
+                : totalKnown != null
+                  ? `(${totalKnown})`
+                  : `(${rows.length}${hasMore ? '+' : ''})`}
+            </Text>
           </Space>
         }
+        toolBarRender={() => [
+          <Input
+            key="search"
+            placeholder={intl.formatMessage({ id: 'pages.nodes.searchPlaceholder' })}
+            prefix={<SearchOutlined />}
+            allowClear
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: 240 }}
+          />,
+          <Space.Compact key="refresh">
+            <Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} />
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: [
+                  {
+                    key: '0',
+                    label: intl.formatMessage({ id: 'pages.workloads.refresh.off' }),
+                  },
+                  { type: 'divider' },
+                  { key: '5000', label: '5s' },
+                  { key: '10000', label: '10s' },
+                  { key: '30000', label: '30s' },
+                  { key: '60000', label: '60s' },
+                ],
+                selectedKeys: [String(pollingInterval)],
+                onClick: ({ key }) => setPollingInterval(Number(key)),
+              }}
+            >
+              <Button style={{ minWidth: 46 }}>
+                {pollingInterval > 0 ? `${pollingInterval / 1000}s` : <DownOutlined />}
+              </Button>
+            </Dropdown>
+          </Space.Compact>,
+        ]}
         rowKey="name"
         loading={loading}
-        dataSource={rows}
+        dataSource={filteredRows}
         scroll={{ x: 'max-content' }}
         search={false}
         pagination={false}
@@ -207,6 +325,33 @@ export default function NodesPage() {
           },
         ]}
       />
+      {(pageIdx > 0 || hasMore) && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: 8,
+            padding: '12px 0',
+          }}
+        >
+          <Button
+            size="small"
+            icon={<LeftOutlined />}
+            disabled={pageIdx === 0}
+            onClick={() => setPageIdx((p) => p - 1)}
+          />
+          <Text type="secondary">
+            {intl.formatMessage({ id: 'pages.workloads.page' }, { n: pageIdx + 1 })}
+          </Text>
+          <Button
+            size="small"
+            icon={<RightOutlined />}
+            disabled={!hasMore}
+            onClick={() => setPageIdx((p) => p + 1)}
+          />
+        </div>
+      )}
       <NodeDetailDrawer
         clusterId={clusterId!}
         name={active?.mode === 'detail' ? active.name : null}

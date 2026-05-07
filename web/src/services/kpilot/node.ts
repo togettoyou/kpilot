@@ -4,19 +4,33 @@ import { request } from '@umijs/max';
 // the same shape `kubectl get node -o wide` consumes server-side.
 // `columnDefinitions` carries kubectl's printer columns (default +
 // wide) and `rows[].cells` the per-row values, in column order.
+// `metadata.continue` carries the K8s cursor for the next page;
+// `remainingItemCount` is the server-known tail size (best-effort,
+// not always populated — same as kubectl-go behavior).
 export interface NodeTable {
   columnDefinitions: { name: string; description?: string; priority: number }[];
   rows: { cells: any[]; object?: any }[];
+  metadata?: {
+    continue?: string;
+    remainingItemCount?: number;
+  };
 }
 
 // Routed through the workloads proxy (resourceGVK has `nodes`); the
-// Worker calls Table API + returns kubectl-style rows. Keeps the K8s
-// 节点概览 page in lockstep with `kubectl get node -o wide` for free,
-// including SchedulingDisabled appended to STATUS when cordoned.
-export function listNodes(clusterId: string) {
+// Worker calls Table API + returns kubectl-style rows. Pagination via
+// limit + continue tokens — same cursor semantics as the Workloads
+// list and standard kubectl chunking.
+export function listNodes(
+  clusterId: string,
+  limit = 0,
+  continueToken = '',
+) {
+  const params: Record<string, string | number> = {};
+  if (limit > 0) params.limit = limit;
+  if (continueToken) params.continue = continueToken;
   return request<NodeTable>(
     `/api/v1/clusters/${clusterId}/workloads/nodes`,
-    { method: 'GET' },
+    { method: 'GET', params },
   );
 }
 
@@ -30,20 +44,24 @@ export function getNode(clusterId: string, name: string) {
   );
 }
 
-// cordonNode flips spec.unschedulable. Read-modify-write through the
-// existing workloads PUT path (server-side dynamic.Update) — gives us
-// optimistic concurrency via resourceVersion for free, so two ops
-// racing return 409 instead of clobbering each other. Cordon is rare
-// enough that the extra GET round-trip is invisible.
-export async function cordonNode(
+// cordonNode flips spec.unschedulable through a dedicated server
+// endpoint. The body is just `{cordon: bool}` — the Server constructs
+// the actual Strategic Merge Patch (`{spec: {unschedulable: ...}}`)
+// so the client physically cannot smuggle in extra fields. This is
+// stricter than the read-modify-write-via-PUT pattern we used first:
+// PUT exposed the entire Node spec to whatever the client chose to
+// send, which is too much authority for a "cordon" button.
+//
+// The corresponding generic /workloads/nodes/:name PUT and DELETE
+// are server-side blocked (NODE_PROTECTED) so this endpoint is the
+// only mutation path through the UI.
+export function cordonNode(
   clusterId: string,
   name: string,
   cordon: boolean,
 ): Promise<void> {
-  const current = await getNode(clusterId, name);
-  current.spec = { ...(current.spec ?? {}), unschedulable: cordon };
-  await request(
-    `/api/v1/clusters/${clusterId}/workloads/nodes/${name}`,
-    { method: 'PUT', data: current },
+  return request(
+    `/api/v1/clusters/${clusterId}/workloads/nodes/${name}/cordon`,
+    { method: 'POST', data: { cordon } },
   );
 }

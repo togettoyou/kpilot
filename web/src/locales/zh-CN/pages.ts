@@ -224,6 +224,8 @@ export default {
     '该命名空间为只读（kube-* / kpilot-* 命名空间不允许直接修改）',
   'errors.CRD_PROTECTED':
     'kpilot 自有 CRD（*.kpilot.io）不允许修改或删除——会破坏插件系统',
+  'errors.NODE_PROTECTED':
+    '节点不支持通用编辑/删除，请通过专用按钮（如 cordon）操作',
   'errors.PLUGIN_NOT_FOUND': '插件不存在',
   'errors.PLUGIN_NAME_EXISTS': '插件名称已存在',
   'errors.PLUGIN_BUILTIN_LOCKED': '内置插件不允许修改或删除',
@@ -300,6 +302,7 @@ export default {
 
   // nodes
   'pages.nodes.title': '节点',
+  'pages.nodes.searchPlaceholder': '搜索名称 / 角色 / 状态 / IP…',
   // 列标题：K8s Table API 返回 kubectl printer 英文列名，前端按这组 key 翻译。
   'pages.nodes.col.name': '名称',
   'pages.nodes.col.status': '状态',

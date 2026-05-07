@@ -144,6 +144,8 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 		return p.apply(ctx, mapping, req.Namespace, req.Name, req.Body)
 	case "update":
 		return p.update(ctx, mapping, req.Namespace, req.Body)
+	case "patch":
+		return p.patch(ctx, mapping, req.Namespace, req.Name, req.Body)
 	case "delete":
 		return p.delete(ctx, mapping, req.Namespace, req.Name)
 	case "describe":
@@ -263,6 +265,28 @@ func (p *Proxy) update(ctx context.Context, mapping *apimeta.RESTMapping, namesp
 	ri, _ := p.resourceClient(mapping, namespace)
 	opts := metav1.UpdateOptions{FieldManager: "kpilot"}
 	result, err := ri.Update(ctx, obj, opts)
+	if err != nil {
+		return fail(err.Error())
+	}
+	return marshal(result)
+}
+
+// patch applies a Strategic Merge Patch to a single object. Used by
+// scoped operations like cordon — Server constructs the patch body
+// (e.g. `{"spec":{"unschedulable":true}}`) so callers can't sneak
+// extra fields through. This is intentionally a separate action
+// from `apply` (SSA) and `update` (full PUT) because both of those
+// would let the body specify arbitrary fields.
+func (p *Proxy) patch(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string, body []byte) *proto.ResourceResponse {
+	if name == "" {
+		return fail("name is required for patch")
+	}
+	if !json.Valid(body) {
+		return fail("invalid body: not valid JSON")
+	}
+	ri, _ := p.resourceClient(mapping, namespace)
+	opts := metav1.PatchOptions{FieldManager: "kpilot"}
+	result, err := ri.Patch(ctx, name, k8stypes.StrategicMergePatchType, body, opts)
 	if err != nil {
 		return fail(err.Error())
 	}

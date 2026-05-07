@@ -19,6 +19,7 @@ const (
 	CodeWorkerConflict       = "WORKER_CONFLICT"
 	CodeNamespaceProtected   = "NAMESPACE_PROTECTED"
 	CodeCRDProtected         = "CRD_PROTECTED"
+	CodeNodeProtected        = "NODE_PROTECTED"
 	CodePluginNotFound       = "PLUGIN_NOT_FOUND"
 	CodePluginNameExists     = "PLUGIN_NAME_EXISTS"
 	CodePluginBuiltinLocked  = "PLUGIN_BUILTIN_LOCKED"
