@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -15,7 +16,11 @@ import (
 
 // Field length caps must mirror the DB column types and the frontend
 // form maxLength props — defense-in-depth so a hand-rolled API call
-// can't slip oversized text past us.
+// can't slip oversized text past us. Counted in **runes** (characters)
+// not bytes so the limit matches what the frontend's antd Input
+// maxLength enforces; otherwise a Chinese description that fits the
+// frontend cap (each char counted once) gets rejected on the backend
+// (each char counted as 3 UTF-8 bytes).
 const (
 	maxClusterNameLen = 255
 	maxClusterDescLen = 500
@@ -27,7 +32,8 @@ type createClusterRequest struct {
 }
 
 func (r *createClusterRequest) validate() string {
-	if len(r.Name) > maxClusterNameLen || len(r.Description) > maxClusterDescLen {
+	if utf8.RuneCountInString(r.Name) > maxClusterNameLen ||
+		utf8.RuneCountInString(r.Description) > maxClusterDescLen {
 		return CodeInvalidRequest
 	}
 	return ""
@@ -109,7 +115,8 @@ type updateClusterRequest struct {
 }
 
 func (r *updateClusterRequest) validate() string {
-	if len(r.Name) > maxClusterNameLen || len(r.Description) > maxClusterDescLen {
+	if utf8.RuneCountInString(r.Name) > maxClusterNameLen ||
+		utf8.RuneCountInString(r.Description) > maxClusterDescLen {
 		return CodeInvalidRequest
 	}
 	return ""

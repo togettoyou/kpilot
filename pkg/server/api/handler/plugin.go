@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -97,10 +98,16 @@ var validCategories = map[store.PluginCategory]bool{
 
 // validate enforces shape + length invariants on the request. Returns
 // a code suitable for apiErr; empty string means valid.
+//
+// Rune-count for free-text human fields (DisplayName, Description) so
+// the limit matches the frontend's antd Input maxLength (which counts
+// characters). Byte-count for fields that are intrinsically ASCII —
+// DNS-1123 labels, URLs, semver, YAML blob — where bytes ≈ chars and
+// the byte limit reflects DB storage size.
 func (r *pluginRequest) validate() string {
 	if len(r.Name) > maxPluginNameLen ||
-		len(r.DisplayName) > maxPluginDisplayNameLen ||
-		len(r.Description) > maxPluginDescriptionLen ||
+		utf8.RuneCountInString(r.DisplayName) > maxPluginDisplayNameLen ||
+		utf8.RuneCountInString(r.Description) > maxPluginDescriptionLen ||
 		len(r.IconURL) > maxPluginIconURLLen ||
 		len(r.ChartRepo) > maxPluginChartRepoLen ||
 		len(r.ChartName) > maxPluginChartNameLen ||
