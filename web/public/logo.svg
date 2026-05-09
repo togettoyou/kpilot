@@ -1,78 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
   <defs>
-    <linearGradient id="g" x1="30" y1="30" x2="170" y2="170" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#6366F1"/>
-      <stop offset="50%" stop-color="#3B82F6"/>
-      <stop offset="100%" stop-color="#06B6D4"/>
+    <!-- Dark navy backdrop with subtle gradient. Heavier than indigo→cyan
+         and reads more "infra" than "consumer SaaS". -->
+    <linearGradient id="bg" x1="20" y1="20" x2="180" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
     </linearGradient>
   </defs>
 
-  <!-- Chip pins — top -->
-  <g stroke="#94A3B8" stroke-width="5" stroke-linecap="round">
-    <line x1="63"  y1="35" x2="63"  y2="18"/>
-    <line x1="83"  y1="35" x2="83"  y2="18"/>
-    <line x1="117" y1="35" x2="117" y2="18"/>
-    <line x1="137" y1="35" x2="137" y2="18"/>
-  </g>
+  <!-- Rounded backdrop -->
+  <rect x="20" y="20" width="160" height="160" rx="36" fill="url(#bg)"/>
 
-  <!-- Chip pins — bottom -->
-  <g stroke="#94A3B8" stroke-width="5" stroke-linecap="round">
-    <line x1="63"  y1="165" x2="63"  y2="182"/>
-    <line x1="83"  y1="165" x2="83"  y2="182"/>
-    <line x1="117" y1="165" x2="117" y2="182"/>
-    <line x1="137" y1="165" x2="137" y2="182"/>
-  </g>
+  <!-- Paper plane silhouette, pointing upper-right. Composed of two
+       triangular faces sharing the leading edge — the upper face is
+       opaque white, the lower face slightly dimmer to suggest the
+       fold. Pure pilot/navigation iconography, no letter wrestling. -->
 
-  <!-- Chip pins — left -->
-  <g stroke="#94A3B8" stroke-width="5" stroke-linecap="round">
-    <line x1="35" y1="63"  x2="18" y2="63"/>
-    <line x1="35" y1="83"  x2="18" y2="83"/>
-    <line x1="35" y1="117" x2="18" y2="117"/>
-    <line x1="35" y1="137" x2="18" y2="137"/>
-  </g>
+  <!-- Upper face (catches light) -->
+  <polygon points="48,138 165,52 96,108" fill="#FFFFFF"/>
 
-  <!-- Chip pins — right -->
-  <g stroke="#94A3B8" stroke-width="5" stroke-linecap="round">
-    <line x1="165" y1="63"  x2="182" y2="63"/>
-    <line x1="165" y1="83"  x2="182" y2="83"/>
-    <line x1="165" y1="117" x2="182" y2="117"/>
-    <line x1="165" y1="137" x2="182" y2="137"/>
-  </g>
-
-  <!-- Chip body -->
-  <rect x="35" y="35" width="130" height="130" rx="12" fill="url(#g)"/>
-
-  <!-- Pin-1 notch -->
-  <circle cx="50" cy="50" r="4" fill="none" stroke="white" stroke-width="1.5" stroke-opacity="0.35"/>
-
-  <!-- Divider between K and compass zones -->
-  <line x1="102" y1="52" x2="102" y2="148" stroke="white" stroke-width="1" stroke-opacity="0.18"/>
-
-  <!-- K letterform — left zone -->
-  <g stroke="white" stroke-width="15" stroke-linecap="round" fill="none">
-    <line x1="55" y1="63" x2="55" y2="137"/>
-    <line x1="55" y1="100" x2="91" y2="63"/>
-    <line x1="55" y1="100" x2="91" y2="137"/>
-  </g>
-
-  <!-- Compass — right zone (Pilot reference) -->
-  <!-- Outer ring -->
-  <circle cx="131" cy="100" r="25" fill="none" stroke="white" stroke-width="2" stroke-opacity="0.4"/>
-  <!-- Cardinal tick marks -->
-  <g stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.5">
-    <line x1="131" y1="75"  x2="131" y2="81"/>
-    <line x1="156" y1="100" x2="150" y2="100"/>
-    <line x1="131" y1="125" x2="131" y2="119"/>
-    <line x1="106" y1="100" x2="112" y2="100"/>
-  </g>
-  <!-- North label dot (small, at N tick) -->
-  <circle cx="131" cy="78" r="2.5" fill="white" opacity="0.7"/>
-  <!-- Navigation needle pointing NE (1-2 o'clock) -->
-  <line x1="131" y1="100" x2="144" y2="86" stroke="white" stroke-width="4" stroke-linecap="round"/>
-  <!-- Arrowhead at NE tip -->
-  <polygon points="144,86 140,95 136,89" fill="white"/>
-  <!-- Tail (SW, dimmer) -->
-  <line x1="131" y1="100" x2="120" y2="113" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.35"/>
-  <!-- Center pivot dot -->
-  <circle cx="131" cy="100" r="3" fill="white" opacity="0.9"/>
+  <!-- Lower face (in shadow under the fold) -->
+  <polygon points="96,108 165,52 110,148" fill="#FFFFFF" fill-opacity="0.55"/>
 </svg>
