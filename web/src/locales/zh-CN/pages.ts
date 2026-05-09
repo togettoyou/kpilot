@@ -244,6 +244,9 @@ export default {
     '节点不支持通用编辑/删除，请通过专用按钮（如 cordon）操作',
   'errors.SYSTEM_PROTECTED':
     'K8s 控制面依赖的系统级资源（system:* RBAC / system-* PriorityClass）不允许修改或删除',
+  'errors.RESOURCE_NOT_AVAILABLE': '集群未启用此资源类型',
+  'errors.RESOURCE_NOT_AVAILABLE.subtitle':
+    '此资源对应的 CRD 未安装，或所需 K8s feature gate（如 DRA / MutatingAdmissionPolicy）未开启。请先在集群上启用后再访问。',
   'errors.PLUGIN_NOT_FOUND': '插件不存在',
   'errors.PLUGIN_NAME_EXISTS': '插件名称已存在',
   'errors.PLUGIN_BUILTIN_LOCKED': '内置插件不允许修改或删除',
@@ -379,6 +382,7 @@ export default {
   'pages.workloads.delete': '删除',
   'pages.workloads.delete.confirm': '确认删除 {name}？此操作不可撤销。',
   'pages.workloads.refresh.off': '关闭',
+  'pages.workloads.refresh.retry': '重试',
   'pages.workloads.refresh.namespaces': '刷新命名空间',
   'pages.workloads.page': '第 {n} 页',
   'pages.workloads.apply': '应用',

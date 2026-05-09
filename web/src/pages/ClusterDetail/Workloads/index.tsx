@@ -23,6 +23,7 @@ import {
   Dropdown,
   Input,
   Popconfirm,
+  Result,
   Space,
   Tag,
   Tooltip,
@@ -380,6 +381,11 @@ function WorkloadsContent({
   // filter what's already loaded — same approach as kubectl/Lens.
   const [search, setSearch] = useState('');
 
+  // notAvailable surfaces the "cluster doesn't have this CRD / feature
+  // gate" case as a friendly inline placeholder instead of an error
+  // toast (DRA / MutatingAdmissionPolicy / Gateway API on bare-bones
+  // clusters all hit this).
+  const [notAvailable, setNotAvailable] = useState(false);
   const {
     data: pageData,
     loading,
@@ -406,6 +412,12 @@ function WorkloadsContent({
         };
       },
       pollingWhenHidden: false,
+      onSuccess: () => setNotAvailable(false),
+      onError: (e: any) => {
+        if (e?.response?.data?.code === 'RESOURCE_NOT_AVAILABLE') {
+          setNotAvailable(true);
+        }
+      },
     },
   );
 
@@ -690,6 +702,25 @@ function WorkloadsContent({
     };
     return [...buildColumns(colDefs, intl, isClusterScoped), actionsColumn];
   }, [colDefs, intl, isClusterScoped, isPods, openEditor, handleDelete]);
+
+  if (notAvailable) {
+    return (
+      <div className="p-6">
+        <Result
+          status="info"
+          title={intl.formatMessage({ id: 'errors.RESOURCE_NOT_AVAILABLE' })}
+          subTitle={intl.formatMessage({
+            id: 'errors.RESOURCE_NOT_AVAILABLE.subtitle',
+          })}
+          extra={
+            <Button onClick={refresh}>
+              {intl.formatMessage({ id: 'pages.workloads.refresh.retry' })}
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">

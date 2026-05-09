@@ -257,6 +257,9 @@ export default {
     'Nodes don\'t support generic edit/delete; use the scoped buttons (e.g. cordon) instead',
   'errors.SYSTEM_PROTECTED':
     'System-reserved resources (system:* RBAC / system-* PriorityClass) cannot be edited or deleted — the K8s control plane depends on them',
+  'errors.RESOURCE_NOT_AVAILABLE': 'Resource type not available on this cluster',
+  'errors.RESOURCE_NOT_AVAILABLE.subtitle':
+    'The corresponding CRD is not installed, or the required K8s feature gate (e.g. DRA / MutatingAdmissionPolicy) is not enabled. Enable it on the cluster first.',
   'errors.PLUGIN_NOT_FOUND': 'Plugin not found',
   'errors.PLUGIN_NAME_EXISTS': 'Plugin name already exists',
   'errors.PLUGIN_BUILTIN_LOCKED':
@@ -398,6 +401,7 @@ export default {
   'pages.workloads.delete': 'Delete',
   'pages.workloads.delete.confirm': 'Delete {name}? This cannot be undone.',
   'pages.workloads.refresh.off': 'Off',
+  'pages.workloads.refresh.retry': 'Retry',
   'pages.workloads.refresh.namespaces': 'Refresh namespaces',
   'pages.workloads.page': 'Page {n}',
   'pages.workloads.apply': 'Apply',
