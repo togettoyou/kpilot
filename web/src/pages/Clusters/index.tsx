@@ -333,6 +333,11 @@ export default function ClustersPage() {
     title: string;
     warning: string;
   } | null>(null);
+  // Destroy-by-name flow: deletingCluster opens the type-name modal;
+  // deleteConfirmName mirrors the input so the proceed button can
+  // gate on exact match.
+  const [deletingCluster, setDeletingCluster] = useState<Cluster | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
 
@@ -415,21 +420,39 @@ export default function ClustersPage() {
     });
   };
 
+  // Two-step destroy: step 1 user types the cluster name to prove
+  // they know which cluster they're nuking; step 2 a final confirm
+  // dialog asks once more. Same pattern GitHub uses for "delete repo".
   const handleDelete = (c: Cluster) => {
+    setDeletingCluster(c);
+    setDeleteConfirmName('');
+  };
+
+  const performDelete = async () => {
+    if (!deletingCluster) return;
+    await deleteCluster(deletingCluster.id);
+    message.success(
+      intl.formatMessage({ id: 'pages.clusters.delete.success' }),
+    );
+    setDeletingCluster(null);
+    setDeleteConfirmName('');
+    refresh();
+  };
+
+  const handleProceedToFinalConfirm = () => {
+    if (!deletingCluster) return;
     modal.confirm({
       title: intl.formatMessage(
-        { id: 'pages.clusters.delete.title' },
-        { name: c.name },
+        { id: 'pages.clusters.delete.finalTitle' },
+        { name: deletingCluster.name },
       ),
-      content: intl.formatMessage({ id: 'pages.clusters.delete.content' }),
+      content: intl.formatMessage({
+        id: 'pages.clusters.delete.finalContent',
+      }),
       okType: 'danger',
-      onOk: async () => {
-        await deleteCluster(c.id);
-        message.success(
-          intl.formatMessage({ id: 'pages.clusters.delete.success' }),
-        );
-        refresh();
-      },
+      okText: intl.formatMessage({ id: 'pages.clusters.delete.finalOk' }),
+      cancelText: intl.formatMessage({ id: 'pages.clusters.delete.cancel' }),
+      onOk: performDelete,
     });
   };
 
@@ -628,6 +651,68 @@ export default function ClustersPage() {
           onClose={() => setTokenResult(null)}
         />
       )}
+
+      {/* ── Destroy-by-name modal (step 1) ──────────────────────────── */}
+      <Modal
+        title={
+          deletingCluster
+            ? intl.formatMessage(
+                { id: 'pages.clusters.delete.title' },
+                { name: deletingCluster.name },
+              )
+            : ''
+        }
+        open={!!deletingCluster}
+        maskClosable={false}
+        onCancel={() => {
+          setDeletingCluster(null);
+          setDeleteConfirmName('');
+        }}
+        footer={[
+          <Button
+            key="cancel"
+            onClick={() => {
+              setDeletingCluster(null);
+              setDeleteConfirmName('');
+            }}
+          >
+            {intl.formatMessage({ id: 'pages.clusters.delete.cancel' })}
+          </Button>,
+          <Button
+            key="next"
+            danger
+            disabled={
+              !deletingCluster ||
+              deleteConfirmName !== deletingCluster.name
+            }
+            onClick={handleProceedToFinalConfirm}
+          >
+            {intl.formatMessage({ id: 'pages.clusters.delete.next' })}
+          </Button>,
+        ]}
+      >
+        <p style={{ marginTop: 0 }}>
+          {intl.formatMessage({ id: 'pages.clusters.delete.content' })}
+        </p>
+        <p>
+          {intl.formatMessage(
+            { id: 'pages.clusters.delete.confirmPrompt' },
+            {
+              name: (
+                <Text code style={{ fontSize: 13 }}>
+                  {deletingCluster?.name}
+                </Text>
+              ),
+            },
+          )}
+        </p>
+        <Input
+          autoFocus
+          value={deleteConfirmName}
+          onChange={(e) => setDeleteConfirmName(e.target.value)}
+          placeholder={deletingCluster?.name}
+        />
+      </Modal>
     </PageContainer>
   );
 }

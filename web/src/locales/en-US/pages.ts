@@ -311,6 +311,13 @@ export default {
   'pages.clusters.delete.title': 'Delete cluster "{name}"?',
   'pages.clusters.delete.content':
     'This will disconnect the Worker and remove all cluster data.',
+  'pages.clusters.delete.confirmPrompt':
+    'To confirm, type the cluster name {name} below:',
+  'pages.clusters.delete.cancel': 'Cancel',
+  'pages.clusters.delete.next': 'Continue',
+  'pages.clusters.delete.finalTitle': 'Permanently delete "{name}"?',
+  'pages.clusters.delete.finalContent': 'This action cannot be undone.',
+  'pages.clusters.delete.finalOk': 'Delete permanently',
   'pages.clusters.delete.success': 'Cluster deleted',
   'pages.clusters.create.error': 'Failed to create cluster',
   'pages.clusters.modal.add': 'Add Cluster',

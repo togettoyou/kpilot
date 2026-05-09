@@ -295,6 +295,13 @@ export default {
   'pages.clusters.delete.title': '删除集群 "{name}"？',
   'pages.clusters.delete.content':
     '此操作将断开 Worker 连接并删除所有集群数据。',
+  'pages.clusters.delete.confirmPrompt':
+    '为确认操作，请在下方输入集群名 {name}：',
+  'pages.clusters.delete.cancel': '取消',
+  'pages.clusters.delete.next': '下一步',
+  'pages.clusters.delete.finalTitle': '确认永久删除 "{name}"？',
+  'pages.clusters.delete.finalContent': '此操作不可撤销。',
+  'pages.clusters.delete.finalOk': '永久删除',
   'pages.clusters.delete.success': '集群已删除',
   'pages.clusters.create.error': '创建集群失败',
   'pages.clusters.modal.add': '添加集群',
