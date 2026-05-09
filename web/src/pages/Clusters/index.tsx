@@ -216,7 +216,9 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
     },
   ];
 
-  const formatDate = (iso: string) => new Date(iso).toLocaleDateString();
+  // Show date + time down to the second so the user can tell apart
+  // multiple updates within the same day (token regenerate / edit).
+  const formatDate = (iso: string) => new Date(iso).toLocaleString();
 
   return (
     <Card
@@ -295,7 +297,13 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
             intl.formatMessage({ id: 'pages.clusters.card.noDescription' })}
         </div>
       </Tooltip>
-      <div className="flex justify-between text-xs text-gray-400">
+      {/* Created / updated side-by-side, both single-line. The grid
+          drops from 4 → 3 columns at xl so each card has enough room
+          for two date+time strings without wrapping. */}
+      <div
+        className="flex justify-between text-xs text-gray-400"
+        style={{ gap: 12, whiteSpace: 'nowrap' }}
+      >
         <span>
           {intl.formatMessage(
             { id: 'pages.clusters.card.createdAt' },
@@ -497,7 +505,7 @@ export default function ClustersPage() {
           </Empty>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {clusterList.map((c) => (
             <ClusterCard
               key={c.id}
