@@ -15,9 +15,10 @@ import {
 } from '@ant-design/icons';
 import type { MenuDataItem } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
-import { history, Link } from '@umijs/max';
+import { history, Link, useModel } from '@umijs/max';
 import { ThemeProvider } from 'antd-style';
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 import {
   AvatarDropdown,
@@ -39,7 +40,32 @@ export type InitialState = {
   currentUser?: CurrentUser;
   fetchUserInfo?: () => Promise<CurrentUser | undefined>;
   currentClusterId?: string | null;
+  // User-resizable sider; persisted to localStorage. Layout default
+  // applies if absent.
+  siderWidth?: number;
 };
+
+// Sider width persistence + bounds. Default 220 (slight bump above
+// ProLayout's 208 baseline). The user can drag wider for the
+// workloads menu's three-level nesting, narrower if they want more
+// canvas. Preference persists to localStorage.
+const SIDER_WIDTH_KEY = 'kpilot-sider-width';
+const SIDER_WIDTH_DEFAULT = 220;
+const SIDER_WIDTH_MIN = 200;
+const SIDER_WIDTH_MAX = 480;
+
+function readStoredSiderWidth(): number {
+  if (typeof window === 'undefined') return SIDER_WIDTH_DEFAULT;
+  const raw = window.localStorage.getItem(SIDER_WIDTH_KEY);
+  const n = raw == null ? NaN : Number(raw);
+  return Number.isFinite(n) && n >= SIDER_WIDTH_MIN && n <= SIDER_WIDTH_MAX
+    ? n
+    : SIDER_WIDTH_DEFAULT;
+}
+
+function clampSiderWidth(n: number): number {
+  return Math.max(SIDER_WIDTH_MIN, Math.min(SIDER_WIDTH_MAX, n));
+}
 
 // extractClusterId reads the cluster id out of the URL whether the
 // user is in the K8s management platform (`/clusters/:id/...`) or the
@@ -68,12 +94,83 @@ export async function getInitialState(): Promise<InitialState> {
 
   const { location } = history;
   const currentClusterId = extractClusterId(location.pathname);
+  const siderWidth = readStoredSiderWidth();
   if (location.pathname !== loginPath) {
     const currentUser = await fetchUserInfo();
-    return { fetchUserInfo, currentUser, currentClusterId };
+    return { fetchUserInfo, currentUser, currentClusterId, siderWidth };
   }
-  return { fetchUserInfo, currentClusterId };
+  return { fetchUserInfo, currentClusterId, siderWidth };
 }
+
+// SiderResizer renders a 4px draggable handle on the right edge of
+// the sider. Uses createPortal so the handle isn't constrained by the
+// DOM mount point (we render it via menuFooterRender so it lives
+// inside the model context, but the visual is fixed-position at the
+// sider edge). On drag the handle updates initialState.siderWidth in
+// real-time; on mouse-up it persists the final width to localStorage.
+const SiderResizer: React.FC = () => {
+  const { initialState, setInitialState } = useModel('@@initialState');
+  const width = initialState?.siderWidth ?? SIDER_WIDTH_DEFAULT;
+  // Hide when no sider is shown (landing pages, login, etc.). Sider is
+  // suppressed by ProLayout when the menu is empty, so currentClusterId
+  // is the right signal — both /clusters/:id and /compute/:id show one.
+  const visible = !!initialState?.currentClusterId;
+
+  const onMouseDown = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = width;
+      let currentWidth = startWidth;
+
+      const move = (ev: MouseEvent) => {
+        currentWidth = clampSiderWidth(startWidth + ev.clientX - startX);
+        setInitialState((s: any) => ({ ...s, siderWidth: currentWidth }));
+      };
+      const up = () => {
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        try {
+          window.localStorage.setItem(SIDER_WIDTH_KEY, String(currentWidth));
+        } catch {
+          // localStorage may be disabled (private mode); width still
+          // persists for the rest of the session via initialState.
+        }
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [width, setInitialState],
+  );
+
+  if (!visible || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      onMouseDown={onMouseDown}
+      style={{
+        position: 'fixed',
+        top: 56, // ProLayout default header height
+        left: width - 2,
+        width: 4,
+        height: 'calc(100vh - 56px)',
+        cursor: 'col-resize',
+        zIndex: 100,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'rgba(22, 119, 255, 0.35)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent';
+      }}
+    />,
+    document.body,
+  );
+};
 
 // Build the cluster sub-menu (injected dynamically when a cluster is selected).
 // Synthetic group paths (e.g. `_group/network`) are used for SubMenu titles —
@@ -288,11 +385,10 @@ export const layout: RunTimeLayoutConfig = ({
     layout: 'mix',
     splitMenus: true,
     suppressSiderWhenMenuEmpty: true,
-    // 220 not 208 (ProLayout default) — minor bump to keep three-level
-    // nesting (扩展 → DRA → ResourceClaims etc.) from clipping the
-    // English kind names without making the main content area noticeably
-    // narrower.
-    siderWidth: 220,
+    // User-resizable. Default 220 (slight bump above ProLayout's 208
+    // baseline). The user can drag the right edge to widen / narrow;
+    // preference persists to localStorage via SiderResizer below.
+    siderWidth: initialState?.siderWidth ?? SIDER_WIDTH_DEFAULT,
     logo: '/logo.svg',
     actionsRender: () => [
       <NamespacePicker key="ns" />,
@@ -308,6 +404,10 @@ export const layout: RunTimeLayoutConfig = ({
         <AvatarDropdown>{avatarChildren}</AvatarDropdown>
       ),
     },
+    // Mount point for the resize handle. Returning a portaled element
+    // here means the visible content (a fixed-position 4px bar) lives
+    // outside the menu DOM, so the menu's footer area stays empty.
+    menuFooterRender: () => <SiderResizer />,
     footerRender: () => <Footer />,
     onPageChange: () => {
       const { location } = history;

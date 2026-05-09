@@ -66,10 +66,13 @@ export default {
   'menu.clusters.extensions.admission': 'Admission',
   'menu.clusters.extensions.admission.validatingwebhooks': 'ValidatingWebhook',
   'menu.clusters.extensions.admission.mutatingwebhooks': 'MutatingWebhook',
+  // "Admission" parent already supplies the context, so leaves drop
+  // the redundant "Admission" word to fit the 220px sider at level
+  // 3 indent. Full Kind names show in the page header inside.
   'menu.clusters.extensions.admission.validatingadmissionpolicies':
-    'ValidatingAdmissionPolicy',
+    'ValidatingPolicy',
   'menu.clusters.extensions.admission.mutatingadmissionpolicies':
-    'MutatingAdmissionPolicy',
+    'MutatingPolicy',
   'menu.clusters.plugins': '插件',
   'menu.clusters.monitoring': '监控',
   'menu.clusters.logging': '日志',
