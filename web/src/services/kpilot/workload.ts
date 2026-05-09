@@ -1,12 +1,17 @@
 import { request } from '@umijs/max';
 
 export type WorkloadResourceType =
-  | 'deployments' | 'statefulsets' | 'daemonsets' | 'pods'
+  | 'deployments' | 'statefulsets' | 'daemonsets' | 'replicasets' | 'pods'
   | 'jobs' | 'cronjobs' | 'horizontalpodautoscalers'
-  | 'services' | 'ingresses'
+  | 'services' | 'endpointslices' | 'ingresses' | 'networkpolicies'
   | 'gatewayclasses' | 'gateways' | 'httproutes' | 'grpcroutes'
   | 'configmaps' | 'secrets'
   | 'persistentvolumeclaims' | 'persistentvolumes' | 'storageclasses'
+  | 'serviceaccounts' | 'roles' | 'rolebindings' | 'clusterroles' | 'clusterrolebindings'
+  | 'resourcequotas' | 'limitranges' | 'poddisruptionbudgets'
+  | 'priorityclasses' | 'runtimeclasses'
+  | 'validatingwebhookconfigurations' | 'mutatingwebhookconfigurations'
+  | 'validatingadmissionpolicies'
   | 'resourceclaims' | 'resourceclaimtemplates' | 'deviceclasses' | 'resourceslices'
   | 'customresourcedefinitions'
   // `nodes` is accessed by the dedicated /clusters/:id/nodes page,
@@ -27,6 +32,13 @@ export const CLUSTER_SCOPED_TYPES = new Set<WorkloadResourceType>([
   'deviceclasses',
   'resourceslices',
   'customresourcedefinitions',
+  'clusterroles',
+  'clusterrolebindings',
+  'priorityclasses',
+  'runtimeclasses',
+  'validatingwebhookconfigurations',
+  'mutatingwebhookconfigurations',
+  'validatingadmissionpolicies',
   'nodes',
 ]);
 

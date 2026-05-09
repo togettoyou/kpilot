@@ -64,12 +64,15 @@ var resourceGVK = map[string]gvkInfo{
 	"deployments":              {"apps", "v1", "Deployment"},
 	"statefulsets":             {"apps", "v1", "StatefulSet"},
 	"daemonsets":               {"apps", "v1", "DaemonSet"},
+	"replicasets":              {"apps", "v1", "ReplicaSet"},
 	"pods":                     {"", "v1", "Pod"},
 	"jobs":                     {"batch", "v1", "Job"},
 	"cronjobs":                 {"batch", "v1", "CronJob"},
 	"horizontalpodautoscalers": {"autoscaling", "v2", "HorizontalPodAutoscaler"},
 	"services":                 {"", "v1", "Service"},
+	"endpointslices":           {"discovery.k8s.io", "v1", "EndpointSlice"},
 	"ingresses":                {"networking.k8s.io", "v1", "Ingress"},
+	"networkpolicies":          {"networking.k8s.io", "v1", "NetworkPolicy"},
 	"gatewayclasses":           {"gateway.networking.k8s.io", "v1", "GatewayClass"},
 	"gateways":                 {"gateway.networking.k8s.io", "v1", "Gateway"},
 	"httproutes":               {"gateway.networking.k8s.io", "v1", "HTTPRoute"},
@@ -79,6 +82,24 @@ var resourceGVK = map[string]gvkInfo{
 	"persistentvolumeclaims":   {"", "v1", "PersistentVolumeClaim"},
 	"persistentvolumes":        {"", "v1", "PersistentVolume"},
 	"storageclasses":           {"storage.k8s.io", "v1", "StorageClass"},
+	// RBAC
+	"serviceaccounts":     {"", "v1", "ServiceAccount"},
+	"roles":               {"rbac.authorization.k8s.io", "v1", "Role"},
+	"rolebindings":        {"rbac.authorization.k8s.io", "v1", "RoleBinding"},
+	"clusterroles":        {"rbac.authorization.k8s.io", "v1", "ClusterRole"},
+	"clusterrolebindings": {"rbac.authorization.k8s.io", "v1", "ClusterRoleBinding"},
+	// Policy / scheduling — quota + disruption + priority
+	"resourcequotas":       {"", "v1", "ResourceQuota"},
+	"limitranges":          {"", "v1", "LimitRange"},
+	"poddisruptionbudgets": {"policy", "v1", "PodDisruptionBudget"},
+	"priorityclasses":      {"scheduling.k8s.io", "v1", "PriorityClass"},
+	"runtimeclasses":       {"node.k8s.io", "v1", "RuntimeClass"},
+	// Admission control — webhook configs + ValidatingAdmissionPolicy
+	// (GA since K8s 1.30). Older clusters return "no matches for kind"
+	// on the policy types; same graceful degradation as DRA.
+	"validatingwebhookconfigurations": {"admissionregistration.k8s.io", "v1", "ValidatingWebhookConfiguration"},
+	"mutatingwebhookconfigurations":   {"admissionregistration.k8s.io", "v1", "MutatingWebhookConfiguration"},
+	"validatingadmissionpolicies":     {"admissionregistration.k8s.io", "v1", "ValidatingAdmissionPolicy"},
 	// Dynamic Resource Allocation (resource.k8s.io). Pinned to v1 (GA
 	// since K8s 1.34, Aug 2025). v1beta1 was tried first but several
 	// distros disable beta versions even on 1.34+, so the RESTMapper

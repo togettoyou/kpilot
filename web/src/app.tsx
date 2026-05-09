@@ -3,11 +3,13 @@ import {
   AppstoreAddOutlined,
   AppstoreOutlined,
   BlockOutlined,
+  ControlOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
   DesktopOutlined,
   FileTextOutlined,
   LineChartOutlined,
+  SafetyOutlined,
   SettingOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
@@ -96,6 +98,7 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
         { path: `${base}/workloads/deployments`, name: 'deployments' },
         { path: `${base}/workloads/statefulsets`, name: 'statefulsets' },
         { path: `${base}/workloads/daemonsets`, name: 'daemonsets' },
+        { path: `${base}/workloads/replicasets`, name: 'replicasets' },
         { path: `${base}/workloads/pods`, name: 'pods' },
         { path: `${base}/workloads/jobs`, name: 'jobs' },
         { path: `${base}/workloads/cronjobs`, name: 'cronjobs' },
@@ -111,7 +114,9 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       icon: <ApiOutlined />,
       children: [
         { path: `${base}/workloads/services`, name: 'services' },
+        { path: `${base}/workloads/endpointslices`, name: 'endpointslices' },
         { path: `${base}/workloads/ingresses`, name: 'ingresses' },
+        { path: `${base}/workloads/networkpolicies`, name: 'networkpolicies' },
         { path: `${base}/workloads/gatewayclasses`, name: 'gatewayclasses' },
         { path: `${base}/workloads/gateways`, name: 'gateways' },
         { path: `${base}/workloads/httproutes`, name: 'httproutes' },
@@ -135,6 +140,41 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       children: [
         { path: `${base}/workloads/configmaps`, name: 'configmaps' },
         { path: `${base}/workloads/secrets`, name: 'secrets' },
+      ],
+    },
+    {
+      // 安全 / RBAC group — service identities + role bindings.
+      path: `${base}/_group/security`,
+      name: 'security',
+      icon: <SafetyOutlined />,
+      children: [
+        { path: `${base}/workloads/serviceaccounts`, name: 'serviceaccounts' },
+        { path: `${base}/workloads/roles`, name: 'roles' },
+        { path: `${base}/workloads/rolebindings`, name: 'rolebindings' },
+        { path: `${base}/workloads/clusterroles`, name: 'clusterroles' },
+        {
+          path: `${base}/workloads/clusterrolebindings`,
+          name: 'clusterrolebindings',
+        },
+      ],
+    },
+    {
+      // 策略 group — quota / limits / disruption / priority / runtime.
+      // PriorityClass & RuntimeClass matter for AI workload scheduling
+      // (Volcano integration), so they live here even though they're
+      // cluster-scoped.
+      path: `${base}/_group/policy`,
+      name: 'policy',
+      icon: <ControlOutlined />,
+      children: [
+        { path: `${base}/workloads/resourcequotas`, name: 'resourcequotas' },
+        { path: `${base}/workloads/limitranges`, name: 'limitranges' },
+        {
+          path: `${base}/workloads/poddisruptionbudgets`,
+          name: 'poddisruptionbudgets',
+        },
+        { path: `${base}/workloads/priorityclasses`, name: 'priorityclasses' },
+        { path: `${base}/workloads/runtimeclasses`, name: 'runtimeclasses' },
       ],
     },
     {
@@ -176,6 +216,28 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
             },
             { path: `${base}/workloads/deviceclasses`, name: 'deviceclasses' },
             { path: `${base}/workloads/resourceslices`, name: 'resourceslices' },
+          ],
+        },
+        {
+          // Admission webhook + policy configs — K8s extensibility
+          // mechanism. Same group as CRD / DRA conceptually (extends
+          // the core API surface).
+          path: `${base}/_group/extensions/admission`,
+          name: 'admission',
+          icon: <ApiOutlined />,
+          children: [
+            {
+              path: `${base}/workloads/validatingwebhookconfigurations`,
+              name: 'validatingwebhooks',
+            },
+            {
+              path: `${base}/workloads/mutatingwebhookconfigurations`,
+              name: 'mutatingwebhooks',
+            },
+            {
+              path: `${base}/workloads/validatingadmissionpolicies`,
+              name: 'validatingadmissionpolicies',
+            },
           ],
         },
       ],

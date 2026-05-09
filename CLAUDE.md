@@ -158,12 +158,14 @@ status:
 #### 1.3 工作负载（`/clusters/:id/workloads/:type`）
 - 通过 Worker 代理 K8s API，支持完整 CRUD
 - **菜单分组**：
-  - 工作负载：Deployment / StatefulSet / DaemonSet / Pod / Job / CronJob / HPA
-  - 网络：Service / Ingress / GatewayClass / Gateway / HTTPRoute / GRPCRoute
+  - 工作负载：Deployment / StatefulSet / DaemonSet / ReplicaSet / Pod / Job / CronJob / HPA
+  - 网络：Service / EndpointSlice / Ingress / NetworkPolicy / GatewayClass / Gateway / HTTPRoute / GRPCRoute
   - 存储：PVC / PV / StorageClass
   - 配置：ConfigMap / Secret
-  - 扩展：CRD + DRA（DRA 为 sub-group，含 ResourceClaim / ClaimTemplate / DeviceClass / ResourceSlice）。三级嵌套缩进较深，全局 `siderWidth=220`（默认 208 会截断中文标签）
-- **集群级资源**：`CLUSTER_SCOPED_TYPES`（`web/src/services/kpilot/workload.ts`）包含 `persistentvolumes` / `storageclasses` / `gatewayclasses` / `deviceclasses` / `resourceslices` / `customresourcedefinitions` / `nodes`。这些资源的命名空间列与顶部 NamespacePicker 自动隐藏
+  - 安全：ServiceAccount / Role / RoleBinding / ClusterRole / ClusterRoleBinding（RBAC 全套）
+  - 策略：ResourceQuota / LimitRange / PodDisruptionBudget / PriorityClass / RuntimeClass（GPU / AI 调度场景下 PriorityClass + RuntimeClass 跟 Volcano 联动）
+  - 扩展：CRD + DRA + 准入控制。DRA 子组含 ResourceClaim / ClaimTemplate / DeviceClass / ResourceSlice。准入控制子组含 ValidatingWebhookConfiguration / MutatingWebhookConfiguration / ValidatingAdmissionPolicy（K8s 1.30 GA）。三级嵌套缩进较深，全局 `siderWidth=220`（默认 208 会截断中文标签）
+- **集群级资源**：`CLUSTER_SCOPED_TYPES`（`web/src/services/kpilot/workload.ts`）包含 `persistentvolumes` / `storageclasses` / `gatewayclasses` / `deviceclasses` / `resourceslices` / `customresourcedefinitions` / `clusterroles` / `clusterrolebindings` / `priorityclasses` / `runtimeclasses` / `validatingwebhookconfigurations` / `mutatingwebhookconfigurations` / `validatingadmissionpolicies` / `nodes`。这些资源的命名空间列与顶部 NamespacePicker 自动隐藏
 - **DRA**：`resource.k8s.io/v1`（GA since K8s 1.34）。OrbStack 等发行版默认未开启 DRA feature gate，请求返回 `no matches for kind`；与 Gateway API 未安装 CRD 时为同款 graceful degradation
 - 列表使用 K8s Table API（与 kubectl 默认展示一致），server 端计算列，仅传输元数据 + 单元格值
 - 展示全部列（含 wide 列，等价于 `kubectl -o wide`）
