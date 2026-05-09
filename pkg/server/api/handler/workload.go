@@ -257,6 +257,10 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
 			apiErrWorker(c, resp.Error)
 			return
 		}
@@ -294,6 +298,10 @@ func GetWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
 			apiErrWorker(c, resp.Error)
 			return
 		}
@@ -388,6 +396,10 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 				apiErr(c, http.StatusConflict, CodeWorkerConflict)
 				return
 			}
+			if isNoMatchMessage(resp.Error) {
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
 			apiErrWorker(c, resp.Error)
 			return
 		}
@@ -401,6 +413,18 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 // distinctive substring rather than re-marshalling on Server.
 func isConflictMessage(s string) bool {
 	return strings.Contains(s, "the object has been modified")
+}
+
+// isNoMatchMessage detects K8s RESTMapper's "no matches for kind"
+// error, raised when the requested GVK isn't registered on the
+// cluster — typical reasons: feature gate not enabled (DRA on
+// older clusters, MutatingAdmissionPolicy alpha, etc.) or the CRD
+// not installed (Gateway API). Server translates this into a
+// dedicated 404 / RESOURCE_NOT_AVAILABLE so the frontend can render
+// a friendly "feature not enabled" placeholder instead of the
+// generic worker-error toast.
+func isNoMatchMessage(s string) bool {
+	return strings.Contains(s, "no matches for kind")
 }
 
 // ApplyYamlResult is one entry in the response array; one per parsed document.
@@ -649,6 +673,10 @@ func DescribeWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
 			apiErrWorker(c, resp.Error)
 			return
 		}
@@ -709,6 +737,10 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
 			apiErrWorker(c, resp.Error)
 			return
 		}
@@ -733,6 +765,10 @@ func ListNamespaces(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
 			apiErrWorker(c, resp.Error)
 			return
 		}
@@ -824,6 +860,10 @@ func CordonNode(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
 			apiErrWorker(c, resp.Error)
 			return
 		}

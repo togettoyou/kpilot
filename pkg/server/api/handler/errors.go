@@ -21,6 +21,7 @@ const (
 	CodeCRDProtected         = "CRD_PROTECTED"
 	CodeNodeProtected        = "NODE_PROTECTED"
 	CodeSystemProtected      = "SYSTEM_PROTECTED"
+	CodeResourceNotAvailable = "RESOURCE_NOT_AVAILABLE"
 	CodePluginNotFound       = "PLUGIN_NOT_FOUND"
 	CodePluginNameExists     = "PLUGIN_NAME_EXISTS"
 	CodePluginBuiltinLocked  = "PLUGIN_BUILTIN_LOCKED"
