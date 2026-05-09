@@ -135,7 +135,15 @@ export function PluginCard({
       }
     >
       {plugin.description && (
-        <Tooltip title={plugin.description} placement="topLeft">
+        <Tooltip
+          title={plugin.description}
+          placement="topLeft"
+          overlayInnerStyle={{
+            maxHeight: 280,
+            overflowY: 'auto',
+            wordBreak: 'break-all',
+          }}
+        >
           <div
             style={{
               color: 'var(--ant-color-text-secondary)',
@@ -147,6 +155,7 @@ export function PluginCard({
               WebkitLineClamp: 3,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
+              wordBreak: 'break-all',
             }}
           >
             {plugin.description}

@@ -27,6 +27,7 @@ import {
   Space,
   Spin,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import React, { useMemo, useState } from 'react';
@@ -222,13 +223,28 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
       hoverable
       onClick={() => history.push(`/clusters/${cluster.id}/nodes`)}
       title={
-        <Space size={8}>
-          <ClusterOutlined className="text-blue-500" />
-          <span className="font-semibold">{cluster.name}</span>
+        // Flex with min-width:0 on the name so long cluster names
+        // truncate instead of pushing the status tag offscreen.
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            minWidth: 0,
+          }}
+        >
+          <ClusterOutlined className="text-blue-500" style={{ flexShrink: 0 }} />
+          <Text
+            strong
+            ellipsis={{ tooltip: cluster.name }}
+            style={{ minWidth: 0, flex: 1 }}
+          >
+            {cluster.name}
+          </Text>
           <Tag
             color={isOnline ? 'success' : 'default'}
             icon={isOnline ? <CheckCircleOutlined /> : <MinusCircleOutlined />}
-            className="ml-1"
+            style={{ flexShrink: 0, marginInlineEnd: 0 }}
           >
             {intl.formatMessage({
               id: isOnline
@@ -236,7 +252,7 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
                 : 'pages.clusters.status.offline',
             })}
           </Tag>
-        </Space>
+        </div>
       }
       extra={
         <Dropdown menu={{ items: menuItems }} trigger={['click']}>
@@ -248,16 +264,37 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
         </Dropdown>
       }
     >
-      {/* Description — clamped to 2 lines so cards align consistently;
-          show a placeholder when empty so the card body doesn't collapse. */}
-      <Paragraph
-        type="secondary"
-        ellipsis={{ rows: 2, tooltip: cluster.description || undefined }}
-        className="mb-3 min-h-[44px]"
+      {/* Description — CSS line-clamp keeps card heights aligned.
+          Long descriptions reveal in an antd Tooltip on hover, capped
+          at 280px tall and scrollable inside (overlayInnerStyle), so
+          a multi-paragraph description doesn't paint half the screen.
+          Switched away from antd Paragraph's ellipsis={{tooltip}} —
+          it kept re-measuring on hover under hoverable Card and
+          flickered. */}
+      <Tooltip
+        title={cluster.description}
+        placement="topLeft"
+        overlayInnerStyle={{
+          maxHeight: 280,
+          overflowY: 'auto',
+          wordBreak: 'break-all',
+        }}
       >
-        {cluster.description ||
-          intl.formatMessage({ id: 'pages.clusters.card.noDescription' })}
-      </Paragraph>
+        <div
+          className="mb-3 min-h-[44px]"
+          style={{
+            color: 'var(--ant-color-text-secondary)',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            wordBreak: 'break-all',
+          }}
+        >
+          {cluster.description ||
+            intl.formatMessage({ id: 'pages.clusters.card.noDescription' })}
+        </div>
+      </Tooltip>
       <div className="flex justify-between text-xs text-gray-400">
         <span>
           {intl.formatMessage(

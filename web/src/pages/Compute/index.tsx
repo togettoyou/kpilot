@@ -5,12 +5,12 @@ import {
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { history, useIntl, useRequest } from '@umijs/max';
-import { Button, Card, Empty, Space, Spin, Tag, Typography } from 'antd';
+import { Button, Card, Empty, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import React from 'react';
 
 import { type Cluster, listClusters } from '@/services/kpilot/cluster';
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 // Compute landing page — pick a cluster to enter the GPU ops view.
 // Lighter version of the /clusters page: same card grid look but no
@@ -81,31 +81,87 @@ const PickerCard: React.FC<{ cluster: Cluster; onEnter: () => void }> = ({
       styles={{ body: { padding: 16 } }}
     >
       <Space direction="vertical" size={8} style={{ width: '100%' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Space size={8}>
-            <ThunderboltOutlined style={{ color: '#1677ff', fontSize: 18 }} />
-            <Text strong style={{ fontSize: 15 }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          {/* min-width:0 + flex:1 lets the name truncate instead of
+              pushing the status tag offscreen on long cluster names. */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              minWidth: 0,
+              flex: 1,
+            }}
+          >
+            <ThunderboltOutlined
+              style={{ color: '#1677ff', fontSize: 18, flexShrink: 0 }}
+            />
+            {/* Pure-CSS truncate + native browser tooltip via the
+                `title` attr. antd's Text ellipsis={{ tooltip }} +
+                hoverable Card combination flickered: hovering moved
+                the card slightly, antd's resize observer
+                re-measured, the tooltip rebound, and the cycle
+                repeated. Native title is zero-JS, no observer. */}
+            <span
+              title={cluster.name}
+              style={{
+                fontWeight: 600,
+                fontSize: 15,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: 0,
+              }}
+            >
               {cluster.name}
-            </Text>
-          </Space>
+            </span>
+          </div>
           {online ? (
-            <Tag color="success" icon={<CheckCircleFilled />}>
+            <Tag color="success" icon={<CheckCircleFilled />} style={{ flexShrink: 0 }}>
               {intl.formatMessage({ id: 'pages.clusters.status.online' })}
             </Tag>
           ) : (
-            <Tag icon={<CloseCircleFilled />}>
+            <Tag icon={<CloseCircleFilled />} style={{ flexShrink: 0 }}>
               {intl.formatMessage({ id: 'pages.clusters.status.offline' })}
             </Tag>
           )}
         </div>
-        <Paragraph
-          type="secondary"
-          ellipsis={{ rows: 2 }}
-          style={{ marginBottom: 0, minHeight: 40 }}
+        {/* CSS line-clamp keeps the card height stable. When the
+            description overflows the 2-line clamp, hover shows the
+            full text inside an antd Tooltip — overlayInnerStyle caps
+            the popup at 280px tall and scrolls inside, so a 2000-
+            character description doesn't paint half the screen. */}
+        <Tooltip
+          title={cluster.description}
+          placement="topLeft"
+          overlayInnerStyle={{
+            maxHeight: 280,
+            overflowY: 'auto',
+            wordBreak: 'break-all',
+          }}
         >
-          {cluster.description ||
-            intl.formatMessage({ id: 'pages.clusters.card.noDescription' })}
-        </Paragraph>
+          <div
+            style={{
+              color: 'var(--ant-color-text-secondary)',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              wordBreak: 'break-all',
+              minHeight: 40,
+            }}
+          >
+            {cluster.description ||
+              intl.formatMessage({ id: 'pages.clusters.card.noDescription' })}
+          </div>
+        </Tooltip>
       </Space>
     </Card>
   );
