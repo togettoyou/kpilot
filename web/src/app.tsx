@@ -46,12 +46,12 @@ export type InitialState = {
 };
 
 // Sider width persistence + bounds. Default 220 (slight bump above
-// ProLayout's 208 baseline). The user can drag wider for the
-// workloads menu's three-level nesting, narrower if they want more
-// canvas. Preference persists to localStorage.
+// ProLayout's 208 baseline); 220 is also the lower bound so users
+// can't drag narrower than the level-3 menu items truncate at.
+// Upper bound 480 keeps the canvas usable on smaller monitors.
 const SIDER_WIDTH_KEY = 'kpilot-sider-width';
 const SIDER_WIDTH_DEFAULT = 220;
-const SIDER_WIDTH_MIN = 200;
+const SIDER_WIDTH_MIN = 220;
 const SIDER_WIDTH_MAX = 480;
 
 function readStoredSiderWidth(): number {
@@ -103,11 +103,18 @@ export async function getInitialState(): Promise<InitialState> {
 }
 
 // SiderResizer renders a 4px draggable handle on the right edge of
-// the sider. Uses createPortal so the handle isn't constrained by the
-// DOM mount point (we render it via menuFooterRender so it lives
-// inside the model context, but the visual is fixed-position at the
-// sider edge). On drag the handle updates initialState.siderWidth in
-// real-time; on mouse-up it persists the final width to localStorage.
+// the sider. Drag interaction is **pure DOM manipulation** — no React
+// state updates during move, only on release. Each setInitialState
+// mid-drag would re-render ProLayout's entire menu tree (38+ items)
+// and produce visible jank; antd's own Splitter component takes the
+// same approach.
+//
+// Visual elements updated directly during drag:
+//   - The Sider element's flex/width inline styles
+//   - The handle's own `left` style (so it tracks the cursor)
+// On mouseup we commit the final width to initialState (one render)
+// and persist to localStorage. React re-renders then re-apply the
+// same inline styles via normal render flow.
 const SiderResizer: React.FC = () => {
   const { initialState, setInitialState } = useModel('@@initialState');
   const width = initialState?.siderWidth ?? SIDER_WIDTH_DEFAULT;
@@ -115,6 +122,7 @@ const SiderResizer: React.FC = () => {
   // suppressed by ProLayout when the menu is empty, so currentClusterId
   // is the right signal — both /clusters/:id and /compute/:id show one.
   const visible = !!initialState?.currentClusterId;
+  const handleRef = React.useRef<HTMLDivElement>(null);
 
   const onMouseDown = React.useCallback(
     (e: React.MouseEvent) => {
@@ -123,15 +131,77 @@ const SiderResizer: React.FC = () => {
       const startWidth = width;
       let currentWidth = startWidth;
 
+      // ProLayout renders two elements for the sider area:
+      //   1. A placeholder div that occupies flex-basis space (so the
+      //      content doesn't slide under the fixed sider). Has
+      //      `transition: all 0.2s ease` set for the collapse anim.
+      //   2. The real Sider (.ant-pro-sider) — position: fixed,
+      //      visible content.
+      // Updating only #2 widens the visible sider but the content
+      // stays put because #1's flex-basis hasn't changed. Plus the
+      // placeholder's 0.2s transition lags behind cursor movement.
+      // Update both, and zero out the placeholder's transition during
+      // the drag.
+      const sider = document.querySelector(
+        '.ant-pro-sider, .ant-layout-sider',
+      ) as HTMLElement | null;
+      const placeholder = sider?.previousElementSibling as HTMLElement | null;
+      // Both the placeholder div (inline transition for collapse anim)
+      // AND the real Sider element (transition from antd's stylesheet)
+      // have a 0.2s ease on width changes. Inline `transition: none`
+      // overrides both — without it the visible sider lags behind the
+      // cursor on fast drags and the handle visually detaches from
+      // the panel edge.
+      const prevPlaceholderTransition = placeholder?.style.transition ?? '';
+      const prevSiderTransition = sider?.style.transition ?? '';
+      if (placeholder) {
+        placeholder.style.transition = 'none';
+      }
+      if (sider) {
+        sider.style.transition = 'none';
+      }
+
+      const apply = (px: number) => {
+        if (sider) {
+          sider.style.flex = `0 0 ${px}px`;
+          sider.style.width = `${px}px`;
+          sider.style.maxWidth = `${px}px`;
+          sider.style.minWidth = `${px}px`;
+        }
+        if (placeholder) {
+          placeholder.style.flex = `0 0 ${px}px`;
+          placeholder.style.width = `${px}px`;
+          placeholder.style.maxWidth = `${px}px`;
+          placeholder.style.minWidth = `${px}px`;
+        }
+        if (handleRef.current) {
+          handleRef.current.style.left = `${px - 2}px`;
+        }
+      };
+
       const move = (ev: MouseEvent) => {
         currentWidth = clampSiderWidth(startWidth + ev.clientX - startX);
-        setInitialState((s: any) => ({ ...s, siderWidth: currentWidth }));
+        apply(currentWidth);
       };
       const up = () => {
         window.removeEventListener('mousemove', move);
         window.removeEventListener('mouseup', up);
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        // Restore both elements' transitions so the next collapse
+        // animates normally. Setting empty string drops the inline
+        // override, falling back to the original stylesheet rule.
+        if (placeholder) {
+          placeholder.style.transition = prevPlaceholderTransition;
+        }
+        if (sider) {
+          sider.style.transition = prevSiderTransition;
+        }
+        // Commit the final width — single React render, fixes any
+        // ancillary layout that depends on siderWidth as a prop. The
+        // inline styles we set during drag get re-applied by React's
+        // normal render path so there's no visual flash.
+        setInitialState((s: any) => ({ ...s, siderWidth: currentWidth }));
         try {
           window.localStorage.setItem(SIDER_WIDTH_KEY, String(currentWidth));
         } catch {
@@ -151,13 +221,19 @@ const SiderResizer: React.FC = () => {
 
   return createPortal(
     <div
+      ref={handleRef}
       onMouseDown={onMouseDown}
       style={{
         position: 'fixed',
-        top: 56, // ProLayout default header height
+        // ProLayout's collapse trigger (.ant-pro-sider-collapsed-button,
+        // the small "<" circle) sits near the top-right of the sider,
+        // just below the header. Leave ~64px of clearance starting
+        // from below the header so the resize handle doesn't intercept
+        // clicks meant for it.
+        top: 56 + 64, // 56 header + 64 trigger clearance
+        bottom: 0,
         left: width - 2,
         width: 4,
-        height: 'calc(100vh - 56px)',
         cursor: 'col-resize',
         zIndex: 100,
       }}
