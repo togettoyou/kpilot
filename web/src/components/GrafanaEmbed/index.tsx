@@ -184,22 +184,33 @@ export const GrafanaEmbed: React.FC<GrafanaEmbedConfig> = ({
   }, [grafanaTheme, summary.allReady]);
 
   // Wrapper sizing: measure relative to viewport top so it's loop-free.
+  // We rAF-throttle the update — without it, sider drag fires the
+  // ResizeObserver on every mousemove, each triggering a sync layout
+  // read + React render + iframe re-layout (Grafana is heavy). The
+  // height itself doesn't change with sider width, but the cost of
+  // measuring does.
   useEffect(() => {
     if (!summary.allReady) return;
-    const update = () => {
+    let pending = 0;
+    const measure = () => {
+      pending = 0;
       const el = wrapperRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
       const h = Math.max(0, Math.floor(window.innerHeight - rect.top));
       setContainerHeight((prev) => (prev === h ? prev : h));
     };
-    const raf = requestAnimationFrame(update);
-    window.addEventListener('resize', update);
-    const ro = new ResizeObserver(update);
+    const schedule = () => {
+      if (pending) return;
+      pending = requestAnimationFrame(measure);
+    };
+    schedule();
+    window.addEventListener('resize', schedule);
+    const ro = new ResizeObserver(schedule);
     ro.observe(document.body);
     return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', update);
+      if (pending) cancelAnimationFrame(pending);
+      window.removeEventListener('resize', schedule);
       ro.disconnect();
     };
   }, [summary.allReady]);

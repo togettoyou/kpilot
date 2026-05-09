@@ -161,6 +161,19 @@ const SiderResizer: React.FC = () => {
         sider.style.transition = 'none';
       }
 
+      // Iframes (Grafana monitoring/logging pages) capture pointer
+      // events when the cursor crosses into them mid-drag — including
+      // mouseup, which strands us in the dragging state until the
+      // user clicks again. Disable pointer-events on every iframe for
+      // the duration of the drag so events stay on the parent doc.
+      const iframes = Array.from(
+        document.querySelectorAll('iframe'),
+      ) as HTMLIFrameElement[];
+      const prevIframePointer = iframes.map((f) => f.style.pointerEvents);
+      for (const f of iframes) {
+        f.style.pointerEvents = 'none';
+      }
+
       const apply = (px: number) => {
         if (sider) {
           sider.style.flex = `0 0 ${px}px`;
@@ -197,6 +210,11 @@ const SiderResizer: React.FC = () => {
         if (sider) {
           sider.style.transition = prevSiderTransition;
         }
+        // Restore iframe pointer-events so Grafana / embedded UIs
+        // accept clicks again.
+        iframes.forEach((f, i) => {
+          f.style.pointerEvents = prevIframePointer[i];
+        });
         // Commit the final width — single React render, fixes any
         // ancillary layout that depends on siderWidth as a prop. The
         // inline styles we set during drag get re-applied by React's
