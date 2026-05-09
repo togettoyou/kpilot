@@ -146,7 +146,7 @@ export default {
     'Consider also enabling {names}.',
 
   'pages.layouts.userLayout.title':
-    'Kubernetes-native GPU Orchestration Platform',
+    'Unified GPU + Model platform for Kubernetes',
 
   // plugin management
   'pages.plugins.title': 'Plugin Management',
@@ -272,7 +272,7 @@ export default {
   'errors.PLUGIN_NOT_RUNNING': 'Plugin is not in Running state',
 
   // login
-  'pages.login.subtitle': 'Kubernetes-native GPU Orchestration',
+  'pages.login.subtitle': 'Unified GPU + Model platform for Kubernetes',
   'pages.login.username.placeholder': 'Username',
   'pages.login.username.required': 'Please enter your username',
   'pages.login.password.placeholder': 'Password',

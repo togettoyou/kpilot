@@ -1,5 +1,5 @@
 export default {
-  'pages.layouts.userLayout.title': 'Kubernetes-native GPU 算力编排平台',
+  'pages.layouts.userLayout.title': 'Kubernetes 上的 GPU + 模型一体化平台',
 
   // Embedded Grafana page (shared between monitoring and logging)
   'pages.embed.depState.ready': '已运行',
@@ -257,7 +257,7 @@ export default {
   'errors.PLUGIN_NOT_RUNNING': '插件未处于运行中状态',
 
   // login
-  'pages.login.subtitle': 'Kubernetes-native GPU 算力编排',
+  'pages.login.subtitle': 'Kubernetes 上的 GPU + 模型一体化平台',
   'pages.login.username.placeholder': '用户名',
   'pages.login.username.required': '请输入用户名',
   'pages.login.password.placeholder': '密码',
