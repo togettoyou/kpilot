@@ -1,15 +1,17 @@
 # KPilot
 
-**Kubernetes-native GPU orchestration & model serving platform.**
+**Kubernetes 上的 GPU + 模型一体化平台。**
 
-KPilot is a 4-platform product for the GPU/AI ops domain:
+定位：装一个 KPilot + 选要的插件，从看 GPU、调度任务、部署模型到聊天测试一站打通。差异化点是「**GPU 资源 / 调度 / 模型服务**」垂直专门做，不跟 Lens / Headlamp 那类通用 K8s UI 卷宽度。
+
+四个顶级平台：
 
 | 平台 | 定位 |
 |---|---|
-| 集群管理 (`/clusters`) | 通用 K8s 资源管理（节点 / 工作负载 / 监控 / 日志） |
-| 算力管理 (`/compute`) | GPU 资源运营（资源概览、监控、健康、配额…） |
-| 模型管理 (`/models`) | 模型仓库 + 部署 + 调试 + 路由（P7 落地） |
-| 插件管理 (`/plugins`) | Helm 插件市场，前三个平台的能力底座 |
+| 集群管理 (`/clusters`) | 通用 K8s 资源管理（节点 / 工作负载 / 监控 / 日志），commodity，不投入差异化 |
+| 算力管理 (`/compute`) | GPU 资源运营 + 任务调度（HAMi vGPU + DCGM 监控 + Volcano 调度 + 配额计费） |
+| 模型管理 (`/models`) | 模型仓库 + 推理部署 + 调试 + 路由 + 训练任务（P7+ 落地） |
+| 插件管理 (`/plugins`) | Helm chart 市场，前三个平台的能力底座 |
 
 Server（中心控制面）+ Worker（集群侧 Operator），通过 gRPC 双向流连接。
 
@@ -109,7 +111,7 @@ status:
   phase: Running  # Pending / Installing / Running / Failed
 ```
 
-**内置插件**（6 个，category 维度组织）：
+**已内置插件**（6 个，category 维度组织）：
 
 | 插件            | 分类       | Chart 来源 | 用途                                          |
 |-----------------|-----------|-----------|------------------------------------------------|
@@ -119,6 +121,13 @@ status:
 | Grafana         | monitoring| **oci**   | 可视化前端，反代嵌入 + 内置 dashboard + auth.proxy  |
 | VictoriaLogs    | logging   | repo      | 日志存储 + 自带 Vector DaemonSet 采集             |
 | Envoy Gateway   | networking| **oci**   | Gateway API 实现，演示 OCI registry chart 装载    |
+
+**计划新增**（按 dev 阶段）：
+
+| 插件        | 分类       | 阶段  | 用途                                               |
+|-------------|-----------|-------|---------------------------------------------------|
+| DCGM Exporter | monitoring | P5b | NVIDIA GPU 指标采集（利用率 / 温度 / 功耗 / 显存等）  |
+| Volcano       | scheduling | P5c | Batch 调度器，gang scheduling + Queue + drf 公平共享 |
 
 ---
 
@@ -210,7 +219,12 @@ status:
 
 ### 2. 算力管理（`/compute`）
 
-GPU 资源运营平台。
+GPU 资源运营 + 任务调度平台。三层能力：
+1. **观测层**（已有）：资源概览、节点/卡/任务利用率、GPU 监控（DCGM, P5b）
+2. **调度层**（计划）：基于 Volcano 的任务调度——Queue（资源池）/ PodGroup / Job CRD 视图，gang scheduling、优先级、抢占
+3. **治理层**（计划）：基于 Volcano queue + K8s ResourceQuota 联合的配额、设备健康告警、GPU-Hour 计费
+
+依赖插件：HAMi（必需，vGPU 切分）+ DCGM Exporter（监控）+ Volcano（调度）—— 全部走 `插件管理` 启用，未启用的 sub-page 走 DepGate 走相应提示。
 
 #### 2.1 集群选择（`/compute`）
 - 顶级 landing 页，集群卡片网格，点击进入算力面板
@@ -608,7 +622,9 @@ const { data, loading } = useRequest(listXxx, {
 | P6 | 监控中心 + 日志中心（Grafana iframe + auth.proxy + HTTP/WS 反代 + 内置 dashboard overlay） | ✅ 完成 |
 | P0' | 4 平台拆分（集群/算力/模型/插件 顶级化）+ Node 写操作收敛（cordon scoped 端点 + `_cr` URL 绕过修复 + 所有 protection 切到 GVK-based） | ✅ 完成 |
 | P5b | 算力管理 → GPU 监控（DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard） | 待开始 ← 下一步 |
-| P7a | 模型管理 → 仓库 + 内置预设（Qwen / DeepSeek / Llama 等 vLLM 启动模板） | 待开始 |
-| P7b | 模型管理 → 部署 + 内置测试 chat + 可选反代 endpoint | 待开始 |
-| P5c+ | 算力治理面（设备健康 / 任务列表 / 资源池 / 配额 / GPU-hour 计费） | 待规划 |
-| P7c | 模型路由（OpenAI 兼容网关，灰度 / A/B） | 待规划 |
+| P5c | 算力管理 → 任务调度（Volcano 内置插件 + Queue / Job / PodGroup CR 浏览器子页） | 待开始 |
+| P5d | 算力管理 → 资源治理（Volcano queue 配额 + 设备健康告警 + GPU-Hour 计费报表） | 待规划 |
+| P7a | 模型管理 → 模型仓库 + 内置预设（Qwen / DeepSeek / Llama 等 vLLM 启动模板） | 待开始 |
+| P7b | 模型管理 → 推理部署 + 内置 chat 调试 + 可选反代 endpoint | 待开始 |
+| P7c | 模型管理 → OpenAI 兼容路由（按 model 参数路由后端，灰度 / A/B） | 待规划 |
+| P8  | 模型管理 → 训练任务（基于 Volcano，分布式 fine-tune 的 gang scheduling） | 待规划 |
