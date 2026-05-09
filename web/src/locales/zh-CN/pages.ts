@@ -242,6 +242,8 @@ export default {
     'kpilot 自有 CRD（*.kpilot.io）不允许修改或删除——会破坏插件系统',
   'errors.NODE_PROTECTED':
     '节点不支持通用编辑/删除，请通过专用按钮（如 cordon）操作',
+  'errors.SYSTEM_PROTECTED':
+    'K8s 控制面依赖的系统级资源（system:* RBAC / system-* PriorityClass）不允许修改或删除',
   'errors.PLUGIN_NOT_FOUND': '插件不存在',
   'errors.PLUGIN_NAME_EXISTS': '插件名称已存在',
   'errors.PLUGIN_BUILTIN_LOCKED': '内置插件不允许修改或删除',

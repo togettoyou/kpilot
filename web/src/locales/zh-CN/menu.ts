@@ -60,10 +60,14 @@ export default {
   'menu.clusters.extensions.dra.deviceclasses': 'DeviceClasses',
   'menu.clusters.extensions.dra.resourceslices': 'ResourceSlices',
   // Admission webhook + policy configurations — extends the K8s API.
-  'menu.clusters.extensions.admission': '准入控制',
-  'menu.clusters.extensions.admission.validatingwebhooks': '校验 Webhook',
-  'menu.clusters.extensions.admission.mutatingwebhooks': '改写 Webhook',
-  'menu.clusters.extensions.admission.validatingadmissionpolicies': '校验策略',
+  // Sub-items keep proper-noun English names (no Chinese) — these
+  // are K8s API kinds and operators / docs always refer to them by
+  // the original spelling.
+  'menu.clusters.extensions.admission': 'Admission',
+  'menu.clusters.extensions.admission.validatingwebhooks': 'ValidatingWebhook',
+  'menu.clusters.extensions.admission.mutatingwebhooks': 'MutatingWebhook',
+  'menu.clusters.extensions.admission.validatingadmissionpolicies':
+    'ValidatingAdmissionPolicy',
   'menu.clusters.plugins': '插件',
   'menu.clusters.monitoring': '监控',
   'menu.clusters.logging': '日志',

@@ -146,6 +146,24 @@ func isProtectedCRDDefinitionGVK(gvk gvkInfo, name string) bool {
 		isProtectedCRD(name)
 }
 
+// isProtectedSystemNameGVK gates writes against cluster-scoped K8s
+// objects whose name carries the well-known `system:` (RBAC) or
+// `system-` (PriorityClass) prefix that the control plane depends on.
+// Deleting `cluster-admin` ClusterRoleBinding or
+// `system-cluster-critical` PriorityClass would break the cluster
+// silently and irrecoverably; user-created RBAC / priority classes
+// without these prefixes pass through.
+func isProtectedSystemNameGVK(gvk gvkInfo, name string) bool {
+	if gvk.group == "rbac.authorization.k8s.io" &&
+		(gvk.kind == "ClusterRole" || gvk.kind == "ClusterRoleBinding") {
+		return strings.HasPrefix(name, "system:")
+	}
+	if gvk.group == "scheduling.k8s.io" && gvk.kind == "PriorityClass" {
+		return strings.HasPrefix(name, "system-")
+	}
+	return false
+}
+
 // isProtectedCRD returns true for CRD names that kpilot itself owns —
 // deleting them via the workload UI would brick the running install
 // (e.g. removing plugins.kpilot.io leaves every ClusterPlugin row
@@ -323,6 +341,12 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// UI is through the constrained patch.
 		if isNoGenericWriteGVK(gvk) {
 			apiErr(c, http.StatusForbidden, CodeNodeProtected)
+			return
+		}
+		// system:* RBAC and system-* PriorityClass are control-plane
+		// load-bearing — block edits to keep the cluster usable.
+		if isProtectedSystemNameGVK(gvk, name) {
+			apiErr(c, http.StatusForbidden, CodeSystemProtected)
 			return
 		}
 
@@ -507,6 +531,13 @@ func validateDoc(idx int, obj *unstructured.Unstructured) (ApplyYamlResult, bool
 		r.Error = "Node is read-only via Apply YAML; use the cordon button"
 		return r, false
 	}
+	// system:* RBAC / system-* PriorityClass are control-plane load-
+	// bearing; block them from the bulk YAML path the same way per-
+	// row PUT/DELETE do.
+	if isProtectedSystemNameGVK(gvkInfo{group: gvk.Group, version: gvk.Version, kind: gvk.Kind}, r.Name) {
+		r.Error = r.Kind + " " + r.Name + " is a system-reserved resource and is read-only"
+		return r, false
+	}
 	return r, true
 }
 
@@ -649,6 +680,10 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// is a multi-step admin op, not an Edit-YAML-adjacent button.
 		if isNoGenericWriteGVK(gvk) {
 			apiErr(c, http.StatusForbidden, CodeNodeProtected)
+			return
+		}
+		if isProtectedSystemNameGVK(gvk, name) {
+			apiErr(c, http.StatusForbidden, CodeSystemProtected)
 			return
 		}
 

@@ -255,6 +255,8 @@ export default {
     'kpilot-owned CRDs (*.kpilot.io) cannot be edited or deleted — modifying them would break the plugin system',
   'errors.NODE_PROTECTED':
     'Nodes don\'t support generic edit/delete; use the scoped buttons (e.g. cordon) instead',
+  'errors.SYSTEM_PROTECTED':
+    'System-reserved resources (system:* RBAC / system-* PriorityClass) cannot be edited or deleted — the K8s control plane depends on them',
   'errors.PLUGIN_NOT_FOUND': 'Plugin not found',
   'errors.PLUGIN_NAME_EXISTS': 'Plugin name already exists',
   'errors.PLUGIN_BUILTIN_LOCKED':
