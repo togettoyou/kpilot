@@ -8,10 +8,10 @@
 |---|---|
 | 集群管理 (`/clusters`) | 通用 K8s 资源管理：节点、工作负载、监控、日志 |
 | 算力管理 (`/compute`) | GPU 资源运营 + 任务调度：HAMi vGPU、DCGM 监控、Volcano 调度、配额计费 |
-| 模型管理 (`/models`) | 模型仓库、推理部署、调试、路由、训练任务（P7+ 落地） |
+| 模型管理 (`/models`) | 模型仓库、推理部署、调试、路由、训练任务 |
 | 插件管理 (`/plugins`) | Helm chart 注册表，前三个平台的能力底座 |
 
-Server（中心控制面）+ Worker（集群侧 Operator），通过 gRPC 双向流连接。Go module：`github.com/togettoyou/kpilot`。
+Server（中心控制面）+ Worker（集群侧 Operator），通过 gRPC 双向流连接。
 
 ---
 
@@ -142,7 +142,7 @@ status:
 - 排序按 `created_at asc`，新加的不挤掉已有位置（用户按空间记忆）
 
 #### 1.2 节点概览（`/clusters/:id/nodes`）
-- 走通用 workloads proxy（`/workloads/nodes`，K8s Table API），不再走 push 模式
+- 走通用 workloads proxy（`/workloads/nodes`，K8s Table API）
 - 列定义直接来自 kubectl printer：NAME / STATUS / ROLES / AGE / VERSION / INTERNAL-IP / EXTERNAL-IP / OS-IMAGE / KERNEL-VERSION / CONTAINER-RUNTIME（跟 `kubectl get node -o wide` 对齐）
 - STATUS 列识别 `Ready,SchedulingDisabled` 这种 kubectl 拼接格式，每段一个色 Tag
 - ROLES 列 comma-split，每个角色单独 Tag
