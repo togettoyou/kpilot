@@ -238,6 +238,10 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
               path: `${base}/workloads/validatingadmissionpolicies`,
               name: 'validatingadmissionpolicies',
             },
+            {
+              path: `${base}/workloads/mutatingadmissionpolicies`,
+              name: 'mutatingadmissionpolicies',
+            },
           ],
         },
       ],

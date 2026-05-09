@@ -42,6 +42,7 @@ import {
   deleteWorkload,
   getWorkload,
   isProtectedCRDName,
+  isProtectedSystemRow,
   listWorkloads,
 } from '@/services/kpilot/workload';
 import { ApplyYamlDrawer } from './ApplyYamlDrawer';
@@ -287,6 +288,7 @@ const VALID_TYPES = new Set<string>([
   'validatingwebhookconfigurations',
   'mutatingwebhookconfigurations',
   'validatingadmissionpolicies',
+  'mutatingadmissionpolicies',
   'resourceclaims',
   'resourceclaimtemplates',
   'deviceclasses',
@@ -578,15 +580,26 @@ function WorkloadsContent({
         //    page, not the workload list).
         //  • CRDs ending in .kpilot.io (deleting/editing them would
         //    brick the running install — see isProtectedCRDName).
+        //  • system:* ClusterRole / ClusterRoleBinding and system-*
+        //    PriorityClass (control-plane reserved — see
+        //    isProtectedSystemRow).
         const ns = record.namespace ?? '';
         const protectedNs = ns.startsWith('kube-') || ns.startsWith('kpilot-');
         const protectedCRD =
           resourceType === 'customresourcedefinitions' &&
           isProtectedCRDName(record.name);
+        const protectedSystemRow = isProtectedSystemRow(
+          resourceType,
+          record.name,
+        );
         // CR instance under a kpilot.io group → also read-only.
         // Computed once at component scope (isProtectedCRGroup) since
         // it doesn't depend on the row.
-        const isProtected = protectedNs || protectedCRD || isProtectedCRGroup;
+        const isProtected =
+          protectedNs ||
+          protectedCRD ||
+          protectedSystemRow ||
+          isProtectedCRGroup;
         const describeBtn = (
           <Button
             key="describe"

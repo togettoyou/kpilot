@@ -100,6 +100,12 @@ var resourceGVK = map[string]gvkInfo{
 	"validatingwebhookconfigurations": {"admissionregistration.k8s.io", "v1", "ValidatingWebhookConfiguration"},
 	"mutatingwebhookconfigurations":   {"admissionregistration.k8s.io", "v1", "MutatingWebhookConfiguration"},
 	"validatingadmissionpolicies":     {"admissionregistration.k8s.io", "v1", "ValidatingAdmissionPolicy"},
+	// MutatingAdmissionPolicy — alpha since K8s 1.32 under
+	// `MutatingAdmissionPolicy` feature gate. Pinned to v1alpha1; on
+	// clusters without the gate enabled the request hits "no matches
+	// for kind" and the page surfaces it as a worker error (same path
+	// Gateway API / DRA take when their CRDs aren't installed).
+	"mutatingadmissionpolicies": {"admissionregistration.k8s.io", "v1alpha1", "MutatingAdmissionPolicy"},
 	// Dynamic Resource Allocation (resource.k8s.io). Pinned to v1 (GA
 	// since K8s 1.34, Aug 2025). v1beta1 was tried first but several
 	// distros disable beta versions even on 1.34+, so the RESTMapper

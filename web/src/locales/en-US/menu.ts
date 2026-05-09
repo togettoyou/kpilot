@@ -67,6 +67,8 @@ export default {
   'menu.clusters.extensions.admission.mutatingwebhooks': 'MutatingWebhook',
   'menu.clusters.extensions.admission.validatingadmissionpolicies':
     'ValidatingAdmissionPolicy',
+  'menu.clusters.extensions.admission.mutatingadmissionpolicies':
+    'MutatingAdmissionPolicy',
   'menu.clusters.plugins': 'Plugins',
   'menu.clusters.monitoring': 'Monitoring',
   'menu.clusters.logging': 'Logging',

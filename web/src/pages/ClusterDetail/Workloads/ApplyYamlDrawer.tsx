@@ -680,6 +680,34 @@ spec:
     - expression: "object.spec.replicas <= 5"
       message: "replicas must be <= 5"
 `,
+  // MutatingAdmissionPolicy — alpha since K8s 1.32 (feature gate
+  // MutatingAdmissionPolicy=true). The mutating counterpart of
+  // ValidatingAdmissionPolicy: CEL + ApplyConfiguration / JSON
+  // patch instead of validation expressions. Pair with a
+  // MutatingAdmissionPolicyBinding to scope.
+  mutatingadmissionpolicies: `apiVersion: admissionregistration.k8s.io/v1alpha1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: example-mutator
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  reinvocationPolicy: Never
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: |
+          Object{
+            metadata: Object.metadata{
+              labels: {"injected-by": "example-mutator"}
+            }
+          }
+`,
 };
 
 const MAX_FILE_BYTES = 1 << 20; // 1 MB — same cap as the server

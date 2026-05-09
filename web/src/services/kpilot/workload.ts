@@ -11,7 +11,7 @@ export type WorkloadResourceType =
   | 'resourcequotas' | 'limitranges' | 'poddisruptionbudgets'
   | 'priorityclasses' | 'runtimeclasses'
   | 'validatingwebhookconfigurations' | 'mutatingwebhookconfigurations'
-  | 'validatingadmissionpolicies'
+  | 'validatingadmissionpolicies' | 'mutatingadmissionpolicies'
   | 'resourceclaims' | 'resourceclaimtemplates' | 'deviceclasses' | 'resourceslices'
   | 'customresourcedefinitions'
   // `nodes` is accessed by the dedicated /clusters/:id/nodes page,
@@ -39,6 +39,7 @@ export const CLUSTER_SCOPED_TYPES = new Set<WorkloadResourceType>([
   'validatingwebhookconfigurations',
   'mutatingwebhookconfigurations',
   'validatingadmissionpolicies',
+  'mutatingadmissionpolicies',
   'nodes',
 ]);
 
@@ -49,6 +50,23 @@ export const CLUSTER_SCOPED_TYPES = new Set<WorkloadResourceType>([
 // surfacing a "operation forbidden" toast.
 export function isProtectedCRDName(name: string): boolean {
   return name.endsWith('.kpilot.io');
+}
+
+// Mirrors the backend's isProtectedSystemNameGVK gate: cluster-scoped
+// RBAC + PriorityClass entries with the K8s reserved name prefixes.
+// Hide edit/delete buttons on these rows so the user doesn't see them
+// at all — backend would 403 anyway with SYSTEM_PROTECTED.
+export function isProtectedSystemRow(
+  resourceType: WorkloadResourceType | '_cr',
+  name: string,
+): boolean {
+  if (resourceType === 'clusterroles' || resourceType === 'clusterrolebindings') {
+    return name.startsWith('system:');
+  }
+  if (resourceType === 'priorityclasses') {
+    return name.startsWith('system-');
+  }
+  return false;
 }
 
 export interface WorkloadItem {
