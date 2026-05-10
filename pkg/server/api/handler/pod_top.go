@@ -18,18 +18,11 @@ import (
 //
 //	{ timestamp, window, containers: [{ name, cpu_milli, memory_bytes }] }
 //
-// Two failure modes both surface as 404 / RESOURCE_NOT_AVAILABLE so the
-// frontend renders the same "enable Metrics Server plugin" hint:
-//
-//   - "no matches for kind PodMetrics" — Metrics Server isn't installed
-//     in the cluster (the metrics.k8s.io APIService is missing).
-//   - "podmetrics ... not found" — Metrics Server is installed but
-//     hasn't produced data for this pod (kwok node, OrbStack < 2.1.1
-//     without the PodAndContainerStatsFromCRI feature gate, or just
-//     haven't scraped yet on a freshly created pod).
-//
-// The user-actionable suggestion is the same for both: check that the
-// plugin is running.
+// Any error pattern that boils down to "Metrics Server isn't producing
+// data" is collapsed to 404 / RESOURCE_NOT_AVAILABLE so the frontend
+// renders the same "enable Metrics Server plugin" hint instead of
+// leaking the raw K8s error message — see isMetricsUnavailableMsg for
+// the three flavors we recognise.
 func TopPod(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
@@ -52,7 +45,7 @@ func TopPod(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if !resp.Success {
-			if isNoMatchMessage(resp.Error) || isPodMetricsNotFoundMsg(resp.Error) {
+			if isMetricsUnavailableMsg(resp.Error) {
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -120,8 +113,34 @@ func parseQuantityBytes(s string) int64 {
 	return q.Value()
 }
 
-func isPodMetricsNotFoundMsg(s string) bool {
+// isMetricsUnavailableMsg recognises the three failure modes that all
+// boil down to "Metrics Server isn't producing data right now":
+//
+//   - "no matches for kind PodMetrics" — RESTMapper can't resolve the
+//     kind because the APIService isn't registered (plugin not installed).
+//   - "podmetrics ... not found" — APIService is registered but the
+//     metrics-server backend has no row for this specific pod (kwok node,
+//     pod just created and no scrape window has hit yet, etc).
+//   - "the server could not find the requested resource" — generic 404
+//     surfaced when the aggregated APIService endpoint is unreachable
+//     (metrics-server pod not yet Ready, FailedDiscoveryCheck on the
+//     APIService, kubelet 401 leaving stale registration, ...).
+//
+// All three look identical to the user — they want metrics, they didn't
+// get any. Collapse to RESOURCE_NOT_AVAILABLE so the drawer renders the
+// same "enable Metrics Server plugin" hint instead of leaking the raw
+// K8s error.
+func isMetricsUnavailableMsg(s string) bool {
 	l := strings.ToLower(s)
-	return strings.Contains(l, "podmetrics") &&
-		(strings.Contains(l, "not found") || strings.Contains(l, "404"))
+	if strings.Contains(l, "no matches for kind") {
+		return true
+	}
+	if strings.Contains(l, "podmetrics") &&
+		(strings.Contains(l, "not found") || strings.Contains(l, "404")) {
+		return true
+	}
+	if strings.Contains(l, "could not find the requested resource") {
+		return true
+	}
+	return false
 }
