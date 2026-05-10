@@ -1,6 +1,6 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { useIntl, useParams } from '@umijs/max';
-import { App, Button, Dropdown, Popconfirm } from 'antd';
+import { App, Button, Dropdown } from 'antd';
 import React, { useState } from 'react';
 
 import type { WorkloadItem } from '@/services/kpilot/workload';
@@ -104,9 +104,8 @@ function JobLifecycleAction({
   refresh: () => void;
 }) {
   const intl = useIntl();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
-  const [pending, setPending] = useState<VolcanoAction | null>(null);
   if (!clusterId) return null;
 
   const fire = async (action: VolcanoAction) => {
@@ -131,51 +130,53 @@ function JobLifecycleAction({
     }
   };
 
-  const items = [
-    { key: 'ResumeJob', label: intl.formatMessage({ id: 'pages.compute.job.action.resume' }) },
-    { key: 'AbortJob', label: intl.formatMessage({ id: 'pages.compute.job.action.abort' }) },
-    { key: 'RestartJob', label: intl.formatMessage({ id: 'pages.compute.job.action.restart' }) },
-    { key: 'CompleteJob', label: intl.formatMessage({ id: 'pages.compute.job.action.complete' }) },
-    { key: 'TerminateJob', label: intl.formatMessage({ id: 'pages.compute.job.action.terminate' }), danger: true },
-  ];
+  // Action key → i18n suffix lookup. Keeps the construction explicit
+  // so we don't string-munge the action name to derive the label key
+  // (the previous `replace('Job', '').toLowerCase()` couldn't survive
+  // a future action that doesn't end in 'Job').
+  const ACTION_LABEL_ID: Record<VolcanoAction, string> = {
+    ResumeJob: 'pages.compute.job.action.resume',
+    AbortJob: 'pages.compute.job.action.abort',
+    RestartJob: 'pages.compute.job.action.restart',
+    CompleteJob: 'pages.compute.job.action.complete',
+    TerminateJob: 'pages.compute.job.action.terminate',
+    OpenQueue: 'pages.compute.queue.action.open',
+    CloseQueue: 'pages.compute.queue.action.close',
+  };
+
+  const items = (Object.keys(ACTION_LABEL_ID) as VolcanoAction[])
+    .filter((a) => a.endsWith('Job'))
+    .map((a) => ({
+      key: a,
+      label: intl.formatMessage({ id: ACTION_LABEL_ID[a] }),
+      danger: a === 'TerminateJob',
+    }));
 
   return (
-    <>
-      <Dropdown
-        menu={{
-          items,
-          onClick: ({ key }) => setPending(key as VolcanoAction),
-        }}
-      >
-        <Button type="link" size="small">
-          {intl.formatMessage({ id: 'pages.compute.job.action.menu' })}
-        </Button>
-      </Dropdown>
-      {pending && (
-        <Popconfirm
-          open
-          title={intl.formatMessage(
-            { id: 'pages.compute.job.action.confirm' },
-            {
-              name: record.name,
-              action: intl.formatMessage({
-                id: `pages.compute.job.action.${pending
-                  .replace('Job', '')
-                  .toLowerCase()}`,
-              }),
-            },
-          )}
-          onConfirm={async () => {
-            const a = pending;
-            setPending(null);
-            if (a) await fire(a);
-          }}
-          onCancel={() => setPending(null)}
-          okType={pending === 'TerminateJob' ? 'danger' : 'primary'}
-        >
-          <span />
-        </Popconfirm>
-      )}
-    </>
+    <Dropdown
+      menu={{
+        items,
+        onClick: ({ key }) => {
+          const action = key as VolcanoAction;
+          modal.confirm({
+            title: intl.formatMessage(
+              { id: 'pages.compute.job.action.confirm' },
+              {
+                name: record.name,
+                action: intl.formatMessage({
+                  id: ACTION_LABEL_ID[action],
+                }),
+              },
+            ),
+            okType: action === 'TerminateJob' ? 'danger' : 'primary',
+            onOk: () => fire(action),
+          });
+        },
+      }}
+    >
+      <Button type="link" size="small">
+        {intl.formatMessage({ id: 'pages.compute.job.action.menu' })}
+      </Button>
+    </Dropdown>
   );
 }

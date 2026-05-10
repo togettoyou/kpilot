@@ -13,8 +13,9 @@ import { PluginEditDrawer } from './PluginEditDrawer';
 const { Title } = Typography;
 
 // Display order: pure category grouping. The "built-in" status is shown
-// as a tag on each card, not as a separate section, so HAMi (gpu) and a
-// user's custom GPU plugin sit side-by-side under "GPU".
+// as a tag on each card, not as a separate section, so Volcano
+// (scheduling) and a user's custom batch-scheduler plugin sit
+// side-by-side under "Scheduling".
 const CATEGORY_ORDER: PluginCategory[] = [
   'gpu',
   'scheduling',

@@ -548,8 +548,9 @@ roleRef:
   name: example-cluster-reader
 `,
   // ResourceQuota — caps per-namespace consumption. Common starter
-  // is CPU + memory + pod count. Add nvidia.com/gpu for GPU
-  // namespaces once HAMi is enabled.
+  // is CPU + memory + pod count. Add volcano.sh/vgpu-number /
+  // volcano.sh/vgpu-memory for GPU namespaces once Volcano vGPU
+  // is enabled.
   resourcequotas: `apiVersion: v1
 kind: ResourceQuota
 metadata:

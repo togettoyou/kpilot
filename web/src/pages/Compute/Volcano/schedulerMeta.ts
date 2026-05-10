@@ -118,9 +118,9 @@ export const PLUGINS_META: Record<string, Meta> = {
     label: 'extender',
     desc: '调度器扩展点：通过 webhook 接外部决策服务。复杂场景的逃生口。',
   },
-  cdp: {
-    label: 'cdp',
-    desc: 'Capacity Definition Plugin —— 动态算力供给（例如根据时段从云上弹出节点）。',
+  capacity: {
+    label: 'capacity',
+    desc: 'Capacity 调度（V1.9+）：按 Queue 的 deserved/capability 资源声明做容量调度，是 proportion 的精细化版本。',
   },
   resourcequota: {
     label: 'resourcequota',

@@ -6,7 +6,7 @@ import {
   ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import { useIntl, useParams, useRequest } from '@umijs/max';
+import { history, useIntl, useParams, useRequest } from '@umijs/max';
 import {
   Alert,
   App,
@@ -259,8 +259,7 @@ export default function VolcanoSchedulerPage() {
             <Button
               type="primary"
               onClick={() =>
-                clusterId &&
-                (window.location.href = `/clusters/${clusterId}/plugins`)
+                clusterId && history.push(`/clusters/${clusterId}/plugins`)
               }
             >
               {intl.formatMessage({

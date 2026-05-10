@@ -205,7 +205,6 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 	switch p := msg.Payload.(type) {
 	case *proto.WorkerMessage_Heartbeat:
 		w.markSeen()
-		_ = p
 	case *proto.WorkerMessage_PluginStatus:
 		g.handlePluginStatus(w, p.PluginStatus)
 	case *proto.WorkerMessage_ResourceResp:

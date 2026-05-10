@@ -22,10 +22,10 @@ import (
 
 // helmInstallTimeout caps how long Helm waits for resources to become
 // Ready before declaring failure. Big images on a first-time pull
-// (VM stack, HAMi GPU images at hundreds of MB) routinely take 5+
-// minutes from a cold cache or a slow registry; 10 minutes leaves
-// room for that without leaving truly wedged installs hanging
-// indefinitely.
+// (VictoriaMetrics, Volcano scheduler / vGPU device plugin at
+// hundreds of MB) routinely take 5+ minutes from a cold cache or a
+// slow registry; 10 minutes leaves room for that without leaving
+// truly wedged installs hanging indefinitely.
 const helmInstallTimeout = 10 * time.Minute
 
 // HelmDriver is the storage backend Helm uses for release state. "secrets"
@@ -109,8 +109,8 @@ func helmLogf(format string, args ...interface{}) {
 //   - RepoURL + Name: ChartType=repo, traditional Helm chart repo
 type ChartRef struct {
 	LocalPath string // ChartType=local
-	OCIRef    string // ChartType=oci  (e.g. oci://docker.io/envoyproxy/gateway-helm)
-	RepoURL   string // ChartType=repo (e.g. https://project-hami.github.io/HAMi/)
+	OCIRef    string // ChartType=oci  (e.g. oci://ghcr.io/grafana-community/helm-charts/grafana)
+	RepoURL   string // ChartType=repo (e.g. https://volcano-sh.github.io/helm-charts)
 	Name      string // ChartType=repo only — chart name within the repo
 	Version   string
 }

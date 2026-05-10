@@ -410,7 +410,8 @@ vector:
 		// pull a moving target on first install — pin to v1.14.2 so the
 		// app version matches the chart pin above. image_registry +
 		// per-component image names are spelled out so private-mirror
-		// users have a ready hook (same shape as HAMi). image_pull_policy
+		// users have a ready hook (same shape as the other monitoring
+		// builtins). image_pull_policy
 		// flipped from chart default Always → IfNotPresent: with a pinned
 		// tag, Always just costs an extra registry round-trip on every
 		// pod start.

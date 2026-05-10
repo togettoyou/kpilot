@@ -374,23 +374,26 @@ export function QueueFormDrawer({
 // fvToInput translates the form's flat field shape into the
 // QueueInput contract buildQueueManifest expects.
 function fvToInput(v: FormValues): QueueInput {
+  // Trim every user-typed string before it lands in a K8s resource
+  // map — K8s quantity parser rejects whitespace, and "  100Gi "
+  // would surface as a not-very-helpful apply error.
+  const t = (s?: string) => s?.trim() || undefined;
   const capability: Record<string, string> = {};
-  if (v.capability_cpu) capability['cpu'] = v.capability_cpu;
-  if (v.capability_memory) capability['memory'] = v.capability_memory;
-  if (v.capability_vgpu_number) {
-    capability['volcano.sh/vgpu-number'] = v.capability_vgpu_number;
-  }
-  if (v.capability_vgpu_memory) {
-    capability['volcano.sh/vgpu-memory'] = v.capability_vgpu_memory;
-  }
-  if (v.capability_vgpu_cores) {
-    capability['volcano.sh/vgpu-cores'] = v.capability_vgpu_cores;
-  }
+  const cpu = t(v.capability_cpu);
+  const mem = t(v.capability_memory);
+  const vn = t(v.capability_vgpu_number);
+  const vm = t(v.capability_vgpu_memory);
+  const vc = t(v.capability_vgpu_cores);
+  if (cpu) capability['cpu'] = cpu;
+  if (mem) capability['memory'] = mem;
+  if (vn) capability['volcano.sh/vgpu-number'] = vn;
+  if (vm) capability['volcano.sh/vgpu-memory'] = vm;
+  if (vc) capability['volcano.sh/vgpu-cores'] = vc;
   return {
-    name: v.name ?? '',
+    name: v.name?.trim() ?? '',
     weight: v.weight ?? 1,
     reclaimable: v.reclaimable,
-    parent: v.parent,
+    parent: t(v.parent),
     capability,
   };
 }

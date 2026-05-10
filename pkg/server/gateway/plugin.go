@@ -67,7 +67,7 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 			if cp.Enabled {
 				continue
 			}
-			plugin, err := store.GetPluginByName(cp.Plugin.Name)
+			plugin, err := store.GetPluginByID(cp.PluginID)
 			if err != nil {
 				continue
 			}

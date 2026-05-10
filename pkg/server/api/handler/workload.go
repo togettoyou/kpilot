@@ -29,9 +29,10 @@ const maxBodySize = 1 << 20 // 1 MB — sufficient for any K8s manifest
 //
 // `kube-*` covers control-plane namespaces (kube-system, kube-public,
 // kube-node-lease). `kpilot-*` protects the namespaces our built-in
-// plugins install into (kpilot-monitoring, kpilot-logging, kpilot-gpu)
-// so users don't accidentally `kubectl delete deployment` the
-// VictoriaMetrics pod from the workload list.
+// plugins install into (kpilot-monitoring, kpilot-logging,
+// kpilot-scheduling) so users don't accidentally `kubectl delete
+// deployment` the VictoriaMetrics / Volcano controller pod from the
+// workload list.
 var protectedNamespacePrefixes = []string{"kube-", "kpilot-"}
 
 func isProtectedNamespace(ns string) bool {

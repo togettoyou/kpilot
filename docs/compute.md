@@ -2,58 +2,121 @@
 
 > 上层文档：[CLAUDE.md](../CLAUDE.md)。本文档覆盖基于 Volcano 的批量调度平台。
 
-KPilot 的算力调度平台 = **Volcano 批量调度**为核心，**vGPU 虚拟化**为子能力。定位是 AI / HPC workload 的作业编排面板，而非 GPU 监控仪表盘。
+KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作业编排为目标，不是 GPU 监控仪表盘。
 
 三层能力：
 
-1. **作业调度层**（核心）：Volcano Queue / Job / PodGroup CR 浏览器，作业提交向导，调度策略只读视图
-2. **GPU 虚拟化层**：通过 [`volcano-vgpu-device-plugin`](https://github.com/Project-HAMi/volcano-vgpu-device-plugin)（Volcano scheduler 的 deviceshare 后端，使用 HAMi-core 做 hard isolation）提供 vGPU 切分、显存 / 算力限制；KPilot 不再独立部署 HAMi
-3. **治理层**（计划）：Volcano queue 配额 + 设备健康告警 + GPU-Hour 计费
+1. **作业调度层**（已实现）：Volcano Queue / Job / CronJob / PodGroup / HyperNode 的 CR 浏览 + 类型化表单创建编辑 + 生命周期操作；`volcano-scheduler-configmap` 可视化编辑器
+2. **GPU 虚拟化层**（计划）：`volcano-vgpu-device-plugin`（Volcano scheduler 的 deviceshare 后端，使用 HAMi-core 做 hard isolation）提供 vGPU 切分、显存 / 算力限制；KPilot 不再独立部署 HAMi
+3. **治理层**（远期）：Volcano queue 配额视图 + 设备健康告警 + GPU-Hour 计费
 
-依赖插件：**Volcano**（必需）+ **volcano-vgpu-device-plugin**（GPU 节点必需）。两者通过「插件管理」启用。
+依赖插件：**Volcano**（必需）。GPU 节点上额外需要 `volcano-vgpu-device-plugin`（v1 还没做成内置）。
 
 ## 1. 集群选择（`/compute`）
 
-- 顶级 landing 页，集群卡片网格，点击进入算力调度面板
+- 顶级 landing 页，集群卡片网格，点击卡片进入算力调度面板（落到 `/scheduler`，平台首屏）
 - 不提供集群 CRUD 操作。集群的增删改在「集群管理」完成；本页仅用于选择集群上下文
+- `pages/Compute/index.tsx`
 
-## 2. Volcano 核心对接（计划）
+## 2. 调度策略（`/compute/:id/scheduler`）
 
-> 这一节描述目标形态。当前 Phase 1 还在做 HAMi 拆除，Volcano CR 浏览器尚未落地。
+`volcano-scheduler-configmap` 的可视化编辑器。用户进入算力调度后默认落地这一页。
 
-- **Queue 浏览**：列表 + 详情 + YAML 编辑（CR 浏览器复用），重点展示 Queue 的 capability/guarantee 配额 + 当前用量
-- **Job 浏览**：list / get / delete + 状态机展示（Pending / Running / Completed / Failed），下钻 PodGroup → Pod
-- **PodGroup 浏览**：minMember / minResources / Phase 展示
-- **作业提交向导**：表单选 Queue + 资源（CPU/GPU/内存）+ 镜像 + 命令 → 拼出 `batch.volcano.sh/v1alpha1 Job` CR 提交
-- **集群调度策略**：只读展示 `volcano-scheduler-configmap` 当前启用的 plugins/actions（编辑成本太高，先只读）
+- **数据来源**：从 Volcano 插件的 `default_release_namespace`（默认 `kpilot-scheduling`）拉 `volcano-scheduler-configmap`，解析 `data."volcano-scheduler.conf"` 为 YAML
+- **默认只读**：进入页面时表单 Select 全部 disabled、YAML 编辑器 readOnly。右上角 toolbar 是「刷新」+「编辑」
+- **编辑模式**：点「编辑」后右上角换成「取消」+「保存」；表单解锁、YAML 可改；取消恢复到上次拉取快照
+- **双视图**：
+  - **表单**：actions 多选 + tier 卡片，每张 tier 卡里再多选 plugins，添加 / 删除 tier 都有按钮
+  - **YAML**：完整 conf 可编辑（plugin args 等高级字段必须从这里改，表单层不暴露）
+  - 切换 tab 自动同步：form → yaml 用 `yaml.dump(draft)`，yaml → form 用 `yaml.load(text)` + 同步回 draft
+  - YAML 解析失败时不切换、不丢草稿，inline Alert 提示错误
+- **保存**：构建新的 ConfigMap manifest（保留其它 data key 如 `volcano-admission.conf`），走 `/apply` SSA 写回。Volcano 调度器 watch configmap，秒级自动 reload
+- **新手友好**：
+  - 顶部 intro 段说明 actions vs plugin tiers 的概念
+  - Select 下拉每一项都带 1 行说明（label + 灰色 desc 双行展示），已选 Tag hover 也显示 desc
+  - 卡片标题旁有 ⓘ 图标 hover 看进阶提示
+  - 顶部 Collapse 折叠面板「调度阶段一览 / 调度插件一览」列出所有内置 actions / plugins 中文一句话解说，做为快速查阅手册
+- **Volcano 内置 actions / plugins 元数据**：维护在 `pages/Compute/Volcano/schedulerMeta.ts`。覆盖 6 个 actions（enqueue / allocate / preempt / reclaim / backfill / shuffle）+ 18 个 plugins。未识别的名字 fallback 到「自定义 plugin」描述，自定义集群不会破页面
 
-## 3. vGPU 资源面板（迁移中）
+## 3. Volcano CR 浏览器（5 个）
 
-> Phase 2 完成后会复活。当前依赖 HAMi annotation 的解析器还在，老的 HAMi 集群仍能渲染数据。
+每个 CR 一个独立路由，菜单分组在 sider 的「调度资源」下：
 
-- **数据获取**：单端点 `/api/v1/clusters/:id/gpu` → Worker `gpu-summary` action 聚合返回。`useGPUData` hook 一份 fetch + dep check + 自动轮询
-- **DepGate**：检查 `volcano-vgpu-device-plugin` 在集群上 `Phase=Running`；未启用 → Result 引导用户去插件管理
-- **页面布局**（资源概览，作为算力调度页的一个 tab）：
-  - **页头**：标题 + 副标题（"X 个 GPU 节点 · Y 张物理卡"）
-  - **KPI 三联仪表盘**：vGPU / 显存 / 算力，三张等宽 dashboard-style Progress
-  - **型号分布 + Top 5 显存占用**：两栏可视化
-  - **节点利用率网格**：每个节点 mini-card，点详情打开 `NodeDetailDrawer`
-  - **Tabs 详情**：「显卡明细」/「任务明细」两个表格
+| 路由 | Kind | 范围 | GUI 操作 |
+|---|---|---|---|
+| `/compute/:id/queues` | `scheduling.volcano.sh/v1beta1 Queue` | Cluster | 创建 / 编辑表单 + Open/Close（bus.volcano.sh Command） |
+| `/compute/:id/jobs` | `batch.volcano.sh/v1alpha1 Job` | Namespaced | 多任务创建 / 编辑表单 + Resume/Abort/Restart/Complete/Terminate（Command） |
+| `/compute/:id/cronjobs` | `batch.volcano.sh/v1alpha1 CronJob` | Namespaced | 创建 / 编辑表单 + Suspend/Resume（直接 SSA patch `spec.suspend`） |
+| `/compute/:id/podgroups` | `scheduling.volcano.sh/v1beta1 PodGroup` | Namespaced | 仅通用 CR 浏览 + YAML 编辑 |
+| `/compute/:id/hypernodes` | `topology.volcano.sh/v1alpha1 HyperNode` | Cluster | 仅通用 CR 浏览 + YAML 编辑 |
 
-## 4. 关键设计
+### 3.1 通用机制
 
-- **Volcano 优先**：调度 + GPU 隔离都收敛到 Volcano 生态。HAMi 独立 device plugin 不再支持，它的角色被 `volcano-vgpu-device-plugin` 替代——后者使用同款 HAMi-core 库，但跟 Volcano scheduler 的 deviceshare 插件深度集成
-- **`schedulerName: volcano`** 是入场券：所有要走 vGPU 调度 / queue 配额的 Pod 必须显式指定 `schedulerName: volcano`，否则走 default-scheduler，绕过 deviceshare
-- **资源标签**：用 `volcano.sh/vgpu-number` / `volcano.sh/vgpu-memory` / `volcano.sh/vgpu-cores` 替代旧的 `nvidia.com/gpu*` 系列
-- **节点端 annotation**：`volcano.sh/node-vgpu-register`（设备清单）+ `volcano.sh/node-vgpu-handshake`（活性）+ `volcano.sh/node-vgpu-register`（已注册标记）
-- **Pod 端 annotation**：`volcano.sh/vgpu-ids-new`（已分配设备 ID）+ `volcano.sh/devices-to-allocate`（待分配）+ `volcano.sh/vgpu-node`（被调度到的节点）+ `volcano.sh/vgpu-mode`（hami-core / mig）
-- **缓存**（`pkg/worker/snapshot/`）：client-go SharedInformerFactory，启动时 List + watch 长连接，WaitForCacheSync 阻塞到 ready 才进 tunnel.Run。`gpuSummary` 从 lister 读（微秒级，zero API call）
-- **Worker clientset 单例**：snapshot / logs manager / exec manager 共享一份 `kubernetes.NewForConfig`，避免每个 consumer 各自维护一套 http.Transport 连接池
-- **客户端分页**：GPU pod 数量上限约等于集群总 vGPU 切片数（典型几百，极端几千），ProTable 的客户端分页 / 排序 / 列过滤足以应对
-- **节点页解耦**：K8s 节点概览（`pages/ClusterDetail/Nodes/`）仅展示 K8s 原语（CPU / 内存 / 状态），GPU 相关信息全部归到算力调度
+- **共享底座**：所有 5 个页都通过 `pages/Compute/Volcano/CRPage.tsx` 包装 `WorkloadsContent`（来自 `pages/ClusterDetail/Workloads/index.tsx`，已 export）。预设 GVK，复用列表 / 搜索 / 分页 / 描述 / 删除 / namespace picker / 写保护等全部能力
+- **WorkloadsContent 扩展点**：3 个 callback prop 让 Volcano 包装层定制 UX 而不重写表格机制
+  - `extraToolbarButtons` —— 工具栏右侧追加按钮（用于「新建队列」/「新建作业」等）
+  - `extraRowActions` —— 行操作列追加按钮（用于 lifecycle ops）
+  - `replaceEditAction` —— 替换默认的「编辑 YAML」行按钮（用于打开类型化表单）
+  - 三者都收 `{ refresh, openYamlEditor }` ctx，前者用来 mutation 后 refetch，后者保留访问原 YAML 编辑器的能力（目前 Volcano 页面用不到，因为 form drawer 自带 YAML 视图）
+- **错误兜底**：CR 不存在时 backend 返回 `RESOURCE_NOT_AVAILABLE`，CRPage 用 Volcano 专属文案 `pages.compute.volcano.notInstalled.*` 提示「集群尚未安装 Volcano，前往插件管理」
+- **NamespacePicker**：顶部命名空间选择器识别 `/compute/:id/{jobs,cronjobs,podgroups}` namespaced 路径，cluster-scoped 的 queues / hypernodes / scheduler 自动隐藏（见 `components/NamespacePicker/index.tsx::COMPUTE_NAMESPACED_KINDS`）
 
-## 历史 / 迁移
+### 3.2 表单 drawer（Queue / Job / CronJob）
 
-- 老版本（pre-Volcano-pivot）：使用独立 HAMi 部署，解析 `hami.io/*` annotation。该路径已弃用
-- 当前过渡期：HAMi 内置插件已删除，`gpu.go` 解析器仍读 hami.io，Phase 2 重写
-- 集群里现有的 HAMi Helm release 不会被 KPilot 主动卸载——用户手动 `helm uninstall hami` 后部署 volcano-vgpu-device-plugin 即可
+每个表单都遵循相同的双视图模式（跟 scheduler 编辑器一致）：
+
+- **创建 vs 编辑**：同一个 drawer，靠 `editing?: { name, namespace? }` prop 区分。编辑模式下：fetch 现有资源、回填表单、name + namespace 输入框 disabled（K8s 不允许改名）
+- **表单 ↔ YAML 双视图**：Tabs 切换。两个视图共享同一份 draft：
+  - 表单 → YAML：`buildXxxManifest(fvToInput(formValues))` → `yaml.dump`
+  - YAML → 表单：`yaml.load` → `formValuesFromManifest`（每个表单各自实现一份提取器）
+  - 切换失败（YAML 解析错）显示 inline Alert，保留草稿
+- **提交**：依据当前激活 view —— 表单走 validateFields + buildManifest，YAML 走原始 yaml.load。两条路最后都走 `/apply` SSA
+- **特定字段处理**：
+  - **Queue**：`weight` / `reclaimable` / `parent` / `capability`（cpu / memory / `volcano.sh/vgpu-{number,memory,cores}`）。capability 字段对应 `volcano-vgpu-device-plugin` 资源标签
+  - **Job**：基础信息（name / namespace / queue / priorityClassName）+ `minAvailable`（gang）+ plugins 多选（env/svc/ssh/mpi/pytorch/tensorflow，args 默认空）+ tasks 列表（每个 task：image / command / args / replicas / restartPolicy / 资源请求 cpu+memory+vgpu-*）
+  - **CronJob**：Job 全部字段 + cron schedule + concurrencyPolicy + history limits + suspend
+- **未在表单暴露的字段**（如 tolerations / affinity / 多容器 task / plugin 自定义 args）：用户切到 YAML 视图自己写。表单的 round-trip preserve 这些字段（`extractTasks` 等只读取已知字段，YAML 解析时整体保留）
+
+### 3.3 生命周期操作（lifecycle）
+
+Volcano 提供两套机制：
+
+- **`bus.volcano.sh/v1alpha1 Command` CR**：drop 一条 Command 指 target，Volcano 控制器消费并删除。用于：
+  - Queue: `OpenQueue` / `CloseQueue`
+  - Job: `ResumeJob` / `AbortJob` / `RestartJob` / `CompleteJob` / `TerminateJob`
+- **直接 SSA patch**：CronJob 的暂停 / 恢复改 `spec.suspend` 即可，不需要 Command 机制
+
+服务函数 `services/kpilot/volcano.ts::sendCommand` 和 `applyManifest` 都走 `/api/v1/clusters/:id/apply` 端点（同款 SSA 路径）。
+
+### 3.4 schedulerName
+
+所有 Volcano Job 创建时的 task podSpec 自动注入 `schedulerName: 'volcano'`（见 `services/kpilot/volcano.ts::buildJobManifest`）。手写 YAML 的用户也得记得加，否则会被 default-scheduler 接管，绕过 Volcano 调度策略。
+
+## 4. 路由 + 菜单结构
+
+```
+算力调度 (/compute)
+├── 调度策略 (/compute/:id/scheduler)              ← 默认首屏
+└── 调度资源 (group)
+    ├── Queue       (/compute/:id/queues)
+    ├── Job         (/compute/:id/jobs)
+    ├── CronJob     (/compute/:id/cronjobs)
+    ├── PodGroup    (/compute/:id/podgroups)
+    └── HyperNode   (/compute/:id/hypernodes)
+```
+
+`/compute/:id` redirect 到 `/scheduler`。`/compute/:id/overview`（旧 GPU 仪表盘路径）也 redirect 到 `/scheduler`，避免老书签 404。
+
+## 5. 历史 / 迁移
+
+- **pre-Volcano-pivot**：使用独立 HAMi 部署 + `pkg/worker/proxy/gpu.go` 解析 `hami.io/*` annotation + 单页 GPU 仪表盘（`pages/Compute/Overview/`）。该路径已**全量删除**：parser、handler、informer 缓存、useGPUData hook、DepGate、CardBody、format.ts、locale 字符串都清理干净
+- **当前**：算力调度 = Volcano 批量调度。GPU 视图缺失（`vgpu-device-plugin` 内置 + 仪表盘是后续 P2）
+- **集群里既存的 HAMi Helm release**：KPilot 不会主动卸载，但 KPilot 内置插件注册表已没有 HAMi 行，新集群也不会再装 HAMi。用户想切换到 Volcano vGPU：手动 `helm uninstall hami`，然后 `kubectl apply -f volcano-vgpu-device-plugin.yml`（上游 YAML，没有 Helm chart）
+
+## 6. 后续路线
+
+| 阶段 | 内容 |
+|---|---|
+| P2 | volcano-vgpu-device-plugin 包成 wrapper Helm chart（go:embed）作为内置 + 重新激活 vGPU dashboard 子页 |
+| P3 | DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard 嵌入 |
+| P4 | Volcano queue 配额可视化 + 设备健康告警 + GPU-Hour 计费报表 |

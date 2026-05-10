@@ -15,7 +15,7 @@ import {
   Tabs,
 } from 'antd';
 import yaml from 'js-yaml';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import {
@@ -96,6 +96,13 @@ export function CronJobFormDrawer({
     label: n,
     value: n,
   }));
+  // Same preservation strategy as JobForm — see comment there.
+  // CronJob nests the Job spec at .spec.jobTemplate.spec, so plugins
+  // and task.policies live one level deeper.
+  const editOriginalRef = useRef<{
+    plugins?: Record<string, unknown>;
+    taskPolicies?: Record<string, unknown>;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -104,6 +111,7 @@ export function CronJobFormDrawer({
     setView('form');
     setYamlText('');
     setYamlError(null);
+    editOriginalRef.current = null;
     if (!editing) {
       form.setFieldsValue({
         namespace: ns.get(clusterId).selected || 'default',
@@ -134,6 +142,19 @@ export function CronJobFormDrawer({
         form.setFieldsValue(
           formValuesFromManifest(obj, editing.name, editing.namespace),
         );
+        const jSpec = obj?.spec?.jobTemplate?.spec ?? {};
+        const taskPolicies: Record<string, unknown> = {};
+        for (const t of (jSpec.tasks ?? []) as any[]) {
+          if (t?.name && t.policies) taskPolicies[t.name] = t.policies;
+        }
+        editOriginalRef.current = {
+          plugins:
+            jSpec.plugins && typeof jSpec.plugins === 'object'
+              ? jSpec.plugins
+              : undefined,
+          taskPolicies:
+            Object.keys(taskPolicies).length > 0 ? taskPolicies : undefined,
+        };
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -143,12 +164,36 @@ export function CronJobFormDrawer({
     };
   }, [open, editing, form, ns, clusterId]);
 
+  // applyPreserved re-emits plugin args + task.policies that the form
+  // can't reconstruct. CronJob's job spec lives at
+  // .spec.jobTemplate.spec, so we patch one level deeper than JobForm.
+  const applyPreserved = (manifest: any) => {
+    const orig = editOriginalRef.current;
+    if (!orig) return manifest;
+    const jSpec = manifest?.spec?.jobTemplate?.spec;
+    if (!jSpec) return manifest;
+    if (orig.plugins && jSpec.plugins) {
+      const merged: Record<string, unknown> = {};
+      for (const name of Object.keys(jSpec.plugins)) {
+        merged[name] = orig.plugins[name] ?? jSpec.plugins[name];
+      }
+      jSpec.plugins = merged;
+    }
+    if (orig.taskPolicies && Array.isArray(jSpec.tasks)) {
+      jSpec.tasks = jSpec.tasks.map((t: any) => {
+        const policies = orig.taskPolicies?.[t.name];
+        return policies !== undefined ? { ...t, policies } : t;
+      });
+    }
+    return manifest;
+  };
+
   const handleSwitchView = (next: string) => {
     if (next === view) return;
     if (next === 'yaml') {
       const fv = form.getFieldsValue();
       try {
-        const manifest = buildCronJobManifest(fvToInput(fv));
+        const manifest = applyPreserved(buildCronJobManifest(fvToInput(fv)));
         setYamlText(yaml.dump(manifest));
         setYamlError(null);
         setView('yaml');
@@ -200,7 +245,7 @@ export function CronJobFormDrawer({
     } catch {
       return;
     }
-    await applyAndFinish(buildCronJobManifest(fvToInput(v)));
+    await applyAndFinish(applyPreserved(buildCronJobManifest(fvToInput(v))));
   };
 
   // applyAndFinish ships an already-built manifest. Used by both the
@@ -607,40 +652,47 @@ function splitWS(s: string | undefined): string[] | undefined {
 
 // fvToInput translates flat form values to the CronJobInput shape that
 // buildCronJobManifest expects. Mirror of JobForm's fvToInput, plus
-// the cron-specific schedule + history-limit + suspend fields.
+// the cron-specific schedule + history-limit + suspend fields. Trims
+// every user-typed string for the same reason JobForm does.
 function fvToInput(v: FormValues): CronJobInput {
+  const tr = (s?: string) => s?.trim() || undefined;
   return {
-    name: v.name ?? '',
-    namespace: v.namespace ?? 'default',
-    schedule: v.schedule ?? '0 * * * *',
+    name: tr(v.name) ?? '',
+    namespace: tr(v.namespace) ?? 'default',
+    schedule: tr(v.schedule) ?? '0 * * * *',
     concurrencyPolicy: v.concurrencyPolicy ?? 'Allow',
     successfulJobsHistoryLimit: v.successfulJobsHistoryLimit,
     failedJobsHistoryLimit: v.failedJobsHistoryLimit,
     suspend: v.suspend,
     jobTemplate: {
-      queue: v.queue,
+      queue: tr(v.queue),
       minAvailable: v.minAvailable,
       plugins: v.plugins,
       tasks: (v.tasks ?? []).map((t) => {
+        const cpu = tr(t.cpu);
+        const memory = tr(t.memory);
+        const vNum = tr(t.vgpuNumber);
+        const vMem = tr(t.vgpuMemory);
+        const vCore = tr(t.vgpuCores);
         const requests: Record<string, string> = {};
         const limits: Record<string, string> = {};
-        if (t.cpu) {
-          requests['cpu'] = t.cpu;
-          limits['cpu'] = t.cpu;
+        if (cpu) {
+          requests['cpu'] = cpu;
+          limits['cpu'] = cpu;
         }
-        if (t.memory) {
-          requests['memory'] = t.memory;
-          limits['memory'] = t.memory;
+        if (memory) {
+          requests['memory'] = memory;
+          limits['memory'] = memory;
         }
-        if (t.vgpuNumber) limits['volcano.sh/vgpu-number'] = t.vgpuNumber;
-        if (t.vgpuMemory) limits['volcano.sh/vgpu-memory'] = t.vgpuMemory;
-        if (t.vgpuCores) limits['volcano.sh/vgpu-cores'] = t.vgpuCores;
+        if (vNum) limits['volcano.sh/vgpu-number'] = vNum;
+        if (vMem) limits['volcano.sh/vgpu-memory'] = vMem;
+        if (vCore) limits['volcano.sh/vgpu-cores'] = vCore;
         const hasResources =
           Object.keys(requests).length > 0 || Object.keys(limits).length > 0;
         return {
-          name: t.name,
+          name: tr(t.name) ?? 'task',
           replicas: t.replicas,
-          image: t.image,
+          image: tr(t.image) ?? '',
           command: splitWS(t.command),
           args: splitWS(t.args),
           restartPolicy: t.restartPolicy,

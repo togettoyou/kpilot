@@ -144,10 +144,16 @@ func GetClusterPlugin(clusterID string, pluginID uint) (*ClusterPlugin, error) {
 	return &cp, nil
 }
 
+// ListClusterPlugins returns the per-cluster install state rows. The
+// HTTP handler (`ListClusterPlugins` in handler/plugin.go) joins
+// these against `ListPluginsBrief` client-side, so we don't preload
+// the Plugin relation here — preloading would ship the 64KiB
+// `default_values` blob per row over the DB connection on every UI
+// poll for nothing. The gateway's replay path looks up the Plugin
+// it actually needs by id via `GetPluginByID`.
 func ListClusterPlugins(clusterID string) ([]ClusterPlugin, error) {
 	var rows []ClusterPlugin
 	err := DB.Where("cluster_id = ?", clusterID).
-		Preload("Plugin").
 		Order("updated_at desc").Find(&rows).Error
 	return rows, err
 }

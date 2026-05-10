@@ -15,7 +15,7 @@ import {
   Tabs,
 } from 'antd';
 import yaml from 'js-yaml';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import {
@@ -97,6 +97,14 @@ export function JobFormDrawer({
     label: n,
     value: n,
   }));
+  // editOriginalRef preserves the bits of an edited Job's spec that
+  // the form doesn't surface — plugin args and per-task policies —
+  // so submit can re-emit them instead of silently dropping them.
+  // Cleared on every drawer (re)open and on create-mode entry.
+  const editOriginalRef = useRef<{
+    plugins?: Record<string, unknown>;
+    taskPolicies?: Record<string, unknown>;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -105,6 +113,7 @@ export function JobFormDrawer({
     setView('form');
     setYamlText('');
     setYamlError(null);
+    editOriginalRef.current = null;
     if (!editing) {
       form.setFieldsValue({
         namespace: ns.get(clusterId).selected || 'default',
@@ -126,6 +135,23 @@ export function JobFormDrawer({
         form.setFieldsValue(
           formValuesFromManifest(obj, editing.name, editing.namespace),
         );
+        // Stash the spec bits the form doesn't surface so submit can
+        // re-emit them: plugin args (`spec.plugins[name] = [...]`) and
+        // each task's `policies` array. Without this, edit-save silently
+        // drops e.g. ssh plugin args or RestartTask-on-PodFailed policies.
+        const spec = obj?.spec ?? {};
+        const taskPolicies: Record<string, unknown> = {};
+        for (const t of (spec.tasks ?? []) as any[]) {
+          if (t?.name && t.policies) taskPolicies[t.name] = t.policies;
+        }
+        editOriginalRef.current = {
+          plugins:
+            spec.plugins && typeof spec.plugins === 'object'
+              ? spec.plugins
+              : undefined,
+          taskPolicies:
+            Object.keys(taskPolicies).length > 0 ? taskPolicies : undefined,
+        };
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -135,12 +161,35 @@ export function JobFormDrawer({
     };
   }, [open, editing, form, ns, clusterId]);
 
+  // applyPreserved patches a freshly-built manifest with fields the
+  // form path can't reconstruct (plugin args + task.policies). Called
+  // only in edit mode + form-view submit; YAML-view submit takes the
+  // user's typed text as-is.
+  const applyPreserved = (manifest: any) => {
+    const orig = editOriginalRef.current;
+    if (!orig) return manifest;
+    if (orig.plugins && manifest?.spec?.plugins) {
+      const merged: Record<string, unknown> = {};
+      for (const name of Object.keys(manifest.spec.plugins)) {
+        merged[name] = orig.plugins[name] ?? manifest.spec.plugins[name];
+      }
+      manifest.spec.plugins = merged;
+    }
+    if (orig.taskPolicies && Array.isArray(manifest?.spec?.tasks)) {
+      manifest.spec.tasks = manifest.spec.tasks.map((t: any) => {
+        const policies = orig.taskPolicies?.[t.name];
+        return policies !== undefined ? { ...t, policies } : t;
+      });
+    }
+    return manifest;
+  };
+
   const handleSwitchView = (next: string) => {
     if (next === view) return;
     if (next === 'yaml') {
       const fv = form.getFieldsValue();
       try {
-        const manifest = buildJobManifest(fvToInput(fv));
+        const manifest = applyPreserved(buildJobManifest(fvToInput(fv)));
         setYamlText(yaml.dump(manifest));
         setYamlError(null);
         setView('yaml');
@@ -181,7 +230,7 @@ export function JobFormDrawer({
       } catch {
         return;
       }
-      manifest = buildJobManifest(fvToInput(v));
+      manifest = applyPreserved(buildJobManifest(fvToInput(v)));
     } else {
       try {
         manifest = yaml.load(yamlText);
@@ -567,35 +616,43 @@ function splitWS(s: string | undefined): string[] | undefined {
 }
 
 // fvToInput — translates the form's flat shape into the JobInput
-// contract that buildJobManifest expects.
+// contract that buildJobManifest expects. Trims every user-typed
+// string so trailing whitespace doesn't trip K8s resource-quantity
+// parsing or image lookups.
 function fvToInput(v: FormValues): JobInput {
+  const tr = (s?: string) => s?.trim() || undefined;
   return {
-    name: v.name ?? '',
-    namespace: v.namespace ?? 'default',
-    queue: v.queue,
-    priorityClassName: v.priorityClassName,
+    name: tr(v.name) ?? '',
+    namespace: tr(v.namespace) ?? 'default',
+    queue: tr(v.queue),
+    priorityClassName: tr(v.priorityClassName),
     minAvailable: v.minAvailable,
     plugins: v.plugins,
     tasks: (v.tasks ?? []).map((t) => {
+      const cpu = tr(t.cpu);
+      const memory = tr(t.memory);
+      const vNum = tr(t.vgpuNumber);
+      const vMem = tr(t.vgpuMemory);
+      const vCore = tr(t.vgpuCores);
       const requests: Record<string, string> = {};
       const limits: Record<string, string> = {};
-      if (t.cpu) {
-        requests['cpu'] = t.cpu;
-        limits['cpu'] = t.cpu;
+      if (cpu) {
+        requests['cpu'] = cpu;
+        limits['cpu'] = cpu;
       }
-      if (t.memory) {
-        requests['memory'] = t.memory;
-        limits['memory'] = t.memory;
+      if (memory) {
+        requests['memory'] = memory;
+        limits['memory'] = memory;
       }
-      if (t.vgpuNumber) limits['volcano.sh/vgpu-number'] = t.vgpuNumber;
-      if (t.vgpuMemory) limits['volcano.sh/vgpu-memory'] = t.vgpuMemory;
-      if (t.vgpuCores) limits['volcano.sh/vgpu-cores'] = t.vgpuCores;
+      if (vNum) limits['volcano.sh/vgpu-number'] = vNum;
+      if (vMem) limits['volcano.sh/vgpu-memory'] = vMem;
+      if (vCore) limits['volcano.sh/vgpu-cores'] = vCore;
       const hasResources =
         Object.keys(requests).length > 0 || Object.keys(limits).length > 0;
       return {
-        name: t.name,
+        name: tr(t.name) ?? 'task',
         replicas: t.replicas,
-        image: t.image,
+        image: tr(t.image) ?? '',
         command: splitWS(t.command),
         args: splitWS(t.args),
         restartPolicy: t.restartPolicy,
