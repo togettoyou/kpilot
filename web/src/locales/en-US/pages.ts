@@ -405,7 +405,17 @@ export default {
   'pages.workloads.cancel': 'Cancel',
   'pages.workloads.logs': 'Logs',
   'pages.workloads.exec': 'Exec',
-  'pages.workloads.describe': 'Describe',
+  'pages.workloads.top': 'Top',
+  'pages.workloads.refresh': 'Refresh',
+  'pages.workloads.top.title': 'Pod Resource Usage',
+  'pages.workloads.top.col.container': 'Container',
+  'pages.workloads.top.col.cpu': 'CPU',
+  'pages.workloads.top.col.memory': 'Memory',
+  'pages.workloads.top.meta': 'Sampled at {ts} · window {window}',
+  'pages.workloads.top.unavailable.title': 'Metrics not available',
+  'pages.workloads.top.unavailable.subtitle':
+    'Make sure the Metrics Server plugin is enabled.',
+  'pages.workloads.top.unavailable.action': 'Go to plugins',
   'pages.workloads.crd.viewInstances': 'View Instances',
   'pages.workloads.crd.invalidSpec':
     'CRD spec missing group/version/kind — cannot list instances',

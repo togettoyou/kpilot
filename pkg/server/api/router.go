@@ -84,6 +84,12 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// above runs first and rejects unauthenticated upgrades.
 		clusters.GET("/:id/pods/:namespace/:name/logs", handler.PodLogs(gw))
 		clusters.GET("/:id/pods/:namespace/:name/exec", handler.PodExec(gw))
+		// Realtime CPU/memory snapshot from the Metrics API (metrics.k8s.io).
+		// Sits under /pods/ — same prefix as logs/exec — to avoid sharing a
+		// path level with the generic /workloads/:type tree (a static "pods"
+		// segment there would shadow :type and break PUT/DELETE/GET-yaml on
+		// pods).
+		clusters.GET("/:id/pods/:namespace/:name/top", handler.TopPod(gw))
 
 		// Per-cluster plugin state (read-only registry view + enable/disable)
 		clusters.GET("/:id/plugins", handler.ListClusterPlugins)

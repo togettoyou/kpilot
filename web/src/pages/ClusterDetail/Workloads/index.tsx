@@ -50,6 +50,7 @@ import { ApplyYamlDrawer } from './ApplyYamlDrawer';
 import { DescribeDrawer } from './DescribeDrawer';
 import { PodExecDrawer } from './PodExecDrawer';
 import { PodLogsDrawer } from './PodLogsDrawer';
+import { PodTopDrawer } from './PodTopDrawer';
 import { YamlEditor } from './YamlEditor';
 
 const { Text } = Typography;
@@ -364,9 +365,10 @@ function WorkloadsContent({
   const [applying, setApplying] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
 
-  // Pod logs / exec drawer state — only relevant when resourceType === 'pods'
+  // Pod logs / exec / top drawer state — only relevant when resourceType === 'pods'
   const [logsTarget, setLogsTarget] = useState<WorkloadItem | null>(null);
   const [execTarget, setExecTarget] = useState<WorkloadItem | null>(null);
+  const [topTarget, setTopTarget] = useState<WorkloadItem | null>(null);
 
   // Describe drawer — available for every workload type.
   const [describeTarget, setDescribeTarget] = useState<WorkloadItem | null>(
@@ -581,9 +583,9 @@ function WorkloadsContent({
     const actionsColumn: ProColumns<WorkloadItem> = {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       valueType: 'option',
-      // Pods: extra logs+exec buttons; CRDs: extra "view instances"
+      // Pods: extra top+logs+exec buttons; CRDs: extra "view instances"
       // button. Both bump the action column width.
-      width: isPods ? 300 : isCRDPage ? 250 : 180,
+      width: isPods ? 280 : isCRDPage ? 220 : 150,
       fixed: 'right',
       render: (_, record) => {
         // Mirror the backend's protected lists:
@@ -624,6 +626,14 @@ function WorkloadsContent({
         );
         const podActions = isPods
           ? [
+              <Button
+                key="top"
+                type="link"
+                size="small"
+                onClick={() => setTopTarget(record)}
+              >
+                {intl.formatMessage({ id: 'pages.workloads.top' })}
+              </Button>,
               <Button
                 key="logs"
                 type="link"
@@ -936,6 +946,15 @@ function WorkloadsContent({
           clusterId={clusterId}
           namespace={execTarget.namespace ?? ''}
           podName={execTarget.name}
+        />
+      )}
+      {topTarget && (
+        <PodTopDrawer
+          open={!!topTarget}
+          onClose={() => setTopTarget(null)}
+          clusterId={clusterId}
+          namespace={topTarget.namespace ?? ''}
+          podName={topTarget.name}
         />
       )}
       {describeTarget && (
