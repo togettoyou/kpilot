@@ -405,6 +405,51 @@ vector:
 `,
 		DefaultReleaseNamespace: "kpilot-logging",
 	},
+	{
+		Name:        "volcano",
+		DisplayName: "Volcano",
+		Description: "Batch scheduler for Kubernetes — gang scheduling, queue-based fair share (DRF), priority & preemption. Foundation for AI/ML training and HPC workloads where a job's pods must all start together or none at all.",
+		Category:    PluginCategoryScheduling,
+		IsBuiltin:   true,
+		SortOrder:   10,
+		// Volcano publishes through a Helm repo (helm-charts.volcano.sh).
+		// Chart version 1.14.2 ships app v1.14.2 — keep them in lockstep
+		// since Volcano releases the chart and binary together.
+		ChartType:      ChartTypeRepo,
+		ChartRepo:      "https://volcano-sh.github.io/helm-charts",
+		ChartName:      "volcano",
+		DefaultVersion: "1.14.2",
+		// The chart's upstream `image_tag_version` is "latest" which would
+		// pull a moving target on first install — pin to v1.14.2 so the
+		// app version matches the chart pin above. image_registry +
+		// per-component image names are spelled out so private-mirror
+		// users have a ready hook (same shape as HAMi). image_pull_policy
+		// flipped from chart default Always → IfNotPresent: with a pinned
+		// tag, Always just costs an extra registry round-trip on every
+		// pod start. metrics_enable=true exposes a Prometheus endpoint
+		// which VictoriaMetrics can scrape; controller / scheduler
+		// metrics are also already on by default.
+		DefaultValues: `basic:
+  image_registry: docker.io
+  controller_image_name: volcanosh/vc-controller-manager
+  scheduler_image_name: volcanosh/vc-scheduler
+  admission_image_name: volcanosh/vc-webhook-manager
+  image_pull_policy: IfNotPresent
+  image_tag_version: "v1.14.2"
+custom:
+  scheduler_replicas: 1
+  controller_replicas: 1
+  admission_replicas: 1
+  metrics_enable: true
+`,
+		// kpilot-scheduling joins the kpilot-* namespace family so the
+		// Workload page treats Volcano's pods as read-only — users can
+		// browse them but can't accidentally `kubectl delete deployment`
+		// the scheduler. Volcano's chart is fully namespace-portable
+		// (every template references .Release.Namespace), so the choice
+		// is ours; we don't need to use upstream's "volcano-system".
+		DefaultReleaseNamespace: "kpilot-scheduling",
+	},
 }
 
 // SeedBuiltinPlugins upserts the builtin entries on startup. Built-ins are
