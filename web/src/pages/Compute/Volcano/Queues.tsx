@@ -1,12 +1,20 @@
 import { PlusOutlined } from '@ant-design/icons';
-import { useIntl, useParams } from '@umijs/max';
+import { useIntl, useParams, useRequest } from '@umijs/max';
 import { App, Button, Popconfirm } from 'antd';
 import React, { useState } from 'react';
 
 import type { WorkloadItem } from '@/services/kpilot/workload';
+import { getWorkload } from '@/services/kpilot/workload';
 import { sendCommand } from '@/services/kpilot/volcano';
 import { VolcanoCRPage } from './CRPage';
 import { QueueFormDrawer } from './QueueForm';
+
+const QUEUE_CR = {
+  group: 'scheduling.volcano.sh',
+  version: 'v1beta1',
+  kind: 'Queue',
+  scope: 'Cluster' as const,
+};
 
 // Volcano Queue (`scheduling.volcano.sh/v1beta1`) — cluster-scoped.
 // Wraps the generic CR browser (CRPage) with two Volcano-specific
@@ -107,8 +115,11 @@ function QueueEditButton({
 }
 
 // QueueStateAction renders the row's flip-state Popconfirm (Open ↔
-// Closed). State comes from the K8s Table API STATE column — we
-// scan the row's `cells` for the literal "Open" / "Closed" tokens.
+// Closed). The K8s Table API for Queue *does not* declare a State
+// printer column (Volcano's CRD only exposes PARENT + AGE), so we
+// fetch the Queue's full object once per row and read .status.state
+// directly. After a successful close/open command the local fetch
+// re-runs a few times — Volcano takes a beat to flip the status.
 function QueueStateAction({
   record,
   refresh,
@@ -119,21 +130,27 @@ function QueueStateAction({
   const intl = useIntl();
   const { message } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
+
+  const stateReq = useRequest(
+    () => getWorkload(clusterId!, '_cr', record.name, '', QUEUE_CR),
+    {
+      formatResult: (res) => res,
+      ready: !!clusterId,
+      refreshDeps: [clusterId, record.name],
+    },
+  );
+  const state: 'Open' | 'Closed' | 'Unknown' = (() => {
+    const s = (stateReq.data as { status?: { state?: string } } | undefined)
+      ?.status?.state;
+    if (s === 'Open') return 'Open';
+    if (s === 'Closed') return 'Closed';
+    return 'Unknown';
+  })();
+
   if (!clusterId) return null;
 
-  const cells = (record.cells as unknown[] | undefined) ?? [];
-  let state: 'Open' | 'Closed' | 'Unknown' = 'Unknown';
-  for (const c of cells) {
-    if (c === 'Open') {
-      state = 'Open';
-      break;
-    }
-    if (c === 'Closed') {
-      state = 'Closed';
-      break;
-    }
-  }
-
+  // 'Unknown' falls through to the close action — Volcano queues
+  // default to Open on creation, so unknown ≈ assume open.
   const flipping = state === 'Closed' ? 'OpenQueue' : 'CloseQueue';
   const labelId =
     state === 'Closed'
@@ -165,6 +182,11 @@ function QueueStateAction({
         }),
       );
       refresh();
+      // Volcano controller takes ~1-2s to apply the state flip.
+      // Re-poll our local status fetch a few times so the button
+      // label flips without the user needing to click 刷新 manually.
+      const retries = [800, 2000, 4500];
+      retries.forEach((delay) => setTimeout(() => stateReq.refresh(), delay));
     } catch (e: any) {
       // sendCommand can throw a local Error (e.g. uid resolution) the
       // request-error config doesn't see — surface the message
@@ -180,7 +202,7 @@ function QueueStateAction({
       title={intl.formatMessage({ id: confirmId }, { name: record.name })}
       onConfirm={onConfirm}
     >
-      <Button type="link" size="small">
+      <Button type="link" size="small" loading={stateReq.loading && !stateReq.data}>
         {intl.formatMessage({ id: labelId })}
       </Button>
     </Popconfirm>

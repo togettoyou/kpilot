@@ -1,12 +1,20 @@
 import { PlusOutlined } from '@ant-design/icons';
-import { useIntl, useParams } from '@umijs/max';
+import { useIntl, useParams, useRequest } from '@umijs/max';
 import { App, Button, Popconfirm } from 'antd';
 import React, { useState } from 'react';
 
 import type { WorkloadItem } from '@/services/kpilot/workload';
+import { getWorkload } from '@/services/kpilot/workload';
 import { applyManifest } from '@/services/kpilot/volcano';
 import { VolcanoCRPage } from './CRPage';
 import { CronJobFormDrawer } from './CronJobForm';
+
+const CRONJOB_CR = {
+  group: 'batch.volcano.sh',
+  version: 'v1alpha1',
+  kind: 'CronJob',
+  scope: 'Namespaced' as const,
+};
 
 // Volcano CronJob (`batch.volcano.sh/v1alpha1`) — schedules a Volcano
 // Job on a cron expression. Has the same structure as Job below the
@@ -86,11 +94,10 @@ function CronJobEditButton({
   );
 }
 
-// CronJobSuspendAction patches spec.suspend. We read the current value
-// out of the K8s Table API row's cells (Volcano's CronJob CRD declares
-// SUSPEND as an additionalPrinterColumn — string "true"/"false").
-// Falls through with a guess if the column ever shifts; user can
-// always retry.
+// CronJobSuspendAction patches spec.suspend. Volcano's CronJob CRD
+// doesn't declare additionalPrinterColumns, so the K8s Table response
+// has no SUSPEND column to scan — we fetch the full CronJob object
+// per row and read .spec.suspend directly.
 function CronJobSuspendAction({
   record,
   refresh,
@@ -101,17 +108,27 @@ function CronJobSuspendAction({
   const intl = useIntl();
   const { message } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
-  if (!clusterId) return null;
 
-  const cells = (record.cells as unknown[] | undefined) ?? [];
-  // Heuristic: look for the literal "true"/"false" as a row cell.
-  let suspended = false;
-  for (const c of cells) {
-    if (c === 'true' || c === true) {
-      suspended = true;
-      break;
-    }
-  }
+  const stateReq = useRequest(
+    () =>
+      getWorkload(
+        clusterId!,
+        '_cr',
+        record.name,
+        record.namespace,
+        CRONJOB_CR,
+      ),
+    {
+      formatResult: (res) => res,
+      ready: !!clusterId,
+      refreshDeps: [clusterId, record.name, record.namespace],
+    },
+  );
+  const suspended =
+    (stateReq.data as { spec?: { suspend?: boolean } } | undefined)?.spec
+      ?.suspend === true;
+
+  if (!clusterId) return null;
 
   const next = !suspended;
   const labelId = suspended
@@ -144,8 +161,13 @@ function CronJobSuspendAction({
         }),
       );
       refresh();
-    } catch {
-      // global toast
+      // Re-poll the local spec.suspend so the button label flips
+      // even if the user has the table polling off. SSA-patches are
+      // applied immediately, so a single short retry is enough.
+      setTimeout(() => stateReq.refresh(), 600);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message ?? e?.message;
+      if (msg) message.error(String(msg));
     }
   };
 
@@ -154,7 +176,11 @@ function CronJobSuspendAction({
       title={intl.formatMessage({ id: confirmId }, { name: record.name })}
       onConfirm={onConfirm}
     >
-      <Button type="link" size="small">
+      <Button
+        type="link"
+        size="small"
+        loading={stateReq.loading && !stateReq.data}
+      >
         {intl.formatMessage({ id: labelId })}
       </Button>
     </Popconfirm>
