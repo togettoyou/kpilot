@@ -16,6 +16,12 @@ import { WorkloadsContent } from '@/pages/ClusterDetail/Workloads';
 // `showCRBackArrow={false}` hides the small "back to CRD list" arrow
 // that the workloads-page version of this view shows by default; from
 // the Compute platform there's no CRD list above to go back to.
+//
+// `notAvailableHint` swaps the empty-state Result that appears when
+// the cluster doesn't have the CRD installed. The generic copy says
+// "this CRD or feature gate isn't available" — for Volcano the right
+// answer is always "install the Volcano plugin", so we point users
+// directly at /clusters/:id/plugins instead.
 export function VolcanoCRPage({ cr }: { cr: CRRef }) {
   const { id: clusterId } = useParams<{ id: string }>();
   if (!clusterId) return null;
@@ -26,6 +32,11 @@ export function VolcanoCRPage({ cr }: { cr: CRRef }) {
       resourceType="_cr"
       cr={cr}
       showCRBackArrow={false}
+      notAvailableHint={{
+        titleId: 'pages.compute.volcano.notInstalled.title',
+        subTitleId: 'pages.compute.volcano.notInstalled.subTitle',
+        actionLabelId: 'pages.compute.volcano.notInstalled.action',
+      }}
     />
   );
 }

@@ -317,6 +317,17 @@ interface WorkloadsContentProps {
   // (Volcano Queue/Job/PodGroup wrappers under /compute/:id/...) where
   // there's no CRDs list above and the arrow would be confusing.
   showCRBackArrow?: boolean;
+  // notAvailableHint customises the empty-state Result shown when the
+  // cluster doesn't have the CRD installed (Server returns 404 +
+  // RESOURCE_NOT_AVAILABLE). Wrappers that know exactly which plugin
+  // backs the CRD pass tailored copy + a CTA button that takes the
+  // user to /clusters/:id/plugins so they can install it. Defaults to
+  // the generic copy in errors.RESOURCE_NOT_AVAILABLE i18n bundle.
+  notAvailableHint?: {
+    titleId: string;
+    subTitleId: string;
+    actionLabelId: string;
+  };
 }
 
 // ─── Inner component — remounts on resourceType change via key prop ────────
@@ -328,6 +339,7 @@ export function WorkloadsContent({
   resourceType,
   cr,
   showCRBackArrow = true,
+  notAvailableHint,
 }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -733,19 +745,29 @@ export function WorkloadsContent({
   }, [colDefs, intl, isClusterScoped, isPods, openEditor, handleDelete]);
 
   if (notAvailable) {
+    const titleId = notAvailableHint?.titleId ?? 'errors.RESOURCE_NOT_AVAILABLE';
+    const subTitleId =
+      notAvailableHint?.subTitleId ?? 'errors.RESOURCE_NOT_AVAILABLE.subtitle';
     return (
       <div className="p-6">
         <Result
           status="info"
-          title={intl.formatMessage({ id: 'errors.RESOURCE_NOT_AVAILABLE' })}
-          subTitle={intl.formatMessage({
-            id: 'errors.RESOURCE_NOT_AVAILABLE.subtitle',
-          })}
-          extra={
-            <Button onClick={refresh}>
+          title={intl.formatMessage({ id: titleId })}
+          subTitle={intl.formatMessage({ id: subTitleId })}
+          extra={[
+            notAvailableHint && (
+              <Button
+                key="install"
+                type="primary"
+                onClick={() => history.push(`/clusters/${clusterId}/plugins`)}
+              >
+                {intl.formatMessage({ id: notAvailableHint.actionLabelId })}
+              </Button>
+            ),
+            <Button key="retry" onClick={refresh}>
               {intl.formatMessage({ id: 'pages.workloads.refresh.retry' })}
-            </Button>
-          }
+            </Button>,
+          ]}
         />
       </div>
     );

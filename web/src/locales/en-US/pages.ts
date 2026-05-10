@@ -49,6 +49,10 @@ export default {
   'pages.compute.landing.empty.hint':
     'Add and connect a cluster in Cluster Management first, then come back here',
   'pages.compute.landing.empty.action': 'Go to Cluster Management',
+  'pages.compute.volcano.notInstalled.title': 'Volcano is not installed on this cluster',
+  'pages.compute.volcano.notInstalled.subTitle':
+    'Queue / Job / PodGroup are provided by the Volcano scheduler. Enable the Volcano plugin on this cluster, then come back.',
+  'pages.compute.volcano.notInstalled.action': 'Go to plugins and enable Volcano',
   'pages.models.landing.title': 'Model Hub',
   'pages.models.landing.subtitle':
     'Registry, deployment, chat playground, and routing — coming soon',

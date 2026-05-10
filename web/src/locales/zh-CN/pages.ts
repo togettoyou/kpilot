@@ -49,6 +49,10 @@ export default {
   'pages.compute.landing.empty.title': '暂无集群',
   'pages.compute.landing.empty.hint': '先在「集群管理」中添加并连接一个集群，再回到这里进入算力调度',
   'pages.compute.landing.empty.action': '前往集群管理',
+  'pages.compute.volcano.notInstalled.title': '集群尚未安装 Volcano',
+  'pages.compute.volcano.notInstalled.subTitle':
+    'Queue / Job / PodGroup 等资源由 Volcano 调度器提供，请先在该集群启用 Volcano 插件后再访问。',
+  'pages.compute.volcano.notInstalled.action': '前往插件管理启用 Volcano',
   'pages.models.landing.title': '模型中心',
   'pages.models.landing.subtitle': '从模型仓库到部署、调试、路由的端到端面板（建设中）',
   'pages.models.landing.comingSoon': '建设中',
