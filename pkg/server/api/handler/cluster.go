@@ -3,12 +3,14 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"time"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 	"github.com/togettoyou/kpilot/pkg/server/store"
@@ -102,6 +104,17 @@ func ListClusters(c *gin.Context) {
 
 func DeleteCluster(c *gin.Context) {
 	id := c.Param("id")
+	// Pre-check existence so a delete on a missing id surfaces as 404
+	// instead of GORM's "0 rows affected" silently succeeding. Other
+	// handlers in this file already follow the same Get → act pattern.
+	if _, err := store.GetClusterByID(id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+			return
+		}
+		apiErrInternal(c, err)
+		return
+	}
 	if err := store.DeleteCluster(id); err != nil {
 		apiErrInternal(c, err)
 		return
@@ -147,6 +160,15 @@ func UpdateCluster(c *gin.Context) {
 		}
 	}
 	if err = store.UpdateCluster(id, req.Name, req.Description); err != nil {
+		// Concurrent rename to the same new name slips past the
+		// ClusterExists check above when two requests race; the unique
+		// index then rejects the loser with ErrDuplicatedKey. Translate
+		// to the same 409 the user would have seen on a sequential
+		// duplicate so the UI message stays consistent.
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			apiErr(c, http.StatusConflict, CodeClusterNameExists)
+			return
+		}
 		apiErrInternal(c, err)
 		return
 	}

@@ -14,6 +14,11 @@ var DB *gorm.DB
 func Init(dsn string) error {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
+		// Map driver-level constraint violations to gorm.Err* sentinels
+		// (ErrDuplicatedKey, ErrForeignKeyViolated, ...) so handlers can
+		// translate them to user-facing error codes via errors.Is, instead
+		// of string-matching the raw pq.Error message.
+		TranslateError: true,
 	})
 	if err != nil {
 		return fmt.Errorf("connect db: %w", err)

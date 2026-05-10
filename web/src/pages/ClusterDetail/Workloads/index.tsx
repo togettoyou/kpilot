@@ -457,11 +457,22 @@ function WorkloadsContent({
     });
   }, [nextToken, pageIdx]);
 
+  // refresh from useRequest is a fresh function reference per render
+  // (useRequest re-creates it whenever its internal state changes),
+  // so passing it directly into the effect's deps would re-create the
+  // interval on every render — "every 5s" effectively becomes "5s
+  // after the last render", which never converges if anything else
+  // is changing state. Mirror through a ref so the effect only resets
+  // when the user picks a new interval.
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
   useEffect(() => {
     if (pollingInterval <= 0) return;
-    const timer = setInterval(refresh, pollingInterval);
+    const timer = setInterval(() => refreshRef.current(), pollingInterval);
     return () => clearInterval(timer);
-  }, [pollingInterval, refresh]);
+  }, [pollingInterval]);
 
   // Sequence counter to discard stale openEditor responses on fast clicks.
   const editorSeqRef = useRef(0);

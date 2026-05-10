@@ -84,8 +84,14 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 				clusterID, plugin.Name)
 		case store.PluginPhasePending,
 			store.PluginPhaseInstalling,
-			store.PluginPhaseUpgrading,
-			store.PluginPhaseFailed:
+			store.PluginPhaseUpgrading:
+			// Failed is intentionally NOT replayed: it's a terminal
+			// "user must do something" state — re-pushing the same
+			// PluginCommand wouldn't change the CRD generation, the
+			// reconciler's predicate filters status-only events, so
+			// nothing happens on the worker. The user fixes Failed by
+			// editing values / version (which bumps the spec) or by
+			// disable+re-enable.
 			if !cp.Enabled {
 				continue
 			}

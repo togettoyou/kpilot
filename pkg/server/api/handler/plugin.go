@@ -24,7 +24,7 @@ const maxChartUploadBytes = 16 << 20 // 16 MiB — Helm charts are typically <5 
 // ─── Registry: list / get / create / update / delete ───────────────────────
 
 func ListPlugins(c *gin.Context) {
-	plugins, err := store.ListPlugins()
+	plugins, err := store.ListPluginsBrief()
 	if err != nil {
 		apiErrInternal(c, err)
 		return
@@ -371,7 +371,7 @@ func ListClusterPlugins(c *gin.Context) {
 		apiErr(c, http.StatusNotFound, CodeClusterNotFound)
 		return
 	}
-	plugins, err := store.ListPlugins()
+	plugins, err := store.ListPluginsBrief()
 	if err != nil {
 		apiErrInternal(c, err)
 		return

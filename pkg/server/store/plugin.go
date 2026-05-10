@@ -43,6 +43,23 @@ func ListPlugins() ([]Plugin, error) {
 	return plugins, nil
 }
 
+// ListPluginsBrief is ListPlugins minus the heavy `default_values` blob
+// (a 64 KiB cap per row, typically a few KiB but spikey). The list
+// endpoints only need metadata for cards / table rows; full values are
+// fetched on demand by the editor / enable drawer via GetPluginByID.
+// Same Order as ListPlugins so the caller can drop in the brief variant
+// without re-sorting on the frontend.
+func ListPluginsBrief() ([]Plugin, error) {
+	var plugins []Plugin
+	if err := DB.
+		Omit("default_values").
+		Order("is_builtin desc, category, sort_order, name").
+		Find(&plugins).Error; err != nil {
+		return nil, err
+	}
+	return plugins, nil
+}
+
 // UpdatePlugin updates a plugin's user-editable fields. Caller must check
 // is_builtin upstream — we don't enforce immutability here.
 func UpdatePlugin(id uint, updates map[string]any) error {

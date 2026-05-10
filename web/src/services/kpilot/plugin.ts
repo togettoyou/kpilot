@@ -82,8 +82,18 @@ export interface UploadResult {
 
 // ─── Global registry ──────────────────────────────────────────────────────
 
+// listPlugins returns a "brief" plugin list — every field except
+// default_values, which is omitted server-side because that single
+// column dominates the response payload (a 64 KiB cap per row, polled
+// every few seconds across the cluster Plugins page). Use getPlugin
+// to fetch a single plugin's full record when the YAML editor needs
+// to seed its default values.
 export function listPlugins() {
   return request<Plugin[]>('/api/v1/plugins', { method: 'GET' });
+}
+
+export function getPlugin(id: number) {
+  return request<Plugin>(`/api/v1/plugins/${id}`, { method: 'GET' });
 }
 
 export function createPlugin(data: PluginInput) {

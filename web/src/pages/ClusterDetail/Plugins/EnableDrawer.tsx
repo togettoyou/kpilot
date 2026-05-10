@@ -4,7 +4,7 @@ import { App, Button, Drawer, Form, Input, Space } from 'antd';
 import React, { useEffect, useState } from 'react';
 
 import type { ClusterPluginItem } from '@/services/kpilot/plugin';
-import { enablePlugin } from '@/services/kpilot/plugin';
+import { enablePlugin, getPlugin } from '@/services/kpilot/plugin';
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 
 interface EnableDrawerProps {
@@ -35,16 +35,32 @@ export function EnableDrawer({
   const [form] = Form.useForm<{ version: string }>();
   const [values, setValues] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Latest registry default_values for the target plugin. Fetched on
+  // open via GetPlugin because the enclosing list endpoint omits this
+  // blob to keep the polling payload small. Also re-used by handleReset
+  // so the user always resets to the current registry default, not the
+  // value that shipped when their per-cluster override was first saved.
+  const [registryDefault, setRegistryDefault] = useState('');
 
-  // Pre-fill values from the existing per-cluster override (if the user
-  // is re-enabling something they previously customized) or from the
-  // registry's default. Same for version.
   useEffect(() => {
     if (!open || !target) return;
-    setValues(target.values_override || target.plugin.default_values || '');
-    form.setFieldsValue({
-      version: target.version_override || '',
+    let cancelled = false;
+    // Pre-fill version + show whatever values_override the user already
+    // has saved. Default_values comes back via the async fetch below.
+    form.setFieldsValue({ version: target.version_override || '' });
+    setValues(target.values_override || '');
+    setRegistryDefault('');
+    getPlugin(target.plugin.id).then((p) => {
+      if (cancelled || !p) return;
+      const def = p.default_values || '';
+      setRegistryDefault(def);
+      // If the user has no override yet, seed the editor with the
+      // registry default. With an override, leave their text alone.
+      if (!target.values_override) setValues(def);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [open, target, form]);
 
   // Reset wipes the per-cluster overrides and re-pre-fills the form
@@ -53,7 +69,7 @@ export function EnableDrawer({
   // a different default (e.g. our k8s-stack → single migration).
   const handleReset = () => {
     if (!target) return;
-    setValues(target.plugin.default_values || '');
+    setValues(registryDefault);
     form.setFieldsValue({ version: '' });
   };
 

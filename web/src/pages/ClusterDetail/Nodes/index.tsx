@@ -17,7 +17,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { cordonNode, listNodes } from '@/services/kpilot/node';
 
@@ -167,11 +167,22 @@ export default function NodesPage() {
   // user-selected interval is dynamic state — useRequest captures the
   // initial value and ignores subsequent changes. Same pattern as
   // Workloads/index.tsx; documented in CLAUDE.md.
+  //
+  // refresh is recreated on every render of the page (useRequest gives
+  // a fresh function reference each time), so depending on it directly
+  // would tear down + recreate the timer on every render — the timer
+  // never reaches the interval and "every 5s" effectively becomes
+  // "5s after the last render". Mirror it through a ref instead so the
+  // effect only restarts when the interval itself changes.
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
   useEffect(() => {
     if (pollingInterval <= 0) return;
-    const timer = setInterval(refresh, pollingInterval);
+    const timer = setInterval(() => refreshRef.current(), pollingInterval);
     return () => clearInterval(timer);
-  }, [pollingInterval, refresh]);
+  }, [pollingInterval]);
 
   // Three drawers, one at a time. `describe` is the kubectl describe
   // text dump (consistent with the Workloads page's 详情 button);

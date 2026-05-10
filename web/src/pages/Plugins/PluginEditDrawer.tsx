@@ -22,6 +22,7 @@ import type {
 } from '@/services/kpilot/plugin';
 import {
   createPlugin,
+  getPlugin,
   updatePlugin,
   uploadPluginChart,
 } from '@/services/kpilot/plugin';
@@ -93,7 +94,17 @@ export function PluginEditDrawer({
         default_release_namespace: editing.default_release_namespace,
       });
       setChartType(editing.chart_type);
+      // The list endpoint omits default_values to keep the polling
+      // payload small, so editing.default_values may be undefined here.
+      // Show whatever we have first (empty for builtins from a brief
+      // list, present if the parent already fetched full), then fetch
+      // the full plugin to populate the YAML editor.
       setValues(editing.default_values ?? '');
+      if (editing.default_values === undefined) {
+        getPlugin(editing.id).then((p) => {
+          if (p) setValues(p.default_values ?? '');
+        });
+      }
       setUploaded(
         editing.chart_blob_id
           ? { id: editing.chart_blob_id, filename: '', sha256: '' }

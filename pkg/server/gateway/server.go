@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,10 +28,19 @@ type ConnectedWorker struct {
 	// FQDN of the in-cluster Service it forwards to.
 	ClusterDomain string
 	Stream        proto.PilotService_ConnectServer
-	LastSeen      time.Time
-	cancelOnce    sync.Once
-	done          chan struct{}
-	sendMu        sync.Mutex // serializes concurrent Send calls; gRPC streams are not thread-safe for Send
+	// lastSeenNS holds the unix-nano timestamp of the most recent
+	// heartbeat. Read from the heartbeat-check ticker on Connect's
+	// goroutine, written from the recv goroutine — atomic access is
+	// required to avoid a torn read of time.Time (two-word struct).
+	lastSeenNS atomic.Int64
+	cancelOnce sync.Once
+	done       chan struct{}
+	sendMu     sync.Mutex // serializes concurrent Send calls; gRPC streams are not thread-safe for Send
+}
+
+func (w *ConnectedWorker) markSeen()    { w.lastSeenNS.Store(time.Now().UnixNano()) }
+func (w *ConnectedWorker) lastSeen() time.Time {
+	return time.Unix(0, w.lastSeenNS.Load())
 }
 
 type GatewayServer struct {
@@ -107,9 +117,9 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 		ClusterID:     cluster.ID,
 		ClusterDomain: reg.Register.ClusterDomain,
 		Stream:        stream,
-		LastSeen:      time.Now(),
 		done:          make(chan struct{}),
 	}
+	worker.markSeen()
 	g.mu.Lock()
 	if _, occupied := g.workers[cluster.ID]; occupied {
 		g.mu.Unlock()
@@ -178,7 +188,7 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 		case err := <-recvErr:
 			return err
 		case <-timer.C:
-			if time.Since(worker.LastSeen) > heartbeatTimeout {
+			if time.Since(worker.lastSeen()) > heartbeatTimeout {
 				log.Printf("[gateway] worker heartbeat timeout: cluster=%s", cluster.ID)
 				return nil
 			}
@@ -194,7 +204,7 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.WorkerMessage) {
 	switch p := msg.Payload.(type) {
 	case *proto.WorkerMessage_Heartbeat:
-		w.LastSeen = time.Now()
+		w.markSeen()
 		_ = p
 	case *proto.WorkerMessage_PluginStatus:
 		g.handlePluginStatus(w, p.PluginStatus)
