@@ -426,9 +426,16 @@ vector:
 		// users have a ready hook (same shape as HAMi). image_pull_policy
 		// flipped from chart default Always → IfNotPresent: with a pinned
 		// tag, Always just costs an extra registry round-trip on every
-		// pod start. metrics_enable=true exposes a Prometheus endpoint
-		// which VictoriaMetrics can scrape; controller / scheduler
-		// metrics are also already on by default.
+		// pod start.
+		//
+		// `custom.metrics_enable` is intentionally NOT set — it's the
+		// chart's all-in-one observability flag that spins up its own
+		// Prometheus + Grafana + kube-state-metrics. KPilot already
+		// installs VictoriaMetrics + Grafana via separate plugins, so
+		// turning this on would give us a duplicate monitoring stack.
+		// The controller and scheduler still expose /metrics endpoints
+		// (controller_metrics_enable / scheduler_metrics_enable default
+		// to true) which VictoriaMetrics can scrape directly.
 		DefaultValues: `basic:
   image_registry: docker.io
   controller_image_name: volcanosh/vc-controller-manager
@@ -440,7 +447,6 @@ custom:
   scheduler_replicas: 1
   controller_replicas: 1
   admission_replicas: 1
-  metrics_enable: true
 `,
 		// kpilot-scheduling joins the kpilot-* namespace family so the
 		// Workload page treats Volcano's pods as read-only — users can
