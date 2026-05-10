@@ -78,10 +78,11 @@ export default {
 
   // Compute platform sider — injected when a cluster is selected under
   // /compute/:id/*.
-  'menu.compute.overview': 'Resource Overview',
-  'menu.compute.queues': 'Queue',
-  'menu.compute.jobs': 'Job',
-  'menu.compute.cronjobs': 'CronJob',
-  'menu.compute.podgroups': 'PodGroup',
-  'menu.compute.hypernodes': 'HyperNode',
+  'menu.compute.scheduler': 'Scheduler Config',
+  'menu.compute.resources': 'Resources',
+  'menu.compute.resources.queues': 'Queue',
+  'menu.compute.resources.jobs': 'Job',
+  'menu.compute.resources.cronjobs': 'CronJob',
+  'menu.compute.resources.podgroups': 'PodGroup',
+  'menu.compute.resources.hypernodes': 'HyperNode',
 };

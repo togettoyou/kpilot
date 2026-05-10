@@ -23,6 +23,7 @@ import { QueueFormDrawer } from './QueueForm';
 // cells (Volcano's CRD declares STATE as an additionalPrinterColumn)
 // and flip the row action label accordingly.
 export default function VolcanoQueuesPage() {
+  const intl = useIntl();
   return (
     <VolcanoCRPage
       cr={{
@@ -40,6 +41,19 @@ export default function VolcanoQueuesPage() {
           record={record}
           refresh={refresh}
         />
+      )}
+      replaceEditAction={(record, { refresh, openYamlEditor }) => (
+        <>
+          <QueueEditButton record={record} refresh={refresh} />
+          <Button
+            key="yaml"
+            type="link"
+            size="small"
+            onClick={() => openYamlEditor(record)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.editYaml' })}
+          </Button>
+        </>
       )}
     />
   );
@@ -66,6 +80,36 @@ function QueueCreateButton({ refresh }: { refresh: () => void }) {
       <QueueFormDrawer
         open={open}
         clusterId={clusterId}
+        onClose={() => setOpen(false)}
+        onSaved={refresh}
+      />
+    </>
+  );
+}
+
+// QueueEditButton replaces the workload page's default "Edit YAML"
+// row button with a typed-form edit. The drawer fetches the current
+// Queue spec on open and pre-fills the form.
+function QueueEditButton({
+  record,
+  refresh,
+}: {
+  record: WorkloadItem;
+  refresh: () => void;
+}) {
+  const intl = useIntl();
+  const { id: clusterId } = useParams<{ id: string }>();
+  const [open, setOpen] = useState(false);
+  if (!clusterId) return null;
+  return (
+    <>
+      <Button type="link" size="small" onClick={() => setOpen(true)}>
+        {intl.formatMessage({ id: 'pages.workloads.edit' })}
+      </Button>
+      <QueueFormDrawer
+        open={open}
+        clusterId={clusterId}
+        editing={{ name: record.name }}
         onClose={() => setOpen(false)}
         onSaved={refresh}
       />

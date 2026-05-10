@@ -330,14 +330,30 @@ interface WorkloadsContentProps {
   };
   // Extension hooks for callers that want to bolt on resource-specific
   // UX (e.g. the Volcano CR pages add a "新建队列" button + lifecycle
-  // action buttons per row). Each receives the row's `refresh` callback
-  // so the bolted-on action can re-fetch the table after a successful
-  // mutation without tunneling state through the parent.
-  extraToolbarButtons?: (ctx: { refresh: () => void }) => React.ReactNode;
+  // action buttons per row). Each receives a small ctx:
+  //   - refresh: re-fetch the table after a successful mutation
+  //   - openYamlEditor: drop into the same YAML drawer the default
+  //     edit button uses, so a wrapper that renders a form-based
+  //     edit can still expose a "YAML" escape hatch alongside it.
+  extraToolbarButtons?: (ctx: ExtensionCtx) => React.ReactNode;
   extraRowActions?: (
     record: WorkloadItem,
-    ctx: { refresh: () => void },
+    ctx: ExtensionCtx,
   ) => React.ReactNode;
+  // replaceEditAction swaps the default "Edit YAML" row button for
+  // whatever JSX the wrapper supplies — typically a form-edit button
+  // plus its own YAML escape hatch (rendered via the ctx's
+  // openYamlEditor helper). When undefined, the default YAML edit
+  // button stays as-is.
+  replaceEditAction?: (
+    record: WorkloadItem,
+    ctx: ExtensionCtx,
+  ) => React.ReactNode;
+}
+
+interface ExtensionCtx {
+  refresh: () => void;
+  openYamlEditor: (record: WorkloadItem) => void;
 }
 
 // ─── Inner component — remounts on resourceType change via key prop ────────
@@ -352,6 +368,7 @@ export function WorkloadsContent({
   notAvailableHint,
   extraToolbarButtons,
   extraRowActions,
+  replaceEditAction,
 }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -732,11 +749,15 @@ export function WorkloadsContent({
             </Button>,
           ];
         }
-        return [
-          podActions,
-          crInstancesBtn,
-          extraRowActions?.(record, { refresh }),
-          describeBtn,
+        const ctx: ExtensionCtx = {
+          refresh,
+          openYamlEditor: (r: WorkloadItem) => openEditor(r),
+        };
+        const editButton = replaceEditAction ? (
+          <React.Fragment key="edit-replace">
+            {replaceEditAction(record, ctx)}
+          </React.Fragment>
+        ) : (
           <Button
             key="edit"
             type="link"
@@ -744,7 +765,14 @@ export function WorkloadsContent({
             onClick={() => openEditor(record)}
           >
             {intl.formatMessage({ id: 'pages.workloads.edit' })}
-          </Button>,
+          </Button>
+        );
+        return [
+          podActions,
+          crInstancesBtn,
+          extraRowActions?.(record, ctx),
+          describeBtn,
+          editButton,
           <Popconfirm
             key="delete"
             title={intl.formatMessage(
@@ -770,6 +798,7 @@ export function WorkloadsContent({
     openEditor,
     handleDelete,
     extraRowActions,
+    replaceEditAction,
     refresh,
     isProtectedCRGroup,
     resourceType,
@@ -882,7 +911,10 @@ export function WorkloadsContent({
           // so they're the most prominent action on the right side.
           extraToolbarButtons ? (
             <React.Fragment key="extras">
-              {extraToolbarButtons({ refresh })}
+              {extraToolbarButtons({
+                refresh,
+                openYamlEditor: (r) => openEditor(r),
+              })}
             </React.Fragment>
           ) : null,
           <Button

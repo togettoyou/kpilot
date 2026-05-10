@@ -17,6 +17,7 @@ import { JobFormDrawer } from './JobForm';
 //      action set `vcctl job` exposes; we group them under one
 //      "操作" dropdown to keep the action column readable.
 export default function VolcanoJobsPage() {
+  const intl = useIntl();
   return (
     <VolcanoCRPage
       cr={{
@@ -30,6 +31,19 @@ export default function VolcanoJobsPage() {
       )}
       extraRowActions={(record, { refresh }) => (
         <JobLifecycleAction key="lc" record={record} refresh={refresh} />
+      )}
+      replaceEditAction={(record, { refresh, openYamlEditor }) => (
+        <>
+          <JobEditButton record={record} refresh={refresh} />
+          <Button
+            key="yaml"
+            type="link"
+            size="small"
+            onClick={() => openYamlEditor(record)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.editYaml' })}
+          </Button>
+        </>
       )}
     />
   );
@@ -52,6 +66,33 @@ function JobCreateButton({ refresh }: { refresh: () => void }) {
       <JobFormDrawer
         open={open}
         clusterId={clusterId}
+        onClose={() => setOpen(false)}
+        onSaved={refresh}
+      />
+    </>
+  );
+}
+
+function JobEditButton({
+  record,
+  refresh,
+}: {
+  record: WorkloadItem;
+  refresh: () => void;
+}) {
+  const intl = useIntl();
+  const { id: clusterId } = useParams<{ id: string }>();
+  const [open, setOpen] = useState(false);
+  if (!clusterId) return null;
+  return (
+    <>
+      <Button type="link" size="small" onClick={() => setOpen(true)}>
+        {intl.formatMessage({ id: 'pages.workloads.edit' })}
+      </Button>
+      <JobFormDrawer
+        open={open}
+        clusterId={clusterId}
+        editing={{ name: record.name, namespace: record.namespace }}
         onClose={() => setOpen(false)}
         onSaved={refresh}
       />

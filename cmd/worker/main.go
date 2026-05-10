@@ -21,7 +21,6 @@ import (
 	"github.com/togettoyou/kpilot/pkg/worker/config"
 	"github.com/togettoyou/kpilot/pkg/worker/plugin"
 	"github.com/togettoyou/kpilot/pkg/worker/proxy"
-	"github.com/togettoyou/kpilot/pkg/worker/snapshot"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
 )
 
@@ -80,27 +79,15 @@ func main() {
 			log.Fatalf("[worker] failed to create manager: %v", err)
 		}
 
-		// One typed clientset shared by everyone who needs one: the
-		// snapshot informer cache, Pod logs, and Pod exec. Building
-		// three of these (one per consumer) wastes connection pools
-		// on the same kube-apiserver target — they don't share an
-		// underlying http.Transport even with identical configs.
+		// One typed clientset shared by Pod logs / Pod exec — building
+		// one per consumer wastes connection pools on the same
+		// kube-apiserver target.
 		clientset, err := kubernetes.NewForConfig(k8sCfg)
 		if err != nil {
 			log.Fatalf("[worker] failed to create clientset: %v", err)
 		}
 
-		// Snapshot cache for cluster-wide Node + Pod reads (used by the
-		// GPU summary endpoint and any future bulk-read action). Wait
-		// for initial sync before constructing the proxy so a request
-		// arriving immediately after register doesn't hit an empty
-		// cache and report "no GPU nodes".
-		snap, err := snapshot.New(clientset, ctx.Done())
-		if err != nil {
-			log.Fatalf("[worker] snapshot init: %v", err)
-		}
-
-		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper(), snap, tunnelClient.SendResourceResponse)
+		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper(), tunnelClient.SendResourceResponse)
 		if err != nil {
 			log.Fatalf("[worker] failed to create proxy: %v", err)
 		}

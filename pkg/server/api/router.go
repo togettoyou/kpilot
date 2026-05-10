@@ -69,7 +69,6 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// through the generic /workloads PUT, so the Server can tightly
 		// constrain the patch body to just spec.unschedulable.
 		clusters.POST("/:id/workloads/nodes/:name/cordon", handler.CordonNode(gw))
-		clusters.GET("/:id/gpu", handler.GetClusterGPU(gw))
 		clusters.GET("/:id/namespaces", handler.ListNamespaces(gw))
 		clusters.GET("/:id/workloads/:type", handler.ListWorkloads(gw))
 		clusters.GET("/:id/workloads/:type/:name", handler.GetWorkload(gw))

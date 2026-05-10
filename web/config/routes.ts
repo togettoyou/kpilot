@@ -57,27 +57,27 @@ export default [
       // keep working through the Phase 0 shuffle.
       {
         path: '/clusters/:id/gpu',
-        redirect: '/compute/:id/overview',
+        redirect: '/compute/:id',
       },
       {
         path: '/clusters/:id/compute',
-        redirect: '/compute/:id/overview',
+        redirect: '/compute/:id',
       },
       {
         path: '/clusters/:id/compute/overview',
-        redirect: '/compute/:id/overview',
+        redirect: '/compute/:id',
       },
       {
         path: '/clusters/:id/compute/nodes',
-        redirect: '/compute/:id/overview',
+        redirect: '/compute/:id',
       },
       {
         path: '/clusters/:id/compute/cards',
-        redirect: '/compute/:id/overview',
+        redirect: '/compute/:id',
       },
       {
         path: '/clusters/:id/compute/tasks',
-        redirect: '/compute/:id/overview',
+        redirect: '/compute/:id',
       },
       {
         path: '/clusters/:id/models',
@@ -101,11 +101,7 @@ export default [
       },
       {
         path: '/compute/:id',
-        redirect: '/compute/:id/overview',
-      },
-      {
-        path: '/compute/:id/overview',
-        component: './Compute/Overview/index',
+        redirect: '/compute/:id/scheduler',
       },
       // Volcano CR browsers — thin wrappers around the workload
       // page's CR-instances component (WorkloadsContent), preset
@@ -131,6 +127,14 @@ export default [
       {
         path: '/compute/:id/hypernodes',
         component: './Compute/Volcano/HyperNodes',
+      },
+      {
+        // Read-only view of volcano-scheduler-configmap → the
+        // currently configured actions + plugin tiers. Editing
+        // happens through the volcano plugin's helm values, not
+        // here, so we don't need a workload-style PUT path.
+        path: '/compute/:id/scheduler',
+        component: './Compute/Volcano/Scheduler',
       },
     ],
   },

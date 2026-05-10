@@ -14,6 +14,7 @@ import { CronJobFormDrawer } from './CronJobForm';
 // CronJob; we patch the bool through /apply (SSA), no Command CR
 // involved.
 export default function VolcanoCronJobsPage() {
+  const intl = useIntl();
   return (
     <VolcanoCRPage
       cr={{
@@ -27,6 +28,19 @@ export default function VolcanoCronJobsPage() {
       )}
       extraRowActions={(record, { refresh }) => (
         <CronJobSuspendAction key="suspend" record={record} refresh={refresh} />
+      )}
+      replaceEditAction={(record, { refresh, openYamlEditor }) => (
+        <>
+          <CronJobEditButton record={record} refresh={refresh} />
+          <Button
+            key="yaml"
+            type="link"
+            size="small"
+            onClick={() => openYamlEditor(record)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.editYaml' })}
+          </Button>
+        </>
       )}
     />
   );
@@ -49,6 +63,33 @@ function CronJobCreateButton({ refresh }: { refresh: () => void }) {
       <CronJobFormDrawer
         open={open}
         clusterId={clusterId}
+        onClose={() => setOpen(false)}
+        onSaved={refresh}
+      />
+    </>
+  );
+}
+
+function CronJobEditButton({
+  record,
+  refresh,
+}: {
+  record: WorkloadItem;
+  refresh: () => void;
+}) {
+  const intl = useIntl();
+  const { id: clusterId } = useParams<{ id: string }>();
+  const [open, setOpen] = useState(false);
+  if (!clusterId) return null;
+  return (
+    <>
+      <Button type="link" size="small" onClick={() => setOpen(true)}>
+        {intl.formatMessage({ id: 'pages.workloads.edit' })}
+      </Button>
+      <CronJobFormDrawer
+        open={open}
+        clusterId={clusterId}
+        editing={{ name: record.name, namespace: record.namespace }}
         onClose={() => setOpen(false)}
         onSaved={refresh}
       />

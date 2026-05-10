@@ -22,15 +22,25 @@ import { WorkloadsContent } from '@/pages/ClusterDetail/Workloads';
 // "this CRD or feature gate isn't available" — for Volcano the right
 // answer is always "install the Volcano plugin", so we point users
 // directly at /clusters/:id/plugins instead.
+interface ExtensionCtx {
+  refresh: () => void;
+  // Drops into the same YAML drawer the workload page's default edit
+  // button uses. Volcano wrappers expose this alongside their typed
+  // form-edit button so power users can still tweak fields the form
+  // doesn't surface.
+  openYamlEditor: (record: WorkloadItem) => void;
+}
+
 interface VolcanoCRPageProps {
   cr: CRRef;
-  // Forwarded to WorkloadsContent — wrappers use these to add a
-  // "新建 X" toolbar button + per-row lifecycle actions (Open/Close
-  // for Queue, Resume/Suspend for Job, etc.).
-  extraToolbarButtons?: (ctx: { refresh: () => void }) => React.ReactNode;
+  extraToolbarButtons?: (ctx: ExtensionCtx) => React.ReactNode;
   extraRowActions?: (
     record: WorkloadItem,
-    ctx: { refresh: () => void },
+    ctx: ExtensionCtx,
+  ) => React.ReactNode;
+  replaceEditAction?: (
+    record: WorkloadItem,
+    ctx: ExtensionCtx,
   ) => React.ReactNode;
 }
 
@@ -38,6 +48,7 @@ export function VolcanoCRPage({
   cr,
   extraToolbarButtons,
   extraRowActions,
+  replaceEditAction,
 }: VolcanoCRPageProps) {
   const { id: clusterId } = useParams<{ id: string }>();
   if (!clusterId) return null;
@@ -55,6 +66,7 @@ export function VolcanoCRPage({
       }}
       extraToolbarButtons={extraToolbarButtons}
       extraRowActions={extraRowActions}
+      replaceEditAction={replaceEditAction}
     />
   );
 }

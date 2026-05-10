@@ -22,7 +22,6 @@ import (
 	"k8s.io/kubectl/pkg/describe"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
-	"github.com/togettoyou/kpilot/pkg/worker/snapshot"
 )
 
 const opTimeout = 30 * time.Second
@@ -43,14 +42,8 @@ type Proxy struct {
 	cfg        *rest.Config
 	httpClient *http.Client // reused for Table API list requests
 	dyn        dynamic.Interface
-	// snap is the lister-backed cache used for actions that read the
-	// whole-cluster Node/Pod state on every request (e.g. gpu-summary).
-	// Workload list/get etc. still go through the dynamic client + Table
-	// API since they're per-kind, paginated, and shouldn't share a cache
-	// across all GVKs anyway.
-	snap   *snapshot.Snapshot
-	mapper apimeta.RESTMapper
-	sendFn func(requestID string, resp *proto.ResourceResponse)
+	mapper     apimeta.RESTMapper
+	sendFn     func(requestID string, resp *proto.ResourceResponse)
 }
 
 // resourceClient picks namespace-scoped vs cluster-scoped REST access
@@ -78,15 +71,11 @@ func (p *Proxy) resourceClient(mapping *apimeta.RESTMapping, namespace string) (
 	return ri.Namespace(ns), ns
 }
 
-// New creates a Proxy. snap is the cluster-wide Node/Pod snapshot used
-// by gpu-summary and any future bulk-read actions; pass it pre-warmed
-// (call snapshot.New first, wait for sync, then construct the Proxy).
-// sendFn is called after each operation to return the result to the
-// Server (typically tunnelClient.SendResourceResponse).
+// New creates a Proxy. sendFn is called after each operation to return
+// the result to the Server (typically tunnelClient.SendResourceResponse).
 func New(
 	cfg *rest.Config,
 	mapper apimeta.RESTMapper,
-	snap *snapshot.Snapshot,
 	sendFn func(string, *proto.ResourceResponse),
 ) (*Proxy, error) {
 	dyn, err := dynamic.NewForConfig(cfg)
@@ -103,7 +92,6 @@ func New(
 		cfg:        cfg,
 		httpClient: httpClient,
 		dyn:        dyn,
-		snap:       snap,
 		mapper:     mapper,
 		sendFn:     sendFn,
 	}, nil
@@ -119,12 +107,6 @@ func (p *Proxy) Handle(requestID string, req *proto.ResourceRequest) {
 }
 
 func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.ResourceResponse {
-	// Special-case actions that don't bind to a single GVK and so don't
-	// need (and would error on) the RESTMapping lookup below.
-	if req.Action == "gpu-summary" {
-		return p.gpuSummary(ctx)
-	}
-
 	gvk := schema.GroupVersionKind{
 		Group:   req.Group,
 		Version: req.Version,

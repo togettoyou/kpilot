@@ -10,6 +10,7 @@ import {
   InputNumber,
   Select,
   Space,
+  Spin,
 } from 'antd';
 import React, { useEffect, useState } from 'react';
 
@@ -18,13 +19,22 @@ import {
   buildCronJobManifest,
   type CronJobInput,
 } from '@/services/kpilot/volcano';
+import { getWorkload } from '@/services/kpilot/workload';
 
 interface CronJobFormDrawerProps {
   open: boolean;
   clusterId: string;
+  editing?: { name: string; namespace: string } | null;
   onClose: () => void;
   onSaved: () => void;
 }
+
+const CRONJOB_CR = {
+  group: 'batch.volcano.sh',
+  version: 'v1alpha1',
+  kind: 'CronJob',
+  scope: 'Namespaced' as const,
+};
 
 interface TaskFV {
   name: string;
@@ -63,6 +73,7 @@ interface FormValues {
 export function CronJobFormDrawer({
   open,
   clusterId,
+  editing,
   onClose,
   onSaved,
 }: CronJobFormDrawerProps) {
@@ -71,7 +82,9 @@ export function CronJobFormDrawer({
   const ns = useModel('namespace');
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(false);
 
+  const isEdit = !!editing;
   const namespaceOptions = (ns.get(clusterId).list ?? []).map((n) => ({
     label: n,
     value: n,
@@ -79,22 +92,61 @@ export function CronJobFormDrawer({
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     form.resetFields();
-    form.setFieldsValue({
-      namespace: ns.get(clusterId).selected || 'default',
-      schedule: '0 * * * *',
-      concurrencyPolicy: 'Allow',
-      suspend: false,
-      tasks: [
-        {
-          name: 'main',
-          replicas: 1,
-          image: '',
-          restartPolicy: 'OnFailure',
-        },
-      ],
-    });
-  }, [open, form, ns, clusterId]);
+    if (!editing) {
+      form.setFieldsValue({
+        namespace: ns.get(clusterId).selected || 'default',
+        schedule: '0 * * * *',
+        concurrencyPolicy: 'Allow',
+        suspend: false,
+        tasks: [
+          {
+            name: 'main',
+            replicas: 1,
+            image: '',
+            restartPolicy: 'OnFailure',
+          },
+        ],
+      });
+      return;
+    }
+    setLoading(true);
+    getWorkload(
+      clusterId,
+      '_cr',
+      editing.name,
+      editing.namespace,
+      CRONJOB_CR,
+    )
+      .then((obj: any) => {
+        if (cancelled) return;
+        const spec = obj?.spec ?? {};
+        const jSpec = spec.jobTemplate?.spec ?? {};
+        form.setFieldsValue({
+          name: editing.name,
+          namespace: editing.namespace,
+          schedule: spec.schedule ?? '0 * * * *',
+          concurrencyPolicy: spec.concurrencyPolicy ?? 'Allow',
+          successfulJobsHistoryLimit: spec.successfulJobsHistoryLimit,
+          failedJobsHistoryLimit: spec.failedJobsHistoryLimit,
+          suspend: spec.suspend ?? false,
+          queue: jSpec.queue,
+          minAvailable:
+            typeof jSpec.minAvailable === 'number'
+              ? jSpec.minAvailable
+              : undefined,
+          plugins: jSpec.plugins ? Object.keys(jSpec.plugins) : undefined,
+          tasks: extractCronTasks(jSpec.tasks),
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, editing, form, ns, clusterId]);
 
   const splitWS = (s: string | undefined) => {
     if (!s || !s.trim()) return undefined;
@@ -165,7 +217,11 @@ export function CronJobFormDrawer({
         return;
       }
       message.success(
-        intl.formatMessage({ id: 'pages.compute.cronJobForm.success' }),
+        intl.formatMessage({
+          id: isEdit
+            ? 'pages.compute.cronJobForm.updated'
+            : 'pages.compute.cronJobForm.success',
+        }),
       );
       onSaved();
       onClose();
@@ -180,7 +236,11 @@ export function CronJobFormDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      title={intl.formatMessage({ id: 'pages.compute.cronJobForm.title' })}
+      title={intl.formatMessage({
+        id: isEdit
+          ? 'pages.compute.cronJobForm.editTitle'
+          : 'pages.compute.cronJobForm.title',
+      })}
       size={760}
       maskClosable={false}
       destroyOnHidden
@@ -190,11 +250,16 @@ export function CronJobFormDrawer({
             {intl.formatMessage({ id: 'pages.workloads.cancel' })}
           </Button>
           <Button type="primary" loading={submitting} onClick={handleSubmit}>
-            {intl.formatMessage({ id: 'pages.compute.cronJobForm.submit' })}
+            {intl.formatMessage({
+              id: isEdit
+                ? 'pages.compute.cronJobForm.update'
+                : 'pages.compute.cronJobForm.submit',
+            })}
           </Button>
         </Space>
       }
     >
+      <Spin spinning={loading}>
       <Form<FormValues> form={form} layout="vertical">
         <div style={{ marginBottom: 8, fontWeight: 500 }}>
           {intl.formatMessage({ id: 'pages.compute.jobForm.section.basic' })}
@@ -210,7 +275,7 @@ export function CronJobFormDrawer({
             ]}
             style={{ flex: 1 }}
           >
-            <Input maxLength={63} placeholder="my-cronjob" />
+            <Input maxLength={63} placeholder="my-cronjob" disabled={isEdit} />
           </Form.Item>
           <Form.Item
             name="namespace"
@@ -224,6 +289,7 @@ export function CronJobFormDrawer({
               showSearch
               placeholder="default"
               options={namespaceOptions}
+              disabled={isEdit}
             />
           </Form.Item>
         </Space.Compact>
@@ -491,6 +557,38 @@ export function CronJobFormDrawer({
           )}
         </Form.List>
       </Form>
+      </Spin>
     </Drawer>
   );
+}
+
+// Mirror of JobForm's extractTasks — Volcano CronJob nests its job
+// spec at .spec.jobTemplate.spec, but the tasks shape is identical.
+function extractCronTasks(specTasks: any): TaskFV[] {
+  if (!Array.isArray(specTasks) || specTasks.length === 0) {
+    return [
+      { name: 'main', replicas: 1, image: '', restartPolicy: 'OnFailure' },
+    ];
+  }
+  return specTasks.map((t: any) => {
+    const podSpec = t?.template?.spec ?? {};
+    const c = (podSpec.containers ?? [])[0] ?? {};
+    const r = c.resources ?? {};
+    const lim = (r.limits ?? {}) as Record<string, string>;
+    const req = (r.requests ?? {}) as Record<string, string>;
+    return {
+      name: t.name ?? 'task',
+      replicas: typeof t.replicas === 'number' ? t.replicas : 1,
+      image: c.image ?? '',
+      command: Array.isArray(c.command) ? c.command.join(' ') : undefined,
+      args: Array.isArray(c.args) ? c.args.join(' ') : undefined,
+      cpu: lim['cpu'] ?? req['cpu'],
+      memory: lim['memory'] ?? req['memory'],
+      vgpuNumber: lim['volcano.sh/vgpu-number'],
+      vgpuMemory: lim['volcano.sh/vgpu-memory'],
+      vgpuCores: lim['volcano.sh/vgpu-cores'],
+      restartPolicy:
+        (podSpec.restartPolicy as TaskFV['restartPolicy']) ?? 'OnFailure',
+    };
+  });
 }

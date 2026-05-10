@@ -11,7 +11,6 @@ import {
   LineChartOutlined,
   SafetyOutlined,
   SettingOutlined,
-  ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { MenuDataItem } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
@@ -456,43 +455,51 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
 }
 
 // buildComputeSubMenu — sider items for the Compute Scheduling platform
-// once a cluster is selected. Volcano CR browsers (Queue, Job, CronJob,
-// PodGroup, HyperNode) are thin wrappers over the workload page's CR-
-// instances component, preset with the right GVK; they live under
-// /compute/:id/<kind> rather than /workloads/_cr so the URL keeps the
-// Compute sub-menu highlighted while users are inside it.
+// once a cluster is selected. The runtime "scheduler config" view is
+// the platform's headline tab, so it sits at the top; everything below
+// is the resource-by-resource browser, grouped under "调度资源" so the
+// long Volcano CR list doesn't dominate the sider.
 function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
   const base = `/compute/${clusterId}`;
   return [
     {
-      path: `${base}/overview`,
-      name: 'overview',
-      icon: <ThunderboltOutlined />,
+      path: `${base}/scheduler`,
+      name: 'scheduler',
+      icon: <SettingOutlined />,
     },
     {
-      path: `${base}/queues`,
-      name: 'queues',
-      icon: <DatabaseOutlined />,
-    },
-    {
-      path: `${base}/jobs`,
-      name: 'jobs',
-      icon: <BlockOutlined />,
-    },
-    {
-      path: `${base}/cronjobs`,
-      name: 'cronjobs',
-      icon: <BlockOutlined />,
-    },
-    {
-      path: `${base}/podgroups`,
-      name: 'podgroups',
+      // Group label only — has no path of its own. ProLayout opens
+      // the section when any child route matches.
+      path: `${base}/_group/resources`,
+      name: 'resources',
       icon: <AppstoreOutlined />,
-    },
-    {
-      path: `${base}/hypernodes`,
-      name: 'hypernodes',
-      icon: <DeploymentUnitOutlined />,
+      children: [
+        {
+          path: `${base}/queues`,
+          name: 'queues',
+          icon: <DatabaseOutlined />,
+        },
+        {
+          path: `${base}/jobs`,
+          name: 'jobs',
+          icon: <BlockOutlined />,
+        },
+        {
+          path: `${base}/cronjobs`,
+          name: 'cronjobs',
+          icon: <BlockOutlined />,
+        },
+        {
+          path: `${base}/podgroups`,
+          name: 'podgroups',
+          icon: <AppstoreOutlined />,
+        },
+        {
+          path: `${base}/hypernodes`,
+          name: 'hypernodes',
+          icon: <DeploymentUnitOutlined />,
+        },
+      ],
     },
   ];
 }
