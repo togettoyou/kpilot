@@ -31,6 +31,8 @@ export default {
 
   // Queue form + actions
   'pages.compute.queue.create': 'New Queue',
+  'pages.compute.queue.col.state': 'State',
+  'pages.compute.queue.col.detail': 'Spec / Allocated',
   'pages.compute.queue.action.open': 'Open',
   'pages.compute.queue.action.close': 'Close',
   'pages.compute.queue.confirm.open': 'Open queue "{name}"? PodGroups in this queue can be scheduled again.',
@@ -95,6 +97,7 @@ export default {
 
   // CronJob form + actions
   'pages.compute.cronJob.create': 'New CronJob',
+  'pages.compute.cronJob.col.state': 'State',
   'pages.compute.cronJob.action.suspend': 'Suspend',
   'pages.compute.cronJob.action.resume': 'Resume',
   'pages.compute.cronJob.confirm.suspend': 'Suspend cronjob "{name}"? No new jobs will trigger until you resume.',

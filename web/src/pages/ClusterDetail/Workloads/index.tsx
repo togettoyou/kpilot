@@ -30,7 +30,14 @@ import {
   Typography,
 } from 'antd';
 import * as jsyaml from 'js-yaml';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Navigate } from 'react-router-dom';
 import type {
   CRRef,
@@ -349,12 +356,32 @@ interface WorkloadsContentProps {
     record: WorkloadItem,
     ctx: ExtensionCtx,
   ) => React.ReactNode;
+  // hideApplyYaml suppresses the generic "应用 YAML" toolbar button.
+  // Wrapper pages with their own typed create/edit forms (Volcano CR
+  // pages) set this so users see one obvious "新建" path instead of
+  // a confusing "新建 + 应用 YAML" pair.
+  hideApplyYaml?: boolean;
+  // extraColumns are inserted after the dynamic columns from the K8s
+  // Table API and before the actions column. Useful when the K8s
+  // additionalPrinterColumns aren't enough — e.g. Volcano Queue
+  // doesn't declare a STATE column, so the Queue page injects one
+  // here that renders by fetching .status.state per row.
+  extraColumns?: ProColumns<WorkloadItem>[];
 }
 
 interface ExtensionCtx {
   refresh: () => void;
   openYamlEditor: (record: WorkloadItem) => void;
 }
+
+// WorkloadRefreshTickContext exposes a counter that bumps on every
+// refresh of the workload page (toolbar button, polling, post-edit
+// callbacks). Per-row cell components (e.g. Volcano Queue's state /
+// detail cells, which fire their own per-row useRequest fetches that
+// the table list refresh wouldn't otherwise touch) consume this and
+// include it in their refreshDeps so a click on Refresh repaints
+// every cell instead of just the table.
+export const WorkloadRefreshTickContext = createContext(0);
 
 // ─── Inner component — remounts on resourceType change via key prop ────────
 
@@ -369,6 +396,8 @@ export function WorkloadsContent({
   extraToolbarButtons,
   extraRowActions,
   replaceEditAction,
+  hideApplyYaml,
+  extraColumns,
 }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -437,10 +466,17 @@ export function WorkloadsContent({
   // toast (DRA / MutatingAdmissionPolicy / Gateway API on bare-bones
   // clusters all hit this).
   const [notAvailable, setNotAvailable] = useState(false);
+  // refreshTick increments on every (manual or polled) refresh and is
+  // exposed via WorkloadRefreshTickContext so per-row cells (e.g.
+  // Volcano Queue's state / detail cells) can include it in their
+  // own useRequest refreshDeps and re-fetch alongside the table.
+  // Without this, clicking the toolbar Refresh button only refetched
+  // the table list — per-row detail fetches kept their cached values.
+  const [refreshTick, setRefreshTick] = useState(0);
   const {
     data: pageData,
     loading,
-    refresh,
+    refresh: tableRefresh,
   } = useRequest(
     () =>
       listWorkloads(
@@ -471,6 +507,16 @@ export function WorkloadsContent({
       },
     },
   );
+
+  // Composite refresh: the table's own refetch + a tick bump for
+  // anyone listening via WorkloadRefreshTickContext. All call sites
+  // — toolbar Refresh button, polling timer, post-mutation refreshes
+  // from extension callbacks — use this so the page refreshes as
+  // a unit instead of just the table.
+  const refresh = useCallback(() => {
+    tableRefresh();
+    setRefreshTick((t) => t + 1);
+  }, [tableRefresh]);
 
   const items = pageData?.items ?? [];
   const colDefs = pageData?.colDefs ?? [];
@@ -789,7 +835,11 @@ export function WorkloadsContent({
         ];
       },
     };
-    return [...buildColumns(colDefs, intl, isClusterScoped), actionsColumn];
+    return [
+      ...buildColumns(colDefs, intl, isClusterScoped),
+      ...(extraColumns ?? []),
+      actionsColumn,
+    ];
   }, [
     colDefs,
     intl,
@@ -802,6 +852,7 @@ export function WorkloadsContent({
     refresh,
     isProtectedCRGroup,
     resourceType,
+    extraColumns,
   ]);
 
   if (notAvailable) {
@@ -834,6 +885,7 @@ export function WorkloadsContent({
   }
 
   return (
+    <WorkloadRefreshTickContext.Provider value={refreshTick}>
     <div className="p-6">
       <ProTable<WorkloadItem>
         headerTitle={
@@ -917,6 +969,7 @@ export function WorkloadsContent({
               })}
             </React.Fragment>
           ) : null,
+          hideApplyYaml ? null : (
           <Button
             key="apply"
             type="primary"
@@ -924,7 +977,8 @@ export function WorkloadsContent({
             onClick={() => setApplyOpen(true)}
           >
             {intl.formatMessage({ id: 'pages.applyYaml.title' })}
-          </Button>,
+          </Button>
+          ),
           <Space.Compact key="refresh">
             <Button
               icon={<ReloadOutlined />}
@@ -1093,6 +1147,7 @@ export function WorkloadsContent({
         resourceType={resourceType}
       />
     </div>
+    </WorkloadRefreshTickContext.Provider>
   );
 }
 

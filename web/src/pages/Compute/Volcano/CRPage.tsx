@@ -1,3 +1,4 @@
+import type { ProColumns } from '@ant-design/pro-components';
 import { useParams } from '@umijs/max';
 import React from 'react';
 
@@ -42,6 +43,7 @@ interface VolcanoCRPageProps {
     record: WorkloadItem,
     ctx: ExtensionCtx,
   ) => React.ReactNode;
+  extraColumns?: ProColumns<WorkloadItem>[];
 }
 
 export function VolcanoCRPage({
@@ -49,6 +51,7 @@ export function VolcanoCRPage({
   extraToolbarButtons,
   extraRowActions,
   replaceEditAction,
+  extraColumns,
 }: VolcanoCRPageProps) {
   const { id: clusterId } = useParams<{ id: string }>();
   if (!clusterId) return null;
@@ -67,6 +70,12 @@ export function VolcanoCRPage({
       extraToolbarButtons={extraToolbarButtons}
       extraRowActions={extraRowActions}
       replaceEditAction={replaceEditAction}
+      extraColumns={extraColumns}
+      // Volcano CR pages all have typed create/edit forms with form
+      // & YAML dual view. The generic Apply YAML toolbar would just
+      // be a confusing parallel path, so we suppress it everywhere
+      // CRPage is used.
+      hideApplyYaml
     />
   );
 }

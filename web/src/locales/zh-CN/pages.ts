@@ -31,6 +31,8 @@ export default {
 
   // Queue 表单 + 操作
   'pages.compute.queue.create': '新建队列',
+  'pages.compute.queue.col.state': '状态',
+  'pages.compute.queue.col.detail': '配置 / 资源',
   'pages.compute.queue.action.open': '开启',
   'pages.compute.queue.action.close': '关闭',
   'pages.compute.queue.confirm.open': '开启队列「{name}」？开启后队列内的 PodGroup 可被调度。',
@@ -95,6 +97,7 @@ export default {
 
   // CronJob 表单 + 操作
   'pages.compute.cronJob.create': '新建定时作业',
+  'pages.compute.cronJob.col.state': '状态',
   'pages.compute.cronJob.action.suspend': '暂停',
   'pages.compute.cronJob.action.resume': '恢复',
   'pages.compute.cronJob.confirm.suspend': '暂停定时作业「{name}」？暂停后将不再触发新的作业。',

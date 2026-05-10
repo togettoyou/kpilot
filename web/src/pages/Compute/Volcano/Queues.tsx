@@ -1,13 +1,14 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { App, Button, Popconfirm } from 'antd';
-import React, { useState } from 'react';
+import { App, Button, Popconfirm, Space, Spin, Tag, Typography } from 'antd';
+import React, { useContext, useState } from 'react';
 
 import type { WorkloadItem } from '@/services/kpilot/workload';
-import { getWorkload } from '@/services/kpilot/workload';
+import { WorkloadRefreshTickContext } from '@/pages/ClusterDetail/Workloads';
 import { sendCommand } from '@/services/kpilot/volcano';
 import { VolcanoCRPage } from './CRPage';
 import { QueueFormDrawer } from './QueueForm';
+import { fetchOnce } from './sharedFetch';
 
 const QUEUE_CR = {
   group: 'scheduling.volcano.sh',
@@ -31,14 +32,10 @@ const QUEUE_CR = {
 // cells (Volcano's CRD declares STATE as an additionalPrinterColumn)
 // and flip the row action label accordingly.
 export default function VolcanoQueuesPage() {
+  const intl = useIntl();
   return (
     <VolcanoCRPage
-      cr={{
-        group: 'scheduling.volcano.sh',
-        version: 'v1beta1',
-        kind: 'Queue',
-        scope: 'Cluster',
-      }}
+      cr={QUEUE_CR}
       extraToolbarButtons={({ refresh }) => (
         <QueueCreateButton key="new" refresh={refresh} />
       )}
@@ -52,8 +49,152 @@ export default function VolcanoQueuesPage() {
       replaceEditAction={(record, { refresh }) => (
         <QueueEditButton record={record} refresh={refresh} />
       )}
+      // Volcano's Queue CRD only ships PARENT as an additionalPrinter-
+      // Column, so the default Table API view has no state / weight /
+      // resource info. Inject two columns that fetch the full Queue
+      // object per row: one for state (compact tag), one for the
+      // richer resource picture (weight + capability + allocated +
+      // running PodGroup count). Same fetch backs both column cells
+      // and the row's open/close action — useRequest doesn't dedupe
+      // across instances, so we accept ~3 small GETs per row; Queue
+      // counts are usually < 50 in practice.
+      extraColumns={[
+        {
+          title: intl.formatMessage({
+            id: 'pages.compute.queue.col.state',
+          }),
+          key: 'state',
+          width: 90,
+          render: (_, record) => <QueueStateCell name={record.name} />,
+        },
+        {
+          title: intl.formatMessage({
+            id: 'pages.compute.queue.col.detail',
+          }),
+          key: 'detail',
+          width: 280,
+          render: (_, record) => <QueueDetailCell name={record.name} />,
+        },
+      ]}
     />
   );
+}
+
+// Small tag-only state cell. Reads .status.state from the per-row
+// Queue fetch.
+function QueueStateCell({ name }: { name: string }) {
+  const { id: clusterId } = useParams<{ id: string }>();
+  const tick = useContext(WorkloadRefreshTickContext);
+  const { data, loading } = useRequest(
+    () => fetchOnce(clusterId!, QUEUE_CR, name, '', tick),
+    {
+      formatResult: (res) => res,
+      ready: !!clusterId,
+      refreshDeps: [clusterId, name, tick],
+    },
+  );
+  if (loading && !data) return <Spin size="small" />;
+  const state =
+    (data as { status?: { state?: string } } | undefined)?.status?.state ?? '';
+  if (!state) return <Tag>未知</Tag>;
+  const color =
+    state === 'Open' ? 'green' : state === 'Closed' ? 'red' : 'orange';
+  return <Tag color={color}>{state}</Tag>;
+}
+
+// Rich resource summary: weight + capability + allocated + running
+// PodGroup count, stacked compactly. Fetches the same Queue object
+// independently from QueueStateCell — small redundancy, see comment
+// at the column definition above.
+function QueueDetailCell({ name }: { name: string }) {
+  const { id: clusterId } = useParams<{ id: string }>();
+  const tick = useContext(WorkloadRefreshTickContext);
+  const { data, loading } = useRequest(
+    () => fetchOnce(clusterId!, QUEUE_CR, name, '', tick),
+    {
+      formatResult: (res) => res,
+      ready: !!clusterId,
+      refreshDeps: [clusterId, name, tick],
+    },
+  );
+  if (loading && !data) return <Spin size="small" />;
+  const obj = data as
+    | {
+        spec?: {
+          weight?: number;
+          capability?: Record<string, string>;
+          parent?: string;
+        };
+        status?: {
+          allocated?: Record<string, string>;
+          running?: number;
+          pending?: number;
+          inqueue?: number;
+        };
+      }
+    | undefined;
+  if (!obj) return null;
+  const weight = obj.spec?.weight ?? 1;
+  const cap = obj.spec?.capability ?? {};
+  const alloc = obj.status?.allocated ?? {};
+  const summary = formatResources(alloc, cap);
+  const running = obj.status?.running ?? 0;
+  const pending = obj.status?.pending ?? 0;
+  const inqueue = obj.status?.inqueue ?? 0;
+  return (
+    <Space direction="vertical" size={2} style={{ lineHeight: 1.4 }}>
+      <Typography.Text style={{ fontSize: 12 }}>
+        权重 <strong>{weight}</strong>
+        {obj.spec?.parent && (
+          <span style={{ marginInlineStart: 8, color: 'var(--ant-color-text-tertiary)' }}>
+            父队列 {obj.spec.parent}
+          </span>
+        )}
+      </Typography.Text>
+      <Typography.Text
+        style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}
+      >
+        {summary || '资源未限制'}
+      </Typography.Text>
+      <Typography.Text
+        style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}
+      >
+        Running {running} · Pending {pending} · Inqueue {inqueue}
+      </Typography.Text>
+    </Space>
+  );
+}
+
+// formatResources turns an allocated map + capability map into a
+// compact "key A/B" summary. Skips keys that aren't in either map.
+// e.g. allocated={cpu:4} capability={cpu:10, memory:100Gi} ⇒
+// "cpu 4/10 · memory 0/100Gi".
+function formatResources(
+  alloc: Record<string, string>,
+  cap: Record<string, string>,
+): string {
+  const keys = new Set([...Object.keys(alloc), ...Object.keys(cap)]);
+  // Order: cpu first, memory second, then GPU keys, then everything else.
+  const order = (k: string) => {
+    if (k === 'cpu') return 0;
+    if (k === 'memory') return 1;
+    if (k.startsWith('volcano.sh/vgpu') || k.startsWith('nvidia.com/gpu'))
+      return 2;
+    return 3;
+  };
+  const sorted = [...keys].sort(
+    (a, b) => order(a) - order(b) || a.localeCompare(b),
+  );
+  return sorted
+    .map((k) => {
+      const a = alloc[k] ?? '0';
+      const c = cap[k];
+      const short = k.startsWith('volcano.sh/vgpu-')
+        ? k.slice('volcano.sh/'.length)
+        : k;
+      return c ? `${short} ${a}/${c}` : `${short} ${a}`;
+    })
+    .join(' · ');
 }
 
 // QueueCreateButton owns both the "新建队列" toolbar button and the
@@ -130,13 +271,14 @@ function QueueStateAction({
   const intl = useIntl();
   const { message } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
+  const tick = useContext(WorkloadRefreshTickContext);
 
   const stateReq = useRequest(
-    () => getWorkload(clusterId!, '_cr', record.name, '', QUEUE_CR),
+    () => fetchOnce(clusterId!, QUEUE_CR, record.name, '', tick),
     {
       formatResult: (res) => res,
       ready: !!clusterId,
-      refreshDeps: [clusterId, record.name],
+      refreshDeps: [clusterId, record.name, tick],
     },
   );
   const state: 'Open' | 'Closed' | 'Unknown' = (() => {
@@ -197,12 +339,21 @@ function QueueStateAction({
     }
   };
 
+  // Close = destructive, render danger so it's visually distinct
+  // from the safe "Open / Resume" action that flips the same button.
+  const isClose = flipping === 'CloseQueue';
   return (
     <Popconfirm
       title={intl.formatMessage({ id: confirmId }, { name: record.name })}
       onConfirm={onConfirm}
+      okType={isClose ? 'danger' : 'primary'}
     >
-      <Button type="link" size="small" loading={stateReq.loading && !stateReq.data}>
+      <Button
+        type="link"
+        size="small"
+        danger={isClose}
+        loading={stateReq.loading && !stateReq.data}
+      >
         {intl.formatMessage({ id: labelId })}
       </Button>
     </Popconfirm>
