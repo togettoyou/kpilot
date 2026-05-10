@@ -107,6 +107,31 @@ export default [
         path: '/compute/:id/overview',
         component: './Compute/Overview/index',
       },
+      // Volcano CR browsers — thin wrappers around the workload
+      // page's CR-instances component (WorkloadsContent), preset
+      // with the correct GVK so the user lands on a Volcano resource
+      // straight from the algorithm sider instead of going through
+      // /workloads/customresourcedefinitions.
+      {
+        path: '/compute/:id/queues',
+        component: './Compute/Volcano/Queues',
+      },
+      {
+        path: '/compute/:id/jobs',
+        component: './Compute/Volcano/Jobs',
+      },
+      {
+        path: '/compute/:id/cronjobs',
+        component: './Compute/Volcano/CronJobs',
+      },
+      {
+        path: '/compute/:id/podgroups',
+        component: './Compute/Volcano/PodGroups',
+      },
+      {
+        path: '/compute/:id/hypernodes',
+        component: './Compute/Volcano/HyperNodes',
+      },
     ],
   },
   // ─── 模型管理 — global model serving platform ─────────────────────────

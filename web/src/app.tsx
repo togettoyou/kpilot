@@ -455,9 +455,12 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
   ];
 }
 
-// buildComputeSubMenu — sider items for the Compute platform once a
-// cluster is selected. Phase 0 has only the resource overview; P5b
-// adds GPU monitoring, P5c+ adds task management / health / etc.
+// buildComputeSubMenu — sider items for the Compute Scheduling platform
+// once a cluster is selected. Volcano CR browsers (Queue, Job, CronJob,
+// PodGroup, HyperNode) are thin wrappers over the workload page's CR-
+// instances component, preset with the right GVK; they live under
+// /compute/:id/<kind> rather than /workloads/_cr so the URL keeps the
+// Compute sub-menu highlighted while users are inside it.
 function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
   const base = `/compute/${clusterId}`;
   return [
@@ -465,6 +468,31 @@ function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
       path: `${base}/overview`,
       name: 'overview',
       icon: <ThunderboltOutlined />,
+    },
+    {
+      path: `${base}/queues`,
+      name: 'queues',
+      icon: <DatabaseOutlined />,
+    },
+    {
+      path: `${base}/jobs`,
+      name: 'jobs',
+      icon: <BlockOutlined />,
+    },
+    {
+      path: `${base}/cronjobs`,
+      name: 'cronjobs',
+      icon: <BlockOutlined />,
+    },
+    {
+      path: `${base}/podgroups`,
+      name: 'podgroups',
+      icon: <AppstoreOutlined />,
+    },
+    {
+      path: `${base}/hypernodes`,
+      name: 'hypernodes',
+      icon: <DeploymentUnitOutlined />,
     },
   ];
 }

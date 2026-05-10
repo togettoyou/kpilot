@@ -310,16 +310,24 @@ interface WorkloadsContentProps {
   // alone is enough.
   resourceType: WorkloadResourceType | '_cr';
   cr?: CRRef;
+  // showCRBackArrow controls the small "back to CRD list" button next
+  // to the page title in CR-instances mode. Defaults to true (legacy
+  // path: user came from /workloads/customresourcedefinitions and the
+  // arrow takes them back). Set false for compute-platform mounts
+  // (Volcano Queue/Job/PodGroup wrappers under /compute/:id/...) where
+  // there's no CRDs list above and the arrow would be confusing.
+  showCRBackArrow?: boolean;
 }
 
 // ─── Inner component — remounts on resourceType change via key prop ────────
 
 const PAGE_SIZE = 100;
 
-function WorkloadsContent({
+export function WorkloadsContent({
   clusterId,
   resourceType,
   cr,
+  showCRBackArrow = true,
 }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -756,7 +764,7 @@ function WorkloadsContent({
                 tooltip — long kind names (ClientTrafficPolicy etc.)
                 already crowd the title row, so we can't afford the
                 "返回 CRD 列表" label here. */}
-            {resourceType === '_cr' && (
+            {resourceType === '_cr' && showCRBackArrow && (
               <Tooltip
                 title={intl.formatMessage({
                   id: 'pages.workloads.crd.backToList',
