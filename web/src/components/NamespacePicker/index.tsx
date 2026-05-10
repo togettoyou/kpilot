@@ -16,13 +16,27 @@ import {
 // State lives in the `namespace` model so navigating between workload sub-
 // pages (deployments → services → …) keeps the chosen namespace, and each
 // cluster has its own independent selection + list cache.
+
+// Volcano CR routes under /compute/:id/<kind> — split by scope so the
+// picker shows up exactly on the namespaced ones (Job, CronJob,
+// PodGroup) and stays hidden on cluster-scoped (Queue, HyperNode) +
+// the overview page.
+const COMPUTE_NAMESPACED_KINDS = new Set(['jobs', 'cronjobs', 'podgroups']);
+
 export function NamespacePicker() {
   const intl = useIntl();
   const { pathname, search } = useLocation();
 
-  const match = pathname.match(/^\/clusters\/([^/]+)\/workloads\/([^/]+)/);
-  const clusterId = match?.[1];
-  const resourceType = match?.[2];
+  // Two matchers: legacy /clusters/:id/workloads/:type (every K8s
+  // workload page in 集群管理) and /compute/:id/<volcano-kind> (the
+  // Volcano CR pages under 算力调度). The picker decides scope from
+  // whichever matched.
+  const clusterMatch = pathname.match(
+    /^\/clusters\/([^/]+)\/workloads\/([^/]+)/,
+  );
+  const computeMatch = pathname.match(/^\/compute\/([^/]+)\/([^/]+)/);
+  const clusterId = clusterMatch?.[1] ?? computeMatch?.[1];
+  const resourceType = clusterMatch?.[2] ?? computeMatch?.[2];
 
   const ns = useModel('namespace');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -54,17 +68,27 @@ export function NamespacePicker() {
   });
 
   // Nothing to pick on non-workload pages or on a cluster-scoped resource.
-  // For built-in workload kinds the cluster-scope decision comes from
-  // CLUSTER_SCOPED_TYPES; for the dynamic CR-instances viewer ('_cr')
-  // it comes from the `?scope=Cluster` URL query that openCRInstances
-  // attached based on the CRD's spec.scope. Mirrors the same logic in
-  // WorkloadsContent — keep both in lockstep so the picker hides on
-  // exactly the pages where the table also drops its namespace column.
-  const isClusterScoped =
-    resourceType === '_cr'
-      ? new URLSearchParams(search).get('scope') === 'Cluster'
-      : CLUSTER_SCOPED_TYPES.has(resourceType as WorkloadResourceType);
-  if (!clusterId || !resourceType || isClusterScoped) {
+  // Three branches:
+  //   - /compute/:id/<kind>  — only namespaced Volcano kinds get the
+  //     picker; everything else (overview, queues, hypernodes) hides
+  //   - /workloads/_cr       — scope is in the URL query (Cluster /
+  //     Namespaced) — see openCRInstances which attaches it from the
+  //     CRD's spec.scope
+  //   - /workloads/:type     — built-in kinds use CLUSTER_SCOPED_TYPES
+  // Mirrors the same logic in WorkloadsContent — keep both in lockstep
+  // so the picker hides on exactly the pages where the table also
+  // drops its namespace column.
+  let isNamespaced: boolean;
+  if (computeMatch) {
+    isNamespaced = COMPUTE_NAMESPACED_KINDS.has(resourceType ?? '');
+  } else if (resourceType === '_cr') {
+    isNamespaced = new URLSearchParams(search).get('scope') !== 'Cluster';
+  } else {
+    isNamespaced = !CLUSTER_SCOPED_TYPES.has(
+      resourceType as WorkloadResourceType,
+    );
+  }
+  if (!clusterId || !resourceType || !isNamespaced) {
     return null;
   }
 
