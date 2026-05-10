@@ -1,4 +1,4 @@
-import { applyYAML } from './workload';
+import { applyYAML, getWorkload, type CRRef } from './workload';
 
 // Volcano resource constructors + lifecycle command helpers.
 //
@@ -210,14 +210,50 @@ export function applyManifest(clusterId: string, manifest: unknown) {
   return applyYAML(clusterId, JSON.stringify(manifest));
 }
 
-export function sendCommand(
+// sendCommand resolves the target's UID (if the caller didn't pass
+// one) and then SSA-applies the Command. Volcano's webhook validates
+// `target` as an OwnerReference, which requires uid alongside
+// apiVersion / kind / name — without it the apply fails with
+// `target.uid: Required value`.
+export async function sendCommand(
   clusterId: string,
   action: VolcanoAction,
   target: CommandTarget,
   reason?: string,
 ) {
+  let uid = target.uid;
+  if (!uid) {
+    const cr: CRRef = {
+      ...parseApiVersion(target.apiVersion),
+      kind: target.kind,
+      // For cluster-scoped Volcano kinds (Queue, HyperNode) the
+      // caller passes no namespace; everything else is namespaced.
+      scope: target.namespace ? 'Namespaced' : 'Cluster',
+    };
+    const obj = await getWorkload(
+      clusterId,
+      '_cr',
+      target.name,
+      target.namespace ?? '',
+      cr,
+    );
+    uid = (obj as { metadata?: { uid?: string } } | undefined)?.metadata?.uid;
+    if (!uid) {
+      throw new Error(
+        `Could not resolve UID for ${target.kind} ${
+          target.namespace ? target.namespace + '/' : ''
+        }${target.name}; the resource may have been deleted.`,
+      );
+    }
+  }
   return applyManifest(
     clusterId,
-    buildCommandManifest(action, target, reason),
+    buildCommandManifest(action, { ...target, uid }, reason),
   );
+}
+
+function parseApiVersion(av: string): { group: string; version: string } {
+  const slash = av.indexOf('/');
+  if (slash < 0) return { group: '', version: av };
+  return { group: av.slice(0, slash), version: av.slice(slash + 1) };
 }

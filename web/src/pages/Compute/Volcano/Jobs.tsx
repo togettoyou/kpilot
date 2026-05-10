@@ -125,8 +125,12 @@ function JobLifecycleAction({
         intl.formatMessage({ id: 'pages.compute.job.commandSent' }),
       );
       refresh();
-    } catch {
-      // global toast
+    } catch (e: any) {
+      // sendCommand throws locally on uid resolution failure —
+      // surface that explicitly since the global request-error
+      // handler can't see it.
+      const msg = e?.response?.data?.message ?? e?.message;
+      if (msg) message.error(String(msg));
     }
   };
 

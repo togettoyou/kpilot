@@ -165,8 +165,13 @@ function QueueStateAction({
         }),
       );
       refresh();
-    } catch {
-      // global error handler already toasts
+    } catch (e: any) {
+      // sendCommand can throw a local Error (e.g. uid resolution) the
+      // request-error config doesn't see — surface the message
+      // explicitly. Network / API errors keep going through the
+      // global toast via the request layer.
+      const msg = e?.response?.data?.message ?? e?.message;
+      if (msg) message.error(String(msg));
     }
   };
 
