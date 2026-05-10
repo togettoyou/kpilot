@@ -55,6 +55,44 @@ devicePlugin:
 		DefaultReleaseNamespace: "kpilot-gpu",
 	},
 	{
+		Name:        "metrics-server",
+		DisplayName: "Metrics Server",
+		Description: "K8s Metrics API (metrics.k8s.io) implementation — powers kubectl top, HorizontalPodAutoscaler, VerticalPodAutoscaler, and KPilot's realtime CPU/memory readings on the node page. Different from kube-state-metrics: this exposes per-pod / per-node CPU + memory consumption (a snapshot) sourced from kubelet, while KSM exposes K8s object state (Deployment replicas, Pod phase, etc.) for Prometheus scraping.",
+		Category:    PluginCategoryMonitoring,
+		IsBuiltin:   true,
+		// Foundational tier — most other monitoring builtins consume what
+		// metrics-server provides (HPA targets, kubectl top, etc.), so
+		// render it first in the monitoring category.
+		SortOrder:      5,
+		ChartType:      ChartTypeRepo,
+		ChartRepo:      "https://kubernetes-sigs.github.io/metrics-server/",
+		ChartName:      "metrics-server",
+		DefaultVersion: "3.13.0",
+		// args (separate from chart's defaultArgs which the chart appends
+		// automatically) — `--kubelet-insecure-tls` is the dev-cluster
+		// blocker. OrbStack, kind, k3s and most local clusters use a
+		// self-signed kubelet cert; without this flag metrics-server
+		// can't scrape /metrics/resource and `kubectl top` returns
+		// "Metrics API not available". On managed clusters with proper
+		// kubelet PKI the user can drop this in the Enable drawer.
+		// Image registry/repository spelled out so private-mirror users
+		// have a ready hook (matches the shape of every other monitoring
+		// builtin).
+		DefaultValues: `image:
+  repository: registry.k8s.io/metrics-server/metrics-server
+  pullPolicy: IfNotPresent
+args:
+  - --kubelet-insecure-tls
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+`,
+		DefaultReleaseNamespace: "kpilot-monitoring",
+	},
+	{
 		Name:        "victoria-metrics",
 		DisplayName: "VictoriaMetrics",
 		Description: "Single-node TSDB for cluster metrics — long-term storage with a built-in Web UI. Pair with the victoria-metrics-agent plugin to scrape Kubernetes targets.",
