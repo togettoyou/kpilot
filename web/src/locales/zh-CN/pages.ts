@@ -208,9 +208,6 @@ export default {
   'pages.clusterPlugins.enableDrawer.version': '版本',
   'pages.clusterPlugins.enableDrawer.versionPlaceholder':
     '留空则使用默认 {default}',
-  'pages.clusterPlugins.enableDrawer.namespace': '安装命名空间',
-  'pages.clusterPlugins.enableDrawer.namespacePlaceholder':
-    '留空则使用默认 {default}',
   'pages.clusterPlugins.enableDrawer.submit': '启用',
   'pages.clusterPlugins.enableDrawer.reset': '重置为默认',
   'pages.clusterPlugins.enable.success': '已发起启用请求',
@@ -253,8 +250,6 @@ export default {
   'errors.PLUGIN_CHART_MISSING':
     '请配置 Chart 来源（仓库地址、OCI 引用或本地文件）',
   'errors.PLUGIN_UPLOAD_TOO_LARGE': '上传文件过大（最大 16MB）',
-  'errors.PLUGIN_NAMESPACE_LOCKED':
-    '已安装的插件不允许修改命名空间，请先禁用再以新命名空间重新启用',
   'errors.PLUGIN_IN_USE':
     '插件正在被某个集群启用中，请先在所有集群禁用后再删除',
   'errors.PLUGIN_UNINSTALLING': '插件正在卸载中，请等待卸载完成再启用',

@@ -355,15 +355,14 @@ func UploadPluginChart(c *gin.Context) {
 // those installed on this cluster carry their phase + values.
 type clusterPluginItem struct {
 	Plugin            *store.Plugin    `json:"plugin"`
-	Enabled           bool             `json:"enabled"`
-	Phase             store.PluginPhase `json:"phase"`
-	Message           string           `json:"message,omitempty"`
-	ObservedVersion   string           `json:"observed_version,omitempty"`
-	HelmRevision      int32            `json:"helm_revision,omitempty"`
-	InstalledAt       *time.Time       `json:"installed_at,omitempty"`
-	VersionOverride   string           `json:"version_override,omitempty"`
-	ValuesOverride    string           `json:"values_override,omitempty"`
-	NamespaceOverride string           `json:"release_namespace_override,omitempty"`
+	Enabled         bool              `json:"enabled"`
+	Phase           store.PluginPhase `json:"phase"`
+	Message         string            `json:"message,omitempty"`
+	ObservedVersion string            `json:"observed_version,omitempty"`
+	HelmRevision    int32             `json:"helm_revision,omitempty"`
+	InstalledAt     *time.Time        `json:"installed_at,omitempty"`
+	VersionOverride string            `json:"version_override,omitempty"`
+	ValuesOverride  string            `json:"values_override,omitempty"`
 }
 
 func ListClusterPlugins(c *gin.Context) {
@@ -399,7 +398,6 @@ func ListClusterPlugins(c *gin.Context) {
 			item.InstalledAt = cp.InstalledAt
 			item.VersionOverride = cp.VersionOverride
 			item.ValuesOverride = cp.ValuesOverride
-			item.NamespaceOverride = cp.ReleaseNamespaceOverride
 		}
 		out = append(out, item)
 	}
@@ -407,15 +405,13 @@ func ListClusterPlugins(c *gin.Context) {
 }
 
 type enableRequest struct {
-	VersionOverride          string `json:"version_override"`
-	ValuesOverride           string `json:"values_override"`
-	ReleaseNamespaceOverride string `json:"release_namespace_override"`
+	VersionOverride string `json:"version_override"`
+	ValuesOverride  string `json:"values_override"`
 }
 
 func (r *enableRequest) validate() string {
 	if len(r.VersionOverride) > maxPluginVersionLen ||
-		len(r.ValuesOverride) > maxPluginValuesLen ||
-		len(r.ReleaseNamespaceOverride) > maxPluginNamespaceLen {
+		len(r.ValuesOverride) > maxPluginValuesLen {
 		return CodeInvalidRequest
 	}
 	return ""
@@ -485,38 +481,15 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 				apiErr(c, http.StatusConflict, CodePluginUninstalling)
 				return
 			}
-			// Release-namespace lock: Helm release identity is (name,
-			// namespace), and our chart cache + reconciler track release
-			// state by the new namespace only. Letting the user change
-			// namespace after install would orphan the old release in
-			// the previous namespace with no Helm-aware path to clean
-			// it up. Refuse the change; the user can disable (which
-			// uninstalls from the OLD namespace) and then re-enable in
-			// the new one.
-			if existing.HelmRevision > 0 {
-				wantNS := req.ReleaseNamespaceOverride
-				if wantNS == "" {
-					wantNS = plugin.DefaultReleaseNamespace
-				}
-				haveNS := existing.ReleaseNamespaceOverride
-				if haveNS == "" {
-					haveNS = plugin.DefaultReleaseNamespace
-				}
-				if wantNS != haveNS {
-					apiErr(c, http.StatusBadRequest, CodePluginNamespaceLock)
-					return
-				}
-			}
 		}
 
 		cp := &store.ClusterPlugin{
-			ClusterID:                clusterID,
-			PluginID:                 plugin.ID,
-			Enabled:                  true,
-			VersionOverride:          req.VersionOverride,
-			ValuesOverride:           req.ValuesOverride,
-			ReleaseNamespaceOverride: req.ReleaseNamespaceOverride,
-			Phase:                    store.PluginPhasePending,
+			ClusterID:       clusterID,
+			PluginID:        plugin.ID,
+			Enabled:         true,
+			VersionOverride: req.VersionOverride,
+			ValuesOverride:  req.ValuesOverride,
+			Phase:           store.PluginPhasePending,
 		}
 
 		cmd, err := gw.BuildEnableCommand(plugin, cp)

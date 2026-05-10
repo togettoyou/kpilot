@@ -152,7 +152,6 @@ func UpsertClusterPlugin(cp *ClusterPlugin) error {
 			"enabled",
 			"version_override",
 			"values_override",
-			"release_namespace_override",
 			"phase",
 			"message",
 			"updated_at",

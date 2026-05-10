@@ -276,7 +276,7 @@ GPU 资源运营 + 任务调度平台。三层能力：
   - `oci` —— OCI registry（Helm 3.8+，`chart_repo` 存完整 `oci://` URL，`chart_name` 不用）。**v1 只支持公开 registry**
   - `local` —— 上传 .tgz blob，sha256 内容 dedupe
 - **删除保护**：自定义插件被任意集群启用中（`phase != Disabled`）→ 409 / `PLUGIN_IN_USE`
-- **Namespace 锁**：`helm_revision > 0` 后改 `release_namespace_override` → 400 / `PLUGIN_NAMESPACE_LOCKED`，避免 Helm release 在旧 ns 孤悬
+- **Namespace 不可自定义**：集群侧启用只接受 `version_override` + `values_override`，命名空间统一由 `Plugin.default_release_namespace`（管理员在 /plugins 编辑）决定。这样 Helm release identity (name, namespace) 在每个集群上稳定，避免后续运维误改 namespace 把旧 release 孤悬
 
 #### 4.1 启用机制
 

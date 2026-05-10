@@ -116,10 +116,7 @@ func resolveProxyTarget(clusterID, pluginName string) (releaseNS string, code st
 		return "", CodePluginNotRunning, fmt.Errorf("plugin not running")
 	}
 
-	releaseNS = cp.ReleaseNamespaceOverride
-	if releaseNS == "" {
-		releaseNS = plugin.DefaultReleaseNamespace
-	}
+	releaseNS = plugin.DefaultReleaseNamespace
 	proxyResolveMu.Lock()
 	proxyResolveCache[key] = proxyResolveEntry{
 		releaseNS: releaseNS,

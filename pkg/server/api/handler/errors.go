@@ -27,7 +27,6 @@ const (
 	CodePluginBuiltinLocked  = "PLUGIN_BUILTIN_LOCKED"
 	CodePluginChartMissing   = "PLUGIN_CHART_MISSING"
 	CodePluginUploadTooLarge = "PLUGIN_UPLOAD_TOO_LARGE"
-	CodePluginNamespaceLock  = "PLUGIN_NAMESPACE_LOCKED"
 	CodePluginInUse          = "PLUGIN_IN_USE"
 	CodePluginUninstalling   = "PLUGIN_UNINSTALLING"
 	CodePluginNotEnabled     = "PLUGIN_NOT_ENABLED"

@@ -127,9 +127,8 @@ type ClusterPlugin struct {
 	Enabled bool `gorm:"not null;default:false" json:"enabled"`
 
 	// Per-cluster overrides on top of Plugin's defaults. Empty = use default.
-	VersionOverride          string `gorm:"type:varchar(64)" json:"version_override"`
-	ValuesOverride           string `gorm:"type:text" json:"values_override"`
-	ReleaseNamespaceOverride string `gorm:"type:varchar(63)" json:"release_namespace_override"`
+	VersionOverride string `gorm:"type:varchar(64)" json:"version_override"`
+	ValuesOverride  string `gorm:"type:text" json:"values_override"`
 
 	// Status mirrored from PluginStatusPush
 	Phase              PluginPhase `gorm:"type:varchar(20);not null;default:'Disabled'" json:"phase"`

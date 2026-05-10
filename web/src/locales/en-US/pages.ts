@@ -219,9 +219,6 @@ export default {
   'pages.clusterPlugins.enableDrawer.version': 'Version',
   'pages.clusterPlugins.enableDrawer.versionPlaceholder':
     'Leave empty for default ({default})',
-  'pages.clusterPlugins.enableDrawer.namespace': 'Install namespace',
-  'pages.clusterPlugins.enableDrawer.namespacePlaceholder':
-    'Leave empty for default ({default})',
   'pages.clusterPlugins.enableDrawer.submit': 'Enable',
   'pages.clusterPlugins.enableDrawer.reset': 'Reset to defaults',
   'pages.clusterPlugins.enable.success': 'Enable request submitted',
@@ -267,8 +264,6 @@ export default {
   'errors.PLUGIN_CHART_MISSING':
     'Please configure a chart source (repo URL, OCI reference, or local file)',
   'errors.PLUGIN_UPLOAD_TOO_LARGE': 'File too large (max 16MB)',
-  'errors.PLUGIN_NAMESPACE_LOCKED':
-    'Cannot change install namespace after installation. Disable first, then re-enable in the new namespace.',
   'errors.PLUGIN_IN_USE':
     'Plugin is currently enabled on at least one cluster. Disable it everywhere before deleting.',
   'errors.PLUGIN_UNINSTALLING':

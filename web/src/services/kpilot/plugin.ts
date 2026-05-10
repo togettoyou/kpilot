@@ -55,7 +55,6 @@ export interface ClusterPluginItem {
   installed_at?: string;
   version_override?: string;
   values_override?: string;
-  release_namespace_override?: string;
 }
 
 // Body sent on create / update of a registry plugin entry.
@@ -123,7 +122,6 @@ export function listClusterPlugins(clusterId: string) {
 export interface EnableParams {
   values_override?: string;
   version_override?: string;
-  release_namespace_override?: string;
 }
 
 export function enablePlugin(

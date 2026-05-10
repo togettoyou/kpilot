@@ -206,10 +206,7 @@ func (g *GatewayServer) BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlu
 	if version == "" {
 		version = p.DefaultVersion
 	}
-	releaseNS := cp.ReleaseNamespaceOverride
-	if releaseNS == "" {
-		releaseNS = p.DefaultReleaseNamespace
-	}
+	releaseNS := p.DefaultReleaseNamespace
 	chart := &proto.ChartSource{
 		Type:    string(p.ChartType),
 		Name:    p.ChartName,

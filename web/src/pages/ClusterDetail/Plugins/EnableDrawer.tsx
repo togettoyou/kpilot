@@ -32,19 +32,18 @@ export function EnableDrawer({
 }: EnableDrawerProps) {
   const intl = useIntl();
   const { message } = App.useApp();
-  const [form] = Form.useForm<{ version: string; namespace: string }>();
+  const [form] = Form.useForm<{ version: string }>();
   const [values, setValues] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // Pre-fill values from the existing per-cluster override (if the user
   // is re-enabling something they previously customized) or from the
-  // registry's default. Same for namespace + version.
+  // registry's default. Same for version.
   useEffect(() => {
     if (!open || !target) return;
     setValues(target.values_override || target.plugin.default_values || '');
     form.setFieldsValue({
       version: target.version_override || '',
-      namespace: target.release_namespace_override || '',
     });
   }, [open, target, form]);
 
@@ -55,7 +54,7 @@ export function EnableDrawer({
   const handleReset = () => {
     if (!target) return;
     setValues(target.plugin.default_values || '');
-    form.setFieldsValue({ version: '', namespace: '' });
+    form.setFieldsValue({ version: '' });
   };
 
   const handleSubmit = async () => {
@@ -66,7 +65,6 @@ export function EnableDrawer({
       await enablePlugin(clusterId, target.plugin.name, {
         values_override: values,
         version_override: fv.version,
-        release_namespace_override: fv.namespace,
       });
       message.success(
         intl.formatMessage({ id: 'pages.clusterPlugins.enable.success' }),
@@ -149,24 +147,6 @@ export function EnableDrawer({
                 { default: target.plugin.default_version || '—' },
               )}
               maxLength={64}
-            />
-          </Form.Item>
-          <Form.Item
-            name="namespace"
-            label={intl.formatMessage({
-              id: 'pages.clusterPlugins.enableDrawer.namespace',
-            })}
-          >
-            <Input
-              placeholder={intl.formatMessage(
-                {
-                  id: 'pages.clusterPlugins.enableDrawer.namespacePlaceholder',
-                },
-                {
-                  default: target.plugin.default_release_namespace || '—',
-                },
-              )}
-              maxLength={63}
             />
           </Form.Item>
           <Form.Item
