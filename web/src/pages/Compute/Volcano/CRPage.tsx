@@ -1,7 +1,7 @@
 import { useParams } from '@umijs/max';
 import React from 'react';
 
-import type { CRRef } from '@/services/kpilot/workload';
+import type { CRRef, WorkloadItem } from '@/services/kpilot/workload';
 import { WorkloadsContent } from '@/pages/ClusterDetail/Workloads';
 
 // CRPage mounts the WorkloadsContent CR-instances browser at a fixed
@@ -22,7 +22,23 @@ import { WorkloadsContent } from '@/pages/ClusterDetail/Workloads';
 // "this CRD or feature gate isn't available" — for Volcano the right
 // answer is always "install the Volcano plugin", so we point users
 // directly at /clusters/:id/plugins instead.
-export function VolcanoCRPage({ cr }: { cr: CRRef }) {
+interface VolcanoCRPageProps {
+  cr: CRRef;
+  // Forwarded to WorkloadsContent — wrappers use these to add a
+  // "新建 X" toolbar button + per-row lifecycle actions (Open/Close
+  // for Queue, Resume/Suspend for Job, etc.).
+  extraToolbarButtons?: (ctx: { refresh: () => void }) => React.ReactNode;
+  extraRowActions?: (
+    record: WorkloadItem,
+    ctx: { refresh: () => void },
+  ) => React.ReactNode;
+}
+
+export function VolcanoCRPage({
+  cr,
+  extraToolbarButtons,
+  extraRowActions,
+}: VolcanoCRPageProps) {
   const { id: clusterId } = useParams<{ id: string }>();
   if (!clusterId) return null;
   return (
@@ -37,6 +53,8 @@ export function VolcanoCRPage({ cr }: { cr: CRRef }) {
         subTitleId: 'pages.compute.volcano.notInstalled.subTitle',
         actionLabelId: 'pages.compute.volcano.notInstalled.action',
       }}
+      extraToolbarButtons={extraToolbarButtons}
+      extraRowActions={extraRowActions}
     />
   );
 }

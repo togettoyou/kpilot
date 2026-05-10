@@ -328,6 +328,16 @@ interface WorkloadsContentProps {
     subTitleId: string;
     actionLabelId: string;
   };
+  // Extension hooks for callers that want to bolt on resource-specific
+  // UX (e.g. the Volcano CR pages add a "新建队列" button + lifecycle
+  // action buttons per row). Each receives the row's `refresh` callback
+  // so the bolted-on action can re-fetch the table after a successful
+  // mutation without tunneling state through the parent.
+  extraToolbarButtons?: (ctx: { refresh: () => void }) => React.ReactNode;
+  extraRowActions?: (
+    record: WorkloadItem,
+    ctx: { refresh: () => void },
+  ) => React.ReactNode;
 }
 
 // ─── Inner component — remounts on resourceType change via key prop ────────
@@ -340,6 +350,8 @@ export function WorkloadsContent({
   cr,
   showCRBackArrow = true,
   notAvailableHint,
+  extraToolbarButtons,
+  extraRowActions,
 }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -615,8 +627,15 @@ export function WorkloadsContent({
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       valueType: 'option',
       // Pods: extra top+logs+exec buttons; CRDs: extra "view instances"
-      // button. Both bump the action column width.
-      width: isPods ? 280 : isCRDPage ? 220 : 150,
+      // button; Volcano CRs: extra lifecycle actions (Open/Close,
+      // Resume/Suspend). Bumping the action column width per case.
+      width: isPods
+        ? 280
+        : isCRDPage
+          ? 220
+          : extraRowActions
+            ? 240
+            : 150,
       fixed: 'right',
       render: (_, record) => {
         // Mirror the backend's protected lists:
@@ -716,6 +735,7 @@ export function WorkloadsContent({
         return [
           podActions,
           crInstancesBtn,
+          extraRowActions?.(record, { refresh }),
           describeBtn,
           <Button
             key="edit"
@@ -742,7 +762,18 @@ export function WorkloadsContent({
       },
     };
     return [...buildColumns(colDefs, intl, isClusterScoped), actionsColumn];
-  }, [colDefs, intl, isClusterScoped, isPods, openEditor, handleDelete]);
+  }, [
+    colDefs,
+    intl,
+    isClusterScoped,
+    isPods,
+    openEditor,
+    handleDelete,
+    extraRowActions,
+    refresh,
+    isProtectedCRGroup,
+    resourceType,
+  ]);
 
   if (notAvailable) {
     const titleId = notAvailableHint?.titleId ?? 'errors.RESOURCE_NOT_AVAILABLE';
@@ -846,6 +877,14 @@ export function WorkloadsContent({
             onChange={(e) => setSearch(e.target.value)}
             style={{ width: 240 }}
           />,
+          // Wrapper-supplied extras (e.g. "新建队列" / "新建作业" on the
+          // Volcano CR pages) sit before the generic Apply YAML button
+          // so they're the most prominent action on the right side.
+          extraToolbarButtons ? (
+            <React.Fragment key="extras">
+              {extraToolbarButtons({ refresh })}
+            </React.Fragment>
+          ) : null,
           <Button
             key="apply"
             type="primary"
