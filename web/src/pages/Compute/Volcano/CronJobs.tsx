@@ -14,7 +14,6 @@ import { CronJobFormDrawer } from './CronJobForm';
 // CronJob; we patch the bool through /apply (SSA), no Command CR
 // involved.
 export default function VolcanoCronJobsPage() {
-  const intl = useIntl();
   return (
     <VolcanoCRPage
       cr={{
@@ -29,18 +28,8 @@ export default function VolcanoCronJobsPage() {
       extraRowActions={(record, { refresh }) => (
         <CronJobSuspendAction key="suspend" record={record} refresh={refresh} />
       )}
-      replaceEditAction={(record, { refresh, openYamlEditor }) => (
-        <>
-          <CronJobEditButton record={record} refresh={refresh} />
-          <Button
-            key="yaml"
-            type="link"
-            size="small"
-            onClick={() => openYamlEditor(record)}
-          >
-            {intl.formatMessage({ id: 'pages.workloads.editYaml' })}
-          </Button>
-        </>
+      replaceEditAction={(record, { refresh }) => (
+        <CronJobEditButton record={record} refresh={refresh} />
       )}
     />
   );

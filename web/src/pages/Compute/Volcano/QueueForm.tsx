@@ -1,5 +1,6 @@
 import { useIntl } from '@umijs/max';
 import {
+  Alert,
   App,
   Button,
   Drawer,
@@ -9,9 +10,12 @@ import {
   Space,
   Spin,
   Switch,
+  Tabs,
 } from 'antd';
+import yaml from 'js-yaml';
 import React, { useEffect, useState } from 'react';
 
+import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import {
   applyManifest,
   buildQueueManifest,
@@ -49,11 +53,20 @@ const QUEUE_CR = {
   scope: 'Cluster' as const,
 };
 
-// QueueFormDrawer creates or edits a Volcano Queue. Edit mode reuses
-// the same form layout — only the name input is locked because K8s
-// doesn't allow renaming. SSA-apply on submit, so any spec field the
-// form doesn't expose stays under whoever else's field manager owns
-// it (e.g. a manual `kubectl edit` carve-out).
+// QueueFormDrawer creates or edits a Volcano Queue. Two views share
+// one drawer + one source of truth:
+//
+//   - 表单 view: antd Form covering the common knobs (weight,
+//     capability quotas, reclaimable, parent).
+//   - YAML view: the same manifest as raw YAML, in the workload
+//     page's CodeMirror editor.
+//
+// Switching tabs round-trips through the manifest object: form →
+// buildQueueManifest → yaml.dump for the form→yaml direction; yaml.load
+// → formValuesFromManifest for the reverse. A parse failure on the
+// reverse direction shows an inline Alert and blocks the switch so the
+// user keeps their YAML draft. Submit reads from whichever view is
+// active so users get out exactly what they see.
 export function QueueFormDrawer({
   open,
   clusterId,
@@ -66,6 +79,9 @@ export function QueueFormDrawer({
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<'form' | 'yaml'>('form');
+  const [yamlText, setYamlText] = useState('');
+  const [yamlError, setYamlError] = useState<string | null>(null);
 
   const isEdit = !!editing;
 
@@ -73,6 +89,9 @@ export function QueueFormDrawer({
     if (!open) return;
     let cancelled = false;
     form.resetFields();
+    setView('form');
+    setYamlText('');
+    setYamlError(null);
     if (!editing) {
       form.setFieldsValue({ weight: 1, reclaimable: true });
       return;
@@ -81,20 +100,7 @@ export function QueueFormDrawer({
     getWorkload(clusterId, '_cr', editing.name, '', QUEUE_CR)
       .then((obj: any) => {
         if (cancelled) return;
-        const spec = obj?.spec ?? {};
-        const cap = (spec.capability ?? {}) as Record<string, string>;
-        form.setFieldsValue({
-          name: editing.name,
-          weight: spec.weight ?? 1,
-          reclaimable:
-            typeof spec.reclaimable === 'boolean' ? spec.reclaimable : true,
-          parent: spec.parent ?? undefined,
-          capability_cpu: cap['cpu'],
-          capability_memory: cap['memory'],
-          capability_vgpu_number: cap['volcano.sh/vgpu-number'],
-          capability_vgpu_memory: cap['volcano.sh/vgpu-memory'],
-          capability_vgpu_cores: cap['volcano.sh/vgpu-cores'],
-        });
+        form.setFieldsValue(formValuesFromManifest(obj, editing.name));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -104,35 +110,65 @@ export function QueueFormDrawer({
     };
   }, [open, editing, clusterId, form]);
 
+  const handleSwitchView = (next: string) => {
+    if (next === view) return;
+    if (next === 'yaml') {
+      // Form → YAML: build the manifest from current form values
+      // (no validation — the user may not have filled required
+      // fields yet, but they should still see / edit the partial
+      // manifest as YAML).
+      const fv = form.getFieldsValue();
+      try {
+        const manifest = buildQueueManifest(fvToInput(fv));
+        setYamlText(yaml.dump(manifest));
+        setYamlError(null);
+        setView('yaml');
+      } catch (e: any) {
+        setYamlError(String(e?.message ?? e));
+      }
+    } else {
+      // YAML → Form: parse, project back to form values.
+      try {
+        const parsed = yaml.load(yamlText) as any;
+        if (!parsed || typeof parsed !== 'object') {
+          setYamlError('YAML is empty or not an object');
+          return;
+        }
+        const name = parsed?.metadata?.name ?? form.getFieldValue('name');
+        form.setFieldsValue(formValuesFromManifest(parsed, name));
+        setYamlError(null);
+        setView('form');
+      } catch (e: any) {
+        setYamlError(String(e?.message ?? e));
+      }
+    }
+  };
+
   const handleSubmit = async () => {
-    let v: FormValues;
-    try {
-      v = await form.validateFields();
-    } catch {
-      return;
+    let manifest: unknown;
+    if (view === 'form') {
+      let v: FormValues;
+      try {
+        v = await form.validateFields();
+      } catch {
+        return;
+      }
+      manifest = buildQueueManifest(fvToInput(v));
+    } else {
+      try {
+        manifest = yaml.load(yamlText);
+      } catch (e: any) {
+        message.error(`YAML parse failed: ${e?.message ?? e}`);
+        return;
+      }
+      if (!manifest || typeof manifest !== 'object') {
+        message.error('YAML is empty or not an object');
+        return;
+      }
     }
-    const capability: Record<string, string> = {};
-    if (v.capability_cpu) capability['cpu'] = v.capability_cpu;
-    if (v.capability_memory) capability['memory'] = v.capability_memory;
-    if (v.capability_vgpu_number) {
-      capability['volcano.sh/vgpu-number'] = v.capability_vgpu_number;
-    }
-    if (v.capability_vgpu_memory) {
-      capability['volcano.sh/vgpu-memory'] = v.capability_vgpu_memory;
-    }
-    if (v.capability_vgpu_cores) {
-      capability['volcano.sh/vgpu-cores'] = v.capability_vgpu_cores;
-    }
-    const input: QueueInput = {
-      name: v.name,
-      weight: v.weight,
-      reclaimable: v.reclaimable,
-      parent: v.parent,
-      capability,
-    };
     setSubmitting(true);
     try {
-      const res = await applyManifest(clusterId, buildQueueManifest(input));
+      const res = await applyManifest(clusterId, manifest);
       const fail = res?.results?.find((r) => !r.success);
       if (fail) {
         message.error(fail.error ?? 'apply failed');
@@ -163,7 +199,7 @@ export function QueueFormDrawer({
           ? 'pages.compute.queueForm.editTitle'
           : 'pages.compute.queueForm.title',
       })}
-      size={560}
+      size={620}
       maskClosable={false}
       destroyOnHidden
       footer={
@@ -181,109 +217,199 @@ export function QueueFormDrawer({
         </Space>
       }
     >
+      <Tabs
+        activeKey={view}
+        onChange={handleSwitchView}
+        size="small"
+        style={{ marginBottom: 12 }}
+        items={[
+          {
+            key: 'form',
+            label: intl.formatMessage({ id: 'pages.compute.form.tab.form' }),
+          },
+          {
+            key: 'yaml',
+            label: intl.formatMessage({ id: 'pages.compute.form.tab.yaml' }),
+          },
+        ]}
+      />
+      {yamlError && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          onClose={() => setYamlError(null)}
+          style={{ marginBottom: 12 }}
+          message={intl.formatMessage({ id: 'pages.compute.form.yamlError' })}
+          description={yamlError}
+        />
+      )}
       <Spin spinning={loading}>
-        <Form<FormValues> form={form} layout="vertical">
-          <Form.Item
-            name="name"
-            label={intl.formatMessage({
-              id: 'pages.compute.queueForm.name',
-            })}
-            rules={[
-              { required: true },
-              {
-                pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
-                message: 'DNS-1123',
-              },
-            ]}
-            extra={intl.formatMessage({
-              id: 'pages.compute.queueForm.name.extra',
-            })}
-          >
-            <Input maxLength={63} placeholder="my-queue" disabled={isEdit} />
-          </Form.Item>
+        {view === 'form' ? (
+          <Form<FormValues> form={form} layout="vertical">
+            <Form.Item
+              name="name"
+              label={intl.formatMessage({
+                id: 'pages.compute.queueForm.name',
+              })}
+              rules={[
+                { required: true },
+                {
+                  pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
+                  message: 'DNS-1123',
+                },
+              ]}
+              extra={intl.formatMessage({
+                id: 'pages.compute.queueForm.name.extra',
+              })}
+            >
+              <Input maxLength={63} placeholder="my-queue" disabled={isEdit} />
+            </Form.Item>
 
-          <Form.Item
-            name="weight"
-            label={intl.formatMessage({ id: 'pages.compute.queueForm.weight' })}
-            rules={[{ required: true }]}
-            extra={intl.formatMessage({
-              id: 'pages.compute.queueForm.weight.extra',
-            })}
-          >
-            <InputNumber min={1} max={65535} style={{ width: 160 }} />
-          </Form.Item>
+            <Form.Item
+              name="weight"
+              label={intl.formatMessage({
+                id: 'pages.compute.queueForm.weight',
+              })}
+              rules={[{ required: true }]}
+              extra={intl.formatMessage({
+                id: 'pages.compute.queueForm.weight.extra',
+              })}
+            >
+              <InputNumber min={1} max={65535} style={{ width: 160 }} />
+            </Form.Item>
 
-          <Form.Item
-            name="reclaimable"
-            label={intl.formatMessage({
-              id: 'pages.compute.queueForm.reclaimable',
-            })}
-            valuePropName="checked"
-            extra={intl.formatMessage({
-              id: 'pages.compute.queueForm.reclaimable.extra',
-            })}
-          >
-            <Switch />
-          </Form.Item>
+            <Form.Item
+              name="reclaimable"
+              label={intl.formatMessage({
+                id: 'pages.compute.queueForm.reclaimable',
+              })}
+              valuePropName="checked"
+              extra={intl.formatMessage({
+                id: 'pages.compute.queueForm.reclaimable.extra',
+              })}
+            >
+              <Switch />
+            </Form.Item>
 
-          <Form.Item
-            name="parent"
-            label={intl.formatMessage({ id: 'pages.compute.queueForm.parent' })}
-            extra={intl.formatMessage({
-              id: 'pages.compute.queueForm.parent.extra',
-            })}
-          >
-            <Input placeholder="root" />
-          </Form.Item>
+            <Form.Item
+              name="parent"
+              label={intl.formatMessage({
+                id: 'pages.compute.queueForm.parent',
+              })}
+              extra={intl.formatMessage({
+                id: 'pages.compute.queueForm.parent.extra',
+              })}
+            >
+              <Input placeholder="root" />
+            </Form.Item>
 
-          <div style={{ marginTop: 24, marginBottom: 8, fontWeight: 500 }}>
-            {intl.formatMessage({ id: 'pages.compute.queueForm.capability' })}
-          </div>
+            <div style={{ marginTop: 24, marginBottom: 8, fontWeight: 500 }}>
+              {intl.formatMessage({
+                id: 'pages.compute.queueForm.capability',
+              })}
+            </div>
+            <div
+              style={{
+                marginBottom: 16,
+                color: 'var(--ant-color-text-tertiary)',
+                fontSize: 12,
+              }}
+            >
+              {intl.formatMessage({
+                id: 'pages.compute.queueForm.capability.extra',
+              })}
+            </div>
+
+            <Form.Item
+              name="capability_cpu"
+              label="cpu"
+              tooltip="K8s 资源数量字符串。例如 10、500m"
+            >
+              <Input placeholder="10" maxLength={32} />
+            </Form.Item>
+            <Form.Item
+              name="capability_memory"
+              label="memory"
+              tooltip="K8s 资源数量字符串。例如 100Gi、512Mi"
+            >
+              <Input placeholder="100Gi" maxLength={32} />
+            </Form.Item>
+            <Form.Item
+              name="capability_vgpu_number"
+              label="volcano.sh/vgpu-number"
+            >
+              <Input placeholder="8" maxLength={32} />
+            </Form.Item>
+            <Form.Item
+              name="capability_vgpu_memory"
+              label="volcano.sh/vgpu-memory"
+              tooltip="单位 MiB"
+            >
+              <Input placeholder="40000" maxLength={32} />
+            </Form.Item>
+            <Form.Item
+              name="capability_vgpu_cores"
+              label="volcano.sh/vgpu-cores"
+              tooltip="百分比 0-100"
+            >
+              <Input placeholder="100" maxLength={32} />
+            </Form.Item>
+          </Form>
+        ) : (
           <div
             style={{
-              marginBottom: 16,
-              color: 'var(--ant-color-text-tertiary)',
-              fontSize: 12,
+              border: '1px solid var(--ant-color-border)',
+              borderRadius: 4,
             }}
           >
-            {intl.formatMessage({
-              id: 'pages.compute.queueForm.capability.extra',
-            })}
+            <YamlEditor value={yamlText} onChange={setYamlText} />
           </div>
-
-          <Form.Item
-            name="capability_cpu"
-            label="cpu"
-            tooltip="K8s 资源数量字符串。例如 10、500m"
-          >
-            <Input placeholder="10" maxLength={32} />
-          </Form.Item>
-          <Form.Item
-            name="capability_memory"
-            label="memory"
-            tooltip="K8s 资源数量字符串。例如 100Gi、512Mi"
-          >
-            <Input placeholder="100Gi" maxLength={32} />
-          </Form.Item>
-          <Form.Item name="capability_vgpu_number" label="volcano.sh/vgpu-number">
-            <Input placeholder="8" maxLength={32} />
-          </Form.Item>
-          <Form.Item
-            name="capability_vgpu_memory"
-            label="volcano.sh/vgpu-memory"
-            tooltip="单位 MiB"
-          >
-            <Input placeholder="40000" maxLength={32} />
-          </Form.Item>
-          <Form.Item
-            name="capability_vgpu_cores"
-            label="volcano.sh/vgpu-cores"
-            tooltip="百分比 0-100"
-          >
-            <Input placeholder="100" maxLength={32} />
-          </Form.Item>
-        </Form>
+        )}
       </Spin>
     </Drawer>
   );
+}
+
+// fvToInput translates the form's flat field shape into the
+// QueueInput contract buildQueueManifest expects.
+function fvToInput(v: FormValues): QueueInput {
+  const capability: Record<string, string> = {};
+  if (v.capability_cpu) capability['cpu'] = v.capability_cpu;
+  if (v.capability_memory) capability['memory'] = v.capability_memory;
+  if (v.capability_vgpu_number) {
+    capability['volcano.sh/vgpu-number'] = v.capability_vgpu_number;
+  }
+  if (v.capability_vgpu_memory) {
+    capability['volcano.sh/vgpu-memory'] = v.capability_vgpu_memory;
+  }
+  if (v.capability_vgpu_cores) {
+    capability['volcano.sh/vgpu-cores'] = v.capability_vgpu_cores;
+  }
+  return {
+    name: v.name ?? '',
+    weight: v.weight ?? 1,
+    reclaimable: v.reclaimable,
+    parent: v.parent,
+    capability,
+  };
+}
+
+// formValuesFromManifest reverses the manifest → form mapping. Used
+// both on initial load (edit mode) and on YAML → form switch.
+function formValuesFromManifest(obj: any, fallbackName: string): FormValues {
+  const spec = obj?.spec ?? {};
+  const cap = (spec.capability ?? {}) as Record<string, string>;
+  return {
+    name: obj?.metadata?.name ?? fallbackName,
+    weight: typeof spec.weight === 'number' ? spec.weight : 1,
+    reclaimable:
+      typeof spec.reclaimable === 'boolean' ? spec.reclaimable : true,
+    parent: spec.parent ?? undefined,
+    capability_cpu: cap['cpu'],
+    capability_memory: cap['memory'],
+    capability_vgpu_number: cap['volcano.sh/vgpu-number'],
+    capability_vgpu_memory: cap['volcano.sh/vgpu-memory'],
+    capability_vgpu_cores: cap['volcano.sh/vgpu-cores'],
+  };
 }

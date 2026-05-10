@@ -23,7 +23,6 @@ import { QueueFormDrawer } from './QueueForm';
 // cells (Volcano's CRD declares STATE as an additionalPrinterColumn)
 // and flip the row action label accordingly.
 export default function VolcanoQueuesPage() {
-  const intl = useIntl();
   return (
     <VolcanoCRPage
       cr={{
@@ -42,18 +41,8 @@ export default function VolcanoQueuesPage() {
           refresh={refresh}
         />
       )}
-      replaceEditAction={(record, { refresh, openYamlEditor }) => (
-        <>
-          <QueueEditButton record={record} refresh={refresh} />
-          <Button
-            key="yaml"
-            type="link"
-            size="small"
-            onClick={() => openYamlEditor(record)}
-          >
-            {intl.formatMessage({ id: 'pages.workloads.editYaml' })}
-          </Button>
-        </>
+      replaceEditAction={(record, { refresh }) => (
+        <QueueEditButton record={record} refresh={refresh} />
       )}
     />
   );

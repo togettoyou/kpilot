@@ -17,7 +17,6 @@ import { JobFormDrawer } from './JobForm';
 //      action set `vcctl job` exposes; we group them under one
 //      "操作" dropdown to keep the action column readable.
 export default function VolcanoJobsPage() {
-  const intl = useIntl();
   return (
     <VolcanoCRPage
       cr={{
@@ -32,18 +31,8 @@ export default function VolcanoJobsPage() {
       extraRowActions={(record, { refresh }) => (
         <JobLifecycleAction key="lc" record={record} refresh={refresh} />
       )}
-      replaceEditAction={(record, { refresh, openYamlEditor }) => (
-        <>
-          <JobEditButton record={record} refresh={refresh} />
-          <Button
-            key="yaml"
-            type="link"
-            size="small"
-            onClick={() => openYamlEditor(record)}
-          >
-            {intl.formatMessage({ id: 'pages.workloads.editYaml' })}
-          </Button>
-        </>
+      replaceEditAction={(record, { refresh }) => (
+        <JobEditButton record={record} refresh={refresh} />
       )}
     />
   );

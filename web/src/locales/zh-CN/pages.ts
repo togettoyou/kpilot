@@ -24,6 +24,11 @@ export default {
     'Queue / Job / PodGroup 等资源由 Volcano 调度器提供，请先在该集群启用 Volcano 插件后再访问。',
   'pages.compute.volcano.notInstalled.action': '前往插件管理启用 Volcano',
 
+  // 表单 / YAML 双视图共享文案
+  'pages.compute.form.tab.form': '表单',
+  'pages.compute.form.tab.yaml': 'YAML',
+  'pages.compute.form.yamlError': 'YAML 解析失败，无法切换',
+
   // Queue 表单 + 操作
   'pages.compute.queue.create': '新建队列',
   'pages.compute.queue.action.open': '开启',
@@ -416,7 +421,6 @@ export default {
   'pages.workloads.top.unavailable.subtitle': '请确认 Metrics Server 插件已启用',
   'pages.workloads.top.unavailable.action': '前往插件管理',
   'pages.workloads.describe': '详情',
-  'pages.workloads.editYaml': 'YAML',
   'pages.workloads.crd.viewInstances': '查看实例',
   'pages.workloads.crd.invalidSpec':
     'CRD spec 无效——缺少 group/version/kind，无法查看实例',

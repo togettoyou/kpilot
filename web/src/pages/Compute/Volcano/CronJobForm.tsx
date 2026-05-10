@@ -1,6 +1,7 @@
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useIntl, useModel } from '@umijs/max';
 import {
+  Alert,
   App,
   Button,
   Card,
@@ -11,9 +12,12 @@ import {
   Select,
   Space,
   Spin,
+  Tabs,
 } from 'antd';
+import yaml from 'js-yaml';
 import React, { useEffect, useState } from 'react';
 
+import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import {
   applyManifest,
   buildCronJobManifest,
@@ -83,6 +87,9 @@ export function CronJobFormDrawer({
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<'form' | 'yaml'>('form');
+  const [yamlText, setYamlText] = useState('');
+  const [yamlError, setYamlError] = useState<string | null>(null);
 
   const isEdit = !!editing;
   const namespaceOptions = (ns.get(clusterId).list ?? []).map((n) => ({
@@ -94,6 +101,9 @@ export function CronJobFormDrawer({
     if (!open) return;
     let cancelled = false;
     form.resetFields();
+    setView('form');
+    setYamlText('');
+    setYamlError(null);
     if (!editing) {
       form.setFieldsValue({
         namespace: ns.get(clusterId).selected || 'default',
@@ -121,24 +131,9 @@ export function CronJobFormDrawer({
     )
       .then((obj: any) => {
         if (cancelled) return;
-        const spec = obj?.spec ?? {};
-        const jSpec = spec.jobTemplate?.spec ?? {};
-        form.setFieldsValue({
-          name: editing.name,
-          namespace: editing.namespace,
-          schedule: spec.schedule ?? '0 * * * *',
-          concurrencyPolicy: spec.concurrencyPolicy ?? 'Allow',
-          successfulJobsHistoryLimit: spec.successfulJobsHistoryLimit,
-          failedJobsHistoryLimit: spec.failedJobsHistoryLimit,
-          suspend: spec.suspend ?? false,
-          queue: jSpec.queue,
-          minAvailable:
-            typeof jSpec.minAvailable === 'number'
-              ? jSpec.minAvailable
-              : undefined,
-          plugins: jSpec.plugins ? Object.keys(jSpec.plugins) : undefined,
-          tasks: extractCronTasks(jSpec.tasks),
-        });
+        form.setFieldsValue(
+          formValuesFromManifest(obj, editing.name, editing.namespace),
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -148,69 +143,73 @@ export function CronJobFormDrawer({
     };
   }, [open, editing, form, ns, clusterId]);
 
-  const splitWS = (s: string | undefined) => {
-    if (!s || !s.trim()) return undefined;
-    return s.trim().split(/\s+/);
+  const handleSwitchView = (next: string) => {
+    if (next === view) return;
+    if (next === 'yaml') {
+      const fv = form.getFieldsValue();
+      try {
+        const manifest = buildCronJobManifest(fvToInput(fv));
+        setYamlText(yaml.dump(manifest));
+        setYamlError(null);
+        setView('yaml');
+      } catch (e: any) {
+        setYamlError(String(e?.message ?? e));
+      }
+    } else {
+      try {
+        const parsed = yaml.load(yamlText) as any;
+        if (!parsed || typeof parsed !== 'object') {
+          setYamlError('YAML is empty or not an object');
+          return;
+        }
+        const meta = parsed?.metadata ?? {};
+        form.setFieldsValue(
+          formValuesFromManifest(
+            parsed,
+            meta.name ?? form.getFieldValue('name'),
+            meta.namespace ?? form.getFieldValue('namespace') ?? 'default',
+          ),
+        );
+        setYamlError(null);
+        setView('form');
+      } catch (e: any) {
+        setYamlError(String(e?.message ?? e));
+      }
+    }
   };
 
   const handleSubmit = async () => {
+    if (view === 'yaml') {
+      let manifest: unknown;
+      try {
+        manifest = yaml.load(yamlText);
+      } catch (e: any) {
+        message.error(`YAML parse failed: ${e?.message ?? e}`);
+        return;
+      }
+      if (!manifest || typeof manifest !== 'object') {
+        message.error('YAML is empty or not an object');
+        return;
+      }
+      await applyAndFinish(manifest);
+      return;
+    }
     let v: FormValues;
     try {
       v = await form.validateFields();
     } catch {
       return;
     }
-    const input: CronJobInput = {
-      name: v.name,
-      namespace: v.namespace,
-      schedule: v.schedule,
-      concurrencyPolicy: v.concurrencyPolicy,
-      successfulJobsHistoryLimit: v.successfulJobsHistoryLimit,
-      failedJobsHistoryLimit: v.failedJobsHistoryLimit,
-      suspend: v.suspend,
-      jobTemplate: {
-        queue: v.queue,
-        minAvailable: v.minAvailable,
-        plugins: v.plugins,
-        tasks: v.tasks.map((t) => {
-          const requests: Record<string, string> = {};
-          const limits: Record<string, string> = {};
-          if (t.cpu) {
-            requests['cpu'] = t.cpu;
-            limits['cpu'] = t.cpu;
-          }
-          if (t.memory) {
-            requests['memory'] = t.memory;
-            limits['memory'] = t.memory;
-          }
-          if (t.vgpuNumber) limits['volcano.sh/vgpu-number'] = t.vgpuNumber;
-          if (t.vgpuMemory) limits['volcano.sh/vgpu-memory'] = t.vgpuMemory;
-          if (t.vgpuCores) limits['volcano.sh/vgpu-cores'] = t.vgpuCores;
-          const hasResources =
-            Object.keys(requests).length > 0 ||
-            Object.keys(limits).length > 0;
-          return {
-            name: t.name,
-            replicas: t.replicas,
-            image: t.image,
-            command: splitWS(t.command),
-            args: splitWS(t.args),
-            restartPolicy: t.restartPolicy,
-            resources: hasResources
-              ? {
-                  requests:
-                    Object.keys(requests).length > 0 ? requests : undefined,
-                  limits:
-                    Object.keys(limits).length > 0 ? limits : undefined,
-                }
-              : undefined,
-          };
-        }),
-      },
-    };
+    await applyAndFinish(buildCronJobManifest(fvToInput(v)));
+  };
+
+  // applyAndFinish ships an already-built manifest. Used by both the
+  // form-view submit path (manifest = buildCronJobManifest(...)) and
+  // the YAML-view path (manifest = yaml.load(yamlText)).
+  async function applyAndFinish(manifest: unknown) {
     setSubmitting(true);
     try {
-      const res = await applyManifest(clusterId, buildCronJobManifest(input));
+      const res = await applyManifest(clusterId, manifest);
       const fail = res?.results?.find((r) => !r.success);
       if (fail) {
         message.error(fail.error ?? 'apply failed');
@@ -230,7 +229,7 @@ export function CronJobFormDrawer({
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
   return (
     <Drawer
@@ -259,7 +258,44 @@ export function CronJobFormDrawer({
         </Space>
       }
     >
+      <Tabs
+        activeKey={view}
+        onChange={handleSwitchView}
+        size="small"
+        style={{ marginBottom: 12 }}
+        items={[
+          {
+            key: 'form',
+            label: intl.formatMessage({ id: 'pages.compute.form.tab.form' }),
+          },
+          {
+            key: 'yaml',
+            label: intl.formatMessage({ id: 'pages.compute.form.tab.yaml' }),
+          },
+        ]}
+      />
+      {yamlError && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          onClose={() => setYamlError(null)}
+          style={{ marginBottom: 12 }}
+          message={intl.formatMessage({ id: 'pages.compute.form.yamlError' })}
+          description={yamlError}
+        />
+      )}
       <Spin spinning={loading}>
+        {view === 'yaml' ? (
+          <div
+            style={{
+              border: '1px solid var(--ant-color-border)',
+              borderRadius: 4,
+            }}
+          >
+            <YamlEditor value={yamlText} onChange={setYamlText} />
+          </div>
+        ) : (
       <Form<FormValues> form={form} layout="vertical">
         <div style={{ marginBottom: 8, fontWeight: 500 }}>
           {intl.formatMessage({ id: 'pages.compute.jobForm.section.basic' })}
@@ -557,9 +593,94 @@ export function CronJobFormDrawer({
           )}
         </Form.List>
       </Form>
+        )}
       </Spin>
     </Drawer>
   );
+}
+
+// splitWS — single string → arg array. Empty → undefined.
+function splitWS(s: string | undefined): string[] | undefined {
+  if (!s || !s.trim()) return undefined;
+  return s.trim().split(/\s+/);
+}
+
+// fvToInput translates flat form values to the CronJobInput shape that
+// buildCronJobManifest expects. Mirror of JobForm's fvToInput, plus
+// the cron-specific schedule + history-limit + suspend fields.
+function fvToInput(v: FormValues): CronJobInput {
+  return {
+    name: v.name ?? '',
+    namespace: v.namespace ?? 'default',
+    schedule: v.schedule ?? '0 * * * *',
+    concurrencyPolicy: v.concurrencyPolicy ?? 'Allow',
+    successfulJobsHistoryLimit: v.successfulJobsHistoryLimit,
+    failedJobsHistoryLimit: v.failedJobsHistoryLimit,
+    suspend: v.suspend,
+    jobTemplate: {
+      queue: v.queue,
+      minAvailable: v.minAvailable,
+      plugins: v.plugins,
+      tasks: (v.tasks ?? []).map((t) => {
+        const requests: Record<string, string> = {};
+        const limits: Record<string, string> = {};
+        if (t.cpu) {
+          requests['cpu'] = t.cpu;
+          limits['cpu'] = t.cpu;
+        }
+        if (t.memory) {
+          requests['memory'] = t.memory;
+          limits['memory'] = t.memory;
+        }
+        if (t.vgpuNumber) limits['volcano.sh/vgpu-number'] = t.vgpuNumber;
+        if (t.vgpuMemory) limits['volcano.sh/vgpu-memory'] = t.vgpuMemory;
+        if (t.vgpuCores) limits['volcano.sh/vgpu-cores'] = t.vgpuCores;
+        const hasResources =
+          Object.keys(requests).length > 0 || Object.keys(limits).length > 0;
+        return {
+          name: t.name,
+          replicas: t.replicas,
+          image: t.image,
+          command: splitWS(t.command),
+          args: splitWS(t.args),
+          restartPolicy: t.restartPolicy,
+          resources: hasResources
+            ? {
+                requests:
+                  Object.keys(requests).length > 0 ? requests : undefined,
+                limits: Object.keys(limits).length > 0 ? limits : undefined,
+              }
+            : undefined,
+        };
+      }),
+    },
+  };
+}
+
+// formValuesFromManifest reverses fvToInput / buildCronJobManifest for
+// edit-mode load and YAML → form switch. Reads .spec.jobTemplate.spec
+// for the inner Job's fields (Volcano CronJob wraps a Job spec there).
+function formValuesFromManifest(
+  obj: any,
+  fallbackName: string,
+  fallbackNamespace: string,
+): FormValues {
+  const spec = obj?.spec ?? {};
+  const jSpec = spec.jobTemplate?.spec ?? {};
+  return {
+    name: obj?.metadata?.name ?? fallbackName,
+    namespace: obj?.metadata?.namespace ?? fallbackNamespace,
+    schedule: spec.schedule ?? '0 * * * *',
+    concurrencyPolicy: spec.concurrencyPolicy ?? 'Allow',
+    successfulJobsHistoryLimit: spec.successfulJobsHistoryLimit,
+    failedJobsHistoryLimit: spec.failedJobsHistoryLimit,
+    suspend: spec.suspend ?? false,
+    queue: jSpec.queue,
+    minAvailable:
+      typeof jSpec.minAvailable === 'number' ? jSpec.minAvailable : undefined,
+    plugins: jSpec.plugins ? Object.keys(jSpec.plugins) : undefined,
+    tasks: extractCronTasks(jSpec.tasks),
+  };
 }
 
 // Mirror of JobForm's extractTasks — Volcano CronJob nests its job

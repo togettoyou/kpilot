@@ -24,6 +24,11 @@ export default {
     'Queue / Job / PodGroup are provided by the Volcano scheduler. Enable the Volcano plugin on this cluster, then come back.',
   'pages.compute.volcano.notInstalled.action': 'Go to plugins and enable Volcano',
 
+  // Form / YAML dual-view shared copy
+  'pages.compute.form.tab.form': 'Form',
+  'pages.compute.form.tab.yaml': 'YAML',
+  'pages.compute.form.yamlError': 'YAML parse failed, can\'t switch view',
+
   // Queue form + actions
   'pages.compute.queue.create': 'New Queue',
   'pages.compute.queue.action.open': 'Open',
@@ -412,7 +417,6 @@ export default {
   'pages.workloads.col.actions': 'Actions',
   'pages.workloads.view': 'View',
   'pages.workloads.edit': 'Edit',
-  'pages.workloads.editYaml': 'YAML',
   'pages.workloads.describe': 'Describe',
   'pages.workloads.delete': 'Delete',
   'pages.workloads.delete.confirm': 'Delete {name}? This cannot be undone.',

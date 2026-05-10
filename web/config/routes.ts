@@ -52,44 +52,9 @@ export default [
         path: '/clusters/:id/logging',
         component: './ClusterDetail/Logging/index',
       },
-      // Old compute / model URLs that used to live under /clusters/:id —
-      // re-route to the new top-level platforms so deep links + bookmarks
-      // keep working through the Phase 0 shuffle.
-      {
-        path: '/clusters/:id/gpu',
-        redirect: '/compute/:id',
-      },
-      {
-        path: '/clusters/:id/compute',
-        redirect: '/compute/:id',
-      },
-      {
-        path: '/clusters/:id/compute/overview',
-        redirect: '/compute/:id',
-      },
-      {
-        path: '/clusters/:id/compute/nodes',
-        redirect: '/compute/:id',
-      },
-      {
-        path: '/clusters/:id/compute/cards',
-        redirect: '/compute/:id',
-      },
-      {
-        path: '/clusters/:id/compute/tasks',
-        redirect: '/compute/:id',
-      },
-      {
-        path: '/clusters/:id/models',
-        redirect: '/models',
-      },
-      {
-        path: '/clusters/:id/models/inference',
-        redirect: '/models',
-      },
     ],
   },
-  // ─── 算力管理 — GPU-aware ops platform ────────────────────────────────
+  // ─── 算力调度 — Volcano-centric batch scheduling platform ─────────────
   {
     path: '/compute',
     name: 'compute',

@@ -1,6 +1,7 @@
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useIntl, useModel } from '@umijs/max';
 import {
+  Alert,
   App,
   Button,
   Card,
@@ -11,9 +12,12 @@ import {
   Select,
   Space,
   Spin,
+  Tabs,
 } from 'antd';
+import yaml from 'js-yaml';
 import React, { useEffect, useState } from 'react';
 
+import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import {
   applyManifest,
   buildJobManifest,
@@ -84,6 +88,9 @@ export function JobFormDrawer({
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<'form' | 'yaml'>('form');
+  const [yamlText, setYamlText] = useState('');
+  const [yamlError, setYamlError] = useState<string | null>(null);
 
   const isEdit = !!editing;
   const namespaceOptions = (ns.get(clusterId).list ?? []).map((n) => ({
@@ -95,6 +102,9 @@ export function JobFormDrawer({
     if (!open) return;
     let cancelled = false;
     form.resetFields();
+    setView('form');
+    setYamlText('');
+    setYamlError(null);
     if (!editing) {
       form.setFieldsValue({
         namespace: ns.get(clusterId).selected || 'default',
@@ -113,17 +123,9 @@ export function JobFormDrawer({
     getWorkload(clusterId, '_cr', editing.name, editing.namespace, JOB_CR)
       .then((obj: any) => {
         if (cancelled) return;
-        const spec = obj?.spec ?? {};
-        form.setFieldsValue({
-          name: editing.name,
-          namespace: editing.namespace,
-          queue: spec.queue,
-          priorityClassName: spec.priorityClassName,
-          minAvailable:
-            typeof spec.minAvailable === 'number' ? spec.minAvailable : undefined,
-          plugins: spec.plugins ? Object.keys(spec.plugins) : undefined,
-          tasks: extractTasks(spec.tasks),
-        });
+        form.setFieldsValue(
+          formValuesFromManifest(obj, editing.name, editing.namespace),
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -133,71 +135,68 @@ export function JobFormDrawer({
     };
   }, [open, editing, form, ns, clusterId]);
 
-  const splitWS = (s: string | undefined) => {
-    if (!s || !s.trim()) return undefined;
-    // Split on runs of whitespace; users can write either
-    // `python train.py --epochs 5` or paste a JSON array literal.
-    // For arrays-with-spaces values they should drop into the
-    // YAML editor instead — this is the simple-case form.
-    return s.trim().split(/\s+/);
+  const handleSwitchView = (next: string) => {
+    if (next === view) return;
+    if (next === 'yaml') {
+      const fv = form.getFieldsValue();
+      try {
+        const manifest = buildJobManifest(fvToInput(fv));
+        setYamlText(yaml.dump(manifest));
+        setYamlError(null);
+        setView('yaml');
+      } catch (e: any) {
+        setYamlError(String(e?.message ?? e));
+      }
+    } else {
+      try {
+        const parsed = yaml.load(yamlText) as any;
+        if (!parsed || typeof parsed !== 'object') {
+          setYamlError('YAML is empty or not an object');
+          return;
+        }
+        const meta = parsed?.metadata ?? {};
+        form.setFieldsValue(
+          formValuesFromManifest(
+            parsed,
+            meta.name ?? form.getFieldValue('name'),
+            meta.namespace ??
+              form.getFieldValue('namespace') ??
+              'default',
+          ),
+        );
+        setYamlError(null);
+        setView('form');
+      } catch (e: any) {
+        setYamlError(String(e?.message ?? e));
+      }
+    }
   };
 
   const handleSubmit = async () => {
-    let v: FormValues;
-    try {
-      v = await form.validateFields();
-    } catch {
-      return;
+    let manifest: unknown;
+    if (view === 'form') {
+      let v: FormValues;
+      try {
+        v = await form.validateFields();
+      } catch {
+        return;
+      }
+      manifest = buildJobManifest(fvToInput(v));
+    } else {
+      try {
+        manifest = yaml.load(yamlText);
+      } catch (e: any) {
+        message.error(`YAML parse failed: ${e?.message ?? e}`);
+        return;
+      }
+      if (!manifest || typeof manifest !== 'object') {
+        message.error('YAML is empty or not an object');
+        return;
+      }
     }
-    const input: JobInput = {
-      name: v.name,
-      namespace: v.namespace,
-      queue: v.queue,
-      priorityClassName: v.priorityClassName,
-      minAvailable: v.minAvailable,
-      plugins: v.plugins,
-      tasks: v.tasks.map((t) => {
-        const requests: Record<string, string> = {};
-        const limits: Record<string, string> = {};
-        if (t.cpu) {
-          requests['cpu'] = t.cpu;
-          limits['cpu'] = t.cpu;
-        }
-        if (t.memory) {
-          requests['memory'] = t.memory;
-          limits['memory'] = t.memory;
-        }
-        if (t.vgpuNumber) {
-          limits['volcano.sh/vgpu-number'] = t.vgpuNumber;
-        }
-        if (t.vgpuMemory) {
-          limits['volcano.sh/vgpu-memory'] = t.vgpuMemory;
-        }
-        if (t.vgpuCores) {
-          limits['volcano.sh/vgpu-cores'] = t.vgpuCores;
-        }
-        const hasResources =
-          Object.keys(requests).length > 0 || Object.keys(limits).length > 0;
-        return {
-          name: t.name,
-          replicas: t.replicas,
-          image: t.image,
-          command: splitWS(t.command),
-          args: splitWS(t.args),
-          restartPolicy: t.restartPolicy,
-          resources: hasResources
-            ? {
-                requests:
-                  Object.keys(requests).length > 0 ? requests : undefined,
-                limits: Object.keys(limits).length > 0 ? limits : undefined,
-              }
-            : undefined,
-        };
-      }),
-    };
     setSubmitting(true);
     try {
-      const res = await applyManifest(clusterId, buildJobManifest(input));
+      const res = await applyManifest(clusterId, manifest);
       const fail = res?.results?.find((r) => !r.success);
       if (fail) {
         message.error(fail.error ?? 'apply failed');
@@ -246,7 +245,44 @@ export function JobFormDrawer({
         </Space>
       }
     >
+      <Tabs
+        activeKey={view}
+        onChange={handleSwitchView}
+        size="small"
+        style={{ marginBottom: 12 }}
+        items={[
+          {
+            key: 'form',
+            label: intl.formatMessage({ id: 'pages.compute.form.tab.form' }),
+          },
+          {
+            key: 'yaml',
+            label: intl.formatMessage({ id: 'pages.compute.form.tab.yaml' }),
+          },
+        ]}
+      />
+      {yamlError && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          onClose={() => setYamlError(null)}
+          style={{ marginBottom: 12 }}
+          message={intl.formatMessage({ id: 'pages.compute.form.yamlError' })}
+          description={yamlError}
+        />
+      )}
       <Spin spinning={loading}>
+        {view === 'yaml' ? (
+          <div
+            style={{
+              border: '1px solid var(--ant-color-border)',
+              borderRadius: 4,
+            }}
+          >
+            <YamlEditor value={yamlText} onChange={setYamlText} />
+          </div>
+        ) : (
       <Form<FormValues> form={form} layout="vertical">
         <div style={{ marginBottom: 8, fontWeight: 500 }}>
           {intl.formatMessage({ id: 'pages.compute.jobForm.section.basic' })}
@@ -518,9 +554,81 @@ export function JobFormDrawer({
           )}
         </Form.List>
       </Form>
+        )}
       </Spin>
     </Drawer>
   );
+}
+
+// splitWS — single string → arg array. Empty → undefined.
+function splitWS(s: string | undefined): string[] | undefined {
+  if (!s || !s.trim()) return undefined;
+  return s.trim().split(/\s+/);
+}
+
+// fvToInput — translates the form's flat shape into the JobInput
+// contract that buildJobManifest expects.
+function fvToInput(v: FormValues): JobInput {
+  return {
+    name: v.name ?? '',
+    namespace: v.namespace ?? 'default',
+    queue: v.queue,
+    priorityClassName: v.priorityClassName,
+    minAvailable: v.minAvailable,
+    plugins: v.plugins,
+    tasks: (v.tasks ?? []).map((t) => {
+      const requests: Record<string, string> = {};
+      const limits: Record<string, string> = {};
+      if (t.cpu) {
+        requests['cpu'] = t.cpu;
+        limits['cpu'] = t.cpu;
+      }
+      if (t.memory) {
+        requests['memory'] = t.memory;
+        limits['memory'] = t.memory;
+      }
+      if (t.vgpuNumber) limits['volcano.sh/vgpu-number'] = t.vgpuNumber;
+      if (t.vgpuMemory) limits['volcano.sh/vgpu-memory'] = t.vgpuMemory;
+      if (t.vgpuCores) limits['volcano.sh/vgpu-cores'] = t.vgpuCores;
+      const hasResources =
+        Object.keys(requests).length > 0 || Object.keys(limits).length > 0;
+      return {
+        name: t.name,
+        replicas: t.replicas,
+        image: t.image,
+        command: splitWS(t.command),
+        args: splitWS(t.args),
+        restartPolicy: t.restartPolicy,
+        resources: hasResources
+          ? {
+              requests:
+                Object.keys(requests).length > 0 ? requests : undefined,
+              limits: Object.keys(limits).length > 0 ? limits : undefined,
+            }
+          : undefined,
+      };
+    }),
+  };
+}
+
+// formValuesFromManifest — reverse of fvToInput / buildJobManifest.
+// Used both on edit-mode load and on YAML → form switch.
+function formValuesFromManifest(
+  obj: any,
+  fallbackName: string,
+  fallbackNamespace: string,
+): FormValues {
+  const spec = obj?.spec ?? {};
+  return {
+    name: obj?.metadata?.name ?? fallbackName,
+    namespace: obj?.metadata?.namespace ?? fallbackNamespace,
+    queue: spec.queue,
+    priorityClassName: spec.priorityClassName,
+    minAvailable:
+      typeof spec.minAvailable === 'number' ? spec.minAvailable : undefined,
+    plugins: spec.plugins ? Object.keys(spec.plugins) : undefined,
+    tasks: extractTasks(spec.tasks),
+  };
 }
 
 // extractTasks rebuilds the form's flat TaskFV[] from a Volcano Job's
