@@ -1,4 +1,5 @@
 import {
+  EditOutlined,
   InfoCircleOutlined,
   MinusCircleOutlined,
   PlusOutlined,
@@ -110,6 +111,11 @@ export default function VolcanoSchedulerPage() {
   const [yamlText, setYamlText] = useState('');
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Read-only by default: the page lands as a config inspector. The
+  // user clicks 编辑 to enter edit mode (which surfaces save / cancel
+  // and unlocks form inputs + the YAML editor). Cancel reverts to
+  // the last fetched snapshot.
+  const [editing, setEditing] = useState(false);
 
   // Re-seed draft + yamlText whenever a fresh configmap arrives.
   useEffect(() => {
@@ -133,7 +139,30 @@ export default function VolcanoSchedulerPage() {
     setYamlText(typeof text === 'string' ? text : '');
     setYamlError(null);
     setView('form');
+    setEditing(false);
   }, [cm.data]);
+
+  const cancelEdit = () => {
+    // Revert to the last fetched snapshot — re-runs the same effect
+    // body as the cm.data load above.
+    const obj: any = cm.data;
+    const text =
+      obj?.data?.['volcano-scheduler.conf'] ??
+      obj?.data?.['volcano-scheduler.yaml'] ??
+      '';
+    let parsed: SchedulerConf = { actions: '', tiers: [] };
+    if (typeof text === 'string' && text.trim()) {
+      try {
+        parsed = (yaml.load(text) as SchedulerConf) ?? parsed;
+      } catch {
+        // ignore — same as initial load
+      }
+    }
+    setDraft(parsed);
+    setYamlText(typeof text === 'string' ? text : '');
+    setYamlError(null);
+    setEditing(false);
+  };
 
   const handleSwitchView = (next: string) => {
     if (next === view) return;
@@ -198,6 +227,7 @@ export default function VolcanoSchedulerPage() {
       message.success(
         intl.formatMessage({ id: 'pages.compute.scheduler.saved' }),
       );
+      setEditing(false);
       cm.refresh();
     } catch {
       // global toast
@@ -274,33 +304,54 @@ export default function VolcanoSchedulerPage() {
         <Tag>{volcanoNs}/volcano-scheduler-configmap</Tag>
       </Space>
 
-      <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+      <Paragraph type="secondary" style={{ marginBottom: 12 }}>
         {intl.formatMessage({ id: 'pages.compute.scheduler.intro' })}
       </Paragraph>
+
+      {/* Help section sits above the editor — small users land here
+          looking for a reference, so the cheatsheet should be the
+          first thing they can crack open. */}
+      <HelpSection />
 
       <Tabs
         activeKey={view}
         onChange={handleSwitchView}
         size="small"
         tabBarExtraContent={
-          <Space>
-            <Button
-              icon={<ReloadOutlined />}
-              size="small"
-              onClick={() => cm.refresh()}
-            >
-              {intl.formatMessage({ id: 'pages.workloads.refresh.retry' })}
-            </Button>
-            <Button
-              type="primary"
-              icon={<SaveOutlined />}
-              size="small"
-              loading={saving}
-              onClick={save}
-            >
-              {intl.formatMessage({ id: 'pages.compute.scheduler.save' })}
-            </Button>
-          </Space>
+          editing ? (
+            <Space>
+              <Button size="small" onClick={cancelEdit} disabled={saving}>
+                {intl.formatMessage({ id: 'pages.workloads.cancel' })}
+              </Button>
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                size="small"
+                loading={saving}
+                onClick={save}
+              >
+                {intl.formatMessage({ id: 'pages.compute.scheduler.save' })}
+              </Button>
+            </Space>
+          ) : (
+            <Space>
+              <Button
+                icon={<ReloadOutlined />}
+                size="small"
+                onClick={() => cm.refresh()}
+              >
+                {intl.formatMessage({ id: 'pages.workloads.refresh' })}
+              </Button>
+              <Button
+                type="primary"
+                icon={<EditOutlined />}
+                size="small"
+                onClick={() => setEditing(true)}
+              >
+                {intl.formatMessage({ id: 'pages.workloads.edit' })}
+              </Button>
+            </Space>
+          )
         }
         items={[
           {
@@ -333,13 +384,15 @@ export default function VolcanoSchedulerPage() {
             borderRadius: 4,
           }}
         >
-          <YamlEditor value={yamlText} onChange={setYamlText} />
+          <YamlEditor
+            value={yamlText}
+            onChange={setYamlText}
+            readOnly={!editing}
+          />
         </div>
       ) : (
-        <FormView draft={draft} onChange={setDraft} />
+        <FormView draft={draft} onChange={setDraft} editable={editing} />
       )}
-
-      <HelpSection />
     </div>
   );
 }
@@ -349,9 +402,11 @@ export default function VolcanoSchedulerPage() {
 function FormView({
   draft,
   onChange,
+  editable,
 }: {
   draft: SchedulerConf;
   onChange: (next: SchedulerConf) => void;
+  editable: boolean;
 }) {
   const intl = useIntl();
   const actions = useMemo(
@@ -410,6 +465,7 @@ function FormView({
           mode="multiple"
           value={actions}
           onChange={setActions}
+          disabled={!editable}
           style={{ width: '100%' }}
           placeholder={intl.formatMessage({
             id: 'pages.compute.scheduler.actions.placeholder',
@@ -421,7 +477,12 @@ function FormView({
           optionLabelProp="value"
           tagRender={(props) => (
             <Tooltip title={metaForAction(props.value as string).desc}>
-              <Tag color="blue" closable={props.closable} onClose={props.onClose}>
+              <Tag
+                color="blue"
+                closable={editable && props.closable}
+                onClose={props.onClose}
+                style={{ marginInlineEnd: 6, marginBlock: 2 }}
+              >
                 {props.value}
               </Tag>
             </Tooltip>
@@ -446,14 +507,16 @@ function FormView({
           </Space>
         }
         extra={
-          <Button
-            type="link"
-            size="small"
-            icon={<PlusOutlined />}
-            onClick={addTier}
-          >
-            {intl.formatMessage({ id: 'pages.compute.scheduler.addTier' })}
-          </Button>
+          editable ? (
+            <Button
+              type="link"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={addTier}
+            >
+              {intl.formatMessage({ id: 'pages.compute.scheduler.addTier' })}
+            </Button>
+          ) : null
         }
       >
         {tiers.length === 0 ? (
@@ -476,19 +539,22 @@ function FormView({
                 title={`Tier ${i + 1}`}
                 style={{ marginBottom: 8 }}
                 extra={
-                  <Button
-                    type="text"
-                    size="small"
-                    danger
-                    icon={<MinusCircleOutlined />}
-                    onClick={() => removeTier(i)}
-                  />
+                  editable ? (
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<MinusCircleOutlined />}
+                      onClick={() => removeTier(i)}
+                    />
+                  ) : null
                 }
               >
                 <Select
                   mode="multiple"
                   value={names}
                   onChange={(next) => setTierPlugins(i, next as string[])}
+                  disabled={!editable}
                   style={{ width: '100%' }}
                   placeholder={intl.formatMessage({
                     id: 'pages.compute.scheduler.plugins.placeholder',
@@ -502,8 +568,9 @@ function FormView({
                     <Tooltip title={metaForPlugin(props.value as string).desc}>
                       <Tag
                         color="green"
-                        closable={props.closable}
+                        closable={editable && props.closable}
                         onClose={props.onClose}
+                        style={{ marginInlineEnd: 6, marginBlock: 2 }}
                       >
                         {props.value}
                       </Tag>
@@ -549,7 +616,7 @@ function HelpSection() {
   const intl = useIntl();
   return (
     <Collapse
-      style={{ marginTop: 16 }}
+      style={{ marginBottom: 16 }}
       items={[
         {
           key: 'actions',
@@ -593,7 +660,10 @@ function ReferenceList({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {items.map(({ k, v }) => (
         <div key={k}>
-          <Tag color="default" style={{ fontFamily: 'monospace' }}>
+          <Tag
+            color="default"
+            style={{ fontFamily: 'monospace', marginInlineEnd: 8 }}
+          >
             {v.label}
           </Tag>
           <span style={{ fontSize: 13 }}>{v.desc}</span>
