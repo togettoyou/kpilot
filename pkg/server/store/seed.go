@@ -144,6 +144,45 @@ service:
 		DefaultReleaseNamespace: "kpilot-monitoring",
 	},
 	{
+		Name:        "kube-state-metrics",
+		DisplayName: "kube-state-metrics",
+		Description: "Cluster-state metrics for K8s objects (Deployments, Pods, Nodes, PVCs, Jobs, etc.) — exposes counts, conditions, and timestamps as Prometheus metrics. Pairs with node-exporter (host metrics) and Volcano scheduler metrics for a complete picture.",
+		Category:    PluginCategoryMonitoring,
+		IsBuiltin:   true,
+		// Slot between node-exporter (host metrics, 20) and Grafana
+		// (visualization, 30) — visual order matches the data flow.
+		SortOrder:      25,
+		ChartType:      ChartTypeRepo,
+		ChartRepo:      "https://prometheus-community.github.io/helm-charts/",
+		ChartName:      "kube-state-metrics",
+		DefaultVersion: "7.3.0",
+		// image.registry / image.repository spelled out so private-mirror
+		// users have a ready hook in the Enable drawer (matching the
+		// pattern of every other monitoring builtin). prometheusScrape
+		// is the chart's flag for adding the prometheus.io/scrape
+		// annotation; we additionally pin prometheus.io/port=8080 so VM's
+		// scrape config (which uses keep_if_equal on the port annotation,
+		// same as node-exporter at 9100) doesn't silently drop the target.
+		DefaultValues: `image:
+  registry: registry.k8s.io
+  repository: kube-state-metrics/kube-state-metrics
+  pullPolicy: IfNotPresent
+prometheusScrape: true
+service:
+  port: 8080
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+`,
+		DefaultReleaseNamespace: "kpilot-monitoring",
+	},
+	{
 		Name:        "envoy-gateway",
 		DisplayName: "Envoy Gateway",
 		Description: "K8s Gateway API implementation built on Envoy. Pulled from Docker Hub's OCI registry — first builtin to use ChartType=oci, which is also how most modern projects (Cilium, Karmada, Tanzu, etc.) ship their charts these days.",
