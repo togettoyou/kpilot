@@ -23,11 +23,13 @@
 apiVersion: kpilot.io/v1alpha1
 kind: Plugin
 metadata:
-  name: hami
+  name: volcano
 spec:
-  type: hami
-  version: "v2.4.0"
-  values: {}
+  type: repo
+  version: "1.14.2"
+  values: |
+    custom:
+      scheduler_replicas: 1
 status:
   phase: Running  # Pending / Installing / Running / Failed
 ```
@@ -36,7 +38,6 @@ status:
 
 | 插件               | 分类       | Chart 来源 | 用途                                                |
 |------------------|----------|----------|---------------------------------------------------|
-| HAMi             | gpu        | repo     | GPU 虚拟化，给 Node 打 GPU 标签，支持 vGPU 管理               |
 | Metrics Server   | monitoring | repo     | K8s Metrics API（`metrics.k8s.io`），驱动 `kubectl top` / HPA / VPA |
 | VictoriaMetrics  | monitoring | repo     | 单节点 TSDB，自带 Web UI + scrape 配置                   |
 | Node Exporter    | monitoring | repo     | 节点级硬件 + OS 指标（搭 VM 用）                            |
@@ -45,11 +46,14 @@ status:
 | VictoriaLogs     | logging    | repo     | 日志存储 + 自带 Vector DaemonSet 采集                    |
 | Volcano          | scheduling | repo     | Batch 调度器，gang scheduling + Queue + drf 公平共享     |
 
-**计划新增**：
+**计划新增**（Volcano 转向 P2/P3）：
 
-| 插件          | 分类       | 阶段  | 用途                                          |
-|-------------|------------|------|---------------------------------------------|
-| DCGM Exporter | monitoring | P5b | NVIDIA GPU 指标采集（利用率 / 温度 / 功耗 / 显存等）        |
+| 插件                          | 分类         | 阶段              | 用途                                                                                                |
+|-----------------------------|------------|-----------------|---------------------------------------------------------------------------------------------------|
+| volcano-vgpu-device-plugin  | gpu        | Volcano 转向 P2 | Volcano scheduler deviceshare 后端，提供 vGPU 切分 + 硬隔离（HAMi-core）。**上游不发 Helm chart**，需自建 wrapper chart 用 go:embed 内嵌 |
+| DCGM Exporter               | monitoring | Volcano 转向 P3 | NVIDIA GPU 物理指标采集（利用率 / 温度 / 功耗 / 显存）                                                                  |
+
+**已弃用**：HAMi（独立部署）—— 与 Volcano 调度器的 deviceshare 路径互斥，已从内置注册表移除。其 vGPU 能力由 volcano-vgpu-device-plugin 替代。
 
 ## 全局注册表 CRUD（`/plugins`）
 

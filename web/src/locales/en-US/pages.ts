@@ -15,17 +15,17 @@ export default {
   'pages.gpu.title': 'GPU Overview',
   'pages.gpu.cta.goPlugins': 'Go to plugins',
   'pages.gpu.cta.refresh': 'Refresh',
-  'pages.gpu.missing.title': 'GPU center needs the HAMi plugin enabled',
+  'pages.gpu.missing.title': 'GPU panel needs the GPU virtualization plugin',
   'pages.gpu.missing.subTitle':
-    'HAMi provides vGPU slicing. Enable it and roll it out to the GPU nodes; this page will then show compute / memory / slot detail.',
-  'pages.gpu.installing.title': 'HAMi is installing',
+    'Migrating to Volcano vGPU (volcano-vgpu-device-plugin) — this plugin backs the Volcano scheduler\'s deviceshare and provides vGPU slicing + hard isolation. Once installed and rolled out to the GPU nodes this page will show compute / memory / slot detail.',
+  'pages.gpu.installing.title': 'GPU virtualization plugin is installing',
   'pages.gpu.installing.subTitle':
     'Install usually takes 1-2 minutes; this page auto-refreshes every 5 seconds and loads GPU data once it completes.',
-  'pages.gpu.failed.title': 'HAMi failed to install',
+  'pages.gpu.failed.title': 'GPU virtualization plugin failed to install',
   'pages.gpu.failed.subTitle':
     'Open the plugins page to inspect the error and re-enable, or tweak values and retry.',
   'pages.gpu.empty':
-    'No GPU nodes detected in the cluster. HAMi is ready, but GPU nodes may not have joined or registered with the scheduler yet.',
+    'No GPU nodes detected in the cluster. The plugin is ready, but GPU nodes may not have joined or registered with the scheduler yet.',
   'pages.gpu.kpi.nodes': 'GPU Nodes',
   'pages.gpu.kpi.cards': 'Physical Cards',
   'pages.gpu.kpi.vgpuUsage': 'vGPU Usage',
@@ -33,7 +33,7 @@ export default {
   'pages.gpu.kpi.coreUsage': 'Core Usage',
   'pages.gpu.node.slots': 'vGPU slot usage',
   'pages.gpu.node.memory': 'Memory usage',
-  'pages.gpu.node.cards': 'Physical cards (HAMi)',
+  'pages.gpu.node.cards': 'Physical cards',
   'pages.gpu.node.devices': 'Physical cards',
   'pages.gpu.card.slots': 'Slots',
   'pages.gpu.card.memory': 'Memory',
@@ -42,13 +42,14 @@ export default {
   'pages.gpu.card.podMem': 'Allocated memory',
   'pages.gpu.card.podCores': 'Allocated cores',
   // AI Compute sub-pages
-  'pages.compute.landing.title': 'Compute',
-  'pages.compute.landing.subtitle': 'Select a cluster',
+  'pages.compute.landing.title': 'Compute Scheduling',
+  'pages.compute.landing.subtitle':
+    'Volcano-powered batch scheduling + GPU virtualization. Pick a cluster.',
   'pages.compute.landing.empty.title': 'No clusters yet',
   'pages.compute.landing.empty.hint':
     'Add and connect a cluster in Cluster Management first, then come back here',
   'pages.compute.landing.empty.action': 'Go to Cluster Management',
-  'pages.models.landing.title': 'Models',
+  'pages.models.landing.title': 'Model Hub',
   'pages.models.landing.subtitle':
     'Registry, deployment, chat playground, and routing — coming soon',
   'pages.models.landing.comingSoon': 'Coming soon',
@@ -84,7 +85,7 @@ export default {
   'pages.compute.nodes.col.action': 'Actions',
   'pages.compute.nodes.detail': 'Detail',
   'pages.compute.cards.title': 'Cards',
-  'pages.compute.cards.empty': 'No physical GPUs reported by HAMi yet.',
+  'pages.compute.cards.empty': 'No physical GPUs reported by the virtualization plugin yet.',
   'pages.compute.cards.col.uuid': 'UUID',
   'pages.compute.cards.col.type': 'Model',
   'pages.compute.cards.col.node': 'Node',
@@ -187,9 +188,9 @@ export default {
   'pages.plugins.form.ociRef.invalid': 'Must start with oci://',
   'pages.plugins.form.chartRepo': 'Repo URL',
   'pages.plugins.form.chartRepoPlaceholder':
-    'e.g. https://project-hami.github.io/HAMi/',
+    'e.g. https://volcano-sh.github.io/helm-charts',
   'pages.plugins.form.chartName': 'Chart Name',
-  'pages.plugins.form.chartNamePlaceholder': 'e.g. hami',
+  'pages.plugins.form.chartNamePlaceholder': 'e.g. volcano',
   'pages.plugins.form.defaultVersion': 'Default Version',
   'pages.plugins.form.defaultVersionPlaceholder':
     'Leave empty to use the latest',
@@ -471,7 +472,7 @@ export default {
   'pages.cluster.nav.storage': 'Storage',
   'pages.cluster.nav.plugins': 'Plugins',
   'pages.cluster.nav.gpu': 'GPU',
-  'pages.cluster.nav.models': 'Models',
+  'pages.cluster.nav.models': 'Model Hub',
   'pages.cluster.nav.monitoring': 'Monitoring',
   'pages.cluster.nav.logging': 'Logging',
   'pages.cluster.back': 'Clusters',

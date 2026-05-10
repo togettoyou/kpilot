@@ -123,7 +123,7 @@ const ComputeOverview: React.FC = () => {
 
   return (
     <DepGate
-      hamiState={data.hamiState}
+      depState={data.depState}
       loading={data.pluginsLoading}
       onRefresh={data.refreshPlugins}
     >

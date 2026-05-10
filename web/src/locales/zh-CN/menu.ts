@@ -3,8 +3,8 @@ export default {
 
   // Top-level platforms (4 modules).
   'menu.clusters': '集群管理',
-  'menu.compute': '算力管理',
-  'menu.models': '模型管理',
+  'menu.compute': '算力调度',
+  'menu.models': '模型中心',
   'menu.plugins': '插件管理',
 
   // Cluster detail sider — injected when a cluster is selected under

@@ -3,21 +3,21 @@ import { history, useIntl, useParams } from '@umijs/max';
 import { Button, Card, Result } from 'antd';
 import React from 'react';
 
-import type { HAMiState } from './useGPUData';
+import type { GPUDepState } from './useGPUData';
 
 interface Props {
-  hamiState: HAMiState;
+  depState: GPUDepState;
   loading: boolean;
   onRefresh: () => void;
-  // children render only when hamiState === 'ready'.
+  // children render only when depState === 'ready'.
   children: React.ReactNode;
 }
 
-// DepGate centralizes the HAMi dep-check Result page so all four 智算
+// DepGate centralizes the GPU plugin dep-check Result page so the GPU
 // sub-pages render the same loading + missing/installing/failed
 // experience without copy-pasting the JSX. Children are evaluated only
 // once the plugin is reported Running.
-const DepGate: React.FC<Props> = ({ hamiState, loading, onRefresh, children }) => {
+const DepGate: React.FC<Props> = ({ depState, loading, onRefresh, children }) => {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
 
@@ -28,15 +28,15 @@ const DepGate: React.FC<Props> = ({ hamiState, loading, onRefresh, children }) =
       </div>
     );
   }
-  if (hamiState === 'ready') {
+  if (depState === 'ready') {
     return <>{children}</>;
   }
-  const status = hamiState === 'failed' ? 'error' : hamiState === 'installing' ? 'info' : 'warning';
+  const status = depState === 'failed' ? 'error' : depState === 'installing' ? 'info' : 'warning';
   return (
     <Result
       status={status as 'error' | 'info' | 'warning'}
-      title={intl.formatMessage({ id: `pages.gpu.${hamiState}.title` })}
-      subTitle={intl.formatMessage({ id: `pages.gpu.${hamiState}.subTitle` })}
+      title={intl.formatMessage({ id: `pages.gpu.${depState}.title` })}
+      subTitle={intl.formatMessage({ id: `pages.gpu.${depState}.subTitle` })}
       extra={[
         <Button
           key="enable"
