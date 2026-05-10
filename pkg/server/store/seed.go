@@ -221,57 +221,6 @@ resources:
 		DefaultReleaseNamespace: "kpilot-monitoring",
 	},
 	{
-		Name:        "envoy-gateway",
-		DisplayName: "Envoy Gateway",
-		Description: "K8s Gateway API implementation built on Envoy. Pulled from Docker Hub's OCI registry — first builtin to use ChartType=oci, which is also how most modern projects (Cilium, Karmada, Tanzu, etc.) ship their charts these days.",
-		Category:    PluginCategoryNetworking,
-		IsBuiltin:   true,
-		SortOrder:   10,
-		ChartType:   ChartTypeOCI,
-		// Full oci:// URL; ChartName is unused for OCI references.
-		// docker.io public mirror; matches the upstream README example
-		// `helm install eg oci://docker.io/envoyproxy/gateway-helm \
-		//   --version v1.7.2 -n envoy-gateway-system --create-namespace`.
-		ChartRepo:      "oci://docker.io/envoyproxy/gateway-helm",
-		DefaultVersion: "v1.7.2",
-		// Two override hooks pre-filled in the form so private-mirror
-		// users have somewhere obvious to land:
-		//
-		// 1. deployment.envoyGateway.image.repository: full registry+path
-		//    (the chart doesn't split it into registry/repository the way
-		//    HAMi/VM do — it's one field). Swap to e.g.
-		//    `your-mirror.example.com/envoyproxy/gateway` and you're done.
-		//
-		// 2. tag empty → chart uses its appVersion, matching --version
-		//    exactly. Leaving it blank avoids the "tag must match k8s
-		//    version" foot-gun HAMi has.
-		//
-		// Resource requests are sized for a small dev cluster; envoy
-		// gateway's controller is a thin Go process so defaults are
-		// modest. Keep limits soft (memory only, no CPU limit) — Envoy's
-		// reconcile loops can briefly burst.
-		DefaultValues: `deployment:
-  replicas: 1
-  envoyGateway:
-    image:
-      repository: docker.io/envoyproxy/gateway
-      tag: ""
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        memory: 1Gi
-`,
-		// kpilot-networking matches the kpilot-* convention all other
-		// builtins use (kpilot-gpu / kpilot-monitoring / kpilot-logging).
-		// Workload page treats kpilot-* as read-only so users can't
-		// accidentally `kubectl delete deployment` an Envoy controller
-		// pod from the list. The chart respects --namespace, so we're
-		// not bound to upstream's "envoy-gateway-system" suggestion.
-		DefaultReleaseNamespace: "kpilot-networking",
-	},
-	{
 		Name:        "grafana",
 		DisplayName: "Grafana",
 		Description: "Dashboards & visualization for cluster metrics. Pre-wired for KPilot reverse-proxy embedding (auth.proxy + sub-path) and with VictoriaMetrics as the default Prometheus-compatible datasource — install victoria-metrics first so Grafana finds it on first launch. Login is via the embedded session — auth.proxy auto-creates Admin users from KPilot's logged-in user. The chart's auto-generated admin password is in Secret <release>-grafana for kubectl-port-forward debugging if you ever need it.",

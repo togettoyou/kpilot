@@ -43,7 +43,6 @@ status:
 | kube-state-metrics | monitoring | repo   | K8s 对象状态指标（Deployment 副本、Pod phase、Node condition）|
 | Grafana          | monitoring | **oci**  | 可视化前端，反代嵌入 + 内置 dashboard + auth.proxy            |
 | VictoriaLogs     | logging    | repo     | 日志存储 + 自带 Vector DaemonSet 采集                    |
-| Envoy Gateway    | networking | **oci**  | Gateway API 实现，演示 OCI registry chart 装载           |
 | Volcano          | scheduling | repo     | Batch 调度器，gang scheduling + Queue + drf 公平共享     |
 
 **计划新增**：
