@@ -113,16 +113,25 @@ export default {
   'pages.compute.cronJobForm.successHistory': '保留成功历史数',
   'pages.compute.cronJobForm.failedHistory': '保留失败历史数',
 
-  // Scheduler configmap viewer
+  // Scheduler configmap viewer / editor
   'pages.compute.scheduler.title': 'Volcano 调度策略',
-  'pages.compute.scheduler.subtitle':
-    '只读视图，展示当前 Volcano 调度器使用的 actions 与各 tier 的 plugins 列表。修改请走「插件管理」页编辑 volcano 插件的 values。',
-  'pages.compute.scheduler.actions': 'Actions（每轮调度按顺序执行）',
-  'pages.compute.scheduler.tiers': 'Plugins（按 tier 分层调度）',
-  'pages.compute.scheduler.noActions': '未配置 actions',
-  'pages.compute.scheduler.noTiers': '未配置 plugin tiers',
-  'pages.compute.scheduler.noPlugins': '该 tier 没有 plugin',
-  'pages.compute.scheduler.parseError': '调度配置解析失败',
+  'pages.compute.scheduler.intro':
+    'Volcano 调度器分两层做决策：① actions 控制每轮调度的工作流程（什么时候入队、何时分配资源、何时抢占）；② plugins 按 tier 分组叠加打分与约束（按顺序评估，前一 tier 通过才进入后一 tier）。每个选项右侧的 ⓘ 鼠标悬停可看作用说明，下方的「调度阶段一览 / 调度插件一览」是完整参考手册。',
+  'pages.compute.scheduler.save': '保存',
+  'pages.compute.scheduler.saved': '配置已保存，Volcano 调度器会在数秒内自动重载',
+  'pages.compute.scheduler.addTier': '添加 Tier',
+  'pages.compute.scheduler.actions': 'Actions',
+  'pages.compute.scheduler.actions.tip':
+    '每轮调度按顺序执行的阶段。常见组合：enqueue → allocate → backfill；要支持抢占再加 preempt + reclaim。',
+  'pages.compute.scheduler.actions.placeholder':
+    '选择本集群启用的调度阶段',
+  'pages.compute.scheduler.tiers': 'Plugin Tiers',
+  'pages.compute.scheduler.tiers.tip':
+    '一个 tier 是一组 plugin，调度器按顺序评估各 tier，前一 tier 通过后才进入下一个。常见的做法：tier 1 放硬性约束（priority / gang），tier 2 放打分与公平共享（drf / proportion / nodeorder）。',
+  'pages.compute.scheduler.plugins.placeholder': '选择 tier 内启用的 plugin',
+  'pages.compute.scheduler.noTiers': '当前没有任何 tier。点上方「添加 Tier」开始。',
+  'pages.compute.scheduler.help.actions': '调度阶段一览（actions）',
+  'pages.compute.scheduler.help.plugins': '调度插件一览（plugins）',
   'pages.compute.scheduler.notFound.title': '未找到调度策略 ConfigMap',
   'pages.compute.scheduler.notFound.subtitle':
     '在命名空间「{ns}」下未找到 volcano-scheduler-configmap。请确认 Volcano 插件已启用。',

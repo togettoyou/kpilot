@@ -113,16 +113,24 @@ export default {
   'pages.compute.cronJobForm.successHistory': 'Successful job history',
   'pages.compute.cronJobForm.failedHistory': 'Failed job history',
 
-  // Scheduler configmap viewer
+  // Scheduler configmap viewer / editor
   'pages.compute.scheduler.title': 'Volcano scheduler config',
-  'pages.compute.scheduler.subtitle':
-    'Read-only view of the actions and per-tier plugins the Volcano scheduler is currently using. To change the configuration edit the volcano plugin\'s helm values from the Plugins page.',
-  'pages.compute.scheduler.actions': 'Actions (run in order each scheduling round)',
-  'pages.compute.scheduler.tiers': 'Plugins (organised in tiers)',
-  'pages.compute.scheduler.noActions': 'No actions configured',
-  'pages.compute.scheduler.noTiers': 'No plugin tiers configured',
-  'pages.compute.scheduler.noPlugins': 'This tier has no plugins',
-  'pages.compute.scheduler.parseError': 'Failed to parse scheduler config',
+  'pages.compute.scheduler.intro':
+    'Volcano schedules in two layers: actions control the per-round workflow (when to enqueue / allocate / preempt); plugins layer scoring + constraints in tiers (a tier must pass before the next one runs). Hover the ⓘ icons for one-liners; the collapsible reference at the bottom lists every action and plugin.',
+  'pages.compute.scheduler.save': 'Save',
+  'pages.compute.scheduler.saved': 'Saved — Volcano will pick up the new config in a few seconds',
+  'pages.compute.scheduler.addTier': 'Add Tier',
+  'pages.compute.scheduler.actions': 'Actions',
+  'pages.compute.scheduler.actions.tip':
+    'Phases run in order each cycle. Common: enqueue → allocate → backfill. Add preempt + reclaim if you need preemption.',
+  'pages.compute.scheduler.actions.placeholder': 'Pick the actions to enable',
+  'pages.compute.scheduler.tiers': 'Plugin Tiers',
+  'pages.compute.scheduler.tiers.tip':
+    'A tier is a group of plugins. Tiers are evaluated in order; a tier must pass before the next one runs. Convention: tier 1 holds hard constraints (priority / gang), tier 2 holds scoring + fairness (drf / proportion / nodeorder).',
+  'pages.compute.scheduler.plugins.placeholder': 'Pick the plugins for this tier',
+  'pages.compute.scheduler.noTiers': 'No tiers yet. Click "Add Tier" above to start.',
+  'pages.compute.scheduler.help.actions': 'Action reference',
+  'pages.compute.scheduler.help.plugins': 'Plugin reference',
   'pages.compute.scheduler.notFound.title': 'Scheduler ConfigMap not found',
   'pages.compute.scheduler.notFound.subtitle':
     'Could not find volcano-scheduler-configmap in namespace "{ns}". Make sure the Volcano plugin is enabled.',
