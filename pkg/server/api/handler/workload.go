@@ -44,6 +44,24 @@ func isProtectedNamespace(ns string) bool {
 	return false
 }
 
+// writableInProtectedNamespace is a small allowlist of (kind, name)
+// pairs that are user-editable inside an otherwise read-only kpilot-*
+// namespace. Today it's just the Volcano scheduler configmap — the
+// 算力调度 platform's scheduler-config editor SSA-applies a new copy
+// of `kpilot-scheduling/volcano-scheduler-configmap` and would
+// otherwise hit "namespace is read-only".
+//
+// Strictly write-side: deletion of these resources (which would
+// brick the corresponding workload) is NOT allowed and goes through
+// the normal protected path.
+var writableInProtectedNamespace = map[string]bool{
+	"ConfigMap:volcano-scheduler-configmap": true,
+}
+
+func isWritableInProtectedNamespace(kind, name string) bool {
+	return writableInProtectedNamespace[kind+":"+name]
+}
+
 type gvkInfo struct {
 	group, version, kind string
 }
@@ -330,7 +348,8 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		if isProtectedNamespace(namespace) {
+		if isProtectedNamespace(namespace) &&
+			!isWritableInProtectedNamespace(gvk.kind, name) {
 			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
 			return
 		}
@@ -539,7 +558,8 @@ func validateDoc(idx int, obj *unstructured.Unstructured) (ApplyYamlResult, bool
 		r.Error = "missing metadata.name"
 		return r, false
 	}
-	if isProtectedNamespace(r.Namespace) {
+	if isProtectedNamespace(r.Namespace) &&
+		!isWritableInProtectedNamespace(gvk.Kind, r.Name) {
 		r.Error = "namespace " + r.Namespace + " is read-only"
 		return r, false
 	}
