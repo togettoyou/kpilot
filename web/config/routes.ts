@@ -68,6 +68,14 @@ export default [
         path: '/compute/:id',
         redirect: '/compute/:id/scheduler',
       },
+      {
+        // /overview was the GPU dashboard route before the Volcano
+        // pivot. Browser tabs / bookmarks / cached SPA state still
+        // try to land here after the page was deleted — redirect
+        // them to the new default tab instead of 404.
+        path: '/compute/:id/overview',
+        redirect: '/compute/:id/scheduler',
+      },
       // Volcano CR browsers — thin wrappers around the workload
       // page's CR-instances component (WorkloadsContent), preset
       // with the correct GVK so the user lands on a Volcano resource

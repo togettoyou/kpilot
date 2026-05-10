@@ -51,19 +51,27 @@ export default function VolcanoSchedulerPage() {
 
   // Pull the Volcano plugin entry so we know which namespace the
   // configmap lives in. listPlugins is the brief variant — fine, we
-  // only need the namespace.
+  // only need the namespace. Wait for the response before firing the
+  // configmap fetch — eagerly fetching with a "volcano-system" fallback
+  // burned a request on the wrong namespace and left a sticky 404 on
+  // the page even after the real namespace arrived.
   const plugins = useRequest(listPlugins, {
     formatResult: (res) => res,
   });
-  const volcanoNs = useMemo(() => {
-    const list = plugins.data ?? [];
-    const v = list.find((p) => p.name === 'volcano');
-    return v?.default_release_namespace || 'volcano-system';
+  const volcanoNs = useMemo<string | null>(() => {
+    if (!plugins.data) return null;
+    const v = plugins.data.find((p) => p.name === 'volcano');
+    return v?.default_release_namespace ?? null;
   }, [plugins.data]);
 
   const cm = useRequest(
     () =>
-      getWorkload(clusterId!, 'configmaps', 'volcano-scheduler-configmap', volcanoNs),
+      getWorkload(
+        clusterId!,
+        'configmaps',
+        'volcano-scheduler-configmap',
+        volcanoNs!,
+      ),
     {
       formatResult: (res) => res,
       ready: !!clusterId && !!volcanoNs,
@@ -91,10 +99,42 @@ export default function VolcanoSchedulerPage() {
     }
   }, [cm.data]);
 
-  if (cm.loading && !cm.data) {
+  if ((plugins.loading && !plugins.data) || (cm.loading && !cm.data)) {
     return (
       <div style={{ padding: 24 }}>
         <Spin size="large" />
+      </div>
+    );
+  }
+
+  // Volcano plugin missing from the registry — covers both "user
+  // never enabled it" and "registry deleted". The configmap viewer
+  // is meaningless without an installed Volcano release.
+  if (plugins.data && !volcanoNs) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Result
+          status="info"
+          title={intl.formatMessage({
+            id: 'pages.compute.volcano.notInstalled.title',
+          })}
+          subTitle={intl.formatMessage({
+            id: 'pages.compute.volcano.notInstalled.subTitle',
+          })}
+          extra={
+            <Button
+              type="primary"
+              onClick={() =>
+                clusterId &&
+                (window.location.href = `/clusters/${clusterId}/plugins`)
+              }
+            >
+              {intl.formatMessage({
+                id: 'pages.compute.volcano.notInstalled.action',
+              })}
+            </Button>
+          }
+        />
       </div>
     );
   }
@@ -109,7 +149,7 @@ export default function VolcanoSchedulerPage() {
           })}
           subTitle={intl.formatMessage(
             { id: 'pages.compute.scheduler.notFound.subtitle' },
-            { ns: volcanoNs },
+            { ns: volcanoNs ?? '?' },
           )}
           extra={
             <Button onClick={() => cm.refresh()} icon={<ReloadOutlined />}>
