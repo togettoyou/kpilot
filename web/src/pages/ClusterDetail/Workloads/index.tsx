@@ -613,17 +613,26 @@ export function WorkloadsContent({
       width: isPods ? 280 : isCRDPage ? 220 : 150,
       fixed: 'right',
       render: (_, record) => {
-        // Mirror the backend's protected lists:
-        //  • kube-* / kpilot-* namespaces (control-plane + built-in
-        //    plugin installs — managing those goes through the Plugins
-        //    page, not the workload list).
+        // Mirror the backend's pkg/server/protect ruleset:
+        //  • kube-system namespace (CoreDNS, kube-proxy, …). kube-public
+        //    and kube-node-lease are intentionally NOT protected; same
+        //    for kpilot-* — those used to be prefix-protected but now
+        //    rely on the Helm-managed-label backend gate, which can't
+        //    be cheaply replicated on the frontend (would require a
+        //    label per row from the list endpoint). User-created
+        //    resources in kpilot-* namespaces correctly show edit
+        //    buttons now; if the user tries to edit a Helm-managed one,
+        //    the backend toasts MANAGED_RESOURCE.
         //  • CRDs ending in .kpilot.io (deleting/editing them would
         //    brick the running install — see isProtectedCRDName).
         //  • system:* ClusterRole / ClusterRoleBinding and system-*
         //    PriorityClass (control-plane reserved — see
         //    isProtectedSystemRow).
+        // Default StorageClass also gets server-side protection now
+        // (DEFAULT_STORAGECLASS_PROTECTED toast) but isn't pre-hidden
+        // here for the same reason as Helm-managed.
         const ns = record.namespace ?? '';
-        const protectedNs = ns.startsWith('kube-') || ns.startsWith('kpilot-');
+        const protectedNs = ns === 'kube-system';
         const protectedCRD =
           resourceType === 'customresourcedefinitions' &&
           isProtectedCRDName(record.name);
