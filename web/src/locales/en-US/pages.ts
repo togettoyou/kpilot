@@ -138,6 +138,7 @@ export default {
   'pages.compute.scheduler.notFound.subtitle':
     'Could not find volcano-scheduler-configmap in namespace "{ns}". Make sure the Volcano plugin is enabled.',
   'pages.compute.scheduler.tier': 'Tier {n}',
+  'pages.compute.scheduler.tier.pluginCount': '{n} plugin(s)',
   'pages.compute.scheduler.noPluginsInTier':
     'No plugins in this tier. Click "Add plugin" below to add one.',
   'pages.compute.scheduler.addPlugin': 'Add plugin',

@@ -139,6 +139,7 @@ export default {
   'pages.compute.scheduler.notFound.subtitle':
     '在命名空间「{ns}」下未找到 volcano-scheduler-configmap。请确认 Volcano 插件已启用。',
   'pages.compute.scheduler.tier': 'Tier {n}',
+  'pages.compute.scheduler.tier.pluginCount': '{n} 个插件',
   'pages.compute.scheduler.noPluginsInTier':
     '本 tier 暂无插件。点下方「添加插件」加入一个。',
   'pages.compute.scheduler.addPlugin': '添加插件',

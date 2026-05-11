@@ -19,7 +19,6 @@ import {
   Empty,
   Input,
   InputNumber,
-  Radio,
   Result,
   Segmented,
   Select,
@@ -51,6 +50,27 @@ import {
 import { NotInstalled } from './shared/Layout';
 
 const { Text, Paragraph } = Typography;
+
+// TRISTATE_OPTIONS gives every bool / enable Segmented the same three
+// colored pills: grey 默认 (unset), green 开 (true), red 关 (false).
+// The labels are colored even when unselected so users get a constant
+// visual cue for which way each switch leans. antd Segmented respects
+// custom JSX labels and overlays the selected pill background on top
+// of the colored text, so contrast stays readable in both states.
+const TRISTATE_OPTIONS = [
+  {
+    label: <span style={{ color: 'var(--ant-color-text-tertiary)' }}>默认</span>,
+    value: 'default',
+  },
+  {
+    label: <span style={{ color: 'var(--ant-color-success)' }}>开</span>,
+    value: 'true',
+  },
+  {
+    label: <span style={{ color: 'var(--ant-color-error)' }}>关</span>,
+    value: 'false',
+  },
+];
 
 // ─── Types — mirror volcano-scheduler.conf YAML shape ──────────────────
 
@@ -640,32 +660,80 @@ function TiersCard({
           })}
         />
       ) : (
-        tiers.map((tier, i) => (
-          <TierCard
-            key={i}
-            index={i}
-            plugins={tier.plugins ?? []}
-            onChange={(next) => setTierPlugins(i, next)}
-            onRemove={() => removeTier(i)}
-            editable={editable}
-          />
-        ))
+        // Each tier is its own collapse panel, default collapsed so
+        // the page lands as a compact overview. Users click the
+        // tier header to expand and edit its plugins.
+        <Collapse
+          size="small"
+          items={tiers.map((tier, i) => ({
+            key: String(i),
+            label: (
+              <Space size={8}>
+                <Text strong>
+                  {intl.formatMessage(
+                    { id: 'pages.compute.scheduler.tier' },
+                    { n: i + 1 },
+                  )}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {intl.formatMessage(
+                    { id: 'pages.compute.scheduler.tier.pluginCount' },
+                    { n: (tier.plugins ?? []).length },
+                  )}
+                </Text>
+                {(tier.plugins ?? []).slice(0, 6).map((p, idx) => (
+                  <Tag
+                    color="green"
+                    key={`${p.name ?? '_'}-${idx}`}
+                    style={{ marginInlineEnd: 0 }}
+                  >
+                    {p.name ?? '(empty)'}
+                  </Tag>
+                ))}
+                {(tier.plugins?.length ?? 0) > 6 && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    +{(tier.plugins?.length ?? 0) - 6}
+                  </Text>
+                )}
+              </Space>
+            ),
+            extra: editable ? (
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<MinusCircleOutlined />}
+                onClick={(e) => {
+                  // Stop the click from toggling the collapse panel.
+                  e.stopPropagation();
+                  removeTier(i);
+                }}
+              />
+            ) : null,
+            children: (
+              <TierBody
+                plugins={tier.plugins ?? []}
+                onChange={(next) => setTierPlugins(i, next)}
+                editable={editable}
+              />
+            ),
+          }))}
+        />
       )}
     </Card>
   );
 }
 
-function TierCard({
-  index,
+// TierBody is the expanded content of one tier panel. Stripped of
+// the outer Card chrome (the parent Collapse renders the header /
+// remove button) — just renders the plugin list + add picker.
+function TierBody({
   plugins,
   onChange,
-  onRemove,
   editable,
 }: {
-  index: number;
   plugins: PluginEntry[];
   onChange: (next: PluginEntry[]) => void;
-  onRemove: () => void;
   editable: boolean;
 }) {
   const intl = useIntl();
@@ -690,32 +758,10 @@ function TierCard({
     setAddOpen(false);
   };
 
-  // Names already in this tier — disable in the Add picker so users
-  // don't add the same plugin twice within one tier (Volcano accepts
-  // it but it's almost always a config error).
   const usedNames = new Set(plugins.map((p) => p.name).filter(Boolean));
 
   return (
-    <Card
-      size="small"
-      type="inner"
-      title={intl.formatMessage(
-        { id: 'pages.compute.scheduler.tier' },
-        { n: index + 1 },
-      )}
-      style={{ marginBottom: 8 }}
-      extra={
-        editable ? (
-          <Button
-            type="text"
-            size="small"
-            danger
-            icon={<MinusCircleOutlined />}
-            onClick={onRemove}
-          />
-        ) : null
-      }
-    >
+    <>
       {plugins.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -780,7 +826,7 @@ function TierCard({
           )}
         </div>
       )}
-    </Card>
+    </>
   );
 }
 
@@ -1071,11 +1117,7 @@ function EnableSwitchGrid({
                 onChange={(v) =>
                   onChange(f.key, v === 'default' ? undefined : v === 'true')
                 }
-                options={[
-                  { label: '默认', value: 'default' },
-                  { label: '开', value: 'true' },
-                  { label: '关', value: 'false' },
-                ]}
+                options={TRISTATE_OPTIONS}
               />
             </Space>
           </Card>
@@ -1160,23 +1202,15 @@ function ArgField({
       const cur: 'default' | 'true' | 'false' =
         value === true ? 'true' : value === false ? 'false' : 'default';
       input = (
-        <Radio.Group
+        <Segmented
+          size="small"
           disabled={!editable}
           value={cur}
-          onChange={(e) =>
-            onChange(
-              e.target.value === 'default'
-                ? undefined
-                : e.target.value === 'true',
-            )
+          onChange={(v) =>
+            onChange(v === 'default' ? undefined : v === 'true')
           }
-          optionType="button"
-          size="small"
-        >
-          <Radio.Button value="default">默认</Radio.Button>
-          <Radio.Button value="true">true</Radio.Button>
-          <Radio.Button value="false">false</Radio.Button>
-        </Radio.Group>
+          options={TRISTATE_OPTIONS}
+        />
       );
       break;
     }
@@ -1207,7 +1241,7 @@ function ArgField({
   }
   return (
     <div>
-      <div style={{ marginBottom: 4, fontSize: 13 }}>
+      <div style={{ marginBottom: 6, fontSize: 13 }}>
         <span style={{ fontWeight: 500 }}>{spec.label}</span>
         <Text
           type="secondary"
@@ -1220,7 +1254,7 @@ function ArgField({
           {spec.key}
         </Text>
       </div>
-      {input}
+      <div style={{ marginBottom: 6 }}>{input}</div>
       <Text type="secondary" style={{ fontSize: 12 }}>
         {spec.desc}
       </Text>
