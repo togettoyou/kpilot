@@ -88,7 +88,7 @@ function containIframeOverscroll(iframe: HTMLIFrameElement): () => void {
   };
 }
 
-export const GrafanaEmbed: React.FC<GrafanaEmbedConfig> = ({
+const GrafanaEmbed: React.FC<GrafanaEmbedConfig> = ({
   required,
   recommended,
   dashboardUID,
