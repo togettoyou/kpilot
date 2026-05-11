@@ -138,6 +138,66 @@ export default {
   'pages.compute.scheduler.notFound.title': '未找到调度策略 ConfigMap',
   'pages.compute.scheduler.notFound.subtitle':
     '在命名空间「{ns}」下未找到 volcano-scheduler-configmap。请确认 Volcano 插件已启用。',
+  'pages.compute.scheduler.tier': 'Tier {n}',
+
+  // 共享文案：list 端点的截断提示
+  'pages.compute.list.truncated':
+    '结果已截断，仅显示前 {n} 条；缩小命名空间或筛选范围可看到更多',
+
+  // Queue 列 / 文案
+  'pages.compute.queue.col.name': '名称',
+  'pages.compute.queue.col.parent': '父队列',
+  'pages.compute.queue.col.age': '创建时间',
+  'pages.compute.queue.state.unknown': '未知',
+  'pages.compute.queue.detail.weight': '权重',
+  'pages.compute.queue.detail.notReclaimable': '不可回收',
+  'pages.compute.queue.detail.unlimited': '资源未限制',
+
+  // Job 列
+  'pages.compute.job.col.name': '名称',
+  'pages.compute.job.col.namespace': '命名空间',
+  'pages.compute.job.col.state': '状态',
+  'pages.compute.job.col.queue': '队列',
+  'pages.compute.job.col.minAvailable': 'minAvailable',
+  'pages.compute.job.col.tasks': '任务',
+  'pages.compute.job.col.pods': 'Pods',
+  'pages.compute.job.col.plugins': '插件',
+  'pages.compute.job.col.age': '创建时间',
+
+  // QueueForm capability tooltip
+  'pages.compute.queueForm.tooltip.cpu': 'K8s 资源数量字符串。例如 10、500m',
+  'pages.compute.queueForm.tooltip.memory': 'K8s 资源数量字符串。例如 100Gi、512Mi',
+  'pages.compute.queueForm.tooltip.vgpuMemory': '单位 MiB',
+  'pages.compute.queueForm.tooltip.vgpuCores': '百分比 0-100',
+
+  // CronJob 列 / 状态文案
+  'pages.compute.cronJob.col.name': '名称',
+  'pages.compute.cronJob.col.namespace': '命名空间',
+  'pages.compute.cronJob.col.schedule': 'Cron 表达式',
+  'pages.compute.cronJob.col.concurrency': '并发策略',
+  'pages.compute.cronJob.col.active': '运行中',
+  'pages.compute.cronJob.col.lastSchedule': '上次调度',
+  'pages.compute.cronJob.col.age': '创建时间',
+  'pages.compute.cronJob.state.suspended': '已暂停',
+  'pages.compute.cronJob.state.running': '运行中',
+  'pages.compute.cronJob.lastScheduleAgo': '{age} 前',
+
+  // PodGroup 列
+  'pages.compute.podGroup.col.name': '名称',
+  'pages.compute.podGroup.col.namespace': '命名空间',
+  'pages.compute.podGroup.col.phase': '阶段',
+  'pages.compute.podGroup.col.queue': '队列',
+  'pages.compute.podGroup.col.minMember': 'minMember',
+  'pages.compute.podGroup.col.minResources': 'minResources',
+  'pages.compute.podGroup.col.pods': 'Pods',
+  'pages.compute.podGroup.col.age': '创建时间',
+
+  // HyperNode 列
+  'pages.compute.hyperNode.col.name': '名称',
+  'pages.compute.hyperNode.col.tier': '层级',
+  'pages.compute.hyperNode.col.members': '成员',
+  'pages.compute.hyperNode.col.age': '创建时间',
+
   'pages.models.landing.title': '模型中心',
   'pages.models.landing.subtitle': '从模型仓库到部署、调试、路由的端到端面板（建设中）',
   'pages.models.landing.comingSoon': '建设中',

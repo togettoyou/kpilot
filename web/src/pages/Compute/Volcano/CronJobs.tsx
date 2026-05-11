@@ -15,9 +15,11 @@ import { CronJobFormDrawer } from './CronJobForm';
 import {
   NotInstalled,
   RefreshControl,
+  TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
   useAutoRefresh,
+  useStaggeredRefresh,
 } from './shared/Layout';
 
 // Volcano CronJob (`batch.volcano.sh/v1alpha1`) — schedules a Volcano
@@ -51,6 +53,9 @@ export default function VolcanoCronJobsPage() {
   if (error && isResourceNotAvailable(error)) {
     return <NotInstalled clusterId={clusterId} />;
   }
+
+  const items = data?.items ?? [];
+  const truncated = !!data?.continue;
 
   const onDelete = (record: CronJobRow) => {
     modal.confirm({
@@ -87,19 +92,19 @@ export default function VolcanoCronJobsPage() {
 
   const columns: ProColumns<CronJobRow>[] = [
     {
-      title: 'Name',
+      title: intl.formatMessage({ id: 'pages.compute.cronJob.col.name' }),
       dataIndex: 'name',
       copyable: true,
       width: 200,
       fixed: 'left',
     },
     {
-      title: 'Namespace',
+      title: intl.formatMessage({ id: 'pages.compute.cronJob.col.namespace' }),
       dataIndex: 'namespace',
       width: 140,
     },
     {
-      title: 'Schedule',
+      title: intl.formatMessage({ id: 'pages.compute.cronJob.col.schedule' }),
       dataIndex: 'schedule',
       width: 160,
       render: (_, r) => (
@@ -114,30 +119,43 @@ export default function VolcanoCronJobsPage() {
       width: 110,
       render: (_, r) => (
         <Tag color={r.suspend ? 'orange' : 'green'}>
-          {r.suspend ? '已暂停' : '运行中'}
+          {intl.formatMessage({
+            id: r.suspend
+              ? 'pages.compute.cronJob.state.suspended'
+              : 'pages.compute.cronJob.state.running',
+          })}
         </Tag>
       ),
     },
     {
-      title: 'Concurrency',
+      title: intl.formatMessage({
+        id: 'pages.compute.cronJob.col.concurrency',
+      }),
       dataIndex: 'concurrencyPolicy',
       width: 120,
       render: (_, r) => r.concurrencyPolicy || 'Allow',
     },
     {
-      title: 'Active',
+      title: intl.formatMessage({ id: 'pages.compute.cronJob.col.active' }),
       dataIndex: 'activeCount',
       width: 80,
     },
     {
-      title: 'Last Schedule',
+      title: intl.formatMessage({
+        id: 'pages.compute.cronJob.col.lastSchedule',
+      }),
       key: 'lastScheduleTime',
       width: 100,
       render: (_, r) =>
-        r.lastScheduleTime ? formatAge(r.lastScheduleTime) + ' 前' : '-',
+        r.lastScheduleTime
+          ? intl.formatMessage(
+              { id: 'pages.compute.cronJob.lastScheduleAgo' },
+              { age: formatAge(r.lastScheduleTime) },
+            )
+          : '-',
     },
     {
-      title: 'Age',
+      title: intl.formatMessage({ id: 'pages.compute.cronJob.col.age' }),
       key: 'age',
       width: 80,
       render: (_, r) => formatAge(r.creationTimestamp),
@@ -174,10 +192,13 @@ export default function VolcanoCronJobsPage() {
 
   return (
     <div className="p-6">
+      {truncated && (
+        <TruncatedBanner shown={items.length} count={items.length} />
+      )}
       <ProTable<CronJobRow>
         rowKey="uid"
         columns={columns}
-        dataSource={data ?? []}
+        dataSource={items}
         loading={loading}
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
@@ -187,7 +208,7 @@ export default function VolcanoCronJobsPage() {
           <Space>
             <Typography.Text strong>CronJob</Typography.Text>
             <Typography.Text type="secondary">
-              ({data?.length ?? 0})
+              ({items.length})
             </Typography.Text>
           </Space>
         }
@@ -244,6 +265,7 @@ function SuspendAction({
   const intl = useIntl();
   const { message } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
+  const fireRefresh = useStaggeredRefresh(refresh);
   if (!clusterId) return null;
 
   const next = !record.suspend;
@@ -274,7 +296,7 @@ function SuspendAction({
             : 'pages.compute.cronJob.resumed',
         }),
       );
-      [400, 1500].forEach((d) => setTimeout(refresh, d));
+      fireRefresh([400, 1500]);
     } catch (e: any) {
       const m = e?.response?.data?.message ?? e?.message;
       if (m) message.error(String(m));

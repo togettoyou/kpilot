@@ -535,7 +535,10 @@ function FormView({
                 key={i}
                 size="small"
                 type="inner"
-                title={`Tier ${i + 1}`}
+                title={intl.formatMessage(
+                  { id: 'pages.compute.scheduler.tier' },
+                  { n: i + 1 },
+                )}
                 style={{ marginBottom: 8 }}
                 extra={
                   editable ? (

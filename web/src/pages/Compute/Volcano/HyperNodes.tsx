@@ -12,6 +12,7 @@ import { deleteWorkload } from '@/services/kpilot/workload';
 import {
   NotInstalled,
   RefreshControl,
+  TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
   useAutoRefresh,
@@ -42,6 +43,9 @@ export default function VolcanoHyperNodesPage() {
     return <NotInstalled clusterId={clusterId} />;
   }
 
+  const items = data?.items ?? [];
+  const truncated = !!data?.continue;
+
   const onDelete = (name: string) => {
     modal.confirm({
       title: intl.formatMessage(
@@ -71,20 +75,20 @@ export default function VolcanoHyperNodesPage() {
 
   const columns: ProColumns<HyperNodeRow>[] = [
     {
-      title: 'Name',
+      title: intl.formatMessage({ id: 'pages.compute.hyperNode.col.name' }),
       dataIndex: 'name',
       copyable: true,
       width: 220,
       fixed: 'left',
     },
     {
-      title: 'Tier',
+      title: intl.formatMessage({ id: 'pages.compute.hyperNode.col.tier' }),
       dataIndex: 'tier',
       width: 80,
       render: (_, r) => <Tag color="blue">tier {r.tier}</Tag>,
     },
     {
-      title: '成员',
+      title: intl.formatMessage({ id: 'pages.compute.hyperNode.col.members' }),
       key: 'members',
       width: 360,
       render: (_, r) => (
@@ -106,7 +110,7 @@ export default function VolcanoHyperNodesPage() {
       ),
     },
     {
-      title: 'Age',
+      title: intl.formatMessage({ id: 'pages.compute.hyperNode.col.age' }),
       key: 'age',
       width: 80,
       render: (_, r) => formatAge(r.creationTimestamp),
@@ -131,10 +135,13 @@ export default function VolcanoHyperNodesPage() {
 
   return (
     <div className="p-6">
+      {truncated && (
+        <TruncatedBanner shown={items.length} count={items.length} />
+      )}
       <ProTable<HyperNodeRow>
         rowKey="uid"
         columns={columns}
-        dataSource={data ?? []}
+        dataSource={items}
         loading={loading}
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
@@ -144,7 +151,7 @@ export default function VolcanoHyperNodesPage() {
           <Space>
             <Typography.Text strong>HyperNode</Typography.Text>
             <Typography.Text type="secondary">
-              ({data?.length ?? 0})
+              ({items.length})
             </Typography.Text>
           </Space>
         }

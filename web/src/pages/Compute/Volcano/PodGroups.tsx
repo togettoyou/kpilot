@@ -12,6 +12,7 @@ import { deleteWorkload } from '@/services/kpilot/workload';
 import {
   NotInstalled,
   RefreshControl,
+  TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
   useAutoRefresh,
@@ -44,6 +45,9 @@ export default function VolcanoPodGroupsPage() {
   if (error && isResourceNotAvailable(error)) {
     return <NotInstalled clusterId={clusterId} />;
   }
+
+  const items = data?.items ?? [];
+  const truncated = !!data?.continue;
 
   const onDelete = (record: PodGroupRow) => {
     modal.confirm({
@@ -80,42 +84,44 @@ export default function VolcanoPodGroupsPage() {
 
   const columns: ProColumns<PodGroupRow>[] = [
     {
-      title: 'Name',
+      title: intl.formatMessage({ id: 'pages.compute.podGroup.col.name' }),
       dataIndex: 'name',
       copyable: true,
       width: 220,
       fixed: 'left',
     },
     {
-      title: 'Namespace',
+      title: intl.formatMessage({ id: 'pages.compute.podGroup.col.namespace' }),
       dataIndex: 'namespace',
       width: 140,
     },
     {
-      title: 'Phase',
+      title: intl.formatMessage({ id: 'pages.compute.podGroup.col.phase' }),
       dataIndex: 'phase',
       width: 110,
       render: (_, r) => <PodGroupPhaseTag phase={r.phase} />,
     },
     {
-      title: 'Queue',
+      title: intl.formatMessage({ id: 'pages.compute.podGroup.col.queue' }),
       dataIndex: 'queue',
       width: 140,
       render: (_, r) => r.queue || 'default',
     },
     {
-      title: 'minMember',
+      title: intl.formatMessage({ id: 'pages.compute.podGroup.col.minMember' }),
       dataIndex: 'minMember',
       width: 100,
     },
     {
-      title: 'minResources',
+      title: intl.formatMessage({
+        id: 'pages.compute.podGroup.col.minResources',
+      }),
       key: 'minResources',
       width: 220,
       render: (_, r) => formatResources(r.minResources) || '-',
     },
     {
-      title: 'Pods',
+      title: intl.formatMessage({ id: 'pages.compute.podGroup.col.pods' }),
       key: 'pods',
       width: 200,
       render: (_, r) => (
@@ -132,7 +138,7 @@ export default function VolcanoPodGroupsPage() {
       ),
     },
     {
-      title: 'Age',
+      title: intl.formatMessage({ id: 'pages.compute.podGroup.col.age' }),
       key: 'age',
       width: 80,
       render: (_, r) => formatAge(r.creationTimestamp),
@@ -157,10 +163,13 @@ export default function VolcanoPodGroupsPage() {
 
   return (
     <div className="p-6">
+      {truncated && (
+        <TruncatedBanner shown={items.length} count={items.length} />
+      )}
       <ProTable<PodGroupRow>
         rowKey="uid"
         columns={columns}
-        dataSource={data ?? []}
+        dataSource={items}
         loading={loading}
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
@@ -170,7 +179,7 @@ export default function VolcanoPodGroupsPage() {
           <Space>
             <Typography.Text strong>PodGroup</Typography.Text>
             <Typography.Text type="secondary">
-              ({data?.length ?? 0})
+              ({items.length})
             </Typography.Text>
           </Space>
         }

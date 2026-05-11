@@ -231,20 +231,43 @@ func (p *Proxy) listFull(
 	if continueToken != "" {
 		opts.Continue = continueToken
 	}
-	ri, _ := p.resourceClient(mapping, namespace)
+	ri, effectiveNs := p.resourceClient(mapping, namespace)
 	// resourceClient defaults namespace="" → "default" for namespaced
 	// resources, which is wrong for a list-all-namespaces request.
 	// Re-derive: when the GVK is namespace-scoped and the caller
 	// passed no namespace, use the cluster-scoped lister so we get
 	// every namespace.
-	if mapping.Scope.Name() == apimeta.RESTScopeNameNamespace && namespace == "" {
+	allNs := mapping.Scope.Name() == apimeta.RESTScopeNameNamespace && namespace == ""
+	if allNs {
 		ri = p.dyn.Resource(mapping.Resource)
+		effectiveNs = "*"
 	}
 	list, err := ri.List(ctx, opts)
 	if err != nil {
 		return fail(err.Error())
 	}
+	// Strip managedFields from every item — kubectl strips it before
+	// display by default, and it can be 1–5 KiB per object on busy
+	// clusters. For a 100-item Volcano Job list that's hundreds of KiB
+	// of dead weight on the gRPC tunnel.
+	for i := range list.Items {
+		stripManagedFields(&list.Items[i])
+	}
+	log.Printf("[proxy] list-full: kind=%s ns=%s count=%d continue=%t",
+		mapping.GroupVersionKind.Kind, effectiveNs, len(list.Items), list.GetContinue() != "")
 	return marshal(list)
+}
+
+// stripManagedFields removes the metadata.managedFields blob from an
+// unstructured object. This blob is only used internally by SSA for
+// field-ownership tracking; clients never need it for display, and it
+// can balloon to several KiB per object.
+func stripManagedFields(obj *unstructured.Unstructured) {
+	meta, ok := obj.Object["metadata"].(map[string]any)
+	if !ok {
+		return
+	}
+	delete(meta, "managedFields")
 }
 
 func (p *Proxy) get(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {

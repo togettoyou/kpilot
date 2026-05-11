@@ -19,7 +19,20 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
-const workerTimeout = 30 * time.Second
+// writeWorkerTimeout caps mutating requests (apply / delete / patch /
+// cordon). 30s matches the worker-side write timeout — both ends give
+// up at the same point so a stuck admission webhook surfaces as a
+// clean error instead of leaving the client hanging.
+//
+// readWorkerTimeout is more generous for read paths (list / get /
+// describe / list-full). The worker proxy uses 120s for these too;
+// keeping the server in lock-step prevents the server from cancelling
+// an in-progress worker fetch on a busy cluster (large describe, big
+// CR list) before the worker can answer.
+const (
+	writeWorkerTimeout = 30 * time.Second
+	readWorkerTimeout  = 120 * time.Second
+)
 const maxBodySize = 1 << 20 // 1 MB — sufficient for any K8s manifest
 
 // protectedNamespacePrefixes lists namespace name prefixes whose
@@ -259,7 +272,7 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
@@ -301,7 +314,7 @@ func GetWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
@@ -390,7 +403,7 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
@@ -605,7 +618,7 @@ func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID strin
 		return r
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, workerTimeout)
+	cctx, cancel := context.WithTimeout(ctx, writeWorkerTimeout)
 	defer cancel()
 
 	resp, err := gw.SendResourceRequest(cctx, clusterID, &proto.ResourceRequest{
@@ -640,7 +653,7 @@ func deleteOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID stri
 	}
 	gvk := obj.GroupVersionKind()
 
-	cctx, cancel := context.WithTimeout(ctx, workerTimeout)
+	cctx, cancel := context.WithTimeout(ctx, writeWorkerTimeout)
 	defer cancel()
 
 	resp, err := gw.SendResourceRequest(cctx, clusterID, &proto.ResourceRequest{
@@ -678,7 +691,7 @@ func DescribeWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
@@ -742,7 +755,7 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
@@ -773,7 +786,7 @@ func ListNamespaces(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
@@ -865,7 +878,7 @@ func CordonNode(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{

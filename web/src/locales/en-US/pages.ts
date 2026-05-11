@@ -137,6 +137,66 @@ export default {
   'pages.compute.scheduler.notFound.title': 'Scheduler ConfigMap not found',
   'pages.compute.scheduler.notFound.subtitle':
     'Could not find volcano-scheduler-configmap in namespace "{ns}". Make sure the Volcano plugin is enabled.',
+  'pages.compute.scheduler.tier': 'Tier {n}',
+
+  // Shared: result-truncated banner for list endpoints
+  'pages.compute.list.truncated':
+    'Result truncated to first {n} rows. Narrow the namespace or filter for more.',
+
+  // Queue columns / cell text
+  'pages.compute.queue.col.name': 'Name',
+  'pages.compute.queue.col.parent': 'Parent',
+  'pages.compute.queue.col.age': 'Age',
+  'pages.compute.queue.state.unknown': 'Unknown',
+  'pages.compute.queue.detail.weight': 'Weight',
+  'pages.compute.queue.detail.notReclaimable': 'Not reclaimable',
+  'pages.compute.queue.detail.unlimited': 'Unlimited',
+
+  // Job columns
+  'pages.compute.job.col.name': 'Name',
+  'pages.compute.job.col.namespace': 'Namespace',
+  'pages.compute.job.col.state': 'State',
+  'pages.compute.job.col.queue': 'Queue',
+  'pages.compute.job.col.minAvailable': 'minAvailable',
+  'pages.compute.job.col.tasks': 'Tasks',
+  'pages.compute.job.col.pods': 'Pods',
+  'pages.compute.job.col.plugins': 'Plugins',
+  'pages.compute.job.col.age': 'Age',
+
+  // QueueForm capability tooltips
+  'pages.compute.queueForm.tooltip.cpu': 'K8s quantity string. e.g. 10, 500m',
+  'pages.compute.queueForm.tooltip.memory': 'K8s quantity string. e.g. 100Gi, 512Mi',
+  'pages.compute.queueForm.tooltip.vgpuMemory': 'Unit: MiB',
+  'pages.compute.queueForm.tooltip.vgpuCores': 'Percentage 0-100',
+
+  // CronJob columns / state text
+  'pages.compute.cronJob.col.name': 'Name',
+  'pages.compute.cronJob.col.namespace': 'Namespace',
+  'pages.compute.cronJob.col.schedule': 'Schedule',
+  'pages.compute.cronJob.col.concurrency': 'Concurrency',
+  'pages.compute.cronJob.col.active': 'Active',
+  'pages.compute.cronJob.col.lastSchedule': 'Last schedule',
+  'pages.compute.cronJob.col.age': 'Age',
+  'pages.compute.cronJob.state.suspended': 'Suspended',
+  'pages.compute.cronJob.state.running': 'Running',
+  'pages.compute.cronJob.lastScheduleAgo': '{age} ago',
+
+  // PodGroup columns
+  'pages.compute.podGroup.col.name': 'Name',
+  'pages.compute.podGroup.col.namespace': 'Namespace',
+  'pages.compute.podGroup.col.phase': 'Phase',
+  'pages.compute.podGroup.col.queue': 'Queue',
+  'pages.compute.podGroup.col.minMember': 'minMember',
+  'pages.compute.podGroup.col.minResources': 'minResources',
+  'pages.compute.podGroup.col.pods': 'Pods',
+  'pages.compute.podGroup.col.age': 'Age',
+
+  // HyperNode columns
+  'pages.compute.hyperNode.col.name': 'Name',
+  'pages.compute.hyperNode.col.tier': 'Tier',
+  'pages.compute.hyperNode.col.members': 'Members',
+  'pages.compute.hyperNode.col.age': 'Age',
+
   'pages.models.landing.title': 'Model Hub',
   'pages.models.landing.subtitle':
     'Registry, deployment, chat playground, and routing — coming soon',

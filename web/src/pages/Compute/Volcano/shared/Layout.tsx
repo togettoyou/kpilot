@@ -1,6 +1,6 @@
 import { DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { history, useIntl } from '@umijs/max';
-import { Button, Dropdown, Result, Space } from 'antd';
+import { Alert, Button, Dropdown, Result, Space } from 'antd';
 import React, { useEffect } from 'react';
 
 // Layout helpers shared by every Volcano list page.
@@ -143,5 +143,54 @@ export function isResourceNotAvailable(error: unknown): boolean {
   return (
     (error as { response?: { data?: { code?: string } } } | undefined)
       ?.response?.data?.code === 'RESOURCE_NOT_AVAILABLE'
+  );
+}
+
+// useStaggeredRefresh returns a fire(delaysMs) helper that schedules a
+// list of setTimeout(refresh, d) calls and tracks their ids so unmount
+// clears them. Volcano lifecycle Commands (Open/Close queue, Suspend
+// CronJob, ...) take a beat for the controller to apply, so a series
+// of staggered refreshes catches the new state without making the user
+// click again — but firing setTimeout-then-unmount would otherwise
+// schedule refresh on a hook that's already gone.
+export function useStaggeredRefresh(refresh: () => void) {
+  const timersRef = React.useRef<number[]>([]);
+  useEffect(
+    () => () => {
+      timersRef.current.forEach((t) => window.clearTimeout(t));
+      timersRef.current = [];
+    },
+    [],
+  );
+  return (delaysMs: number[]) => {
+    delaysMs.forEach((d) => {
+      timersRef.current.push(window.setTimeout(refresh, d));
+    });
+  };
+}
+
+// TruncatedBanner surfaces the server-side cap (default 500 rows) when
+// a Volcano list endpoint returned a `continue` token. We don't wire
+// cursor pagination yet — for now the banner just tells the user there
+// is more data and how to narrow the view (namespace picker / filter).
+export function TruncatedBanner({
+  shown,
+  count,
+}: {
+  shown: number;
+  count?: number;
+}) {
+  const intl = useIntl();
+  if (!shown) return null;
+  return (
+    <Alert
+      type="info"
+      showIcon
+      style={{ marginBottom: 8 }}
+      message={intl.formatMessage(
+        { id: 'pages.compute.list.truncated' },
+        { n: count ?? shown },
+      )}
+    />
   );
 }

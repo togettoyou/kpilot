@@ -29,7 +29,7 @@ func TopPod(gw *gateway.GatewayServer) gin.HandlerFunc {
 		name := c.Param("name")
 		namespace := c.Param("namespace")
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), workerTimeout)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
 		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{

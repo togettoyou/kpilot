@@ -15,9 +15,11 @@ import { QueueFormDrawer } from './QueueForm';
 import {
   NotInstalled,
   RefreshControl,
+  TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
   useAutoRefresh,
+  useStaggeredRefresh,
 } from './shared/Layout';
 
 // Volcano Queue (`scheduling.volcano.sh/v1beta1`) — cluster-scoped
@@ -48,6 +50,9 @@ export default function VolcanoQueuesPage() {
     return <NotInstalled clusterId={clusterId} />;
   }
 
+  const items = data?.items ?? [];
+  const truncated = !!data?.continue;
+
   const onDelete = (name: string) => {
     modal.confirm({
       title: intl.formatMessage(
@@ -77,7 +82,7 @@ export default function VolcanoQueuesPage() {
 
   const columns: ProColumns<QueueRow>[] = [
     {
-      title: 'Name',
+      title: intl.formatMessage({ id: 'pages.compute.queue.col.name' }),
       dataIndex: 'name',
       copyable: true,
       width: 200,
@@ -87,7 +92,13 @@ export default function VolcanoQueuesPage() {
       dataIndex: 'state',
       width: 90,
       render: (_, r) => {
-        if (!r.state) return <Tag>未知</Tag>;
+        if (!r.state) {
+          return (
+            <Tag>
+              {intl.formatMessage({ id: 'pages.compute.queue.state.unknown' })}
+            </Tag>
+          );
+        }
         const color =
           r.state === 'Open'
             ? 'green'
@@ -104,13 +115,13 @@ export default function VolcanoQueuesPage() {
       render: (_, r) => <QueueDetailCell row={r} />,
     },
     {
-      title: 'Parent',
+      title: intl.formatMessage({ id: 'pages.compute.queue.col.parent' }),
       dataIndex: 'parent',
       width: 120,
       render: (_, r) => r.parent || '-',
     },
     {
-      title: 'Age',
+      title: intl.formatMessage({ id: 'pages.compute.queue.col.age' }),
       key: 'age',
       width: 80,
       render: (_, r) => formatAge(r.creationTimestamp),
@@ -145,10 +156,13 @@ export default function VolcanoQueuesPage() {
 
   return (
     <div className="p-6">
+      {truncated && (
+        <TruncatedBanner shown={items.length} count={items.length} />
+      )}
       <ProTable<QueueRow>
         rowKey="uid"
         columns={columns}
-        dataSource={data ?? []}
+        dataSource={items}
         loading={loading}
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
@@ -158,7 +172,7 @@ export default function VolcanoQueuesPage() {
           <Space>
             <Typography.Text strong>Queue</Typography.Text>
             <Typography.Text type="secondary">
-              ({data?.length ?? 0})
+              ({items.length})
             </Typography.Text>
           </Space>
         }
@@ -207,22 +221,27 @@ export default function VolcanoQueuesPage() {
 // counts in a compact 3-line block. All data comes from the row prop
 // — no per-row fetch.
 function QueueDetailCell({ row }: { row: QueueRow }) {
+  const intl = useIntl();
   const cap = row.capability ?? {};
   const alloc = row.allocated ?? {};
   return (
     <Space direction="vertical" size={2} style={{ lineHeight: 1.4 }}>
       <Typography.Text style={{ fontSize: 12 }}>
-        权重 <strong>{row.weight}</strong>
+        {intl.formatMessage({ id: 'pages.compute.queue.detail.weight' })}{' '}
+        <strong>{row.weight}</strong>
         {row.reclaimable === false && (
           <Tag color="default" style={{ marginInlineStart: 8 }}>
-            不可回收
+            {intl.formatMessage({
+              id: 'pages.compute.queue.detail.notReclaimable',
+            })}
           </Tag>
         )}
       </Typography.Text>
       <Typography.Text
         style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}
       >
-        {formatResources(alloc, cap) || '资源未限制'}
+        {formatResources(alloc, cap) ||
+          intl.formatMessage({ id: 'pages.compute.queue.detail.unlimited' })}
       </Typography.Text>
       <Typography.Text
         style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}
@@ -266,8 +285,11 @@ function formatResources(
 // QueueStateAction flips the Open/Closed state via a Volcano Command
 // CR. Reads state from the row prop (zero per-row fetch). After the
 // command lands, we trigger a list refresh so the row updates — the
-// controller takes ~1-2s to flip status.state, so a single refresh on
-// success is usually enough; users can click 刷新 again if needed.
+// controller takes ~1-2s to flip status.state, so a few staggered
+// refreshes catch it without making the user click again. Timer ids
+// are tracked so unmount clears them: otherwise a user navigating away
+// after firing the command would still trigger refresh on a hook that
+// no longer exists (React warns about setState-on-unmounted).
 function QueueStateAction({
   record,
   refresh,
@@ -278,6 +300,7 @@ function QueueStateAction({
   const intl = useIntl();
   const { message } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
+  const fireRefresh = useStaggeredRefresh(refresh);
   if (!clusterId) return null;
 
   const isClosed = record.state === 'Closed';
@@ -308,9 +331,9 @@ function QueueStateAction({
             : 'pages.compute.queue.closed',
         }),
       );
-      // Volcano controller takes a beat to flip status.state. A few
-      // staggered refreshes catch it without making the user click.
-      [400, 1500, 4000].forEach((d) => setTimeout(refresh, d));
+      // Volcano controller takes a beat to flip status.state.
+      // useStaggeredRefresh tracks the timer ids so unmount clears them.
+      fireRefresh([400, 1500, 4000]);
     } catch (e: any) {
       const msg = e?.response?.data?.message ?? e?.message;
       if (msg) message.error(String(msg));

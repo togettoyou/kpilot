@@ -5,6 +5,35 @@ import { request } from '@umijs/max';
 // projected from full Volcano CR objects on the server side. No more
 // per-row GETs to fill in spec / status the K8s Table API doesn't
 // expose.
+//
+// Response shape carries `continue` + `remainingItemCount` so the UI
+// can show a "result truncated" hint when the server-side limit (500)
+// caps the result. Cursor pagination wiring is left to a follow-up
+// PR — for now the bound just protects worst-case payload.
+
+export interface VolcanoListResponse<T> {
+  items: T[];
+  continue?: string;
+  remainingItemCount?: number;
+}
+
+export interface VolcanoListParams {
+  namespace?: string;
+  // Optional override of the server-side default (500). The server
+  // clamps anything larger than its default to that ceiling, so passing
+  // a huge value is harmless but pointless.
+  limit?: number;
+  // Cursor token returned in a previous response's `continue` field.
+  continueToken?: string;
+}
+
+function listParams(p?: VolcanoListParams): Record<string, string | number> {
+  const q: Record<string, string | number> = {};
+  if (p?.namespace) q.namespace = p.namespace;
+  if (typeof p?.limit === 'number' && p.limit > 0) q.limit = p.limit;
+  if (p?.continueToken) q.continue = p.continueToken;
+  return q;
+}
 
 export interface QueueRow {
   name: string;
@@ -23,10 +52,11 @@ export interface QueueRow {
   unknown: number;
 }
 
-export function listVolcanoQueues(clusterId: string) {
-  return request<QueueRow[]>(`/api/v1/clusters/${clusterId}/volcano/queues`, {
-    method: 'GET',
-  });
+export function listVolcanoQueues(clusterId: string, params?: VolcanoListParams) {
+  return request<VolcanoListResponse<QueueRow>>(
+    `/api/v1/clusters/${clusterId}/volcano/queues`,
+    { method: 'GET', params: listParams(params) },
+  );
 }
 
 export interface JobTaskRow {
@@ -55,11 +85,15 @@ export interface JobRow {
   tasks?: JobTaskRow[];
 }
 
-export function listVolcanoJobs(clusterId: string, namespace?: string) {
-  return request<JobRow[]>(`/api/v1/clusters/${clusterId}/volcano/jobs`, {
-    method: 'GET',
-    params: namespace ? { namespace } : {},
-  });
+export function listVolcanoJobs(
+  clusterId: string,
+  namespace?: string,
+  params?: Omit<VolcanoListParams, 'namespace'>,
+) {
+  return request<VolcanoListResponse<JobRow>>(
+    `/api/v1/clusters/${clusterId}/volcano/jobs`,
+    { method: 'GET', params: listParams({ ...params, namespace }) },
+  );
 }
 
 export interface CronJobRow {
@@ -74,13 +108,14 @@ export interface CronJobRow {
   activeCount: number;
 }
 
-export function listVolcanoCronJobs(clusterId: string, namespace?: string) {
-  return request<CronJobRow[]>(
+export function listVolcanoCronJobs(
+  clusterId: string,
+  namespace?: string,
+  params?: Omit<VolcanoListParams, 'namespace'>,
+) {
+  return request<VolcanoListResponse<CronJobRow>>(
     `/api/v1/clusters/${clusterId}/volcano/cronjobs`,
-    {
-      method: 'GET',
-      params: namespace ? { namespace } : {},
-    },
+    { method: 'GET', params: listParams({ ...params, namespace }) },
   );
 }
 
@@ -99,13 +134,14 @@ export interface PodGroupRow {
   failed: number;
 }
 
-export function listVolcanoPodGroups(clusterId: string, namespace?: string) {
-  return request<PodGroupRow[]>(
+export function listVolcanoPodGroups(
+  clusterId: string,
+  namespace?: string,
+  params?: Omit<VolcanoListParams, 'namespace'>,
+) {
+  return request<VolcanoListResponse<PodGroupRow>>(
     `/api/v1/clusters/${clusterId}/volcano/podgroups`,
-    {
-      method: 'GET',
-      params: namespace ? { namespace } : {},
-    },
+    { method: 'GET', params: listParams({ ...params, namespace }) },
   );
 }
 
@@ -122,9 +158,12 @@ export interface HyperNodeRow {
   members?: HyperNodeMember[];
 }
 
-export function listVolcanoHyperNodes(clusterId: string) {
-  return request<HyperNodeRow[]>(
+export function listVolcanoHyperNodes(
+  clusterId: string,
+  params?: VolcanoListParams,
+) {
+  return request<VolcanoListResponse<HyperNodeRow>>(
     `/api/v1/clusters/${clusterId}/volcano/hypernodes`,
-    { method: 'GET' },
+    { method: 'GET', params: listParams(params) },
   );
 }

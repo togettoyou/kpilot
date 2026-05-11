@@ -15,10 +15,21 @@ import { JobFormDrawer } from './JobForm';
 import {
   NotInstalled,
   RefreshControl,
+  TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
   useAutoRefresh,
 } from './shared/Layout';
+
+// totalPods sums every per-phase counter on a Job row. Used to decide
+// whether to render a "-" placeholder when no pods exist yet (or all
+// counters happen to land at zero between transitions). Centralized so
+// adding a new phase counter doesn't risk a stale 6-field hand-sum.
+function totalPods(r: JobRow): number {
+  return (
+    r.running + r.pending + r.succeeded + r.failed + r.terminating + r.unknown
+  );
+}
 
 // Volcano Job (`batch.volcano.sh/v1alpha1`) — gang-scheduled batch
 // job. One server fetch returns spec + status (state.phase, pod
@@ -51,6 +62,9 @@ export default function VolcanoJobsPage() {
   if (error && isResourceNotAvailable(error)) {
     return <NotInstalled clusterId={clusterId} />;
   }
+
+  const items = data?.items ?? [];
+  const truncated = !!data?.continue;
 
   const onDelete = (record: JobRow) => {
     modal.confirm({
@@ -87,36 +101,36 @@ export default function VolcanoJobsPage() {
 
   const columns: ProColumns<JobRow>[] = [
     {
-      title: 'Name',
+      title: intl.formatMessage({ id: 'pages.compute.job.col.name' }),
       dataIndex: 'name',
       copyable: true,
       width: 200,
       fixed: 'left',
     },
     {
-      title: 'Namespace',
+      title: intl.formatMessage({ id: 'pages.compute.job.col.namespace' }),
       dataIndex: 'namespace',
       width: 140,
     },
     {
-      title: 'State',
+      title: intl.formatMessage({ id: 'pages.compute.job.col.state' }),
       dataIndex: 'state',
       width: 120,
       render: (_, r) => <JobStateTag state={r.state} />,
     },
     {
-      title: 'Queue',
+      title: intl.formatMessage({ id: 'pages.compute.job.col.queue' }),
       dataIndex: 'queue',
       width: 140,
       render: (_, r) => r.queue || 'default',
     },
     {
-      title: 'minAvailable',
+      title: intl.formatMessage({ id: 'pages.compute.job.col.minAvailable' }),
       dataIndex: 'minAvailable',
       width: 100,
     },
     {
-      title: '任务',
+      title: intl.formatMessage({ id: 'pages.compute.job.col.tasks' }),
       key: 'tasks',
       width: 200,
       render: (_, r) => (
@@ -134,7 +148,7 @@ export default function VolcanoJobsPage() {
       ),
     },
     {
-      title: 'Pods',
+      title: intl.formatMessage({ id: 'pages.compute.job.col.pods' }),
       key: 'pods',
       width: 220,
       render: (_, r) => (
@@ -149,13 +163,14 @@ export default function VolcanoJobsPage() {
             <Tag color="orange">Terminating {r.terminating}</Tag>
           )}
           {r.unknown > 0 && <Tag>Unknown {r.unknown}</Tag>}
-          {r.running + r.pending + r.succeeded + r.failed + r.terminating + r.unknown ===
-            0 && <Typography.Text type="secondary">-</Typography.Text>}
+          {totalPods(r) === 0 && (
+            <Typography.Text type="secondary">-</Typography.Text>
+          )}
         </Space>
       ),
     },
     {
-      title: 'Plugins',
+      title: intl.formatMessage({ id: 'pages.compute.job.col.plugins' }),
       dataIndex: 'plugins',
       width: 160,
       render: (_, r) =>
@@ -170,7 +185,7 @@ export default function VolcanoJobsPage() {
         ),
     },
     {
-      title: 'Age',
+      title: intl.formatMessage({ id: 'pages.compute.job.col.age' }),
       key: 'age',
       width: 80,
       render: (_, r) => formatAge(r.creationTimestamp),
@@ -207,10 +222,13 @@ export default function VolcanoJobsPage() {
 
   return (
     <div className="p-6">
+      {truncated && (
+        <TruncatedBanner shown={items.length} count={items.length} />
+      )}
       <ProTable<JobRow>
         rowKey="uid"
         columns={columns}
-        dataSource={data ?? []}
+        dataSource={items}
         loading={loading}
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
@@ -220,7 +238,7 @@ export default function VolcanoJobsPage() {
           <Space>
             <Typography.Text strong>Job</Typography.Text>
             <Typography.Text type="secondary">
-              ({data?.length ?? 0})
+              ({items.length})
             </Typography.Text>
           </Space>
         }

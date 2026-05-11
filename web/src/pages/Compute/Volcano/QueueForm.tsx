@@ -13,7 +13,7 @@ import {
   Tabs,
 } from 'antd';
 import yaml from 'js-yaml';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import {
@@ -85,6 +85,14 @@ export function QueueFormDrawer({
 
   const isEdit = !!editing;
 
+  // editOriginalRef stashes spec fields the form doesn't surface so
+  // submit can re-emit them. Today that's just spec.priority, which
+  // buildQueueManifest accepts but the form has no input for. Without
+  // this, editing a Queue created via kubectl with a custom priority
+  // would silently drop it on save. Cleared on every drawer (re)open
+  // and on create-mode entry.
+  const editOriginalRef = useRef<{ priority?: number } | null>(null);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -92,6 +100,7 @@ export function QueueFormDrawer({
     setView('form');
     setYamlText('');
     setYamlError(null);
+    editOriginalRef.current = null;
     if (!editing) {
       form.setFieldsValue({ weight: 1, reclaimable: true });
       return;
@@ -101,6 +110,10 @@ export function QueueFormDrawer({
       .then((obj: any) => {
         if (cancelled) return;
         form.setFieldsValue(formValuesFromManifest(obj, editing.name));
+        const prio = obj?.spec?.priority;
+        if (typeof prio === 'number') {
+          editOriginalRef.current = { priority: prio };
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -153,7 +166,14 @@ export function QueueFormDrawer({
       } catch {
         return;
       }
-      manifest = buildQueueManifest(fvToInput(v));
+      const input = fvToInput(v);
+      // Re-attach preserved fields (spec.priority) so SSA doesn't blank
+      // them out when kpilot re-claims the spec on save. YAML view
+      // takes the user's typed text as-is and doesn't need this.
+      if (editOriginalRef.current?.priority !== undefined) {
+        input.priority = editOriginalRef.current.priority;
+      }
+      manifest = buildQueueManifest(input);
     } else {
       try {
         manifest = yaml.load(yamlText);
@@ -324,14 +344,18 @@ export function QueueFormDrawer({
             <Form.Item
               name="capability_cpu"
               label="cpu"
-              tooltip="K8s 资源数量字符串。例如 10、500m"
+              tooltip={intl.formatMessage({
+                id: 'pages.compute.queueForm.tooltip.cpu',
+              })}
             >
               <Input placeholder="10" maxLength={32} />
             </Form.Item>
             <Form.Item
               name="capability_memory"
               label="memory"
-              tooltip="K8s 资源数量字符串。例如 100Gi、512Mi"
+              tooltip={intl.formatMessage({
+                id: 'pages.compute.queueForm.tooltip.memory',
+              })}
             >
               <Input placeholder="100Gi" maxLength={32} />
             </Form.Item>
@@ -344,14 +368,18 @@ export function QueueFormDrawer({
             <Form.Item
               name="capability_vgpu_memory"
               label="volcano.sh/vgpu-memory"
-              tooltip="单位 MiB"
+              tooltip={intl.formatMessage({
+                id: 'pages.compute.queueForm.tooltip.vgpuMemory',
+              })}
             >
               <Input placeholder="40000" maxLength={32} />
             </Form.Item>
             <Form.Item
               name="capability_vgpu_cores"
               label="volcano.sh/vgpu-cores"
-              tooltip="百分比 0-100"
+              tooltip={intl.formatMessage({
+                id: 'pages.compute.queueForm.tooltip.vgpuCores',
+              })}
             >
               <Input placeholder="100" maxLength={32} />
             </Form.Item>
