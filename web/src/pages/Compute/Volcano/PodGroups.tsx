@@ -165,6 +165,7 @@ export default function VolcanoPodGroupsPage() {
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
         scroll={{ x: 'max-content' }}
+        options={false}
         headerTitle={
           <Space>
             <Typography.Text strong>PodGroup</Typography.Text>

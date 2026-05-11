@@ -55,7 +55,10 @@ export function NotInstalled({ clusterId }: NotInstalledProps) {
 // is silently ignored. A plain setInterval driven by React state is
 // straightforward and reliable.
 export function useAutoRefresh(refresh: () => void, ready: boolean) {
-  const [interval, setIntervalState] = React.useState<number>(10_000);
+  // Default off: pages should be quiet until the user opts in. Auto-
+  // polling on first paint surprises users and burns API requests on
+  // pages they're just glancing at.
+  const [interval, setIntervalState] = React.useState<number>(0);
   useEffect(() => {
     if (!ready || interval <= 0) return;
     const t = window.setInterval(refresh, interval);

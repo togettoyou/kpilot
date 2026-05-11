@@ -215,6 +215,7 @@ export default function VolcanoJobsPage() {
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
         scroll={{ x: 'max-content' }}
+        options={false}
         headerTitle={
           <Space>
             <Typography.Text strong>Job</Typography.Text>

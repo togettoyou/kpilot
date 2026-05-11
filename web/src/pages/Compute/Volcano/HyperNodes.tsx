@@ -139,6 +139,7 @@ export default function VolcanoHyperNodesPage() {
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
         scroll={{ x: 'max-content' }}
+        options={false}
         headerTitle={
           <Space>
             <Typography.Text strong>HyperNode</Typography.Text>
