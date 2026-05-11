@@ -3,11 +3,7 @@ import { useIntl } from '@umijs/max';
 import { Tag, Typography } from 'antd';
 import React, { useMemo } from 'react';
 
-import {
-  ENABLE_FIELDS,
-  PLUGINS_META,
-  metaForAction,
-} from './schedulerMeta';
+import { PLUGINS_META, metaForAction } from './schedulerMeta';
 
 const { Text } = Typography;
 
@@ -98,7 +94,7 @@ interface NodeData {
   kind: 'endpoint' | 'action';
   label: string;
   desc?: string;
-  plugins?: { name: string; tier: number; reasons: string[] }[];
+  plugins?: { name: string; tier: number }[];
 }
 
 export default function SchedulerFlowDiagram({
@@ -156,19 +152,14 @@ export default function SchedulerFlowDiagram({
           if (!pmeta?.callbacks) {
             // Unknown plugin — show under every action conservatively
             // (we can't know what it registers; user opted in by
-            // adding it, surfacing it is more useful than hiding).
-            return { name, tier, reasons: ['(custom plugin)'] };
+            // adding it, so surfacing it is safer than hiding).
+            return { name, tier };
           }
           const overlap = pmeta.callbacks.filter((c) =>
             actionCallbacks.includes(c),
           );
           if (overlap.length === 0) return null;
-          // Render the human-friendly enable label rather than the
-          // raw yaml key (e.g. "Preemptable" not "enablePreemptable").
-          const reasons = overlap.map(
-            (k) => ENABLE_FIELDS.find((e) => e.key === k)?.label ?? k,
-          );
-          return { name, tier, reasons };
+          return { name, tier };
         })
         .filter(Boolean) as NodeData['plugins'];
 
@@ -231,10 +222,11 @@ export default function SchedulerFlowDiagram({
             ports: [{ placement: 'left' }, { placement: 'right' }],
           },
         }}
-        // Diagram lives inside a Drawer overlay (see Scheduler.tsx) —
-        // page scroll isn't in play, so we can offer the full G6
-        // interaction set: wheel to zoom, drag to pan.
-        behaviors={['zoom-canvas', 'drag-canvas']}
+        // Default behaviors (wheel-to-zoom + drag-to-pan) ship from
+        // @ant-design/graphs' COMMON_OPTIONS. Skip the explicit
+        // behaviors prop so the default applies — earlier we passed
+        // the string form ['zoom-canvas', ...] which G6 v5 expects
+        // as objects, and the strings were silently dropped.
       />
     </div>
   );
@@ -308,34 +300,22 @@ function ActionNode({ data }: { data: NodeData }) {
           (无相关插件)
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 4,
+            overflow: 'hidden',
+          }}
+        >
           {data.plugins.map((p) => (
-            <div
+            <Tag
               key={p.name}
-              style={{
-                fontSize: 11,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                overflow: 'hidden',
-              }}
+              color="green"
+              style={{ marginInlineEnd: 0, fontSize: 11 }}
             >
-              <Tag color="green" style={{ marginInlineEnd: 0, fontSize: 10 }}>
-                {p.name}
-              </Tag>
-              <span
-                style={{
-                  color: 'var(--ant-color-text-tertiary)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-                title={p.reasons.join(' · ')}
-              >
-                {p.reasons.slice(0, 2).join(' · ')}
-                {p.reasons.length > 2 && ' …'}
-              </span>
-            </div>
+              {p.name}
+            </Tag>
           ))}
         </div>
       )}
