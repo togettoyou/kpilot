@@ -199,7 +199,7 @@ export default {
 
   // Plugin install log (Cluster Plugins page → View log)
   'pages.clusterPlugins.viewLog': 'View log',
-  'pages.pluginInstallLog.title': '{name} · install log',
+  'pages.pluginInstallLog.title': '{name} · operation log',
   'pages.pluginInstallLog.running': 'In progress',
   'pages.pluginInstallLog.success': 'Success',
   'pages.pluginInstallLog.failed': 'Failed',

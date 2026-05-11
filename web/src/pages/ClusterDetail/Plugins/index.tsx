@@ -272,6 +272,11 @@ export default function ClusterPluginsPage() {
       message.success(
         intl.formatMessage({ id: 'pages.clusterPlugins.disable.success' }),
       );
+      // Match the Enable flow: auto-open the log drawer so the user
+      // can watch Helm uninstall run instead of staring at a card
+      // stuck on phase=Uninstalling. Reconciler emits log lines via
+      // the same push path the install path uses.
+      setInstallLogTarget(it);
       refresh();
     } catch {
       // global toast
@@ -304,16 +309,12 @@ export default function ClusterPluginsPage() {
       </Button>
     );
     // Show 查看日志 alongside the primary action whenever the plugin
-    // is in a phase the install-log is interesting for. Layout: small
-    // text button on the left of the primary action, so the destructive
-    // button (Disable/Enable) stays in the rightmost slot.
+    // is in a phase the operation-log is interesting for. Default
+    // button style (bordered, not type="link") so visual weight
+    // matches the Enable/Disable button next to it; without the
+    // border the link-style text disappeared into the card body.
     const logAction = LOGGABLE_PHASES.has(phase) ? (
-      <Button
-        size="small"
-        type="link"
-        onClick={() => setInstallLogTarget(it)}
-        style={{ paddingInline: 0 }}
-      >
+      <Button size="small" onClick={() => setInstallLogTarget(it)}>
         {intl.formatMessage({ id: 'pages.clusterPlugins.viewLog' })}
       </Button>
     ) : null;

@@ -200,7 +200,7 @@ export default {
 
   // 插件安装日志（Cluster Plugins 页 → 查看日志）
   'pages.clusterPlugins.viewLog': '查看日志',
-  'pages.pluginInstallLog.title': '{name} · 安装日志',
+  'pages.pluginInstallLog.title': '{name} · 操作日志',
   'pages.pluginInstallLog.running': '进行中',
   'pages.pluginInstallLog.success': '成功',
   'pages.pluginInstallLog.failed': '失败',
