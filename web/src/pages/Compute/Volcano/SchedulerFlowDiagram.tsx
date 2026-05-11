@@ -1,9 +1,9 @@
 import { FlowDirectionGraph } from '@ant-design/graphs';
 import { useIntl } from '@umijs/max';
-import { Tag, Typography } from 'antd';
+import { Tag, Tooltip, Typography } from 'antd';
 import React, { useMemo } from 'react';
 
-import { PLUGINS_META, metaForAction } from './schedulerMeta';
+import { PLUGINS_META, metaForAction, metaForPlugin } from './schedulerMeta';
 
 const { Text } = Typography;
 
@@ -303,19 +303,25 @@ function ActionNode({ data }: { data: NodeData }) {
         <div
           style={{
             display: 'flex',
-            flexWrap: 'wrap',
-            gap: 4,
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: 2,
             overflow: 'hidden',
           }}
         >
           {data.plugins.map((p) => (
-            <Tag
+            <Tooltip
               key={p.name}
-              color="green"
-              style={{ marginInlineEnd: 0, fontSize: 11 }}
+              title={metaForPlugin(p.name).desc}
+              mouseEnterDelay={0.2}
             >
-              {p.name}
-            </Tag>
+              <Tag
+                color="green"
+                style={{ marginInlineEnd: 0, fontSize: 11, cursor: 'help' }}
+              >
+                {p.name}
+              </Tag>
+            </Tooltip>
           ))}
         </div>
       )}
