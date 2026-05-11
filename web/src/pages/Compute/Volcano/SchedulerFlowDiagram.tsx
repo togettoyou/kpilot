@@ -1,8 +1,8 @@
 import { AimOutlined } from '@ant-design/icons';
-import { FlowDirectionGraph } from '@ant-design/graphs';
+import { FlowGraph } from '@ant-design/graphs';
 import { useIntl } from '@umijs/max';
 import { Button, Tag, Tooltip, Typography } from 'antd';
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { PLUGINS_META, metaForAction, metaForPlugin } from './schedulerMeta';
 
@@ -15,9 +15,10 @@ const { Text } = Typography;
 // action actually invokes. Lets users see at a glance which plugins
 // "wake up" at which scheduling stage.
 //
-// Data is derived from draft.actions (comma-separated string) plus
-// draft.tiers (each plugin's callbacks declared in schedulerMeta).
-// No state, no edits — purely a visualization.
+// Modeled on the @ant-design/graphs FlowGraph task-scheduling
+// demo: source/target endpoint nodes with a left strip, colored
+// action nodes with a header bar + plugin body, hover-activate-chain
+// for highlighting the pipeline from any node.
 
 interface SchedulerConfShape {
   actions?: string;
@@ -39,11 +40,6 @@ interface SchedulerConfShape {
 //   - reclaim: cross-queue resource reclaim — Reclaimable + Victim
 //   - backfill: best-effort small-job fit — Predicate / NodeOrder only
 //   - shuffle: rebalance — Victim (Volcano 1.7+; rare)
-//
-// Used to decide which user-configured plugins to surface under each
-// action node in the diagram. If a plugin's callback set in
-// schedulerMeta intersects with an action's set here, that plugin is
-// listed under that action.
 const ACTION_CALLBACKS: Record<string, string[]> = {
   enqueue: ['enableJobEnqueued', 'enableQueueOrder'],
   allocate: [
@@ -91,11 +87,24 @@ const ACTION_CALLBACKS: Record<string, string[]> = {
   shuffle: ['enabledVictim'],
 };
 
+// ACTION_COLORS picks a distinct accent per action so users can
+// scan the pipeline by color. Picked from antd's palette so they
+// remain readable in both light + dark themes.
+const ACTION_COLORS: Record<string, string> = {
+  enqueue: '#1890ff', // blue — entry into the loop
+  allocate: '#52c41a', // green — primary placement
+  preempt: '#faad14', // gold — same-queue destructive
+  reclaim: '#fa541c', // orange — cross-queue destructive
+  backfill: '#13c2c2', // cyan — opportunistic fill
+  shuffle: '#722ed1', // purple — rebalance
+};
+
 interface NodeData {
-  kind: 'endpoint' | 'action';
+  kind: 'source' | 'target' | 'action';
   label: string;
   desc?: string;
-  plugins?: { name: string; tier: number }[];
+  color?: string;
+  plugins?: { name: string }[];
 }
 
 export default function SchedulerFlowDiagram({
@@ -104,6 +113,12 @@ export default function SchedulerFlowDiagram({
   draft: SchedulerConfShape;
 }) {
   const intl = useIntl();
+  // Capture the G6 Graph instance once it's ready so the reset-view
+  // button can call fitView() on it. Using onReady is more reliable
+  // than ref forwarding here — the ref is sometimes null on early
+  // clicks because @ant-design/graphs initializes the Graph
+  // asynchronously after first render.
+  const [graph, setGraph] = useState<{ fitView: () => unknown } | null>(null);
 
   const data = useMemo(() => {
     const actions = (draft.actions ?? '')
@@ -111,17 +126,10 @@ export default function SchedulerFlowDiagram({
       .map((s) => s.trim())
       .filter(Boolean);
 
-    // Walk tiers in order and build a plugin → callback set lookup
-    // (the enable keys the plugin actually registers, from
-    // schedulerMeta). User-set Enabled*: false on a plugin doesn't
-    // remove the plugin from its action attribution — we visualize
-    // capability, not the runtime active subset, so a "disabled"
-    // callback still shows up. That's intentional; users editing
-    // those switches should still see what they'd be turning off.
-    const pluginsByTier: { name: string; tier: number }[] = [];
-    (draft.tiers ?? []).forEach((t, tIdx) => {
+    const pluginsInOrder: string[] = [];
+    (draft.tiers ?? []).forEach((t) => {
       (t.plugins ?? []).forEach((p) => {
-        if (p.name) pluginsByTier.push({ name: p.name, tier: tIdx + 1 });
+        if (p.name) pluginsInOrder.push(p.name);
       });
     });
 
@@ -131,11 +139,8 @@ export default function SchedulerFlowDiagram({
     nodes.push({
       id: 'start',
       data: {
-        kind: 'endpoint',
+        kind: 'source',
         label: intl.formatMessage({ id: 'pages.compute.scheduler.flow.start' }),
-        desc: intl.formatMessage({
-          id: 'pages.compute.scheduler.flow.start.desc',
-        }),
       },
     });
 
@@ -145,28 +150,33 @@ export default function SchedulerFlowDiagram({
       const meta = metaForAction(a);
       // For each plugin in this scheduler config, intersect its
       // registered callbacks with what this action actually invokes;
-      // if non-empty, list it under the action with the reason
-      // (which callbacks contribute).
-      const plugins = pluginsByTier
-        .map(({ name, tier }) => {
+      // if non-empty, list it under the action.
+      const plugins = pluginsInOrder
+        .map((name) => {
           const pmeta = PLUGINS_META[name];
           if (!pmeta?.callbacks) {
             // Unknown plugin — show under every action conservatively
             // (we can't know what it registers; user opted in by
             // adding it, so surfacing it is safer than hiding).
-            return { name, tier };
+            return { name };
           }
           const overlap = pmeta.callbacks.filter((c) =>
             actionCallbacks.includes(c),
           );
           if (overlap.length === 0) return null;
-          return { name, tier };
+          return { name };
         })
         .filter(Boolean) as NodeData['plugins'];
 
       nodes.push({
         id: a,
-        data: { kind: 'action', label: a, desc: meta.desc, plugins },
+        data: {
+          kind: 'action',
+          label: a,
+          desc: meta.desc,
+          color: ACTION_COLORS[a] ?? '#1890ff',
+          plugins,
+        },
       });
       edges.push({ source: prevId, target: a });
       prevId = a;
@@ -175,11 +185,8 @@ export default function SchedulerFlowDiagram({
     nodes.push({
       id: 'end',
       data: {
-        kind: 'endpoint',
+        kind: 'target',
         label: intl.formatMessage({ id: 'pages.compute.scheduler.flow.end' }),
-        desc: intl.formatMessage({
-          id: 'pages.compute.scheduler.flow.end.desc',
-        }),
       },
     });
     edges.push({ source: prevId, target: 'end' });
@@ -198,28 +205,24 @@ export default function SchedulerFlowDiagram({
     );
   }
 
-  // Per-node height grows with plugin count so chips don't clip.
+  // Per-node size: endpoints are slim left/right caps; action cards
+  // grow vertically with plugin density. Computed per-node so dagre
+  // can lay out the row at the right rank.
   const nodeSize = (n: { data?: NodeData }): [number, number] => {
     const d = n.data;
-    if (!d || d.kind === 'endpoint') return [180, 60];
+    if (!d || d.kind !== 'action') return [180, 50];
     const pluginCount = d.plugins?.length ?? 0;
-    // Each plugin row is ~22 px; header + desc adds ~70 px baseline.
-    const h = Math.max(80, 80 + pluginCount * 24);
-    return [260, h];
+    // ~28 px per plugin tag row, +60 for header + padding.
+    return [240, Math.max(80, 60 + pluginCount * 28)];
   };
-
-  // Hold the G6 Graph instance so we can drive the reset-view button.
-  // autoFit="view" handles the first render; after the user zooms or
-  // pans, fitView() snaps the layout back to that initial framing.
-  const graphRef = useRef<any>(null);
 
   return (
     <div
       style={{
+        position: 'relative',
         height: '100%',
         minHeight: 480,
         width: '100%',
-        position: 'relative',
       }}
     >
       <Tooltip
@@ -230,112 +233,146 @@ export default function SchedulerFlowDiagram({
         <Button
           size="small"
           icon={<AimOutlined />}
-          onClick={() => graphRef.current?.fitView?.()}
+          onClick={() => graph?.fitView()}
           style={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}
         />
       </Tooltip>
-      <FlowDirectionGraph
-        ref={graphRef}
+      <FlowGraph
         data={data as any}
-        autoFit="view"
+        autoFit="center"
         animation={false}
+        onReady={(g) => setGraph(g as any)}
         node={{
           style: {
-            component: (d: any) => <ActionNode data={d.data as NodeData} />,
-            // antd-graphs accepts a function for size — picks per-node
-            // height based on plugin density.
+            component: (d: any) => <PipelineNode data={d.data as NodeData} />,
             size: nodeSize as any,
-            ports: [{ placement: 'left' }, { placement: 'right' }],
           },
         }}
-        // Default behaviors (wheel-to-zoom + drag-to-pan) ship from
-        // @ant-design/graphs' COMMON_OPTIONS. Skip the explicit
-        // behaviors prop so the default applies — earlier we passed
-        // the string form ['zoom-canvas', ...] which G6 v5 expects
-        // as objects, and the strings were silently dropped.
+        edge={{
+          style: { lineWidth: 1.5, stroke: 'var(--ant-color-border)' },
+          state: {
+            active: { stroke: 'var(--ant-color-primary)', lineWidth: 2 },
+          },
+        }}
+        layout={{
+          type: 'dagre',
+          rankdir: 'LR',
+          nodesep: 30,
+          ranksep: 80,
+        }}
+        // Extend (don't replace) the COMMON_OPTIONS default behaviors
+        // (zoom-canvas + drag-canvas) with hover-activate-chain, so
+        // hovering any node lights up the edge chain leading to it.
+        behaviors={(prev) => [...prev, 'hover-activate-chain']}
       />
     </div>
   );
 }
 
-// ActionNode is the React component painted inside each graph node.
-// Endpoint nodes render compactly; action nodes show the action name,
-// its one-line description, and the contributing plugins as chips.
-function ActionNode({ data }: { data: NodeData }) {
-  if (data.kind === 'endpoint') {
+function PipelineNode({ data }: { data: NodeData }) {
+  if (data.kind !== 'action') {
+    // Endpoint: small chip with a left-side label strip ("起点 / 终
+    // 点") and the entity name on the right. Modeled on the antd-
+    // graphs task-scheduling demo's EndNode.
+    const isSource = data.kind === 'source';
+    const tag = isSource ? '起点' : '终点';
     return (
       <div
         style={{
-          background: 'var(--ant-color-fill-secondary)',
-          border: '1px dashed var(--ant-color-border)',
-          borderRadius: 8,
-          padding: '8px 10px',
+          width: '100%',
           height: '100%',
+          boxSizing: 'border-box',
+          border: '1px solid var(--ant-color-border)',
+          borderRadius: 4,
+          background: 'var(--ant-color-bg-container)',
           display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
+          fontSize: 12,
           overflow: 'hidden',
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{data.label}</div>
-        {data.desc && (
-          <div
-            style={{
-              fontSize: 11,
-              color: 'var(--ant-color-text-tertiary)',
-              marginTop: 2,
-            }}
-          >
-            {data.desc}
-          </div>
-        )}
+        <div
+          style={{
+            width: 44,
+            background: 'var(--ant-color-fill-secondary)',
+            color: 'var(--ant-color-text-secondary)',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {tag}
+        </div>
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 6px',
+          }}
+        >
+          {data.label}
+        </div>
       </div>
     );
   }
+
+  // Action: header bar with the action's accent color + name; body
+  // lists the participating plugins as green tags, one per line,
+  // each tag hoverable for the plugin's one-line description.
+  const color = data.color ?? '#1890ff';
   return (
     <div
       style={{
-        background: 'var(--ant-color-bg-container)',
-        border: '1px solid var(--ant-color-primary-border)',
-        borderRadius: 8,
-        padding: '6px 10px',
+        width: '100%',
         height: '100%',
-        overflow: 'hidden',
+        boxSizing: 'border-box',
+        border: `1px solid ${color}`,
+        borderRadius: 4,
+        background: 'var(--ant-color-bg-container)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 2,
+        overflow: 'hidden',
       }}
     >
+      <Tooltip title={data.desc}>
+        <div
+          style={{
+            background: color,
+            color: '#fff',
+            padding: '4px 8px',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'help',
+          }}
+        >
+          {data.label}
+        </div>
+      </Tooltip>
       <div
         style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: 'var(--ant-color-primary)',
+          flex: 1,
+          padding: '6px 8px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: 2,
+          overflow: 'hidden',
         }}
       >
-        {data.label}
-      </div>
-      {!data.plugins || data.plugins.length === 0 ? (
-        <div
-          style={{
-            fontSize: 11,
-            color: 'var(--ant-color-text-tertiary)',
-            fontStyle: 'italic',
-          }}
-        >
-          (无相关插件)
-        </div>
-      ) : (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-start',
-            gap: 2,
-            overflow: 'hidden',
-          }}
-        >
-          {data.plugins.map((p) => (
+        {!data.plugins || data.plugins.length === 0 ? (
+          <span
+            style={{
+              fontSize: 11,
+              color: 'var(--ant-color-text-tertiary)',
+              fontStyle: 'italic',
+            }}
+          >
+            (无相关插件)
+          </span>
+        ) : (
+          data.plugins.map((p) => (
             <Tooltip
               key={p.name}
               title={metaForPlugin(p.name).desc}
@@ -348,9 +385,9 @@ function ActionNode({ data }: { data: NodeData }) {
                 {p.name}
               </Tag>
             </Tooltip>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   );
 }
