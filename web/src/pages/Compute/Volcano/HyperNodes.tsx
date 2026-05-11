@@ -1,14 +1,16 @@
+import { PlusOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
 import { App, Button, Space, Tag, Typography } from 'antd';
-import React from 'react';
+import React, { useState } from 'react';
 
 import {
   listVolcanoHyperNodes,
   type HyperNodeRow,
 } from '@/services/kpilot/volcano-list';
 import { deleteWorkload } from '@/services/kpilot/workload';
+import { HyperNodeFormDrawer } from './HyperNodeForm';
 import {
   NotInstalled,
   RefreshControl,
@@ -20,8 +22,8 @@ import {
 
 // Volcano HyperNode (`topology.volcano.sh/v1alpha1`) — declares
 // network topology for topology-aware scheduling. Cluster-scoped.
-// Read-only-ish: HyperNodes describe physical-ish topology, so most
-// users only need to view them; we expose Delete for cleanup.
+// 新建 / 编辑 covers tier number, optional tierName, and the members
+// list (each with type=Node|HyperNode + exactly one selector branch).
 export default function VolcanoHyperNodesPage() {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
@@ -37,6 +39,8 @@ export default function VolcanoHyperNodesPage() {
   );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingName, setEditingName] = useState<string | null>(null);
 
   if (!clusterId) return null;
   if (error && isResourceNotAvailable(error)) {
@@ -118,16 +122,25 @@ export default function VolcanoHyperNodesPage() {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       key: 'action',
       fixed: 'right',
-      width: 100,
+      width: 160,
       render: (_, record) => (
-        <Button
-          type="link"
-          size="small"
-          danger
-          onClick={() => onDelete(record.name)}
-        >
-          {intl.formatMessage({ id: 'pages.workloads.delete' })}
-        </Button>
+        <Space size={0}>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => setEditingName(record.name)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.edit' })}
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            danger
+            onClick={() => onDelete(record.name)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.delete' })}
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -155,6 +168,14 @@ export default function VolcanoHyperNodesPage() {
           </Space>
         }
         toolBarRender={() => [
+          <Button
+            key="new"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setCreateOpen(true)}
+          >
+            {intl.formatMessage({ id: 'pages.compute.hyperNode.create' })}
+          </Button>,
           <RefreshControl
             key="refresh"
             interval={interval}
@@ -163,6 +184,25 @@ export default function VolcanoHyperNodesPage() {
             loading={loading}
           />,
         ]}
+      />
+      <HyperNodeFormDrawer
+        open={createOpen}
+        clusterId={clusterId}
+        onClose={() => setCreateOpen(false)}
+        onSaved={() => {
+          setCreateOpen(false);
+          refresh();
+        }}
+      />
+      <HyperNodeFormDrawer
+        open={!!editingName}
+        clusterId={clusterId}
+        editing={editingName ? { name: editingName } : undefined}
+        onClose={() => setEditingName(null)}
+        onSaved={() => {
+          setEditingName(null);
+          refresh();
+        }}
       />
     </div>
   );

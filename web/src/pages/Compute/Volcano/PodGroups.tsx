@@ -1,14 +1,16 @@
+import { PlusOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useModel, useParams, useRequest } from '@umijs/max';
 import { App, Button, Space, Tag, Typography } from 'antd';
-import React from 'react';
+import React, { useState } from 'react';
 
 import {
   listVolcanoPodGroups,
   type PodGroupRow,
 } from '@/services/kpilot/volcano-list';
 import { deleteWorkload } from '@/services/kpilot/workload';
+import { PodGroupFormDrawer } from './PodGroupForm';
 import {
   NotInstalled,
   RefreshControl,
@@ -19,10 +21,10 @@ import {
 } from './shared/Layout';
 
 // Volcano PodGroup (`scheduling.volcano.sh/v1beta1`) — gang-scheduling
-// unit. Auto-created by the Volcano Job controller, but users can also
-// create standalone PodGroups for non-Job workloads. We don't expose
-// a "新建" button: standalone PodGroup creation is rare and the
-// generic Apply YAML drawer in 集群管理 covers it.
+// unit. Volcano Jobs auto-create one for each Job, but standalone
+// PodGroups are valid (paired with manually-labeled Pods). The
+// 新建 / 编辑 drawer covers the standalone case + lets users tweak
+// auto-created PodGroups' minMember / minResources / networkTopology.
 export default function VolcanoPodGroupsPage() {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
@@ -40,6 +42,11 @@ export default function VolcanoPodGroupsPage() {
   );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<{
+    name: string;
+    namespace: string;
+  } | null>(null);
 
   if (!clusterId) return null;
   if (error && isResourceNotAvailable(error)) {
@@ -146,16 +153,27 @@ export default function VolcanoPodGroupsPage() {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       key: 'action',
       fixed: 'right',
-      width: 100,
+      width: 160,
       render: (_, record) => (
-        <Button
-          type="link"
-          size="small"
-          danger
-          onClick={() => onDelete(record)}
-        >
-          {intl.formatMessage({ id: 'pages.workloads.delete' })}
-        </Button>
+        <Space size={0}>
+          <Button
+            type="link"
+            size="small"
+            onClick={() =>
+              setEditing({ name: record.name, namespace: record.namespace })
+            }
+          >
+            {intl.formatMessage({ id: 'pages.workloads.edit' })}
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            danger
+            onClick={() => onDelete(record)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.delete' })}
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -183,6 +201,14 @@ export default function VolcanoPodGroupsPage() {
           </Space>
         }
         toolBarRender={() => [
+          <Button
+            key="new"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setCreateOpen(true)}
+          >
+            {intl.formatMessage({ id: 'pages.compute.podGroup.create' })}
+          </Button>,
           <RefreshControl
             key="refresh"
             interval={interval}
@@ -191,6 +217,26 @@ export default function VolcanoPodGroupsPage() {
             loading={loading}
           />,
         ]}
+      />
+      <PodGroupFormDrawer
+        open={createOpen}
+        clusterId={clusterId}
+        defaultNamespace={ns}
+        onClose={() => setCreateOpen(false)}
+        onSaved={() => {
+          setCreateOpen(false);
+          refresh();
+        }}
+      />
+      <PodGroupFormDrawer
+        open={!!editing}
+        clusterId={clusterId}
+        editing={editing ?? undefined}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          refresh();
+        }}
       />
     </div>
   );

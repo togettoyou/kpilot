@@ -252,6 +252,118 @@ export async function sendCommand(
   );
 }
 
+// ─── PodGroup ──────────────────────────────────────────────────────────
+
+export interface PodGroupInput {
+  name: string;
+  namespace: string;
+  queue?: string;
+  priorityClassName?: string;
+  // Minimum number of pods to schedule together (gang). 0 = no gang.
+  minMember?: number;
+  // Per-task minimum: map of task name → minimum running count.
+  // Independent of subGroupPolicy (recommended for new configs);
+  // exposed alongside for compatibility with existing PodGroups.
+  minTaskMember?: Record<string, number>;
+  // Minimum resources for the whole group; map of K8s resource name
+  // to Quantity string ("4", "8Gi", etc.).
+  minResources?: Record<string, string>;
+  // Optional NetworkTopology block (works with HyperNode CRD).
+  networkTopologyMode?: 'hard' | 'soft';
+  networkTopologyHighestTierAllowed?: number;
+  networkTopologyHighestTierName?: string;
+}
+
+export function buildPodGroupManifest(input: PodGroupInput): unknown {
+  const spec: Record<string, unknown> = {};
+  if (typeof input.minMember === 'number' && input.minMember > 0) {
+    spec.minMember = input.minMember;
+  }
+  if (input.queue) spec.queue = input.queue;
+  if (input.priorityClassName) spec.priorityClassName = input.priorityClassName;
+  if (input.minResources && Object.keys(input.minResources).length > 0) {
+    spec.minResources = input.minResources;
+  }
+  if (input.minTaskMember && Object.keys(input.minTaskMember).length > 0) {
+    spec.minTaskMember = input.minTaskMember;
+  }
+  const nt: Record<string, unknown> = {};
+  if (input.networkTopologyMode) nt.mode = input.networkTopologyMode;
+  if (
+    typeof input.networkTopologyHighestTierAllowed === 'number' &&
+    input.networkTopologyHighestTierAllowed >= 0
+  ) {
+    nt.highestTierAllowed = input.networkTopologyHighestTierAllowed;
+  }
+  if (input.networkTopologyHighestTierName) {
+    nt.highestTierName = input.networkTopologyHighestTierName;
+  }
+  if (Object.keys(nt).length > 0) spec.networkTopology = nt;
+
+  return {
+    apiVersion: 'scheduling.volcano.sh/v1beta1',
+    kind: 'PodGroup',
+    metadata: { name: input.name, namespace: input.namespace },
+    spec,
+  };
+}
+
+// ─── HyperNode ─────────────────────────────────────────────────────────
+
+export type HyperNodeMemberType = 'Node' | 'HyperNode';
+export type HyperNodeSelectorType = 'exactMatch' | 'regexMatch' | 'labelMatch';
+
+export interface HyperNodeMemberInput {
+  type: HyperNodeMemberType;
+  // Exactly one of these must be set — the CRD validates that with a
+  // CEL rule at admission time. The form drawer enforces it via
+  // selectorType radio so users can't pick two.
+  selectorType: HyperNodeSelectorType;
+  // Used when selectorType === 'exactMatch'.
+  exactName?: string;
+  // Used when selectorType === 'regexMatch'.
+  regexPattern?: string;
+  // Used when selectorType === 'labelMatch'. labelMatch only takes
+  // effect for type === 'Node' per the upstream comment.
+  matchLabels?: Record<string, string>;
+}
+
+export interface HyperNodeInput {
+  name: string;
+  // Performance tier (depth in the topology tree); >= 0.
+  tier: number;
+  // Optional human-readable tier name.
+  tierName?: string;
+  members: HyperNodeMemberInput[];
+}
+
+export function buildHyperNodeManifest(input: HyperNodeInput): unknown {
+  const members = input.members.map((m) => {
+    const selector: Record<string, unknown> = {};
+    if (m.selectorType === 'exactMatch' && m.exactName) {
+      selector.exactMatch = { name: m.exactName };
+    } else if (m.selectorType === 'regexMatch' && m.regexPattern) {
+      selector.regexMatch = { pattern: m.regexPattern };
+    } else if (
+      m.selectorType === 'labelMatch' &&
+      m.matchLabels &&
+      Object.keys(m.matchLabels).length > 0
+    ) {
+      selector.labelMatch = { matchLabels: m.matchLabels };
+    }
+    return { type: m.type, selector };
+  });
+  const spec: Record<string, unknown> = { tier: input.tier };
+  if (input.tierName) spec.tierName = input.tierName;
+  if (members.length > 0) spec.members = members;
+  return {
+    apiVersion: 'topology.volcano.sh/v1alpha1',
+    kind: 'HyperNode',
+    metadata: { name: input.name },
+    spec,
+  };
+}
+
 function parseApiVersion(av: string): { group: string; version: string } {
   const slash = av.indexOf('/');
   if (slash < 0) return { group: '', version: av };

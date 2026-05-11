@@ -219,11 +219,82 @@ export default {
   'pages.compute.podGroup.col.pods': 'Pods',
   'pages.compute.podGroup.col.age': '创建时间',
 
+  // PodGroup 表单
+  'pages.compute.podGroup.create': '新建 PodGroup',
+  'pages.compute.podGroupForm.title': '新建 Volcano PodGroup',
+  'pages.compute.podGroupForm.editTitle': '编辑 Volcano PodGroup',
+  'pages.compute.podGroupForm.submit': '创建',
+  'pages.compute.podGroupForm.update': '保存',
+  'pages.compute.podGroupForm.success': 'PodGroup 已创建',
+  'pages.compute.podGroupForm.updated': 'PodGroup 已更新',
+  'pages.compute.podGroupForm.name': '名称',
+  'pages.compute.podGroupForm.namespace': '命名空间',
+  'pages.compute.podGroupForm.queue': '队列 (queue)',
+  'pages.compute.podGroupForm.queue.extra': '留空使用 default 队列',
+  'pages.compute.podGroupForm.priority': '优先级 (priorityClassName)',
+  'pages.compute.podGroupForm.minMember': '最少需共同启动 (minMember)',
+  'pages.compute.podGroupForm.minMember.extra':
+    'gang 调度的最小 pod 数；为 0 表示不强制 gang，pod 各自独立调度',
+  'pages.compute.podGroupForm.minTaskMember': '任务分组最小数 (minTaskMember)',
+  'pages.compute.podGroupForm.minTaskMember.extra':
+    '每个 task 名对应的最少共同启动 pod 数。和 subGroupPolicy 二选一；新配置推荐用 subGroupPolicy（YAML 视图编辑）',
+  'pages.compute.podGroupForm.minTaskMember.add': '添加 task',
+  'pages.compute.podGroupForm.minResources': '最少资源 (minResources)',
+  'pages.compute.podGroupForm.minResources.extra':
+    'gang 启动所需的最小资源；scheduler 至少为该 PodGroup 预留这些资源才会触发 ready',
+  'pages.compute.podGroupForm.minResources.add': '添加资源',
+  'pages.compute.podGroupForm.networkTopology':
+    '网络拓扑感知 (networkTopology)',
+  'pages.compute.podGroupForm.networkTopology.extra':
+    '配合 HyperNode 使用：要求作业的 pod 收紧到指定网络拓扑层级（机架 / spine 等）',
+  'pages.compute.podGroupForm.ntMode': '模式 (mode)',
+  'pages.compute.podGroupForm.ntMode.placeholder': '不启用',
+  'pages.compute.podGroupForm.ntMode.extra':
+    'hard：强制；soft：尽量满足。不选则禁用拓扑感知',
+  'pages.compute.podGroupForm.ntTierAllowed': '最高允许跨越层级 (highestTierAllowed)',
+  'pages.compute.podGroupForm.ntTierAllowed.extra':
+    'pod 最多可以跨到第几层 HyperNode；数字越小越紧凑。与 highestTierName 二选一',
+  'pages.compute.podGroupForm.ntTierName': '最高允许跨越层级名称 (highestTierName)',
+  'pages.compute.podGroupForm.ntTierName.extra':
+    '与 highestTierAllowed 二选一；按 HyperNode.spec.tierName 匹配',
+
   // HyperNode 列
   'pages.compute.hyperNode.col.name': '名称',
   'pages.compute.hyperNode.col.tier': '层级',
   'pages.compute.hyperNode.col.members': '成员',
   'pages.compute.hyperNode.col.age': '创建时间',
+
+  // HyperNode 表单
+  'pages.compute.hyperNode.create': '新建 HyperNode',
+  'pages.compute.hyperNodeForm.title': '新建 Volcano HyperNode',
+  'pages.compute.hyperNodeForm.editTitle': '编辑 Volcano HyperNode',
+  'pages.compute.hyperNodeForm.submit': '创建',
+  'pages.compute.hyperNodeForm.update': '保存',
+  'pages.compute.hyperNodeForm.success': 'HyperNode 已创建',
+  'pages.compute.hyperNodeForm.updated': 'HyperNode 已更新',
+  'pages.compute.hyperNodeForm.name': '名称',
+  'pages.compute.hyperNodeForm.tier': '层级 (tier)',
+  'pages.compute.hyperNodeForm.tier.extra':
+    '该 HyperNode 在拓扑树中的深度，>= 0；越大越靠近根。例如 tier 0 = 单节点，tier 1 = 机架，tier 2 = spine / pod-of-racks',
+  'pages.compute.hyperNodeForm.tierName': '层级名称 (tierName)',
+  'pages.compute.hyperNodeForm.tierName.extra':
+    '可选；PodGroup 用 highestTierName 匹配该值时使用',
+  'pages.compute.hyperNodeForm.members': '成员 (members)',
+  'pages.compute.hyperNodeForm.members.extra':
+    '每个成员可以是节点（Node）或下层 HyperNode；按名匹配 / 正则匹配 / 标签匹配三选一',
+  'pages.compute.hyperNodeForm.members.add': '添加成员',
+  'pages.compute.hyperNodeForm.member.title': '成员 {n}',
+  'pages.compute.hyperNodeForm.member.type': '类型',
+  'pages.compute.hyperNodeForm.member.selectorType': '选择方式',
+  'pages.compute.hyperNodeForm.member.exactName': '精确名称',
+  'pages.compute.hyperNodeForm.member.exactName.extra':
+    'Node 或下层 HyperNode 的名字（必须存在于集群）',
+  'pages.compute.hyperNodeForm.member.regex': '正则模式',
+  'pages.compute.hyperNodeForm.member.regex.extra':
+    '匹配资源名称的 RE2 正则表达式，例如 ^node-[0-9]+$',
+  'pages.compute.hyperNodeForm.member.labels.extra':
+    '按节点 labels 匹配（仅当类型为 Node 时生效）',
+  'pages.compute.hyperNodeForm.member.labels.add': '添加 label',
 
   // 插件安装日志（Cluster Plugins 页 → 查看日志）
   'pages.clusterPlugins.viewLog': '查看日志',

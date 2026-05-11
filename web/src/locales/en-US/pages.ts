@@ -220,11 +220,81 @@ export default {
   'pages.compute.podGroup.col.pods': 'Pods',
   'pages.compute.podGroup.col.age': 'Age',
 
+  // PodGroup form
+  'pages.compute.podGroup.create': 'New PodGroup',
+  'pages.compute.podGroupForm.title': 'New Volcano PodGroup',
+  'pages.compute.podGroupForm.editTitle': 'Edit Volcano PodGroup',
+  'pages.compute.podGroupForm.submit': 'Create',
+  'pages.compute.podGroupForm.update': 'Save',
+  'pages.compute.podGroupForm.success': 'PodGroup created',
+  'pages.compute.podGroupForm.updated': 'PodGroup updated',
+  'pages.compute.podGroupForm.name': 'Name',
+  'pages.compute.podGroupForm.namespace': 'Namespace',
+  'pages.compute.podGroupForm.queue': 'Queue',
+  'pages.compute.podGroupForm.queue.extra': 'Leave empty to use the default queue',
+  'pages.compute.podGroupForm.priority': 'priorityClassName',
+  'pages.compute.podGroupForm.minMember': 'Min members to co-schedule (minMember)',
+  'pages.compute.podGroupForm.minMember.extra':
+    'Gang minimum pods. 0 disables gang scheduling — pods schedule independently',
+  'pages.compute.podGroupForm.minTaskMember': 'Per-task minimums (minTaskMember)',
+  'pages.compute.podGroupForm.minTaskMember.extra':
+    'Per-task name → minimum count. Pick one of minTaskMember or subGroupPolicy; new configs should prefer subGroupPolicy (edit via YAML view)',
+  'pages.compute.podGroupForm.minTaskMember.add': 'Add task',
+  'pages.compute.podGroupForm.minResources': 'Minimum resources (minResources)',
+  'pages.compute.podGroupForm.minResources.extra':
+    'Resources the scheduler must reserve before the PodGroup is marked ready',
+  'pages.compute.podGroupForm.minResources.add': 'Add resource',
+  'pages.compute.podGroupForm.networkTopology': 'Network topology',
+  'pages.compute.podGroupForm.networkTopology.extra':
+    'Works with HyperNode CRD: constrain the PodGroup\'s pods to a network topology domain (rack / spine / ...)',
+  'pages.compute.podGroupForm.ntMode': 'Mode',
+  'pages.compute.podGroupForm.ntMode.placeholder': 'Disabled',
+  'pages.compute.podGroupForm.ntMode.extra':
+    'hard = required; soft = best-effort. Leave unset to disable topology-aware scheduling',
+  'pages.compute.podGroupForm.ntTierAllowed': 'Highest tier allowed',
+  'pages.compute.podGroupForm.ntTierAllowed.extra':
+    'Maximum HyperNode tier pods can span; smaller = tighter. Mutually exclusive with highestTierName',
+  'pages.compute.podGroupForm.ntTierName': 'Highest tier name',
+  'pages.compute.podGroupForm.ntTierName.extra':
+    'Mutually exclusive with highestTierAllowed; matches HyperNode.spec.tierName',
+
   // HyperNode columns
   'pages.compute.hyperNode.col.name': 'Name',
   'pages.compute.hyperNode.col.tier': 'Tier',
   'pages.compute.hyperNode.col.members': 'Members',
   'pages.compute.hyperNode.col.age': 'Age',
+
+  // HyperNode form
+  'pages.compute.hyperNode.create': 'New HyperNode',
+  'pages.compute.hyperNodeForm.title': 'New Volcano HyperNode',
+  'pages.compute.hyperNodeForm.editTitle': 'Edit Volcano HyperNode',
+  'pages.compute.hyperNodeForm.submit': 'Create',
+  'pages.compute.hyperNodeForm.update': 'Save',
+  'pages.compute.hyperNodeForm.success': 'HyperNode created',
+  'pages.compute.hyperNodeForm.updated': 'HyperNode updated',
+  'pages.compute.hyperNodeForm.name': 'Name',
+  'pages.compute.hyperNodeForm.tier': 'Tier',
+  'pages.compute.hyperNodeForm.tier.extra':
+    'Depth in the topology tree, >= 0. e.g. tier 0 = node, tier 1 = rack, tier 2 = spine / pod-of-racks',
+  'pages.compute.hyperNodeForm.tierName': 'Tier name',
+  'pages.compute.hyperNodeForm.tierName.extra':
+    'Optional; PodGroup matches this via highestTierName when set',
+  'pages.compute.hyperNodeForm.members': 'Members',
+  'pages.compute.hyperNodeForm.members.extra':
+    'Each member is either a Node or a lower-tier HyperNode. Pick exactly one selector branch: exactMatch / regexMatch / labelMatch',
+  'pages.compute.hyperNodeForm.members.add': 'Add member',
+  'pages.compute.hyperNodeForm.member.title': 'Member {n}',
+  'pages.compute.hyperNodeForm.member.type': 'Type',
+  'pages.compute.hyperNodeForm.member.selectorType': 'Selector',
+  'pages.compute.hyperNodeForm.member.exactName': 'Exact name',
+  'pages.compute.hyperNodeForm.member.exactName.extra':
+    'Exact Node or lower HyperNode name (must already exist)',
+  'pages.compute.hyperNodeForm.member.regex': 'Regex pattern',
+  'pages.compute.hyperNodeForm.member.regex.extra':
+    'RE2 pattern matched against resource names, e.g. ^node-[0-9]+$',
+  'pages.compute.hyperNodeForm.member.labels.extra':
+    'Match by node labels (only effective when member type is Node)',
+  'pages.compute.hyperNodeForm.member.labels.add': 'Add label',
 
   // Plugin install log (Cluster Plugins page → View log)
   'pages.clusterPlugins.viewLog': 'View log',
