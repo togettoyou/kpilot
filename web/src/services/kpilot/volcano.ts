@@ -72,6 +72,20 @@ export interface JobTaskInput {
   // Pod-level restartPolicy. Volcano defaults Job-level restartPolicy
   // off the task block; OnFailure works for most batch use cases.
   restartPolicy?: 'OnFailure' | 'Never' | 'Always';
+  // Per-task gang minimum: how many pods of THIS task must start
+  // together (defaults server-side to replicas). Distinct from
+  // job.spec.minAvailable which spans all tasks.
+  minAvailable?: number;
+  // Per-task retry budget (vs job-level maxRetry). Defaults 3.
+  maxRetry?: number;
+  // NUMA topology policy for this task's pods.
+  // Volcano upstream: NumaPolicy enum — none / best-effort /
+  // restricted / single-numa-node (kubelet-style).
+  topologyPolicy?:
+    | 'none'
+    | 'best-effort'
+    | 'restricted'
+    | 'single-numa-node';
 }
 
 export interface JobInput {
@@ -115,7 +129,7 @@ export function buildJobManifest(input: JobInput): unknown {
     if (t.command && t.command.length > 0) container.command = t.command;
     if (t.args && t.args.length > 0) container.args = t.args;
     if (t.resources) container.resources = t.resources;
-    return {
+    const taskOut: Record<string, unknown> = {
       name: t.name,
       replicas: t.replicas,
       template: {
@@ -126,6 +140,14 @@ export function buildJobManifest(input: JobInput): unknown {
         },
       },
     };
+    if (typeof t.minAvailable === 'number' && t.minAvailable >= 0) {
+      taskOut.minAvailable = t.minAvailable;
+    }
+    if (typeof t.maxRetry === 'number' && t.maxRetry >= 0) {
+      taskOut.maxRetry = t.maxRetry;
+    }
+    if (t.topologyPolicy) taskOut.topologyPolicy = t.topologyPolicy;
+    return taskOut;
   });
   const totalReplicas = input.tasks.reduce((sum, t) => sum + t.replicas, 0);
   const spec: Record<string, unknown> = {

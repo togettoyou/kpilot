@@ -52,6 +52,14 @@ interface TaskFV {
   vgpuMemory?: string;
   vgpuCores?: string;
   restartPolicy: 'OnFailure' | 'Never' | 'Always';
+  // Per-task TaskSpec siblings, same shape as JobForm.
+  topologyPolicy?:
+    | 'none'
+    | 'best-effort'
+    | 'restricted'
+    | 'single-numa-node';
+  taskMaxRetry?: number;
+  taskMinAvailable?: number;
 }
 
 interface FormValues {
@@ -101,11 +109,23 @@ export function CronJobFormDrawer({
     value: n,
   }));
   // Same preservation strategy as JobForm — see comment there.
-  // CronJob nests the Job spec at .spec.jobTemplate.spec, so plugins
-  // and task.policies live one level deeper.
+  // CronJob nests the Job spec at .spec.jobTemplate.spec, so plugins,
+  // task.policies, and the multi-container / pod-level template.spec
+  // preservation all live one level deeper.
   const editOriginalRef = useRef<{
     plugins?: Record<string, unknown>;
     taskPolicies?: Record<string, unknown>;
+    taskExtras?: Record<
+      string,
+      {
+        templateSpec?: any;
+        dependsOn?: unknown;
+        partitionPolicy?: unknown;
+      }
+    >;
+    volumes?: unknown;
+    jobPolicies?: unknown;
+    schedulerName?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -148,8 +168,22 @@ export function CronJobFormDrawer({
         );
         const jSpec = obj?.spec?.jobTemplate?.spec ?? {};
         const taskPolicies: Record<string, unknown> = {};
+        const taskExtras: Record<
+          string,
+          { templateSpec?: any; dependsOn?: unknown; partitionPolicy?: unknown }
+        > = {};
         for (const t of (jSpec.tasks ?? []) as any[]) {
-          if (t?.name && t.policies) taskPolicies[t.name] = t.policies;
+          if (!t?.name) continue;
+          if (t.policies) taskPolicies[t.name] = t.policies;
+          const entry: {
+            templateSpec?: any;
+            dependsOn?: unknown;
+            partitionPolicy?: unknown;
+          } = {};
+          if (t.template?.spec) entry.templateSpec = t.template.spec;
+          if (t.dependsOn) entry.dependsOn = t.dependsOn;
+          if (t.partitionPolicy) entry.partitionPolicy = t.partitionPolicy;
+          if (Object.keys(entry).length > 0) taskExtras[t.name] = entry;
         }
         editOriginalRef.current = {
           plugins:
@@ -158,6 +192,21 @@ export function CronJobFormDrawer({
               : undefined,
           taskPolicies:
             Object.keys(taskPolicies).length > 0 ? taskPolicies : undefined,
+          taskExtras:
+            Object.keys(taskExtras).length > 0 ? taskExtras : undefined,
+          volumes:
+            Array.isArray(jSpec.volumes) && jSpec.volumes.length > 0
+              ? jSpec.volumes
+              : undefined,
+          jobPolicies:
+            Array.isArray(jSpec.policies) && jSpec.policies.length > 0
+              ? jSpec.policies
+              : undefined,
+          schedulerName:
+            typeof jSpec.schedulerName === 'string' &&
+            jSpec.schedulerName !== 'volcano'
+              ? jSpec.schedulerName
+              : undefined,
         };
       })
       .finally(() => {
@@ -183,12 +232,46 @@ export function CronJobFormDrawer({
       }
       jSpec.plugins = merged;
     }
-    if (orig.taskPolicies && Array.isArray(jSpec.tasks)) {
+    if (Array.isArray(jSpec.tasks)) {
       jSpec.tasks = jSpec.tasks.map((t: any) => {
         const policies = orig.taskPolicies?.[t.name];
-        return policies !== undefined ? { ...t, policies } : t;
+        const extras = orig.taskExtras?.[t.name];
+        let next = t;
+        if (policies !== undefined) next = { ...next, policies };
+        if (extras) {
+          if (extras.templateSpec) {
+            const built = next.template?.spec ?? {};
+            const original = extras.templateSpec;
+            const mergedContainers = [
+              built.containers?.[0] ?? original.containers?.[0],
+              ...((original.containers ?? []).slice(1) as any[]),
+            ];
+            next = {
+              ...next,
+              template: {
+                ...(next.template ?? {}),
+                spec: {
+                  ...original,
+                  schedulerName: built.schedulerName ?? original.schedulerName,
+                  restartPolicy: built.restartPolicy ?? original.restartPolicy,
+                  containers: mergedContainers,
+                },
+              },
+            };
+          }
+          if (extras.dependsOn !== undefined) {
+            next = { ...next, dependsOn: extras.dependsOn };
+          }
+          if (extras.partitionPolicy !== undefined) {
+            next = { ...next, partitionPolicy: extras.partitionPolicy };
+          }
+        }
+        return next;
       });
     }
+    if (orig.volumes) jSpec.volumes = orig.volumes;
+    if (orig.jobPolicies) jSpec.policies = orig.jobPolicies;
+    if (orig.schedulerName) jSpec.schedulerName = orig.schedulerName;
     return manifest;
   };
 
@@ -568,6 +651,58 @@ export function CronJobFormDrawer({
                     </Form.Item>
                   </Space.Compact>
 
+                  <Space.Compact block>
+                    <Form.Item
+                      name={[field.name, 'taskMinAvailable']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.minAvailable',
+                      })}
+                      style={{ flex: 1 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        placeholder="= replicas"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'taskMaxRetry']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.maxRetry',
+                      })}
+                      style={{ flex: 1, marginInlineStart: 12 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        placeholder="3"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'topologyPolicy']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.topologyPolicy',
+                      })}
+                      style={{ flex: 1.5, marginInlineStart: 12 }}
+                    >
+                      <Select
+                        allowClear
+                        placeholder={intl.formatMessage({
+                          id: 'pages.compute.jobForm.task.topologyPolicy.placeholder',
+                        })}
+                        options={[
+                          { label: 'none', value: 'none' },
+                          { label: 'best-effort', value: 'best-effort' },
+                          { label: 'restricted', value: 'restricted' },
+                          {
+                            label: 'single-numa-node',
+                            value: 'single-numa-node',
+                          },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Space.Compact>
+
                   <Form.Item
                     name={[field.name, 'image']}
                     label={intl.formatMessage({
@@ -743,6 +878,13 @@ function fvToInput(v: FormValues): CronJobInput {
                 limits: Object.keys(limits).length > 0 ? limits : undefined,
               }
             : undefined,
+          minAvailable:
+            typeof t.taskMinAvailable === 'number'
+              ? t.taskMinAvailable
+              : undefined,
+          maxRetry:
+            typeof t.taskMaxRetry === 'number' ? t.taskMaxRetry : undefined,
+          topologyPolicy: t.topologyPolicy,
         };
       }),
     },
@@ -807,6 +949,11 @@ function extractCronTasks(specTasks: any): TaskFV[] {
       vgpuCores: lim['volcano.sh/vgpu-cores'],
       restartPolicy:
         (podSpec.restartPolicy as TaskFV['restartPolicy']) ?? 'OnFailure',
+      taskMinAvailable:
+        typeof t.minAvailable === 'number' ? t.minAvailable : undefined,
+      taskMaxRetry:
+        typeof t.maxRetry === 'number' ? t.maxRetry : undefined,
+      topologyPolicy: t.topologyPolicy as TaskFV['topologyPolicy'],
     };
   });
 }

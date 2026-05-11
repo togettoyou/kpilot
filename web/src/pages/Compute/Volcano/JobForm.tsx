@@ -53,6 +53,17 @@ interface TaskFV {
   vgpuMemory?: string;
   vgpuCores?: string;
   restartPolicy: 'OnFailure' | 'Never' | 'Always';
+  // Per-task knobs that exist as TaskSpec siblings in upstream.
+  // Separate from job-level fields with the same name (e.g. the
+  // job-level minAvailable spans all tasks; this one is just for
+  // this task's pods).
+  topologyPolicy?:
+    | 'none'
+    | 'best-effort'
+    | 'restricted'
+    | 'single-numa-node';
+  taskMaxRetry?: number;
+  taskMinAvailable?: number;
 }
 
 interface FormValues {
@@ -118,10 +129,28 @@ export function JobFormDrawer({
   // policies (lifecycle reactions), and a custom schedulerName the
   // user might have set (we hardcode "volcano" in our builder so
   // anything else would be lost on edit).
+  //
+  // taskExtras (keyed by task name) preserves *per-task* fields the
+  // form doesn't render: the full original template.spec (so
+  // multi-container tasks, pod-level affinity / tolerations /
+  // nodeSelector / initContainers / volumes mounts all survive
+  // round-trip), plus TaskSpec siblings dependsOn / partitionPolicy
+  // that the form has no inputs for. On submit applyPreserved
+  // overlays our freshly-built containers[0] + restartPolicy +
+  // schedulerName onto the preserved template.spec.
+  //
   // Cleared on every drawer (re)open and on create-mode entry.
   const editOriginalRef = useRef<{
     plugins?: Record<string, unknown>;
     taskPolicies?: Record<string, unknown>;
+    taskExtras?: Record<
+      string,
+      {
+        templateSpec?: any;
+        dependsOn?: unknown;
+        partitionPolicy?: unknown;
+      }
+    >;
     volumes?: unknown;
     jobPolicies?: unknown;
     schedulerName?: string;
@@ -162,8 +191,22 @@ export function JobFormDrawer({
         // drops e.g. ssh plugin args or RestartTask-on-PodFailed policies.
         const spec = obj?.spec ?? {};
         const taskPolicies: Record<string, unknown> = {};
+        const taskExtras: Record<
+          string,
+          { templateSpec?: any; dependsOn?: unknown; partitionPolicy?: unknown }
+        > = {};
         for (const t of (spec.tasks ?? []) as any[]) {
-          if (t?.name && t.policies) taskPolicies[t.name] = t.policies;
+          if (!t?.name) continue;
+          if (t.policies) taskPolicies[t.name] = t.policies;
+          const entry: {
+            templateSpec?: any;
+            dependsOn?: unknown;
+            partitionPolicy?: unknown;
+          } = {};
+          if (t.template?.spec) entry.templateSpec = t.template.spec;
+          if (t.dependsOn) entry.dependsOn = t.dependsOn;
+          if (t.partitionPolicy) entry.partitionPolicy = t.partitionPolicy;
+          if (Object.keys(entry).length > 0) taskExtras[t.name] = entry;
         }
         editOriginalRef.current = {
           plugins:
@@ -172,6 +215,8 @@ export function JobFormDrawer({
               : undefined,
           taskPolicies:
             Object.keys(taskPolicies).length > 0 ? taskPolicies : undefined,
+          taskExtras:
+            Object.keys(taskExtras).length > 0 ? taskExtras : undefined,
           volumes:
             Array.isArray(spec.volumes) && spec.volumes.length > 0
               ? spec.volumes
@@ -212,10 +257,48 @@ export function JobFormDrawer({
       }
       manifest.spec.plugins = merged;
     }
-    if (orig.taskPolicies && Array.isArray(manifest?.spec?.tasks)) {
+    if (Array.isArray(manifest?.spec?.tasks)) {
       manifest.spec.tasks = manifest.spec.tasks.map((t: any) => {
         const policies = orig.taskPolicies?.[t.name];
-        return policies !== undefined ? { ...t, policies } : t;
+        const extras = orig.taskExtras?.[t.name];
+        let next = t;
+        if (policies !== undefined) next = { ...next, policies };
+        if (extras) {
+          // Overlay our freshly-built container[0] + restartPolicy +
+          // schedulerName onto the original template.spec so multi-
+          // container tasks and pod-level fields (affinity / toler-
+          // ations / initContainers / volume mounts / nodeSelector /
+          // securityContext / dnsPolicy / ...) survive round-trip
+          // even though the form only renders the first container.
+          if (extras.templateSpec) {
+            const built = next.template?.spec ?? {};
+            const original = extras.templateSpec;
+            const mergedContainers = [
+              built.containers?.[0] ?? original.containers?.[0],
+              ...((original.containers ?? []).slice(1) as any[]),
+            ];
+            next = {
+              ...next,
+              template: {
+                ...(next.template ?? {}),
+                spec: {
+                  ...original,
+                  schedulerName: built.schedulerName ?? original.schedulerName,
+                  restartPolicy: built.restartPolicy ?? original.restartPolicy,
+                  containers: mergedContainers,
+                },
+              },
+            };
+          }
+          // Sibling TaskSpec fields the form has no inputs for.
+          if (extras.dependsOn !== undefined) {
+            next = { ...next, dependsOn: extras.dependsOn };
+          }
+          if (extras.partitionPolicy !== undefined) {
+            next = { ...next, partitionPolicy: extras.partitionPolicy };
+          }
+        }
+        return next;
       });
     }
     if (orig.volumes) manifest.spec.volumes = orig.volumes;
@@ -641,6 +724,58 @@ export function JobFormDrawer({
                     </Form.Item>
                   </Space.Compact>
 
+                  <Space.Compact block>
+                    <Form.Item
+                      name={[field.name, 'taskMinAvailable']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.minAvailable',
+                      })}
+                      style={{ flex: 1 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        placeholder="= replicas"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'taskMaxRetry']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.maxRetry',
+                      })}
+                      style={{ flex: 1, marginInlineStart: 12 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        placeholder="3"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'topologyPolicy']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.topologyPolicy',
+                      })}
+                      style={{ flex: 1.5, marginInlineStart: 12 }}
+                    >
+                      <Select
+                        allowClear
+                        placeholder={intl.formatMessage({
+                          id: 'pages.compute.jobForm.task.topologyPolicy.placeholder',
+                        })}
+                        options={[
+                          { label: 'none', value: 'none' },
+                          { label: 'best-effort', value: 'best-effort' },
+                          { label: 'restricted', value: 'restricted' },
+                          {
+                            label: 'single-numa-node',
+                            value: 'single-numa-node',
+                          },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Space.Compact>
+
                   <Form.Item
                     name={[field.name, 'image']}
                     label={intl.formatMessage({
@@ -822,6 +957,13 @@ function fvToInput(v: FormValues): JobInput {
               limits: Object.keys(limits).length > 0 ? limits : undefined,
             }
           : undefined,
+        minAvailable:
+          typeof t.taskMinAvailable === 'number'
+            ? t.taskMinAvailable
+            : undefined,
+        maxRetry:
+          typeof t.taskMaxRetry === 'number' ? t.taskMaxRetry : undefined,
+        topologyPolicy: t.topologyPolicy,
       };
     }),
   };
@@ -894,6 +1036,11 @@ function extractTasks(specTasks: any): TaskFV[] {
       vgpuCores: lim['volcano.sh/vgpu-cores'],
       restartPolicy:
         (podSpec.restartPolicy as TaskFV['restartPolicy']) ?? 'OnFailure',
+      taskMinAvailable:
+        typeof t.minAvailable === 'number' ? t.minAvailable : undefined,
+      taskMaxRetry:
+        typeof t.maxRetry === 'number' ? t.maxRetry : undefined,
+      topologyPolicy: t.topologyPolicy as TaskFV['topologyPolicy'],
     };
   });
 }
