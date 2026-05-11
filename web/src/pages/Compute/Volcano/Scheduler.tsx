@@ -469,12 +469,8 @@ function FormView({
       <ActionsCard
         actions={actions}
         onChange={setActions}
-        editable={editable}
-      />
-      <ConfigurationsCard
-        actions={actions}
         configurations={draft.configurations ?? []}
-        onChange={setConfigurations}
+        onChangeConfigurations={setConfigurations}
         editable={editable}
       />
       <TiersCard
@@ -492,18 +488,44 @@ function FormView({
   );
 }
 
-// ─── Actions card ──────────────────────────────────────────────────────
+// ─── Actions card (multi-select + per-action arg panels) ──────────────
 
 function ActionsCard({
   actions,
   onChange,
+  configurations,
+  onChangeConfigurations,
   editable,
 }: {
   actions: string[];
   onChange: (next: string[]) => void;
+  configurations: ConfigurationEntry[];
+  onChangeConfigurations: (next: ConfigurationEntry[]) => void;
   editable: boolean;
 }) {
   const intl = useIntl();
+
+  // Selected actions that actually declare arguments in our schema;
+  // these get rendered as expandable arg-editor panels below the
+  // multi-select. enqueue / shuffle have no args, so they don't get
+  // a panel even when selected. Order follows the user's selection
+  // order in the actions list, so the panels match what the user
+  // sees in the YAML.
+  const eligibleActions = actions.filter((a) => ACTIONS_META[a]?.args?.length);
+
+  const byName = new Map<string, ConfigurationEntry>(
+    configurations.filter((c) => c.name).map((c) => [c.name!, c]),
+  );
+
+  const setEntry = (name: string, nextArgs: Record<string, unknown>) => {
+    const others = configurations.filter((c) => c.name !== name);
+    if (Object.keys(nextArgs).length === 0) {
+      onChangeConfigurations(others);
+    } else {
+      onChangeConfigurations([...others, { name, arguments: nextArgs }]);
+    }
+  };
+
   return (
     <Card
       size="small"
@@ -550,93 +572,46 @@ function ActionsCard({
           </Tooltip>
         )}
       />
-    </Card>
-  );
-}
 
-// ─── Configurations (action args) card ─────────────────────────────────
-
-function ConfigurationsCard({
-  actions,
-  configurations,
-  onChange,
-  editable,
-}: {
-  actions: string[];
-  configurations: ConfigurationEntry[];
-  onChange: (next: ConfigurationEntry[]) => void;
-  editable: boolean;
-}) {
-  const intl = useIntl();
-  // Only render rows for actions that (a) are currently in the
-  // actions list and (b) have at least one ArgSpec in metadata.
-  // Volcano accepts configurations[].name without matching a current
-  // action, but the UI shouldn't tempt users into orphan entries.
-  const eligibleActions = actions.filter((a) => ACTIONS_META[a]?.args?.length);
-
-  // For lookups; we still preserve raw entries through round-trip.
-  const byName = new Map<string, ConfigurationEntry>(
-    configurations.filter((c) => c.name).map((c) => [c.name!, c]),
-  );
-
-  const setEntry = (name: string, next: ConfigurationEntry | null) => {
-    let updated = configurations.filter((c) => c.name !== name);
-    if (next) updated = [...updated, { ...next, name }];
-    onChange(updated);
-  };
-
-  if (eligibleActions.length === 0) return null;
-
-  return (
-    <Card
-      size="small"
-      title={
-        <Space>
-          <span>
-            {intl.formatMessage({
-              id: 'pages.compute.scheduler.configurations',
-            })}
-          </span>
-          <Tooltip
-            title={intl.formatMessage({
-              id: 'pages.compute.scheduler.configurations.tip',
-            })}
-          >
-            <InfoCircleOutlined style={{ color: '#999' }} />
-          </Tooltip>
-        </Space>
-      }
-      style={{ marginBottom: 12 }}
-    >
-      <Collapse
-        size="small"
-        items={eligibleActions.map((a) => {
-          const meta = metaForAction(a);
-          const entry = byName.get(a) ?? { name: a, arguments: {} };
-          const args = entry.arguments ?? {};
-          return {
-            key: a,
-            label: (
-              <Space>
-                <Tag color="blue">{a}</Tag>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {meta.desc}
-                </Text>
-              </Space>
-            ),
-            children: (
-              <ArgsFormSection
-                specs={meta.args ?? []}
-                values={args}
-                onChange={(nextArgs) =>
-                  setEntry(a, { name: a, arguments: nextArgs })
-                }
-                editable={editable}
-              />
-            ),
-          };
-        })}
-      />
+      {/* Per-action arg panels appear right under the multi-select.
+          Volcano stores these in a separate `configurations: []` top-
+          level field — different YAML structure, same conceptual unit
+          ("for this stage, here are its params"), so rendering them
+          together avoids forcing the user to scan two cards. Only
+          actions with args in our schema get a panel; selecting
+          enqueue / shuffle won't add one. */}
+      {eligibleActions.length > 0 && (
+        <Collapse
+          size="small"
+          style={{ marginTop: 12 }}
+          items={eligibleActions.map((a) => {
+            const meta = metaForAction(a);
+            const entry = byName.get(a) ?? { name: a, arguments: {} };
+            const args = entry.arguments ?? {};
+            return {
+              key: a,
+              label: (
+                <Space>
+                  <Tag color="blue">{a}</Tag>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {intl.formatMessage({
+                      id: 'pages.compute.scheduler.action.params',
+                    })}
+                  </Text>
+                </Space>
+              ),
+              children: (
+                <ArgsFormSection
+                  specs={meta.args ?? []}
+                  values={args}
+                  onChange={(next) => setEntry(a, next)}
+                  editable={editable}
+                />
+              ),
+            };
+          })}
+        />
+      )}
     </Card>
   );
 }

@@ -151,9 +151,7 @@ export default {
   'pages.compute.scheduler.plugin.extras': '其他字段',
   'pages.compute.scheduler.plugin.extras.hint':
     '以下字段不在 KPilot 已识别的 schema 中，已保留原值；如需编辑请切换到 YAML 视图。',
-  'pages.compute.scheduler.configurations': '调度阶段参数 (configurations)',
-  'pages.compute.scheduler.configurations.tip':
-    '某些 action 接受额外参数 —— 例如 allocate / preempt / reclaim / backfill 都有 predicateErrorCacheEnable，preempt 还支持拓扑感知抢占的相关参数。仅展示当前 actions 列表里有自定义参数的阶段。',
+  'pages.compute.scheduler.action.params': '该阶段参数 (configurations)',
   'pages.compute.scheduler.metrics': '监控上报 (metrics)',
   'pages.compute.scheduler.metrics.tip':
     'Volcano 调度器自带的 metrics 上报配置。常见 key 例如 type (prometheus / otel)、address、interval。留空走 Volcano 默认。',

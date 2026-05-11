@@ -150,9 +150,7 @@ export default {
   'pages.compute.scheduler.plugin.extras': 'Other fields',
   'pages.compute.scheduler.plugin.extras.hint':
     'The following keys are outside KPilot\'s known schema and are preserved as-is. Switch to the YAML view to edit them.',
-  'pages.compute.scheduler.configurations': 'Action configurations',
-  'pages.compute.scheduler.configurations.tip':
-    'Some actions accept extra arguments — allocate/preempt/reclaim/backfill take predicateErrorCacheEnable, and preempt has topology-aware preemption knobs. Only actions currently in the Actions list with defined arguments are shown.',
+  'pages.compute.scheduler.action.params': 'Action arguments (configurations)',
   'pages.compute.scheduler.metrics': 'Metrics',
   'pages.compute.scheduler.metrics.tip':
     'Volcano scheduler\'s own metrics-reporting config. Common keys: type (prometheus / otel), address, interval. Leave empty to use Volcano defaults.',
