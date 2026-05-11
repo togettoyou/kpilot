@@ -127,7 +127,7 @@ web/src/
 │   │   └── Logging/         # 日志页（VictoriaLogs Explorer K8S dashboard）
 │   ├── Compute/             # 算力调度
 │   │   ├── index.tsx        # 顶级 landing（集群 picker，进入 → /scheduler）
-│   │   └── Volcano/         # CRPage / Queues / Jobs / CronJobs / PodGroups / HyperNodes / Scheduler + 对应 Form drawer + schedulerMeta
+│   │   └── Volcano/         # 5 个 CR 页（Queues / Jobs / CronJobs / PodGroups / HyperNodes）+ Scheduler + 对应 Form drawer + schedulerMeta + shared/Layout（NotInstalled / useAutoRefresh / RefreshControl / formatAge）
 │   ├── ModelHub/            # 模型中心 landing（P7 占位）
 │   ├── Plugins/             # 全局插件注册表 CRUD
 │   └── exception/404/
@@ -361,6 +361,7 @@ const { data, loading } = useRequest(listXxx, {
 | 集群管理收尾 | Pod 即时指标 (`kubectl top` 等价) + Metrics Server / kube-state-metrics / Volcano 内置插件 + 全栈 review 修复（DeleteCluster 404、LastSeen atomic、polling timer ref、UpdateCluster 唯一性 race、ListPluginsBrief、replay 不补 Failed 等 6 项）+ 详细文档拆分到 `docs/` | ✅ 完成 |
 | Volcano 转向 P0 | 平台改名（算力管理 → **算力调度**，模型管理 → **模型中心**），删 HAMi 内置插件 + DB 行，文档定位调整 | ✅ 完成 |
 | Volcano 转向 P1 | Volcano 核心对接：5 个 CR 浏览器（Queue / Job / CronJob / PodGroup / HyperNode）+ 类型化创建编辑表单（form / YAML 双视图）+ 生命周期操作（bus.volcano.sh Command）+ 调度策略可视化编辑器（actions / tier / plugin 元数据 + 新手提示）；GPU dashboard 与 HAMi 解析器 / snapshot informer 全量删除 | ✅ 完成 |
+| Volcano 转向 P1.5 | 算力调度页性能重写：worker 加 `list-full` action，server 加 5 个专用 list 端点按 kind 投影 slim row，前端 5 个页改写为单 useRequest + ProTable，cell 全部 props-driven。N+1（100 队列 = 101 请求）→ 1 请求 / 刷新；删 CRPage / sharedFetch / WorkloadsContent 扩展点 | ✅ 完成 |
 | Volcano 转向 P2 | vGPU 重写：volcano-vgpu-device-plugin 包成 wrapper Helm chart（go:embed）加为内置；新建 `pkg/worker/proxy/vgpu.go` 解析 `volcano.sh/*` annotation；vGPU dashboard 子页（Queue 用量 + 节点 / 卡视图）复活 | 待开始（下一步） |
 | Volcano 转向 P3 | DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard（GPU 物理卡监控） | 待规划 |
 | Volcano 转向 P4 | 资源治理：Volcano queue 配额视图 + 设备健康告警 + GPU-Hour 计费报表 | 待规划 |

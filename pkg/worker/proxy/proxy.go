@@ -120,6 +120,8 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 	switch req.Action {
 	case "list":
 		return p.listTable(ctx, mapping, req.Namespace, req.Limit, req.ContinueToken)
+	case "list-full":
+		return p.listFull(ctx, mapping, req.Namespace, req.Limit, req.ContinueToken)
 	case "get":
 		return p.get(ctx, mapping, req.Namespace, req.Name)
 	case "apply":
@@ -190,6 +192,43 @@ func (p *Proxy) listTable(ctx context.Context, mapping *apimeta.RESTMapping, nam
 	}
 
 	return &proto.ResourceResponse{Success: true, Data: data}
+}
+
+// listFull returns the full unstructured object list for a GVK in one
+// request — no Table API projection, every spec / status field is
+// included. The Server's Volcano handlers use this to build a slim
+// response in a single round-trip instead of paginating Table rows
+// then GETting each row's full object separately (the N+1 pattern
+// the generic CR browser falls into when CRDs don't expose enough
+// printer columns).
+func (p *Proxy) listFull(
+	ctx context.Context,
+	mapping *apimeta.RESTMapping,
+	namespace string,
+	limit int64,
+	continueToken string,
+) *proto.ResourceResponse {
+	opts := metav1.ListOptions{}
+	if limit > 0 {
+		opts.Limit = limit
+	}
+	if continueToken != "" {
+		opts.Continue = continueToken
+	}
+	ri, _ := p.resourceClient(mapping, namespace)
+	// resourceClient defaults namespace="" → "default" for namespaced
+	// resources, which is wrong for a list-all-namespaces request.
+	// Re-derive: when the GVK is namespace-scoped and the caller
+	// passed no namespace, use the cluster-scoped lister so we get
+	// every namespace.
+	if mapping.Scope.Name() == apimeta.RESTScopeNameNamespace && namespace == "" {
+		ri = p.dyn.Resource(mapping.Resource)
+	}
+	list, err := ri.List(ctx, opts)
+	if err != nil {
+		return fail(err.Error())
+	}
+	return marshal(list)
 }
 
 func (p *Proxy) get(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {

@@ -90,6 +90,16 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// pods).
 		clusters.GET("/:id/pods/:namespace/:name/top", handler.TopPod(gw))
 
+		// Volcano-dedicated list endpoints. Per-kind handlers fetch full
+		// objects via the worker's list-full action and project the
+		// fields the 算力调度 UI needs into a slim shape — one
+		// round-trip instead of the generic Table-API + per-row GETs.
+		clusters.GET("/:id/volcano/queues", handler.ListVolcanoQueues(gw))
+		clusters.GET("/:id/volcano/jobs", handler.ListVolcanoJobs(gw))
+		clusters.GET("/:id/volcano/cronjobs", handler.ListVolcanoCronJobs(gw))
+		clusters.GET("/:id/volcano/podgroups", handler.ListVolcanoPodGroups(gw))
+		clusters.GET("/:id/volcano/hypernodes", handler.ListVolcanoHyperNodes(gw))
+
 		// Per-cluster plugin state (read-only registry view + enable/disable)
 		clusters.GET("/:id/plugins", handler.ListClusterPlugins)
 		clusters.POST("/:id/plugins/:name/enable", handler.EnablePlugin(gw))

@@ -31,7 +31,6 @@ import {
 } from 'antd';
 import * as jsyaml from 'js-yaml';
 import React, {
-  createContext,
   useCallback,
   useEffect,
   useMemo,
@@ -324,64 +323,7 @@ interface WorkloadsContentProps {
   // (Volcano Queue/Job/PodGroup wrappers under /compute/:id/...) where
   // there's no CRDs list above and the arrow would be confusing.
   showCRBackArrow?: boolean;
-  // notAvailableHint customises the empty-state Result shown when the
-  // cluster doesn't have the CRD installed (Server returns 404 +
-  // RESOURCE_NOT_AVAILABLE). Wrappers that know exactly which plugin
-  // backs the CRD pass tailored copy + a CTA button that takes the
-  // user to /clusters/:id/plugins so they can install it. Defaults to
-  // the generic copy in errors.RESOURCE_NOT_AVAILABLE i18n bundle.
-  notAvailableHint?: {
-    titleId: string;
-    subTitleId: string;
-    actionLabelId: string;
-  };
-  // Extension hooks for callers that want to bolt on resource-specific
-  // UX (e.g. the Volcano CR pages add a "新建队列" button + lifecycle
-  // action buttons per row). Each receives a small ctx:
-  //   - refresh: re-fetch the table after a successful mutation
-  //   - openYamlEditor: drop into the same YAML drawer the default
-  //     edit button uses, so a wrapper that renders a form-based
-  //     edit can still expose a "YAML" escape hatch alongside it.
-  extraToolbarButtons?: (ctx: ExtensionCtx) => React.ReactNode;
-  extraRowActions?: (
-    record: WorkloadItem,
-    ctx: ExtensionCtx,
-  ) => React.ReactNode;
-  // replaceEditAction swaps the default "Edit YAML" row button for
-  // whatever JSX the wrapper supplies — typically a form-edit button
-  // plus its own YAML escape hatch (rendered via the ctx's
-  // openYamlEditor helper). When undefined, the default YAML edit
-  // button stays as-is.
-  replaceEditAction?: (
-    record: WorkloadItem,
-    ctx: ExtensionCtx,
-  ) => React.ReactNode;
-  // hideApplyYaml suppresses the generic "应用 YAML" toolbar button.
-  // Wrapper pages with their own typed create/edit forms (Volcano CR
-  // pages) set this so users see one obvious "新建" path instead of
-  // a confusing "新建 + 应用 YAML" pair.
-  hideApplyYaml?: boolean;
-  // extraColumns are inserted after the dynamic columns from the K8s
-  // Table API and before the actions column. Useful when the K8s
-  // additionalPrinterColumns aren't enough — e.g. Volcano Queue
-  // doesn't declare a STATE column, so the Queue page injects one
-  // here that renders by fetching .status.state per row.
-  extraColumns?: ProColumns<WorkloadItem>[];
 }
-
-interface ExtensionCtx {
-  refresh: () => void;
-  openYamlEditor: (record: WorkloadItem) => void;
-}
-
-// WorkloadRefreshTickContext exposes a counter that bumps on every
-// refresh of the workload page (toolbar button, polling, post-edit
-// callbacks). Per-row cell components (e.g. Volcano Queue's state /
-// detail cells, which fire their own per-row useRequest fetches that
-// the table list refresh wouldn't otherwise touch) consume this and
-// include it in their refreshDeps so a click on Refresh repaints
-// every cell instead of just the table.
-export const WorkloadRefreshTickContext = createContext(0);
 
 // ─── Inner component — remounts on resourceType change via key prop ────────
 
@@ -392,12 +334,6 @@ export function WorkloadsContent({
   resourceType,
   cr,
   showCRBackArrow = true,
-  notAvailableHint,
-  extraToolbarButtons,
-  extraRowActions,
-  replaceEditAction,
-  hideApplyYaml,
-  extraColumns,
 }: WorkloadsContentProps) {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -466,17 +402,10 @@ export function WorkloadsContent({
   // toast (DRA / MutatingAdmissionPolicy / Gateway API on bare-bones
   // clusters all hit this).
   const [notAvailable, setNotAvailable] = useState(false);
-  // refreshTick increments on every (manual or polled) refresh and is
-  // exposed via WorkloadRefreshTickContext so per-row cells (e.g.
-  // Volcano Queue's state / detail cells) can include it in their
-  // own useRequest refreshDeps and re-fetch alongside the table.
-  // Without this, clicking the toolbar Refresh button only refetched
-  // the table list — per-row detail fetches kept their cached values.
-  const [refreshTick, setRefreshTick] = useState(0);
   const {
     data: pageData,
     loading,
-    refresh: tableRefresh,
+    refresh,
   } = useRequest(
     () =>
       listWorkloads(
@@ -507,16 +436,6 @@ export function WorkloadsContent({
       },
     },
   );
-
-  // Composite refresh: the table's own refetch + a tick bump for
-  // anyone listening via WorkloadRefreshTickContext. All call sites
-  // — toolbar Refresh button, polling timer, post-mutation refreshes
-  // from extension callbacks — use this so the page refreshes as
-  // a unit instead of just the table.
-  const refresh = useCallback(() => {
-    tableRefresh();
-    setRefreshTick((t) => t + 1);
-  }, [tableRefresh]);
 
   const items = pageData?.items ?? [];
   const colDefs = pageData?.colDefs ?? [];
@@ -690,15 +609,8 @@ export function WorkloadsContent({
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       valueType: 'option',
       // Pods: extra top+logs+exec buttons; CRDs: extra "view instances"
-      // button; Volcano CRs: extra lifecycle actions (Open/Close,
-      // Resume/Suspend). Bumping the action column width per case.
-      width: isPods
-        ? 280
-        : isCRDPage
-          ? 220
-          : extraRowActions
-            ? 240
-            : 150,
+      // button. Bumping the action column width per case.
+      width: isPods ? 280 : isCRDPage ? 220 : 150,
       fixed: 'right',
       render: (_, record) => {
         // Mirror the backend's protected lists:
@@ -795,15 +707,7 @@ export function WorkloadsContent({
             </Button>,
           ];
         }
-        const ctx: ExtensionCtx = {
-          refresh,
-          openYamlEditor: (r: WorkloadItem) => openEditor(r),
-        };
-        const editButton = replaceEditAction ? (
-          <React.Fragment key="edit-replace">
-            {replaceEditAction(record, ctx)}
-          </React.Fragment>
-        ) : (
+        const editButton = (
           <Button
             key="edit"
             type="link"
@@ -816,7 +720,6 @@ export function WorkloadsContent({
         return [
           podActions,
           crInstancesBtn,
-          extraRowActions?.(record, ctx),
           describeBtn,
           editButton,
           <Popconfirm
@@ -837,7 +740,6 @@ export function WorkloadsContent({
     };
     return [
       ...buildColumns(colDefs, intl, isClusterScoped),
-      ...(extraColumns ?? []),
       actionsColumn,
     ];
   }, [
@@ -847,45 +749,30 @@ export function WorkloadsContent({
     isPods,
     openEditor,
     handleDelete,
-    extraRowActions,
-    replaceEditAction,
-    refresh,
     isProtectedCRGroup,
     resourceType,
-    extraColumns,
   ]);
 
   if (notAvailable) {
-    const titleId = notAvailableHint?.titleId ?? 'errors.RESOURCE_NOT_AVAILABLE';
-    const subTitleId =
-      notAvailableHint?.subTitleId ?? 'errors.RESOURCE_NOT_AVAILABLE.subtitle';
     return (
       <div className="p-6">
         <Result
           status="info"
-          title={intl.formatMessage({ id: titleId })}
-          subTitle={intl.formatMessage({ id: subTitleId })}
-          extra={[
-            notAvailableHint && (
-              <Button
-                key="install"
-                type="primary"
-                onClick={() => history.push(`/clusters/${clusterId}/plugins`)}
-              >
-                {intl.formatMessage({ id: notAvailableHint.actionLabelId })}
-              </Button>
-            ),
-            <Button key="retry" onClick={refresh}>
+          title={intl.formatMessage({ id: 'errors.RESOURCE_NOT_AVAILABLE' })}
+          subTitle={intl.formatMessage({
+            id: 'errors.RESOURCE_NOT_AVAILABLE.subtitle',
+          })}
+          extra={
+            <Button onClick={refresh}>
               {intl.formatMessage({ id: 'pages.workloads.refresh.retry' })}
-            </Button>,
-          ]}
+            </Button>
+          }
         />
       </div>
     );
   }
 
   return (
-    <WorkloadRefreshTickContext.Provider value={refreshTick}>
     <div className="p-6">
       <ProTable<WorkloadItem>
         headerTitle={
@@ -958,18 +845,6 @@ export function WorkloadsContent({
             onChange={(e) => setSearch(e.target.value)}
             style={{ width: 240 }}
           />,
-          // Wrapper-supplied extras (e.g. "新建队列" / "新建作业" on the
-          // Volcano CR pages) sit before the generic Apply YAML button
-          // so they're the most prominent action on the right side.
-          extraToolbarButtons ? (
-            <React.Fragment key="extras">
-              {extraToolbarButtons({
-                refresh,
-                openYamlEditor: (r) => openEditor(r),
-              })}
-            </React.Fragment>
-          ) : null,
-          hideApplyYaml ? null : (
           <Button
             key="apply"
             type="primary"
@@ -977,8 +852,7 @@ export function WorkloadsContent({
             onClick={() => setApplyOpen(true)}
           >
             {intl.formatMessage({ id: 'pages.applyYaml.title' })}
-          </Button>
-          ),
+          </Button>,
           <Space.Compact key="refresh">
             <Button
               icon={<ReloadOutlined />}
@@ -1147,7 +1021,6 @@ export function WorkloadsContent({
         resourceType={resourceType}
       />
     </div>
-    </WorkloadRefreshTickContext.Provider>
   );
 }
 

@@ -1,180 +1,245 @@
 import { PlusOutlined } from '@ant-design/icons';
+import type { ProColumns } from '@ant-design/pro-components';
+import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { App, Button, Popconfirm, Space, Spin, Tag, Typography } from 'antd';
-import React, { useContext, useState } from 'react';
+import { App, Button, Popconfirm, Space, Tag, Typography } from 'antd';
+import React, { useState } from 'react';
 
-import type { WorkloadItem } from '@/services/kpilot/workload';
-import { WorkloadRefreshTickContext } from '@/pages/ClusterDetail/Workloads';
+import {
+  listVolcanoQueues,
+  type QueueRow,
+} from '@/services/kpilot/volcano-list';
 import { sendCommand } from '@/services/kpilot/volcano';
-import { VolcanoCRPage } from './CRPage';
+import { deleteWorkload } from '@/services/kpilot/workload';
 import { QueueFormDrawer } from './QueueForm';
-import { fetchOnce } from './sharedFetch';
+import {
+  NotInstalled,
+  RefreshControl,
+  formatAge,
+  isResourceNotAvailable,
+  useAutoRefresh,
+} from './shared/Layout';
 
-const QUEUE_CR = {
-  group: 'scheduling.volcano.sh',
-  version: 'v1beta1',
-  kind: 'Queue',
-  scope: 'Cluster' as const,
-};
-
-// Volcano Queue (`scheduling.volcano.sh/v1beta1`) — cluster-scoped.
-// Wraps the generic CR browser (CRPage) with two Volcano-specific
-// extensions:
-//
-//   1. A "新建队列" button in the toolbar that opens QueueFormDrawer.
-//      The form constructs a Queue manifest and ships it via /apply
-//      (server-side SSA).
-//   2. Per-row "关闭/开启" action that drops a `bus.volcano.sh
-//      Command` CR with action=CloseQueue/OpenQueue. Same UX as
-//      `vcctl queue close|open`.
-//
-// We read the Queue's STATE column out of the K8s Table API row's
-// cells (Volcano's CRD declares STATE as an additionalPrinterColumn)
-// and flip the row action label accordingly.
+// Volcano Queue (`scheduling.volcano.sh/v1beta1`) — cluster-scoped
+// resource pool. One server-side fetch returns every queue's spec +
+// status pre-projected, so rendering 100 queues is one request — not
+// 1 list + 100 GETs the way the generic CR browser used to do it.
 export default function VolcanoQueuesPage() {
   const intl = useIntl();
+  const { id: clusterId } = useParams<{ id: string }>();
+  const { message, modal } = App.useApp();
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingName, setEditingName] = useState<string | null>(null);
+
+  const { data, loading, error, refresh } = useRequest(
+    () => listVolcanoQueues(clusterId!),
+    {
+      formatResult: (res) => res,
+      ready: !!clusterId,
+      refreshDeps: [clusterId],
+    },
+  );
+
+  const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
+
+  if (!clusterId) return null;
+  if (error && isResourceNotAvailable(error)) {
+    return <NotInstalled clusterId={clusterId} />;
+  }
+
+  const onDelete = (name: string) => {
+    modal.confirm({
+      title: intl.formatMessage(
+        { id: 'pages.workloads.delete.confirm' },
+        { name },
+      ),
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          await deleteWorkload(clusterId, '_cr', name, '', {
+            group: 'scheduling.volcano.sh',
+            version: 'v1beta1',
+            kind: 'Queue',
+            scope: 'Cluster',
+          });
+          message.success(
+            intl.formatMessage({ id: 'pages.workloads.delete.success' }),
+          );
+          refresh();
+        } catch (e: any) {
+          const m = e?.response?.data?.message ?? e?.message;
+          if (m) message.error(String(m));
+        }
+      },
+    });
+  };
+
+  const columns: ProColumns<QueueRow>[] = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      copyable: true,
+      width: 200,
+    },
+    {
+      title: intl.formatMessage({ id: 'pages.compute.queue.col.state' }),
+      dataIndex: 'state',
+      width: 90,
+      render: (_, r) => {
+        if (!r.state) return <Tag>未知</Tag>;
+        const color =
+          r.state === 'Open'
+            ? 'green'
+            : r.state === 'Closed'
+              ? 'red'
+              : 'orange';
+        return <Tag color={color}>{r.state}</Tag>;
+      },
+    },
+    {
+      title: intl.formatMessage({ id: 'pages.compute.queue.col.detail' }),
+      key: 'detail',
+      width: 300,
+      render: (_, r) => <QueueDetailCell row={r} />,
+    },
+    {
+      title: 'Parent',
+      dataIndex: 'parent',
+      width: 120,
+      render: (_, r) => r.parent || '-',
+    },
+    {
+      title: 'Age',
+      key: 'age',
+      width: 80,
+      render: (_, r) => formatAge(r.creationTimestamp),
+    },
+    {
+      title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
+      key: 'action',
+      fixed: 'right',
+      width: 220,
+      render: (_, record) => (
+        <Space size={0}>
+          <QueueStateAction record={record} refresh={refresh} />
+          <Button
+            type="link"
+            size="small"
+            onClick={() => setEditingName(record.name)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.edit' })}
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            danger
+            onClick={() => onDelete(record.name)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.delete' })}
+          </Button>
+        </Space>
+      ),
+    },
+  ];
+
   return (
-    <VolcanoCRPage
-      cr={QUEUE_CR}
-      extraToolbarButtons={({ refresh }) => (
-        <QueueCreateButton key="new" refresh={refresh} />
-      )}
-      extraRowActions={(record, { refresh }) => (
-        <QueueStateAction
-          key="state"
-          record={record}
-          refresh={refresh}
-        />
-      )}
-      replaceEditAction={(record, { refresh }) => (
-        <QueueEditButton record={record} refresh={refresh} />
-      )}
-      // Volcano's Queue CRD only ships PARENT as an additionalPrinter-
-      // Column, so the default Table API view has no state / weight /
-      // resource info. Inject two columns that fetch the full Queue
-      // object per row: one for state (compact tag), one for the
-      // richer resource picture (weight + capability + allocated +
-      // running PodGroup count). Same fetch backs both column cells
-      // and the row's open/close action — useRequest doesn't dedupe
-      // across instances, so we accept ~3 small GETs per row; Queue
-      // counts are usually < 50 in practice.
-      extraColumns={[
-        {
-          title: intl.formatMessage({
-            id: 'pages.compute.queue.col.state',
-          }),
-          key: 'state',
-          width: 90,
-          render: (_, record) => <QueueStateCell name={record.name} />,
-        },
-        {
-          title: intl.formatMessage({
-            id: 'pages.compute.queue.col.detail',
-          }),
-          key: 'detail',
-          width: 280,
-          render: (_, record) => <QueueDetailCell name={record.name} />,
-        },
-      ]}
-    />
+    <div className="p-6">
+      <ProTable<QueueRow>
+        rowKey="uid"
+        columns={columns}
+        dataSource={data ?? []}
+        loading={loading}
+        search={false}
+        pagination={{ pageSize: 20, showSizeChanger: true }}
+        scroll={{ x: 'max-content' }}
+        headerTitle={
+          <Space>
+            <Typography.Text strong>Queue</Typography.Text>
+            <Typography.Text type="secondary">
+              ({data?.length ?? 0})
+            </Typography.Text>
+          </Space>
+        }
+        toolBarRender={() => [
+          <Button
+            key="new"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setCreateOpen(true)}
+          >
+            {intl.formatMessage({ id: 'pages.compute.queue.create' })}
+          </Button>,
+          <RefreshControl
+            key="refresh"
+            interval={interval}
+            setInterval={setInterval}
+            refresh={refresh}
+            loading={loading}
+          />,
+        ]}
+      />
+      <QueueFormDrawer
+        open={createOpen}
+        clusterId={clusterId}
+        onClose={() => setCreateOpen(false)}
+        onSaved={() => {
+          setCreateOpen(false);
+          refresh();
+        }}
+      />
+      <QueueFormDrawer
+        open={!!editingName}
+        clusterId={clusterId}
+        editing={editingName ? { name: editingName } : undefined}
+        onClose={() => setEditingName(null)}
+        onSaved={() => {
+          setEditingName(null);
+          refresh();
+        }}
+      />
+    </div>
   );
 }
 
-// Small tag-only state cell. Reads .status.state from the per-row
-// Queue fetch.
-function QueueStateCell({ name }: { name: string }) {
-  const { id: clusterId } = useParams<{ id: string }>();
-  const tick = useContext(WorkloadRefreshTickContext);
-  const { data, loading } = useRequest(
-    () => fetchOnce(clusterId!, QUEUE_CR, name, '', tick),
-    {
-      formatResult: (res) => res,
-      ready: !!clusterId,
-      refreshDeps: [clusterId, name, tick],
-    },
-  );
-  if (loading && !data) return <Spin size="small" />;
-  const state =
-    (data as { status?: { state?: string } } | undefined)?.status?.state ?? '';
-  if (!state) return <Tag>未知</Tag>;
-  const color =
-    state === 'Open' ? 'green' : state === 'Closed' ? 'red' : 'orange';
-  return <Tag color={color}>{state}</Tag>;
-}
-
-// Rich resource summary: weight + capability + allocated + running
-// PodGroup count, stacked compactly. Fetches the same Queue object
-// independently from QueueStateCell — small redundancy, see comment
-// at the column definition above.
-function QueueDetailCell({ name }: { name: string }) {
-  const { id: clusterId } = useParams<{ id: string }>();
-  const tick = useContext(WorkloadRefreshTickContext);
-  const { data, loading } = useRequest(
-    () => fetchOnce(clusterId!, QUEUE_CR, name, '', tick),
-    {
-      formatResult: (res) => res,
-      ready: !!clusterId,
-      refreshDeps: [clusterId, name, tick],
-    },
-  );
-  if (loading && !data) return <Spin size="small" />;
-  const obj = data as
-    | {
-        spec?: {
-          weight?: number;
-          capability?: Record<string, string>;
-          parent?: string;
-        };
-        status?: {
-          allocated?: Record<string, string>;
-          running?: number;
-          pending?: number;
-          inqueue?: number;
-        };
-      }
-    | undefined;
-  if (!obj) return null;
-  const weight = obj.spec?.weight ?? 1;
-  const cap = obj.spec?.capability ?? {};
-  const alloc = obj.status?.allocated ?? {};
-  const summary = formatResources(alloc, cap);
-  const running = obj.status?.running ?? 0;
-  const pending = obj.status?.pending ?? 0;
-  const inqueue = obj.status?.inqueue ?? 0;
+// QueueDetailCell renders weight + capability vs allocated + PodGroup
+// counts in a compact 3-line block. All data comes from the row prop
+// — no per-row fetch.
+function QueueDetailCell({ row }: { row: QueueRow }) {
+  const cap = row.capability ?? {};
+  const alloc = row.allocated ?? {};
   return (
     <Space direction="vertical" size={2} style={{ lineHeight: 1.4 }}>
       <Typography.Text style={{ fontSize: 12 }}>
-        权重 <strong>{weight}</strong>
-        {obj.spec?.parent && (
-          <span style={{ marginInlineStart: 8, color: 'var(--ant-color-text-tertiary)' }}>
-            父队列 {obj.spec.parent}
-          </span>
+        权重 <strong>{row.weight}</strong>
+        {row.reclaimable === false && (
+          <Tag color="default" style={{ marginInlineStart: 8 }}>
+            不可回收
+          </Tag>
         )}
       </Typography.Text>
       <Typography.Text
         style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}
       >
-        {summary || '资源未限制'}
+        {formatResources(alloc, cap) || '资源未限制'}
       </Typography.Text>
       <Typography.Text
         style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}
       >
-        Running {running} · Pending {pending} · Inqueue {inqueue}
+        Running {row.running} · Pending {row.pending} · Inqueue {row.inqueue}
+        {row.completed > 0 && ` · Completed ${row.completed}`}
       </Typography.Text>
     </Space>
   );
 }
 
-// formatResources turns an allocated map + capability map into a
-// compact "key A/B" summary. Skips keys that aren't in either map.
-// e.g. allocated={cpu:4} capability={cpu:10, memory:100Gi} ⇒
-// "cpu 4/10 · memory 0/100Gi".
+// formatResources is unchanged from the previous per-row-fetch
+// version. Renders allocated/capability as "cpu 4/10 · memory 0/100Gi".
 function formatResources(
   alloc: Record<string, string>,
   cap: Record<string, string>,
 ): string {
   const keys = new Set([...Object.keys(alloc), ...Object.keys(cap)]);
-  // Order: cpu first, memory second, then GPU keys, then everything else.
   const order = (k: string) => {
     if (k === 'cpu') return 0;
     if (k === 'memory') return 1;
@@ -197,111 +262,31 @@ function formatResources(
     .join(' · ');
 }
 
-// QueueCreateButton owns both the "新建队列" toolbar button and the
-// form drawer's open/close state, so the drawer's onSaved handler
-// can call the refresh function captured from the toolbar render
-// without bouncing through page-level state.
-function QueueCreateButton({ refresh }: { refresh: () => void }) {
-  const intl = useIntl();
-  const { id: clusterId } = useParams<{ id: string }>();
-  const [open, setOpen] = useState(false);
-  if (!clusterId) return null;
-  return (
-    <>
-      <Button
-        type="primary"
-        icon={<PlusOutlined />}
-        onClick={() => setOpen(true)}
-      >
-        {intl.formatMessage({ id: 'pages.compute.queue.create' })}
-      </Button>
-      <QueueFormDrawer
-        open={open}
-        clusterId={clusterId}
-        onClose={() => setOpen(false)}
-        onSaved={refresh}
-      />
-    </>
-  );
-}
-
-// QueueEditButton replaces the workload page's default "Edit YAML"
-// row button with a typed-form edit. The drawer fetches the current
-// Queue spec on open and pre-fills the form.
-function QueueEditButton({
-  record,
-  refresh,
-}: {
-  record: WorkloadItem;
-  refresh: () => void;
-}) {
-  const intl = useIntl();
-  const { id: clusterId } = useParams<{ id: string }>();
-  const [open, setOpen] = useState(false);
-  if (!clusterId) return null;
-  return (
-    <>
-      <Button type="link" size="small" onClick={() => setOpen(true)}>
-        {intl.formatMessage({ id: 'pages.workloads.edit' })}
-      </Button>
-      <QueueFormDrawer
-        open={open}
-        clusterId={clusterId}
-        editing={{ name: record.name }}
-        onClose={() => setOpen(false)}
-        onSaved={refresh}
-      />
-    </>
-  );
-}
-
-// QueueStateAction renders the row's flip-state Popconfirm (Open ↔
-// Closed). The K8s Table API for Queue *does not* declare a State
-// printer column (Volcano's CRD only exposes PARENT + AGE), so we
-// fetch the Queue's full object once per row and read .status.state
-// directly. After a successful close/open command the local fetch
-// re-runs a few times — Volcano takes a beat to flip the status.
+// QueueStateAction flips the Open/Closed state via a Volcano Command
+// CR. Reads state from the row prop (zero per-row fetch). After the
+// command lands, we trigger a list refresh so the row updates — the
+// controller takes ~1-2s to flip status.state, so a single refresh on
+// success is usually enough; users can click 刷新 again if needed.
 function QueueStateAction({
   record,
   refresh,
 }: {
-  record: WorkloadItem;
+  record: QueueRow;
   refresh: () => void;
 }) {
   const intl = useIntl();
   const { message } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
-  const tick = useContext(WorkloadRefreshTickContext);
-
-  const stateReq = useRequest(
-    () => fetchOnce(clusterId!, QUEUE_CR, record.name, '', tick),
-    {
-      formatResult: (res) => res,
-      ready: !!clusterId,
-      refreshDeps: [clusterId, record.name, tick],
-    },
-  );
-  const state: 'Open' | 'Closed' | 'Unknown' = (() => {
-    const s = (stateReq.data as { status?: { state?: string } } | undefined)
-      ?.status?.state;
-    if (s === 'Open') return 'Open';
-    if (s === 'Closed') return 'Closed';
-    return 'Unknown';
-  })();
-
   if (!clusterId) return null;
 
-  // 'Unknown' falls through to the close action — Volcano queues
-  // default to Open on creation, so unknown ≈ assume open.
-  const flipping = state === 'Closed' ? 'OpenQueue' : 'CloseQueue';
-  const labelId =
-    state === 'Closed'
-      ? 'pages.compute.queue.action.open'
-      : 'pages.compute.queue.action.close';
-  const confirmId =
-    state === 'Closed'
-      ? 'pages.compute.queue.confirm.open'
-      : 'pages.compute.queue.confirm.close';
+  const isClosed = record.state === 'Closed';
+  const flipping = isClosed ? 'OpenQueue' : 'CloseQueue';
+  const labelId = isClosed
+    ? 'pages.compute.queue.action.open'
+    : 'pages.compute.queue.action.close';
+  const confirmId = isClosed
+    ? 'pages.compute.queue.confirm.open'
+    : 'pages.compute.queue.confirm.close';
 
   const onConfirm = async () => {
     try {
@@ -317,43 +302,27 @@ function QueueStateAction({
       }
       message.success(
         intl.formatMessage({
-          id:
-            flipping === 'OpenQueue'
-              ? 'pages.compute.queue.opened'
-              : 'pages.compute.queue.closed',
+          id: isClosed
+            ? 'pages.compute.queue.opened'
+            : 'pages.compute.queue.closed',
         }),
       );
-      refresh();
-      // Volcano controller takes ~1-2s to apply the state flip.
-      // Re-poll our local status fetch a few times so the button
-      // label flips without the user needing to click 刷新 manually.
-      const retries = [800, 2000, 4500];
-      retries.forEach((delay) => setTimeout(() => stateReq.refresh(), delay));
+      // Volcano controller takes a beat to flip status.state. A few
+      // staggered refreshes catch it without making the user click.
+      [400, 1500, 4000].forEach((d) => setTimeout(refresh, d));
     } catch (e: any) {
-      // sendCommand can throw a local Error (e.g. uid resolution) the
-      // request-error config doesn't see — surface the message
-      // explicitly. Network / API errors keep going through the
-      // global toast via the request layer.
       const msg = e?.response?.data?.message ?? e?.message;
       if (msg) message.error(String(msg));
     }
   };
 
-  // Close = destructive, render danger so it's visually distinct
-  // from the safe "Open / Resume" action that flips the same button.
-  const isClose = flipping === 'CloseQueue';
   return (
     <Popconfirm
       title={intl.formatMessage({ id: confirmId }, { name: record.name })}
       onConfirm={onConfirm}
-      okType={isClose ? 'danger' : 'primary'}
+      okType={isClosed ? 'primary' : 'danger'}
     >
-      <Button
-        type="link"
-        size="small"
-        danger={isClose}
-        loading={stateReq.loading && !stateReq.data}
-      >
+      <Button type="link" size="small" danger={!isClosed}>
         {intl.formatMessage({ id: labelId })}
       </Button>
     </Popconfirm>
