@@ -323,16 +323,30 @@ func isConflictMessage(s string) bool {
 	return strings.Contains(s, "the object has been modified")
 }
 
-// isNoMatchMessage detects K8s RESTMapper's "no matches for kind"
-// error, raised when the requested GVK isn't registered on the
-// cluster — typical reasons: feature gate not enabled (DRA on
-// older clusters, MutatingAdmissionPolicy alpha, etc.) or the CRD
-// not installed (Gateway API). Server translates this into a
-// dedicated 404 / RESOURCE_NOT_AVAILABLE so the frontend can render
-// a friendly "feature not enabled" placeholder instead of the
-// generic worker-error toast.
+// isNoMatchMessage detects errors meaning "the GVK isn't available
+// on this cluster" — translated into a dedicated 404 /
+// RESOURCE_NOT_AVAILABLE so the frontend can render a friendly
+// "feature not enabled" placeholder instead of the generic
+// worker-error toast.
+//
+// Two phrasings show up in practice:
+//
+//  1. RESTMapper failure: "no matches for kind \"X\" in version \"Y\"" —
+//     raised before any API call when client-go can't even find the
+//     GVK in the discovery cache. Typical when the CRD was never
+//     installed, or a feature gate (DRA, MutatingAdmissionPolicy) is
+//     off.
+//
+//  2. API server 404: "the server could not find the requested
+//     resource" — raised by the API server itself, returned through
+//     client-go's dynamic interface. Hits when the CRD was just
+//     uninstalled (Helm uninstall keeps the CRD by default, but the
+//     controller-manager going away or a fresh `kubectl delete crd`
+//     produces this), or when worker's RESTMapper cache is stale
+//     and points at a GVK that no longer serves.
 func isNoMatchMessage(s string) bool {
-	return strings.Contains(s, "no matches for kind")
+	return strings.Contains(s, "no matches for kind") ||
+		strings.Contains(s, "could not find the requested resource")
 }
 
 // ApplyYamlResult is one entry in the response array; one per parsed document.
