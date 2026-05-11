@@ -13,8 +13,8 @@ import { applyManifest } from '@/services/kpilot/volcano';
 import { deleteWorkload } from '@/services/kpilot/workload';
 import { CronJobFormDrawer } from './CronJobForm';
 import {
-  AutoRefreshSelect,
   NotInstalled,
+  RefreshControl,
   formatAge,
   isResourceNotAvailable,
   useAutoRefresh,
@@ -182,7 +182,7 @@ export default function VolcanoCronJobsPage() {
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
         scroll={{ x: 'max-content' }}
-        options={{ reload: refresh }}
+        options={{ reload: false }}
         headerTitle={
           <Space>
             <Typography.Text strong>CronJob</Typography.Text>
@@ -200,10 +200,12 @@ export default function VolcanoCronJobsPage() {
           >
             {intl.formatMessage({ id: 'pages.compute.cronJob.create' })}
           </Button>,
-          <AutoRefreshSelect
-            key="auto"
+          <RefreshControl
+            key="refresh"
             interval={interval}
             setInterval={setInterval}
+            refresh={refresh}
+            loading={loading}
           />,
         ]}
       />

@@ -13,8 +13,8 @@ import { sendCommand, type VolcanoAction } from '@/services/kpilot/volcano';
 import { deleteWorkload } from '@/services/kpilot/workload';
 import { JobFormDrawer } from './JobForm';
 import {
-  AutoRefreshSelect,
   NotInstalled,
+  RefreshControl,
   formatAge,
   isResourceNotAvailable,
   useAutoRefresh,
@@ -215,7 +215,7 @@ export default function VolcanoJobsPage() {
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
         scroll={{ x: 'max-content' }}
-        options={{ reload: refresh }}
+        options={{ reload: false }}
         headerTitle={
           <Space>
             <Typography.Text strong>Job</Typography.Text>
@@ -233,10 +233,12 @@ export default function VolcanoJobsPage() {
           >
             {intl.formatMessage({ id: 'pages.compute.job.create' })}
           </Button>,
-          <AutoRefreshSelect
-            key="auto"
+          <RefreshControl
+            key="refresh"
             interval={interval}
             setInterval={setInterval}
+            refresh={refresh}
+            loading={loading}
           />,
         ]}
       />

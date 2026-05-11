@@ -1,5 +1,6 @@
+import { DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { history, useIntl } from '@umijs/max';
-import { Button, Result, Select } from 'antd';
+import { Button, Dropdown, Result, Space } from 'antd';
 import React, { useEffect } from 'react';
 
 // Layout helpers shared by every Volcano list page.
@@ -66,36 +67,54 @@ export function useAutoRefresh(refresh: () => void, ready: boolean) {
   return [interval, setIntervalState] as const;
 }
 
-interface AutoRefreshSelectProps {
+interface RefreshControlProps {
   interval: number;
   setInterval: (n: number) => void;
+  refresh: () => void;
+  loading?: boolean;
 }
 
-// AutoRefreshSelect: auto-refresh interval picker. Manual refresh is
-// covered by ProTable's built-in reload icon (wired via the page's
-// `options={{ reload: refresh }}` prop), so this component is only
-// the interval dropdown.
-export function AutoRefreshSelect({
+// RefreshControl: icon-only reload button + interval dropdown,
+// rendered as a single Space.Compact group. Mirrors the workloads
+// page exactly (pages/ClusterDetail/Workloads/index.tsx) so the
+// compute pages feel identical. Pages that use it should also pass
+// `options={{ reload: false }}` to ProTable to hide its built-in
+// reload icon (otherwise the two would stack).
+export function RefreshControl({
   interval,
   setInterval,
-}: AutoRefreshSelectProps) {
+  refresh,
+  loading,
+}: RefreshControlProps) {
   const intl = useIntl();
   return (
-    <Select
-      value={interval}
-      onChange={setInterval}
-      style={{ width: 110 }}
-      options={[
-        {
-          value: 0,
-          label: intl.formatMessage({ id: 'pages.workloads.refresh.off' }),
-        },
-        { value: 5_000, label: '5s' },
-        { value: 10_000, label: '10s' },
-        { value: 30_000, label: '30s' },
-        { value: 60_000, label: '60s' },
-      ]}
-    />
+    <Space.Compact>
+      <Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} />
+      <Dropdown
+        trigger={['click']}
+        menu={{
+          items: [
+            {
+              key: '0',
+              label: intl.formatMessage({
+                id: 'pages.workloads.refresh.off',
+              }),
+            },
+            { type: 'divider' },
+            { key: '5000', label: '5s' },
+            { key: '10000', label: '10s' },
+            { key: '30000', label: '30s' },
+            { key: '60000', label: '60s' },
+          ],
+          selectedKeys: [String(interval)],
+          onClick: ({ key }) => setInterval(Number(key)),
+        }}
+      >
+        <Button style={{ minWidth: 46 }}>
+          {interval > 0 ? `${interval / 1000}s` : <DownOutlined />}
+        </Button>
+      </Dropdown>
+    </Space.Compact>
   );
 }
 

@@ -10,8 +10,8 @@ import {
 } from '@/services/kpilot/volcano-list';
 import { deleteWorkload } from '@/services/kpilot/workload';
 import {
-  AutoRefreshSelect,
   NotInstalled,
+  RefreshControl,
   formatAge,
   isResourceNotAvailable,
   useAutoRefresh,
@@ -139,7 +139,7 @@ export default function VolcanoHyperNodesPage() {
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
         scroll={{ x: 'max-content' }}
-        options={{ reload: refresh }}
+        options={{ reload: false }}
         headerTitle={
           <Space>
             <Typography.Text strong>HyperNode</Typography.Text>
@@ -149,10 +149,12 @@ export default function VolcanoHyperNodesPage() {
           </Space>
         }
         toolBarRender={() => [
-          <AutoRefreshSelect
-            key="auto"
+          <RefreshControl
+            key="refresh"
             interval={interval}
             setInterval={setInterval}
+            refresh={refresh}
+            loading={loading}
           />,
         ]}
       />
