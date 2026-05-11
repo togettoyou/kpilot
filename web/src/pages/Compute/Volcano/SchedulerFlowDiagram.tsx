@@ -231,7 +231,11 @@ export default function SchedulerFlowDiagram({
             ports: [{ placement: 'left' }, { placement: 'right' }],
           },
         }}
-        behaviors={['zoom-canvas', 'drag-canvas']}
+        // No zoom-canvas / drag-canvas: the pipeline is small (start
+        // + ~6 actions + end), autoFit="view" already sizes it to
+        // fit the card, and wheel-to-zoom would hijack the page's
+        // natural scroll when the cursor crosses the canvas.
+        behaviors={[]}
       />
     </div>
   );
