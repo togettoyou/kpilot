@@ -11,9 +11,11 @@ import { buildPluginInstallLogURL } from '@/services/kpilot/plugin';
 
 // One log frame on the wire — matches the Go side's PluginLogEntry
 // in pkg/server/gateway/plugin_log.go. `kind="chunk"` for progress
-// lines, `kind="end"` for the terminal success / failure marker.
+// lines, `kind="end"` for the terminal success / failure marker,
+// `kind="reset"` emitted by the gateway when a new operation starts
+// on a plugin that already had an end (user re-enabled / disabled).
 interface LogEntry {
-  kind: 'chunk' | 'end';
+  kind: 'chunk' | 'end' | 'reset';
   level?: 'info' | 'warn' | 'error';
   ts?: number;
   message?: string;
@@ -69,6 +71,14 @@ export function PluginInstallLogDrawer({
     ws.onmessage = (e) => {
       try {
         const entry: LogEntry = JSON.parse(e.data);
+        if (entry.kind === 'reset') {
+          // Server tells us a fresh operation is starting on this
+          // plugin — wipe stale state so the new install / uninstall
+          // doesn't render below the previous session's "✓ installed".
+          setEntries([]);
+          setEndStatus(null);
+          return;
+        }
         setEntries((prev) => [...prev, entry]);
         if (entry.kind === 'end') {
           setEndStatus({ success: !!entry.success, summary: entry.summary ?? '' });

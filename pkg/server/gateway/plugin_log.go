@@ -19,10 +19,12 @@ import (
 
 // PluginLogEntry is the wire shape the HTTP handler streams to the
 // browser. Mirrors the proto fields but adds a `kind` discriminator so
-// the same WS channel can carry both chunks and the terminal "end"
-// frame.
+// the same WS channel can carry chunks, the terminal "end" frame, and
+// the "reset" sentinel emitted when a new session starts on a plugin
+// that already had an end frame (user clicked Disable on a Running
+// plugin, or re-Enabled after a Failed).
 type PluginLogEntry struct {
-	Kind    string `json:"kind"`              // "chunk" / "end"
+	Kind    string `json:"kind"`              // "chunk" / "end" / "reset"
 	Level   string `json:"level,omitempty"`   // info / warn / error  (chunk only)
 	Ts      int64  `json:"ts,omitempty"`      // unix ms  (chunk only)
 	Message string `json:"message,omitempty"` // chunk text
@@ -114,10 +116,23 @@ func (g *GatewayServer) appendPluginLog(clusterID, crdName string, entry PluginL
 	if isEnd {
 		sess.closed = true
 	} else if sess.closed {
-		// New activity after a prior End — likely a re-Install. Reset the
-		// "closed" flag so the UI doesn't see "end" forever, but keep
-		// the buffer (it'll roll over as new lines come in).
+		// New activity after a prior End — a fresh install / upgrade /
+		// uninstall is starting on the same plugin. Drop the previous
+		// session's entries so a late subscriber doesn't replay
+		// "installed ✓" right before "uninstalling release…" + signal
+		// live subscribers to clear their local state via a reset frame
+		// (handled below before this fresh chunk lands).
 		sess.closed = false
+		sess.buf = sess.buf[:0]
+		reset := PluginLogEntry{Kind: "reset"}
+		for sub := range sess.subs {
+			select {
+			case sub.ch <- reset:
+			default:
+				// Drop counter bookkeeping happens below for the real
+				// chunk; the reset frame itself is best-effort.
+			}
+		}
 	}
 	sess.buf = append(sess.buf, entry)
 	if len(sess.buf) > pluginLogBufferSize {
