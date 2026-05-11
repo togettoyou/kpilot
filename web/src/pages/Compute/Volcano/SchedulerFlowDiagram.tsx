@@ -253,7 +253,12 @@ export default function SchedulerFlowDiagram({
       </Tooltip>
       <FlowGraph
         data={data as any}
-        autoFit="center"
+        // autoFit="view" scales the graph so the full pipeline fits
+        // the drawer canvas on first render (same framing the reset
+        // button later snaps back to). The FlowGraph upstream demo
+        // uses "center" but that just centers at 100% zoom — for our
+        // 5-6 wide chain that often clips the rightmost actions.
+        autoFit="view"
         animation={false}
         onReady={(g) => setGraph(g as any)}
         node={{
