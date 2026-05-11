@@ -32,7 +32,14 @@ import {
   Typography,
 } from 'antd';
 import yaml from 'js-yaml';
-import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import React, {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 // FlowDirectionGraph (and the G6 runtime it ships) is ~800 KB —
 // lazy-load so the rest of the scheduler page stays light and the
@@ -117,6 +124,21 @@ function tristateLabel(
     </span>
   );
 }
+
+// Pre-computed Select options arrays. Both depend only on the
+// module-level ACTION_NAMES / PLUGIN_NAMES from schedulerMeta, so
+// hoisting them out avoids rebuilding the labels (incl. fresh JSX
+// for ActionOption / PluginOption) on every render of ActionsCard /
+// TierBody. The list of available actions and plugins is fixed at
+// build time.
+const ACTION_OPTIONS = ACTION_NAMES.map((n) => ({
+  label: <ActionOption name={n} />,
+  value: n,
+}));
+const PLUGIN_OPTIONS = PLUGIN_NAMES.map((n) => ({
+  label: <PluginOption name={n} />,
+  value: n,
+}));
 
 // ─── Types — mirror volcano-scheduler.conf YAML shape ──────────────────
 
@@ -604,10 +626,7 @@ function ActionsCard({
         placeholder={intl.formatMessage({
           id: 'pages.compute.scheduler.actions.placeholder',
         })}
-        options={ACTION_NAMES.map((n) => ({
-          label: <ActionOption name={n} />,
-          value: n,
-        }))}
+        options={ACTION_OPTIONS}
         optionLabelProp="value"
         tagRender={(props) => (
           <Tooltip title={metaForAction(props.value as string).desc}>
@@ -822,7 +841,16 @@ function TierBody({
     setAddOpen(false);
   };
 
-  const usedNames = new Set(plugins.map((p) => p.name).filter(Boolean));
+  const usedNames = useMemo(
+    () => new Set(plugins.map((p) => p.name).filter(Boolean)),
+    [plugins],
+  );
+  // Filter the precomputed PLUGIN_OPTIONS rather than rebuilding the
+  // JSX-labeled array from scratch on every render of TierBody.
+  const pluginOptions = useMemo(
+    () => PLUGIN_OPTIONS.filter((o) => !usedNames.has(o.value)),
+    [usedNames],
+  );
 
   return (
     <>
@@ -861,9 +889,7 @@ function TierBody({
                 value={addName}
                 onChange={setAddName}
                 style={{ width: '100%' }}
-                options={PLUGIN_NAMES.filter((n) => !usedNames.has(n)).map(
-                  (n) => ({ label: <PluginOption name={n} />, value: n }),
-                )}
+                options={pluginOptions}
                 optionLabelProp="value"
               />
               <Button type="primary" onClick={addPlugin} disabled={!addName}>
@@ -935,15 +961,23 @@ function PluginCard({
   // Bucket the top-level keys of the entry: known enables vs unknown
   // extras. We render unknown extras as a small read-only list with a
   // hint so they survive round-trip without surprising the user.
-  const known = knownPluginKeys(name);
-  const unknownTopLevel: [string, unknown][] = Object.entries(entry).filter(
-    ([k]) => !known.has(k),
+  // The "known" set depends only on the plugin name (stable for the
+  // card's lifetime); cache it so we don't rebuild a 25+-entry Set
+  // on every parent state change.
+  const known = useMemo(() => knownPluginKeys(name), [name]);
+  const unknownTopLevel = useMemo<[string, unknown][]>(
+    () => Object.entries(entry).filter(([k]) => !known.has(k)),
+    [entry, known],
   );
-  const setEnabledCount = ENABLE_FIELDS.filter(
-    (e) => entry[e.key] !== undefined,
-  ).length;
-  const setArgsCount =
-    meta.args?.filter((a) => args[a.key] !== undefined).length ?? 0;
+  const setEnabledCount = useMemo(
+    () =>
+      ENABLE_FIELDS.filter((e) => entry[e.key] !== undefined).length,
+    [entry],
+  );
+  const setArgsCount = useMemo(
+    () => meta.args?.filter((a) => args[a.key] !== undefined).length ?? 0,
+    [meta.args, args],
+  );
 
   return (
     <Card
@@ -1101,25 +1135,34 @@ function EnableSwitchGrid({
 }) {
   const intl = useIntl();
   const meta = metaForPlugin(pluginName);
-  // PluginMeta.callbacks is the set of Enabled* keys this plugin
-  // actually consumes (source-derived from ssn.AddXxxFn). Unknown
-  // plugins fall back to "all 25" because we can't know better.
-  const visibleFields = meta.callbacks
-    ? ENABLE_FIELDS.filter((f) => meta.callbacks!.includes(f.key))
-    : ENABLE_FIELDS;
-  // If user previously set an Enabled* key that's not in this plugin's
-  // relevant set, surface it as well so they can see / unset it (the
-  // value survives in the entry even if the grid omits it, but better
-  // to make it visible than mystery-keep it).
-  const setNoOpFields = meta.callbacks
-    ? ENABLE_FIELDS.filter(
-        (f) =>
-          !meta.callbacks!.includes(f.key) && entry[f.key] !== undefined,
-      )
-    : [];
-  // Sort visible: callback-relevant first, then any extras the user
-  // set on this entry that the plugin doesn't actually consume.
-  const fields = [...visibleFields, ...setNoOpFields];
+  // visibleFields depends only on the plugin's callback list (stable
+  // for the plugin's lifetime). Memoized so a single switch toggle
+  // doesn't refilter 25 ENABLE_FIELDS twice on every render. setNoOp
+  // needs to react to entry changes (a key the user just unset is no
+  // longer a no-op), so it depends on entry — but only entry's
+  // unknown-callback keys really matter, so over-firing here is
+  // bounded.
+  const visibleFields = useMemo(
+    () =>
+      meta.callbacks
+        ? ENABLE_FIELDS.filter((f) => meta.callbacks!.includes(f.key))
+        : ENABLE_FIELDS,
+    [meta.callbacks],
+  );
+  const setNoOpFields = useMemo(
+    () =>
+      meta.callbacks
+        ? ENABLE_FIELDS.filter(
+            (f) =>
+              !meta.callbacks!.includes(f.key) && entry[f.key] !== undefined,
+          )
+        : [],
+    [meta.callbacks, entry],
+  );
+  const fields = useMemo(
+    () => [...visibleFields, ...setNoOpFields],
+    [visibleFields, setNoOpFields],
+  );
 
   if (fields.length === 0) {
     return (
@@ -1408,22 +1451,31 @@ function MetricsCard({
   const [rows, setRows] = useState<[string, string][]>(() =>
     Object.entries(metrics ?? {}),
   );
-  const upstreamJSON = JSON.stringify(metrics ?? {});
-  const localJSON = JSON.stringify(
-    Object.fromEntries(rows.filter(([k]) => k)),
-  );
+  // Track what we last committed upstream so we can detect "real"
+  // external changes (parent metrics differs from what our own
+  // commit() emitted) and re-seed only then. Pure-ref tracking is
+  // cheaper than JSON.stringify-on-every-render, which was running
+  // even when the user wasn't editing.
+  const lastEmittedRef = useRef<string>(JSON.stringify(metrics ?? {}));
   useEffect(() => {
-    if (upstreamJSON !== localJSON) {
+    const upstreamJSON = JSON.stringify(metrics ?? {});
+    if (upstreamJSON !== lastEmittedRef.current) {
       setRows(Object.entries(metrics ?? {}));
+      lastEmittedRef.current = upstreamJSON;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [upstreamJSON]);
+  }, [metrics]);
 
   const commit = (next: [string, string][]) => {
     setRows(next);
     const obj: Record<string, string> = {};
     for (const [k, v] of next) if (k) obj[k] = v;
-    onChange(Object.keys(obj).length === 0 ? undefined : obj);
+    const emit = Object.keys(obj).length === 0 ? undefined : obj;
+    // Stamp lastEmittedRef before calling onChange so the upstream
+    // effect doesn't see this round-trip as "external" and clobber
+    // the in-progress row list (would wipe the empty row the user
+    // just added).
+    lastEmittedRef.current = JSON.stringify(emit ?? {});
+    onChange(emit);
   };
 
   const setEntry = (i: number, k: string, v: string) => {
