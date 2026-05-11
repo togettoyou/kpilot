@@ -151,11 +151,12 @@ export default {
   'pages.compute.scheduler.plugin.extras.hint':
     'The following keys are outside KPilot\'s known schema and are preserved as-is. Switch to the YAML view to edit them.',
   'pages.compute.scheduler.action.params': 'Action arguments (configurations)',
-  'pages.compute.scheduler.metrics': 'Metrics',
+  'pages.compute.scheduler.metrics': 'Metrics data source',
   'pages.compute.scheduler.metrics.tip':
-    'Volcano scheduler\'s own metrics-reporting config. Common keys: type (prometheus / otel), address, interval. Leave empty to use Volcano defaults.',
+    'Metrics source for plugins (mainly usage) that need real-time node CPU/memory utilization. Volcano periodically polls this endpoint and feeds the readings into node scoring. Common keys: type (prometheus / prometheus_adaptor / elasticsearch), address, interval, tls.insecureSkipVerify; elasticsearch also accepts elasticsearch.index / .username / .password. Without this, usage-style plugins have no data to score on.',
   'pages.compute.scheduler.metrics.add': 'Add',
-  'pages.compute.scheduler.metrics.empty': 'No custom metrics config',
+  'pages.compute.scheduler.metrics.empty':
+    'No metrics source configured (usage-style plugins will be inert)',
 
   // Shared: result-truncated banner for list endpoints
   'pages.compute.list.truncated':

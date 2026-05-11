@@ -152,11 +152,11 @@ export default {
   'pages.compute.scheduler.plugin.extras.hint':
     '以下字段不在 KPilot 已识别的 schema 中，已保留原值；如需编辑请切换到 YAML 视图。',
   'pages.compute.scheduler.action.params': '该阶段参数 (configurations)',
-  'pages.compute.scheduler.metrics': '监控上报 (metrics)',
+  'pages.compute.scheduler.metrics': '指标数据源 (metrics)',
   'pages.compute.scheduler.metrics.tip':
-    'Volcano 调度器自带的 metrics 上报配置。常见 key 例如 type (prometheus / otel)、address、interval。留空走 Volcano 默认。',
+    '为 usage 等依赖节点实时利用率的插件指定指标数据源。Volcano 会定时从这里拉取每个节点的 CPU / 内存使用率作为打分输入。常见 key：type（prometheus / prometheus_adaptor / elasticsearch）、address、interval、tls.insecureSkipVerify；elasticsearch 还支持 elasticsearch.index / .username / .password 等。不配则 usage 类插件无数据可用。',
   'pages.compute.scheduler.metrics.add': '添加',
-  'pages.compute.scheduler.metrics.empty': '未配置自定义 metrics 上报',
+  'pages.compute.scheduler.metrics.empty': '未配置指标数据源（usage 等需要实时利用率的插件将不可用）',
 
   // 共享文案：list 端点的截断提示
   'pages.compute.list.truncated':
