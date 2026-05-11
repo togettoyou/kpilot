@@ -51,26 +51,65 @@ import { NotInstalled } from './shared/Layout';
 
 const { Text, Paragraph } = Typography;
 
-// TRISTATE_OPTIONS gives every bool / enable Segmented the same three
-// colored pills: grey 默认 (unset), green 开 (true), red 关 (false).
-// The labels are colored even when unselected so users get a constant
-// visual cue for which way each switch leans. antd Segmented respects
-// custom JSX labels and overlays the selected pill background on top
-// of the colored text, so contrast stays readable in both states.
-const TRISTATE_OPTIONS = [
-  {
-    label: <span style={{ color: 'var(--ant-color-text-tertiary)' }}>默认</span>,
-    value: 'default',
-  },
-  {
-    label: <span style={{ color: 'var(--ant-color-success)' }}>开</span>,
-    value: 'true',
-  },
-  {
-    label: <span style={{ color: 'var(--ant-color-error)' }}>关</span>,
-    value: 'false',
-  },
-];
+// TristateSegmented is the small three-pill control shared by every
+// Enabled* switch and every bool plugin arg. The selected pill gets
+// colored + bold text (grey 默认 / green 开 / red 关); unselected
+// pills stay muted so the current selection is obvious at a glance.
+// value is the raw tri-state (undefined / true / false) — same shape
+// Volcano stores in YAML.
+function TristateSegmented({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: boolean | undefined;
+  onChange: (next: boolean | undefined) => void;
+  disabled?: boolean;
+}) {
+  const cur: 'default' | 'true' | 'false' =
+    value === true ? 'true' : value === false ? 'false' : 'default';
+  return (
+    <Segmented
+      size="small"
+      disabled={disabled}
+      value={cur}
+      onChange={(v) =>
+        onChange(v === 'default' ? undefined : v === 'true')
+      }
+      options={[
+        { label: tristateLabel('默认', cur === 'default', 'neutral'), value: 'default' },
+        { label: tristateLabel('开', cur === 'true', 'success'), value: 'true' },
+        { label: tristateLabel('关', cur === 'false', 'error'), value: 'false' },
+      ]}
+    />
+  );
+}
+
+function tristateLabel(
+  text: string,
+  selected: boolean,
+  variant: 'neutral' | 'success' | 'error',
+) {
+  // Unselected: muted text, normal weight. Selected: variant-tinted
+  // text + bold. Combined with antd's own selected-pill background,
+  // the active choice is unambiguous in both light and dark themes.
+  const selectedColor =
+    variant === 'success'
+      ? 'var(--ant-color-success)'
+      : variant === 'error'
+        ? 'var(--ant-color-error)'
+        : 'var(--ant-color-text)';
+  return (
+    <span
+      style={{
+        color: selected ? selectedColor : 'var(--ant-color-text-tertiary)',
+        fontWeight: selected ? 600 : 400,
+      }}
+    >
+      {text}
+    </span>
+  );
+}
 
 // ─── Types — mirror volcano-scheduler.conf YAML shape ──────────────────
 
@@ -1083,8 +1122,8 @@ function EnableSwitchGrid({
     >
       {fields.map((f) => {
         const raw = entry[f.key];
-        const value: 'default' | 'true' | 'false' =
-          raw === true ? 'true' : raw === false ? 'false' : 'default';
+        const value: boolean | undefined =
+          raw === true ? true : raw === false ? false : undefined;
         return (
           <Card
             key={f.key}
@@ -1110,14 +1149,10 @@ function EnableSwitchGrid({
                   </code>
                 </Tooltip>
               </div>
-              <Segmented
-                size="small"
+              <TristateSegmented
                 disabled={!editable}
                 value={value}
-                onChange={(v) =>
-                  onChange(f.key, v === 'default' ? undefined : v === 'true')
-                }
-                options={TRISTATE_OPTIONS}
+                onChange={(next) => onChange(f.key, next)}
               />
             </Space>
           </Card>
@@ -1199,17 +1234,13 @@ function ArgField({
       );
       break;
     case 'bool': {
-      const cur: 'default' | 'true' | 'false' =
-        value === true ? 'true' : value === false ? 'false' : 'default';
+      const cur: boolean | undefined =
+        value === true ? true : value === false ? false : undefined;
       input = (
-        <Segmented
-          size="small"
+        <TristateSegmented
           disabled={!editable}
           value={cur}
-          onChange={(v) =>
-            onChange(v === 'default' ? undefined : v === 'true')
-          }
-          options={TRISTATE_OPTIONS}
+          onChange={onChange}
         />
       );
       break;
