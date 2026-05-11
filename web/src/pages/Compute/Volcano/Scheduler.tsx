@@ -6,7 +6,7 @@ import {
   ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import { history, useIntl, useParams, useRequest } from '@umijs/max';
+import { useIntl, useParams, useRequest } from '@umijs/max';
 import {
   Alert,
   App,
@@ -27,9 +27,10 @@ import yaml from 'js-yaml';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
-import { listPlugins } from '@/services/kpilot/plugin';
+import { listClusterPlugins } from '@/services/kpilot/plugin';
 import { applyManifest } from '@/services/kpilot/volcano';
 import { getWorkload } from '@/services/kpilot/workload';
+import { NotInstalled } from './shared/Layout';
 import {
   ACTION_NAMES,
   ACTIONS_META,
@@ -78,13 +79,26 @@ export default function VolcanoSchedulerPage() {
   const { message } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
 
-  const plugins = useRequest(listPlugins, { formatResult: (res) => res });
-  const volcanoNs = useMemo<string | null>(() => {
-    if (!plugins.data) return null;
-    const v = plugins.data.find((p) => p.name === 'volcano');
-    return v?.default_release_namespace ?? null;
+  // Per-cluster plugin status, NOT the global registry. The global
+  // registry always lists Volcano (it's a built-in), so a check against
+  // it can't tell us whether *this* cluster has Volcano enabled and
+  // running — which is what gates the configmap fetch below.
+  const plugins = useRequest(() => listClusterPlugins(clusterId!), {
+    formatResult: (res) => res,
+    ready: !!clusterId,
+    refreshDeps: [clusterId],
+  });
+  const volcanoEntry = useMemo(() => {
+    return plugins.data?.find((p) => p.plugin.name === 'volcano');
   }, [plugins.data]);
+  const volcanoNs =
+    volcanoEntry?.plugin.default_release_namespace ?? null;
+  const volcanoReady = volcanoEntry?.phase === 'Running';
 
+  // Only fetch the scheduler configmap once we know Volcano is actually
+  // running on this cluster. Otherwise the request fails with a K8s
+  // "configmaps ... not found" that the global error handler would toast,
+  // even though the page already renders <NotInstalled> for this case.
   const cm = useRequest(
     () =>
       getWorkload(
@@ -95,8 +109,8 @@ export default function VolcanoSchedulerPage() {
       ),
     {
       formatResult: (res) => res,
-      ready: !!clusterId && !!volcanoNs,
-      refreshDeps: [clusterId, volcanoNs],
+      ready: !!clusterId && !!volcanoNs && volcanoReady,
+      refreshDeps: [clusterId, volcanoNs, volcanoReady],
     },
   );
 
@@ -244,32 +258,13 @@ export default function VolcanoSchedulerPage() {
     );
   }
 
-  if (plugins.data && !volcanoNs) {
-    return (
-      <div style={{ padding: 24 }}>
-        <Result
-          status="info"
-          title={intl.formatMessage({
-            id: 'pages.compute.volcano.notInstalled.title',
-          })}
-          subTitle={intl.formatMessage({
-            id: 'pages.compute.volcano.notInstalled.subTitle',
-          })}
-          extra={
-            <Button
-              type="primary"
-              onClick={() =>
-                clusterId && history.push(`/clusters/${clusterId}/plugins`)
-              }
-            >
-              {intl.formatMessage({
-                id: 'pages.compute.volcano.notInstalled.action',
-              })}
-            </Button>
-          }
-        />
-      </div>
-    );
+  // Same NotInstalled state the 5 CR pages render. Covers all
+  // not-actually-running cases on this cluster: not in registry,
+  // never enabled, mid-install (Pending/Installing), Uninstalling,
+  // and Failed — pointing the user at the per-cluster Plugins page
+  // is the right next step in every one of those.
+  if (plugins.data && !volcanoReady) {
+    return clusterId ? <NotInstalled clusterId={clusterId} /> : null;
   }
 
   if (cm.error) {
