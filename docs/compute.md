@@ -53,9 +53,17 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 ### 3.1 通用机制
 
 - **专用列表端点**：每种 CR 一个 server handler（`pkg/server/api/handler/volcano.go`），通过 worker 的 `list-full` action 一次取齐 spec + status，server 端把字段投影成 slim row JSON 下发前端。**100 个 Queue 渲染 = 1 个 HTTP 请求**——不再是「1 list + 100 GET」N+1 模式
-- **Worker `list-full` action**（`pkg/worker/proxy/proxy.go::listFull`）：与通用 K8s Table API 路径并存，dynamic.List 返回完整对象。按需添加新 GVK 时只需在 server 端加 handler，worker 不动
-- **页面结构**：所有 5 个页都直接渲染 `<ProTable>`（不再包 `WorkloadsContent`），列定义按 kind 单独写，cell 全部 props-driven 纯渲染（无 per-row fetch）。共享 helper 在 `pages/Compute/Volcano/shared/Layout.tsx`：`<NotInstalled>`、`useAutoRefresh`、`<RefreshControl>`、`formatAge`。`<RefreshControl>` 复刻工作负载页样式：图标 reload 按钮 + 间隔 Dropdown 紧凑组（`Space.Compact`），同时关掉 ProTable 自带 reload（`options={{ reload: false }}`）
-- **错误兜底**：list 端点在 CRD 不存在时返回 `404 / RESOURCE_NOT_AVAILABLE`，页面切换为 `<NotInstalled>` 显示「集群尚未安装 Volcano，前往插件管理」
+- **响应 shape**：5 个端点统一返回 `{ items: Row[], continue?: string, remainingItemCount?: number }`（不再是裸 `Row[]`），承载 K8s list metadata 让前端能感知截断。Server 端默认 `limit=500`（同时是上限），客户端可以用 `?limit=N` 收紧但不能放大
+- **超时**：5 个端点跑在 `readWorkerTimeout=120s` 下（与 worker 端 read 路径对齐）；list-full 返回大 CR 慢一点不会被 server 提前 cancel
+- **Worker `list-full` action**（`pkg/worker/proxy/proxy.go::listFull`）：与通用 K8s Table API 路径并存，dynamic.List 返回完整对象，但每个 item marshal 前 strip `metadata.managedFields`（kubectl 同款做法，省 1-5 KiB / 对象的传输字节）。日志带 `kind / ns / count / continue` 便于排查。按需添加新 GVK 时只需在 server 端加 handler，worker 不动
+- **页面结构**：所有 5 个页都直接渲染 `<ProTable>`（不再包 `WorkloadsContent`），列定义按 kind 单独写，cell 全部 props-driven 纯渲染（无 per-row fetch）。共享 helper 在 `pages/Compute/Volcano/shared/Layout.tsx`：
+  - `<NotInstalled>` / `isResourceNotAvailable` —— RESOURCE_NOT_AVAILABLE 兜底
+  - `useAutoRefresh` —— 用户可控的轮询 interval（5/10/30/60s）
+  - `<RefreshControl>` —— 图标 reload + 间隔 Dropdown 紧凑组（`Space.Compact`），关掉 ProTable 自带 reload（`options={{ reload: false }}`）以免叠加
+  - `<TruncatedBanner shown count>` —— 当响应带 `continue` token 时渲染 Alert 提示用户结果被截断
+  - `useStaggeredRefresh(refresh)` —— 返回 `fire(delays[])`，内部用 useRef 跟踪 setTimeout id 并在 unmount 时清理。Queue Open/Close、CronJob Suspend/Resume 这类异步生命周期操作触发后用它做 staggered refresh 等 controller 应用变更
+  - `formatAge` —— kubectl 风格的 `5m / 3h / 2d` age 字符串
+- **错误兜底**：list 端点在 CRD 不存在时返回 `404 / RESOURCE_NOT_AVAILABLE`，页面切换为 `<NotInstalled>` 显示「集群尚未安装 Volcano，前往插件管理」。Server 端同时打 `[handler] volcano CRD not available: cluster=... kind=...` 日志，运维侧能 grep 到为什么 Volcano 页面打不开
 - **NamespacePicker**：顶部命名空间选择器识别 `/compute/:id/{jobs,cronjobs,podgroups}` namespaced 路径，cluster-scoped 的 queues / hypernodes / scheduler 自动隐藏（见 `components/NamespacePicker/index.tsx::COMPUTE_NAMESPACED_KINDS`）。namespaced 页面通过 `useModel('namespace')` 读取选中的 ns 加到 list 请求 query
 - **写操作**：edit / delete 仍走通用 `/workloads/_cr` PUT/DELETE（带 GVK query），form drawer 走 `/apply` SSA。Volcano CR 写保护与 K8s 通用工作负载共用同一套 backend 检查
 
@@ -73,7 +81,10 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
   - **Queue**：`weight` / `reclaimable` / `parent` / `capability`（cpu / memory / `volcano.sh/vgpu-{number,memory,cores}`）。capability 字段对应 `volcano-vgpu-device-plugin` 资源标签
   - **Job**：基础信息（name / namespace / queue / priorityClassName）+ `minAvailable`（gang）+ plugins 多选（env/svc/ssh/mpi/pytorch/tensorflow，args 默认空）+ tasks 列表（每个 task：image / command / args / replicas / restartPolicy / 资源请求 cpu+memory+vgpu-*）
   - **CronJob**：Job 全部字段 + cron schedule + concurrencyPolicy + history limits + suspend
-- **未在表单暴露的字段**（如 tolerations / affinity / 多容器 task / plugin 自定义 args）：用户切到 YAML 视图自己写。表单的 round-trip preserve 这些字段（`extractTasks` 等只读取已知字段，YAML 解析时整体保留）
+- **未在表单暴露的字段**（如 tolerations / affinity / 多容器 task / plugin 自定义 args）：用户切到 YAML 视图自己写。**YAML 视图整体保留所有字段**（submit 直接 yaml.load → SSA）。**表单视图**走 `buildXxxManifest`，会丢未建模字段；为了 edit 路径不抹掉用户原本设置的内容，每个 form 都用 `editOriginalRef` 镜像已知会被 SSA 抹掉的字段、submit 时重新合入：
+  - `JobForm` 镜像 `spec.plugins[*]` 的 args + 每个 `spec.tasks[*].policies`
+  - `QueueForm` 镜像 `spec.priority`
+  - `CronJobForm` 沿用 JobForm 同款机制（jobTemplate.spec 走 buildJobManifest）
 
 ### 3.3 生命周期操作（lifecycle）
 

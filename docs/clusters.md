@@ -96,9 +96,11 @@ Scoped action 端点的安全模式：
   - `apply`（Patch + ApplyPatchType，SSA，`fieldManager=kpilot`，`force=true`）—— **批量 Apply YAML 抽屉**（kubectl-apply 语义）。无需 resourceVersion，幂等
   - `patch`（Patch + StrategicMergePatchType，`fieldManager=kpilot`）—— **scoped 操作**（如 cordon），Server 端构造 patch body，客户端无法注入其他字段
   - `delete`（dynamic.Delete）—— Apply YAML 抽屉的删除按钮也走该 action
-- **Describe**：优先 `describe.DescriberFor(gk, cfg)`（内置 kind 走专用 describer）；返回 `(nil, false)` 时 fallback 到 `describe.GenericDescriberFor(mapping, cfg)`（与 kubectl 自身的 fallback 一致）
+- **Describe**：优先 `describe.DescriberFor(gk, cfg)`（内置 kind 走专用 describer）；返回 `(nil, false)` 时 fallback 到 `describe.GenericDescriberFor(mapping, cfg)`（与 kubectl 自身的 fallback 一致）。kubectl 历史上对畸形 unstructured 有 panic 案例，所以 `describe()` 用命名返回 + `defer recover()` 把 panic 转成 fail 响应而不是杀 worker
 - **RESTMapper 缓存**：controller-runtime 的 `apiutil.NewDynamicRESTMapper` 自带 `lazyRESTMapper`，遇到 `meta.NoMatchError` 会自动 reload + retry 一次。新安装 CRD 后首次查询 GVK 时自动刷新
-- **流式**（logs/exec）：分别由 `LogsManager` / `ExecManager` 维护 sessionID → cancel func / pipe / chan 的映射，分发器的 stdin/resize/cancel handler 必须**快返回**
+- **操作超时拆分**：`readWorkerTimeout=120s`（list / get / describe / list-full）vs `writeWorkerTimeout=30s`（apply / update / patch / delete / cordon）。读路径放宽是因为大集群的 describe + 大 CRD list 在 30s 下经常 ctx.Err()；写路径保持紧因为它是有副作用的，admission webhook 卡住要尽快退出。Server handler 与 Worker proxy 两端用同一组数值，避免一端先放弃浪费另一端的工作
+- **HTTP/WS 反代 URL scheme 校验**：`HTTPProxy.do` 和 `WSManager.Start` 入口校验 `req.Url` 必须是 http/https（WS 还允许 ws/wss），是防御纵深 —— Server 今天构造 FQDN 不会出问题，但 future regression 不应让 Worker 去 dial unix:// / file://
+- **流式**（logs/exec/反代 WS）：分别由 `LogsManager` / `ExecManager` / `WSManager` 维护 sessionID → cancel func / pipe / chan 的映射，分发器的 stdin/resize/cancel handler 必须**快返回**。session ctx 派生自 `tunnel.Client.StreamContext()`，tunnel 断开时一并 cancel —— 不会等到下次 Send 失败才退出。Pod 日志另有 `maxLogBytes=64 MiB` 累计字节封顶，超过即 LogsEnd 关掉（chatty pod 长 follow 不会无限堆）；exec writer 写 tunnel 失败时调 onSendErr cancel 整个 session，避免 SPDY executor 在 Server 收不到的情况下继续跑用户 shell
 
 ## 4. 集群侧插件（`/clusters/:id/plugins`）
 
