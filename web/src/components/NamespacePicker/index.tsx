@@ -104,6 +104,11 @@ export function NamespacePicker() {
         size="small"
         loading={state.loading}
         allowClear
+        // Scope the popup with our own class so global.less can pin
+        // `overscroll-behavior: contain` on its inner virtual-list
+        // holder. Without that, scrolling past the bottom of the
+        // namespace list bubbles wheel events up to the page.
+        popupClassName="kpilot-ns-picker-popup"
         // Client-side substring search — namespace lists are short enough
         // (rarely >100) that filtering in the browser is fine.
         showSearch

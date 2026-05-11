@@ -69,6 +69,18 @@ body,
   --ant-menu-horizontal-item-selected-color: var(--ant-color-primary);
 }
 
+// NamespacePicker dropdown: stop wheel events from leaking out of the
+// (often short) namespace list to the page below it. Without this,
+// scrolling past the bottom of the list scrolls the entire workload
+// page — confusing because the user thought they were inside the
+// dropdown. Both the popup root and the inner rc-virtual-list-holder
+// are pinned because either one might be the actual overflow:auto
+// element depending on whether virtualization is active.
+.kpilot-ns-picker-popup,
+.kpilot-ns-picker-popup .rc-virtual-list-holder {
+  overscroll-behavior: contain;
+}
+
 canvas {
   display: block;
 }
