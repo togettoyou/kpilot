@@ -86,7 +86,6 @@ export default function VolcanoPodGroupsPage() {
     {
       title: intl.formatMessage({ id: 'pages.compute.podGroup.col.name' }),
       dataIndex: 'name',
-      copyable: true,
       width: 220,
       fixed: 'left',
     },

@@ -94,7 +94,6 @@ export default function VolcanoCronJobsPage() {
     {
       title: intl.formatMessage({ id: 'pages.compute.cronJob.col.name' }),
       dataIndex: 'name',
-      copyable: true,
       width: 200,
       fixed: 'left',
     },

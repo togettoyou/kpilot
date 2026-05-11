@@ -77,7 +77,6 @@ export default function VolcanoHyperNodesPage() {
     {
       title: intl.formatMessage({ id: 'pages.compute.hyperNode.col.name' }),
       dataIndex: 'name',
-      copyable: true,
       width: 220,
       fixed: 'left',
     },

@@ -84,7 +84,6 @@ export default function VolcanoQueuesPage() {
     {
       title: intl.formatMessage({ id: 'pages.compute.queue.col.name' }),
       dataIndex: 'name',
-      copyable: true,
       width: 200,
     },
     {

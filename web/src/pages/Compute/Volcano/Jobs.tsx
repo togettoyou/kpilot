@@ -103,7 +103,6 @@ export default function VolcanoJobsPage() {
     {
       title: intl.formatMessage({ id: 'pages.compute.job.col.name' }),
       dataIndex: 'name',
-      copyable: true,
       width: 200,
       fixed: 'left',
     },
