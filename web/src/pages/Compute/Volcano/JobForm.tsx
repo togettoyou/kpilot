@@ -61,8 +61,22 @@ interface FormValues {
   queue?: string;
   priorityClassName?: string;
   minAvailable?: number;
+  // Advanced gating: how many pods must Succeed for the Job to be
+  // marked Complete (Volcano default is task replicas).
+  minSuccess?: number;
+  // Max retries before the Job is marked Failed (default 3).
+  maxRetry?: number;
+  // Auto-delete window after the Job reaches a terminal state.
+  ttlSecondsAfterFinished?: number;
+  // Go duration string ("1h30m"); hint consumed by sla plugin.
+  runningEstimate?: string;
   plugins?: string[];
   tasks: TaskFV[];
+  // NetworkTopology (works with HyperNode CRD) — same shape as
+  // PodGroupForm.
+  ntMode?: 'hard' | 'soft' | '';
+  ntHighestTierAllowed?: number;
+  ntHighestTierName?: string;
 }
 
 // JobFormDrawer constructs a Volcano Job (`batch.volcano.sh/v1alpha1`).
@@ -98,12 +112,19 @@ export function JobFormDrawer({
     value: n,
   }));
   // editOriginalRef preserves the bits of an edited Job's spec that
-  // the form doesn't surface — plugin args and per-task policies —
-  // so submit can re-emit them instead of silently dropping them.
+  // the form doesn't surface so submit can re-emit them instead of
+  // silently dropping them. Beyond plugin args + per-task policies,
+  // upstream JobSpec also has volumes (PV/PVC mounts), job-level
+  // policies (lifecycle reactions), and a custom schedulerName the
+  // user might have set (we hardcode "volcano" in our builder so
+  // anything else would be lost on edit).
   // Cleared on every drawer (re)open and on create-mode entry.
   const editOriginalRef = useRef<{
     plugins?: Record<string, unknown>;
     taskPolicies?: Record<string, unknown>;
+    volumes?: unknown;
+    jobPolicies?: unknown;
+    schedulerName?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -151,6 +172,22 @@ export function JobFormDrawer({
               : undefined,
           taskPolicies:
             Object.keys(taskPolicies).length > 0 ? taskPolicies : undefined,
+          volumes:
+            Array.isArray(spec.volumes) && spec.volumes.length > 0
+              ? spec.volumes
+              : undefined,
+          jobPolicies:
+            Array.isArray(spec.policies) && spec.policies.length > 0
+              ? spec.policies
+              : undefined,
+          // Only preserve if user has customized away from "volcano"
+          // — the builder always emits "volcano" so an exact match
+          // doesn't need round-trip protection.
+          schedulerName:
+            typeof spec.schedulerName === 'string' &&
+            spec.schedulerName !== 'volcano'
+              ? spec.schedulerName
+              : undefined,
         };
       })
       .finally(() => {
@@ -181,6 +218,9 @@ export function JobFormDrawer({
         return policies !== undefined ? { ...t, policies } : t;
       });
     }
+    if (orig.volumes) manifest.spec.volumes = orig.volumes;
+    if (orig.jobPolicies) manifest.spec.policies = orig.jobPolicies;
+    if (orig.schedulerName) manifest.spec.schedulerName = orig.schedulerName;
     return manifest;
   };
 
@@ -404,6 +444,58 @@ export function JobFormDrawer({
         </Form.Item>
 
         <Form.Item
+          name="minSuccess"
+          label={intl.formatMessage({
+            id: 'pages.compute.jobForm.minSuccess',
+          })}
+          extra={intl.formatMessage({
+            id: 'pages.compute.jobForm.minSuccess.extra',
+          })}
+        >
+          <InputNumber min={1} placeholder="auto" style={{ width: 160 }} />
+        </Form.Item>
+
+        <Form.Item
+          name="maxRetry"
+          label={intl.formatMessage({
+            id: 'pages.compute.jobForm.maxRetry',
+          })}
+          extra={intl.formatMessage({
+            id: 'pages.compute.jobForm.maxRetry.extra',
+          })}
+        >
+          <InputNumber min={0} placeholder="3" style={{ width: 160 }} />
+        </Form.Item>
+
+        <Form.Item
+          name="ttlSecondsAfterFinished"
+          label={intl.formatMessage({
+            id: 'pages.compute.jobForm.ttl',
+          })}
+          extra={intl.formatMessage({
+            id: 'pages.compute.jobForm.ttl.extra',
+          })}
+        >
+          <InputNumber
+            min={0}
+            placeholder="无 / never"
+            style={{ width: 200 }}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="runningEstimate"
+          label={intl.formatMessage({
+            id: 'pages.compute.jobForm.runningEstimate',
+          })}
+          extra={intl.formatMessage({
+            id: 'pages.compute.jobForm.runningEstimate.extra',
+          })}
+        >
+          <Input placeholder="1h30m" style={{ width: 200 }} maxLength={64} />
+        </Form.Item>
+
+        <Form.Item
           name="plugins"
           label={intl.formatMessage({
             id: 'pages.compute.jobForm.plugins',
@@ -424,6 +516,59 @@ export function JobFormDrawer({
               { label: 'tensorflow', value: 'tensorflow' },
             ]}
           />
+        </Form.Item>
+
+        <div
+          style={{ marginTop: 16, marginBottom: 4, fontWeight: 500 }}
+        >
+          {intl.formatMessage({
+            id: 'pages.compute.jobForm.networkTopology',
+          })}
+        </div>
+        <div
+          style={{
+            marginBottom: 8,
+            color: 'var(--ant-color-text-tertiary)',
+            fontSize: 12,
+          }}
+        >
+          {intl.formatMessage({
+            id: 'pages.compute.jobForm.networkTopology.extra',
+          })}
+        </div>
+        <Form.Item
+          name="ntMode"
+          label={intl.formatMessage({
+            id: 'pages.compute.jobForm.ntMode',
+          })}
+        >
+          <Select
+            allowClear
+            placeholder={intl.formatMessage({
+              id: 'pages.compute.jobForm.ntMode.placeholder',
+            })}
+            style={{ width: 200 }}
+            options={[
+              { value: 'hard', label: 'hard' },
+              { value: 'soft', label: 'soft' },
+            ]}
+          />
+        </Form.Item>
+        <Form.Item
+          name="ntHighestTierAllowed"
+          label={intl.formatMessage({
+            id: 'pages.compute.jobForm.ntTierAllowed',
+          })}
+        >
+          <InputNumber min={0} style={{ width: 160 }} />
+        </Form.Item>
+        <Form.Item
+          name="ntHighestTierName"
+          label={intl.formatMessage({
+            id: 'pages.compute.jobForm.ntTierName',
+          })}
+        >
+          <Input maxLength={253} />
         </Form.Item>
 
         <div
@@ -627,6 +772,20 @@ function fvToInput(v: FormValues): JobInput {
     queue: tr(v.queue),
     priorityClassName: tr(v.priorityClassName),
     minAvailable: v.minAvailable,
+    minSuccess: typeof v.minSuccess === 'number' ? v.minSuccess : undefined,
+    maxRetry: typeof v.maxRetry === 'number' ? v.maxRetry : undefined,
+    ttlSecondsAfterFinished:
+      typeof v.ttlSecondsAfterFinished === 'number'
+        ? v.ttlSecondsAfterFinished
+        : undefined,
+    runningEstimate: tr(v.runningEstimate),
+    networkTopologyMode:
+      v.ntMode === 'hard' || v.ntMode === 'soft' ? v.ntMode : undefined,
+    networkTopologyHighestTierAllowed:
+      typeof v.ntHighestTierAllowed === 'number'
+        ? v.ntHighestTierAllowed
+        : undefined,
+    networkTopologyHighestTierName: tr(v.ntHighestTierName),
     plugins: v.plugins,
     tasks: (v.tasks ?? []).map((t) => {
       const cpu = tr(t.cpu);
@@ -676,6 +835,7 @@ function formValuesFromManifest(
   fallbackNamespace: string,
 ): FormValues {
   const spec = obj?.spec ?? {};
+  const nt = spec.networkTopology ?? {};
   return {
     name: obj?.metadata?.name ?? fallbackName,
     namespace: obj?.metadata?.namespace ?? fallbackNamespace,
@@ -683,6 +843,21 @@ function formValuesFromManifest(
     priorityClassName: spec.priorityClassName,
     minAvailable:
       typeof spec.minAvailable === 'number' ? spec.minAvailable : undefined,
+    minSuccess:
+      typeof spec.minSuccess === 'number' ? spec.minSuccess : undefined,
+    maxRetry: typeof spec.maxRetry === 'number' ? spec.maxRetry : undefined,
+    ttlSecondsAfterFinished:
+      typeof spec.ttlSecondsAfterFinished === 'number'
+        ? spec.ttlSecondsAfterFinished
+        : undefined,
+    runningEstimate: spec.runningEstimate ?? undefined,
+    ntMode:
+      nt.mode === 'hard' || nt.mode === 'soft' ? nt.mode : undefined,
+    ntHighestTierAllowed:
+      typeof nt.highestTierAllowed === 'number'
+        ? nt.highestTierAllowed
+        : undefined,
+    ntHighestTierName: nt.highestTierName ?? undefined,
     plugins: spec.plugins ? Object.keys(spec.plugins) : undefined,
     tasks: extractTasks(spec.tasks),
   };

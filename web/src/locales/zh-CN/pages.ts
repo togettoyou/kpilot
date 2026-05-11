@@ -55,7 +55,19 @@ export default {
   'pages.compute.queueForm.parent.extra': '可选，构建分级队列时填写父队列名称',
   'pages.compute.queueForm.capability': '资源上限 (Capability)',
   'pages.compute.queueForm.capability.extra':
-    '队列可使用的资源上限，留空代表不限制。GPU 字段对应 volcano-vgpu-device-plugin 的资源标签。',
+    '队列可使用的资源上限，留空代表不限制。键可以是 K8s 任意资源名：cpu / memory / nvidia.com/gpu / volcano.sh/vgpu-{number,memory,cores}。',
+  'pages.compute.queueForm.capability.add': '添加资源',
+  'pages.compute.queueForm.deserved': '应得资源 (Deserved)',
+  'pages.compute.queueForm.deserved.extra':
+    '队列正常情况下应得的资源量。超出部分可以借给其它队列，需要时再被 reclaim 回来。配合 capacity / proportion 插件使用。',
+  'pages.compute.queueForm.deserved.add': '添加资源',
+  'pages.compute.queueForm.guarantee': '保留资源 (Guarantee)',
+  'pages.compute.queueForm.guarantee.extra':
+    '为队列保留的资源 —— 即使队列没用，这部分也不会被其它队列借走。强保障的最小预留。',
+  'pages.compute.queueForm.guarantee.add': '添加资源',
+  'pages.compute.queueForm.type': '类型 (Type)',
+  'pages.compute.queueForm.type.extra':
+    '可选；默认 "kube"。多集群环境用来标记队列来源。普通场景留空',
 
   // Job 表单 + 操作
   'pages.compute.job.create': '新建作业',
@@ -83,6 +95,28 @@ export default {
   'pages.compute.jobForm.minAvailable': '最少需共同启动 (minAvailable)',
   'pages.compute.jobForm.minAvailable.extra':
     'gang 调度的关键参数：达到该数量的 Pod 才会同时启动；留空则等于所有任务副本之和',
+  'pages.compute.jobForm.minSuccess': '最少成功数 (minSuccess)',
+  'pages.compute.jobForm.minSuccess.extra':
+    '达到此数量的 pod 进入 Succeeded 状态后，Job 被标记为 Completed。留空走 Volcano 默认（=任务副本之和）',
+  'pages.compute.jobForm.maxRetry': '最大重试次数 (maxRetry)',
+  'pages.compute.jobForm.maxRetry.extra':
+    '失败后重试的最大次数，超过则标记 Failed。默认 3',
+  'pages.compute.jobForm.ttl': '完成后保留秒数 (ttlSecondsAfterFinished)',
+  'pages.compute.jobForm.ttl.extra':
+    '作业进入终态（Completed / Failed）后多少秒自动删除。0 = 立即删；留空 = 永不自动删',
+  'pages.compute.jobForm.runningEstimate': '预估运行时长 (runningEstimate)',
+  'pages.compute.jobForm.runningEstimate.extra':
+    'Go duration 格式，例如 1h30m / 45m / 2h。提供给 sla 等调度插件做参考',
+  'pages.compute.jobForm.networkTopology':
+    '网络拓扑感知 (networkTopology)',
+  'pages.compute.jobForm.networkTopology.extra':
+    '配合 HyperNode 使用：作业的 pod 优先收紧到同一拓扑层级，控制器会传播到生成的 PodGroup',
+  'pages.compute.jobForm.ntMode': '模式 (mode)',
+  'pages.compute.jobForm.ntMode.placeholder': '不启用',
+  'pages.compute.jobForm.ntTierAllowed':
+    '最高允许跨越层级 (highestTierAllowed)',
+  'pages.compute.jobForm.ntTierName':
+    '最高允许跨越层级名称 (highestTierName)',
   'pages.compute.jobForm.plugins': '启用插件',
   'pages.compute.jobForm.plugins.extra':
     'Volcano 内置插件：env 注入索引环境变量、svc 自动建 headless service、ssh 注入 sshkey、mpi/pytorch/tensorflow 等用于分布式训练',
@@ -113,6 +147,13 @@ export default {
   'pages.compute.cronJobForm.schedule': 'Cron 表达式',
   'pages.compute.cronJobForm.schedule.extra': '标准 5 段 cron，例：0 * * * * 每小时整点',
   'pages.compute.cronJobForm.concurrency': '并发策略',
+  'pages.compute.cronJobForm.timeZone': '时区 (timeZone)',
+  'pages.compute.cronJobForm.timeZone.extra':
+    'IANA 时区名，例如 Asia/Shanghai。留空走 controller-manager 所在容器的本地时区',
+  'pages.compute.cronJobForm.startingDeadline':
+    '启动截止秒数 (startingDeadlineSeconds)',
+  'pages.compute.cronJobForm.startingDeadline.extra':
+    '错过触发后允许的最大延迟秒数；超过此值的错过会计为 Failed。留空 = 无限制',
   'pages.compute.cronJobForm.successHistory': '保留成功历史数',
   'pages.compute.cronJobForm.failedHistory': '保留失败历史数',
 

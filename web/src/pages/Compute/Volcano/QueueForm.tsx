@@ -1,3 +1,4 @@
+import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import {
   Alert,
@@ -34,16 +35,23 @@ interface QueueFormDrawerProps {
   onSaved: () => void;
 }
 
+interface ResourceRow {
+  key: string;
+  value: string;
+}
+
 interface FormValues {
   name: string;
   weight: number;
   reclaimable: boolean;
   parent?: string;
-  capability_cpu?: string;
-  capability_memory?: string;
-  capability_vgpu_number?: string;
-  capability_vgpu_memory?: string;
-  capability_vgpu_cores?: string;
+  type?: string;
+  // Free-form ResourceList rows so users can configure any K8s
+  // resource (cpu / memory / nvidia.com/gpu / volcano.sh/vgpu-* / ...)
+  // not just the 5 preset keys the previous version supported.
+  capability?: ResourceRow[];
+  deserved?: ResourceRow[];
+  guarantee?: ResourceRow[];
 }
 
 const QUEUE_CR = {
@@ -86,12 +94,17 @@ export function QueueFormDrawer({
   const isEdit = !!editing;
 
   // editOriginalRef stashes spec fields the form doesn't surface so
-  // submit can re-emit them. Today that's just spec.priority, which
-  // buildQueueManifest accepts but the form has no input for. Without
-  // this, editing a Queue created via kubectl with a custom priority
-  // would silently drop it on save. Cleared on every drawer (re)open
-  // and on create-mode entry.
-  const editOriginalRef = useRef<{ priority?: number } | null>(null);
+  // submit can re-emit them. Beyond spec.priority (which we let the
+  // builder accept but the form has no input for), the upstream
+  // QueueSpec also has extendClusters / affinity / dequeueStrategy —
+  // complex nested fields KPilot doesn't visualize; preserving here
+  // means edits won't silently drop them.
+  const editOriginalRef = useRef<{
+    priority?: number;
+    extendClusters?: unknown;
+    affinity?: unknown;
+    dequeueStrategy?: unknown;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -110,10 +123,15 @@ export function QueueFormDrawer({
       .then((obj: any) => {
         if (cancelled) return;
         form.setFieldsValue(formValuesFromManifest(obj, editing.name));
-        const prio = obj?.spec?.priority;
-        if (typeof prio === 'number') {
-          editOriginalRef.current = { priority: prio };
-        }
+        const spec = obj?.spec ?? {};
+        editOriginalRef.current = {
+          priority: typeof spec.priority === 'number' ? spec.priority : undefined,
+          extendClusters: Array.isArray(spec.extendClusters)
+            ? spec.extendClusters
+            : undefined,
+          affinity: spec.affinity ?? undefined,
+          dequeueStrategy: spec.dequeueStrategy ?? undefined,
+        };
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -167,13 +185,21 @@ export function QueueFormDrawer({
         return;
       }
       const input = fvToInput(v);
-      // Re-attach preserved fields (spec.priority) so SSA doesn't blank
-      // them out when kpilot re-claims the spec on save. YAML view
-      // takes the user's typed text as-is and doesn't need this.
+      // Re-attach preserved fields the form doesn't expose so SSA
+      // doesn't blank them out. YAML view takes the user's typed
+      // text as-is and doesn't need this.
       if (editOriginalRef.current?.priority !== undefined) {
         input.priority = editOriginalRef.current.priority;
       }
       manifest = buildQueueManifest(input);
+      // Splice in the complex preserved fields directly on the
+      // manifest spec — builder doesn't model them, but they're
+      // valid spec keys the API server accepts.
+      const preserved = editOriginalRef.current ?? {};
+      const m: any = manifest;
+      if (preserved.extendClusters) m.spec.extendClusters = preserved.extendClusters;
+      if (preserved.affinity) m.spec.affinity = preserved.affinity;
+      if (preserved.dequeueStrategy) m.spec.dequeueStrategy = preserved.dequeueStrategy;
     } else {
       try {
         manifest = yaml.load(yamlText);
@@ -324,65 +350,54 @@ export function QueueFormDrawer({
               <Input placeholder="root" />
             </Form.Item>
 
-            <div style={{ marginTop: 24, marginBottom: 8, fontWeight: 500 }}>
-              {intl.formatMessage({
+            <Form.Item
+              name="type"
+              label={intl.formatMessage({
+                id: 'pages.compute.queueForm.type',
+              })}
+              extra={intl.formatMessage({
+                id: 'pages.compute.queueForm.type.extra',
+              })}
+            >
+              <Input placeholder="kube" maxLength={253} />
+            </Form.Item>
+
+            <ResourceListSection
+              name="capability"
+              title={intl.formatMessage({
                 id: 'pages.compute.queueForm.capability',
               })}
-            </div>
-            <div
-              style={{
-                marginBottom: 16,
-                color: 'var(--ant-color-text-tertiary)',
-                fontSize: 12,
-              }}
-            >
-              {intl.formatMessage({
+              hint={intl.formatMessage({
                 id: 'pages.compute.queueForm.capability.extra',
               })}
-            </div>
-
-            <Form.Item
-              name="capability_cpu"
-              label="cpu"
-              tooltip={intl.formatMessage({
-                id: 'pages.compute.queueForm.tooltip.cpu',
+              addLabel={intl.formatMessage({
+                id: 'pages.compute.queueForm.capability.add',
               })}
-            >
-              <Input placeholder="10" maxLength={32} />
-            </Form.Item>
-            <Form.Item
-              name="capability_memory"
-              label="memory"
-              tooltip={intl.formatMessage({
-                id: 'pages.compute.queueForm.tooltip.memory',
+            />
+            <ResourceListSection
+              name="deserved"
+              title={intl.formatMessage({
+                id: 'pages.compute.queueForm.deserved',
               })}
-            >
-              <Input placeholder="100Gi" maxLength={32} />
-            </Form.Item>
-            <Form.Item
-              name="capability_vgpu_number"
-              label="volcano.sh/vgpu-number"
-            >
-              <Input placeholder="8" maxLength={32} />
-            </Form.Item>
-            <Form.Item
-              name="capability_vgpu_memory"
-              label="volcano.sh/vgpu-memory"
-              tooltip={intl.formatMessage({
-                id: 'pages.compute.queueForm.tooltip.vgpuMemory',
+              hint={intl.formatMessage({
+                id: 'pages.compute.queueForm.deserved.extra',
               })}
-            >
-              <Input placeholder="40000" maxLength={32} />
-            </Form.Item>
-            <Form.Item
-              name="capability_vgpu_cores"
-              label="volcano.sh/vgpu-cores"
-              tooltip={intl.formatMessage({
-                id: 'pages.compute.queueForm.tooltip.vgpuCores',
+              addLabel={intl.formatMessage({
+                id: 'pages.compute.queueForm.deserved.add',
               })}
-            >
-              <Input placeholder="100" maxLength={32} />
-            </Form.Item>
+            />
+            <ResourceListSection
+              name="guarantee"
+              title={intl.formatMessage({
+                id: 'pages.compute.queueForm.guarantee',
+              })}
+              hint={intl.formatMessage({
+                id: 'pages.compute.queueForm.guarantee.extra',
+              })}
+              addLabel={intl.formatMessage({
+                id: 'pages.compute.queueForm.guarantee.add',
+              })}
+            />
           </Form>
         ) : (
           <div
@@ -399,6 +414,97 @@ export function QueueFormDrawer({
   );
 }
 
+// ResourceListSection renders a free-form ResourceList editor —
+// key/value Form.List with an "Add" button. Used for three Queue
+// fields (capability / deserved / guarantee) plus shared by other
+// forms in the same shape.
+function ResourceListSection({
+  name,
+  title,
+  hint,
+  addLabel,
+}: {
+  name: string;
+  title: string;
+  hint: string;
+  addLabel: string;
+}) {
+  return (
+    <>
+      <div style={{ marginTop: 16, marginBottom: 4, fontWeight: 500 }}>
+        {title}
+      </div>
+      <div
+        style={{
+          marginBottom: 8,
+          color: 'var(--ant-color-text-tertiary)',
+          fontSize: 12,
+        }}
+      >
+        {hint}
+      </div>
+      <Form.List name={name}>
+        {(fields, { add, remove }) => (
+          <>
+            {fields.map((field) => (
+              <Space
+                key={field.key}
+                style={{ display: 'flex', marginBottom: 8 }}
+                align="baseline"
+              >
+                <Form.Item
+                  name={[field.name, 'key']}
+                  rules={[{ required: true }]}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input
+                    placeholder="cpu / memory / volcano.sh/vgpu-number"
+                    style={{ width: 280 }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name={[field.name, 'value']}
+                  rules={[{ required: true }]}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input placeholder="4 / 8Gi" style={{ width: 140 }} />
+                </Form.Item>
+                <MinusCircleOutlined onClick={() => remove(field.name)} />
+              </Space>
+            ))}
+            <Button
+              type="dashed"
+              onClick={() => add({ key: '', value: '' })}
+              icon={<PlusOutlined />}
+              block
+            >
+              {addLabel}
+            </Button>
+          </>
+        )}
+      </Form.List>
+    </>
+  );
+}
+
+function rowsToRecord(rows?: ResourceRow[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const row of rows ?? []) {
+    const k = row?.key?.trim();
+    const v = row?.value?.trim();
+    if (k && v) out[k] = v;
+  }
+  return out;
+}
+
+function recordToRows(rec?: Record<string, unknown>): ResourceRow[] {
+  if (!rec) return [];
+  return Object.entries(rec).map(([key, value]) => ({
+    key,
+    value: typeof value === 'string' ? value : String(value),
+  }));
+}
+
 // fvToInput translates the form's flat field shape into the
 // QueueInput contract buildQueueManifest expects.
 function fvToInput(v: FormValues): QueueInput {
@@ -406,23 +512,18 @@ function fvToInput(v: FormValues): QueueInput {
   // map — K8s quantity parser rejects whitespace, and "  100Gi "
   // would surface as a not-very-helpful apply error.
   const t = (s?: string) => s?.trim() || undefined;
-  const capability: Record<string, string> = {};
-  const cpu = t(v.capability_cpu);
-  const mem = t(v.capability_memory);
-  const vn = t(v.capability_vgpu_number);
-  const vm = t(v.capability_vgpu_memory);
-  const vc = t(v.capability_vgpu_cores);
-  if (cpu) capability['cpu'] = cpu;
-  if (mem) capability['memory'] = mem;
-  if (vn) capability['volcano.sh/vgpu-number'] = vn;
-  if (vm) capability['volcano.sh/vgpu-memory'] = vm;
-  if (vc) capability['volcano.sh/vgpu-cores'] = vc;
+  const capability = rowsToRecord(v.capability);
+  const deserved = rowsToRecord(v.deserved);
+  const guarantee = rowsToRecord(v.guarantee);
   return {
     name: v.name?.trim() ?? '',
     weight: v.weight ?? 1,
     reclaimable: v.reclaimable,
     parent: t(v.parent),
+    type: t(v.type),
     capability,
+    deserved: Object.keys(deserved).length > 0 ? deserved : undefined,
+    guarantee: Object.keys(guarantee).length > 0 ? guarantee : undefined,
   };
 }
 
@@ -430,17 +531,17 @@ function fvToInput(v: FormValues): QueueInput {
 // both on initial load (edit mode) and on YAML → form switch.
 function formValuesFromManifest(obj: any, fallbackName: string): FormValues {
   const spec = obj?.spec ?? {};
-  const cap = (spec.capability ?? {}) as Record<string, string>;
   return {
     name: obj?.metadata?.name ?? fallbackName,
     weight: typeof spec.weight === 'number' ? spec.weight : 1,
     reclaimable:
       typeof spec.reclaimable === 'boolean' ? spec.reclaimable : true,
     parent: spec.parent ?? undefined,
-    capability_cpu: cap['cpu'],
-    capability_memory: cap['memory'],
-    capability_vgpu_number: cap['volcano.sh/vgpu-number'],
-    capability_vgpu_memory: cap['volcano.sh/vgpu-memory'],
-    capability_vgpu_cores: cap['volcano.sh/vgpu-cores'],
+    type: spec.type ?? undefined,
+    capability: recordToRows(spec.capability),
+    deserved: recordToRows(spec.deserved),
+    // Guarantee has a .resource wrapper per the CRD
+    // (Guarantee struct → resource: ResourceList).
+    guarantee: recordToRows(spec.guarantee?.resource),
   };
 }

@@ -58,6 +58,10 @@ interface FormValues {
   name: string;
   namespace: string;
   schedule: string;
+  // IANA TZ name (Asia/Shanghai etc.); empty = controller-manager TZ.
+  timeZone?: string;
+  // Seconds; missed-trigger grace window.
+  startingDeadlineSeconds?: number;
   concurrencyPolicy: 'Allow' | 'Forbid' | 'Replace';
   successfulJobsHistoryLimit?: number;
   failedJobsHistoryLimit?: number;
@@ -409,6 +413,37 @@ export function CronJobFormDrawer({
 
         <Space.Compact block>
           <Form.Item
+            name="timeZone"
+            label={intl.formatMessage({
+              id: 'pages.compute.cronJobForm.timeZone',
+            })}
+            extra={intl.formatMessage({
+              id: 'pages.compute.cronJobForm.timeZone.extra',
+            })}
+            style={{ flex: 1 }}
+          >
+            <Input placeholder="Asia/Shanghai" maxLength={64} />
+          </Form.Item>
+          <Form.Item
+            name="startingDeadlineSeconds"
+            label={intl.formatMessage({
+              id: 'pages.compute.cronJobForm.startingDeadline',
+            })}
+            extra={intl.formatMessage({
+              id: 'pages.compute.cronJobForm.startingDeadline.extra',
+            })}
+            style={{ flex: 1, marginInlineStart: 12 }}
+          >
+            <InputNumber
+              min={0}
+              placeholder="无 / no deadline"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+        </Space.Compact>
+
+        <Space.Compact block>
+          <Form.Item
             name="successfulJobsHistoryLimit"
             label={intl.formatMessage({
               id: 'pages.compute.cronJobForm.successHistory',
@@ -660,6 +695,11 @@ function fvToInput(v: FormValues): CronJobInput {
     name: tr(v.name) ?? '',
     namespace: tr(v.namespace) ?? 'default',
     schedule: tr(v.schedule) ?? '0 * * * *',
+    timeZone: tr(v.timeZone),
+    startingDeadlineSeconds:
+      typeof v.startingDeadlineSeconds === 'number'
+        ? v.startingDeadlineSeconds
+        : undefined,
     concurrencyPolicy: v.concurrencyPolicy ?? 'Allow',
     successfulJobsHistoryLimit: v.successfulJobsHistoryLimit,
     failedJobsHistoryLimit: v.failedJobsHistoryLimit,
@@ -723,6 +763,11 @@ function formValuesFromManifest(
     name: obj?.metadata?.name ?? fallbackName,
     namespace: obj?.metadata?.namespace ?? fallbackNamespace,
     schedule: spec.schedule ?? '0 * * * *',
+    timeZone: spec.timeZone ?? undefined,
+    startingDeadlineSeconds:
+      typeof spec.startingDeadlineSeconds === 'number'
+        ? spec.startingDeadlineSeconds
+        : undefined,
     concurrencyPolicy: spec.concurrencyPolicy ?? 'Allow',
     successfulJobsHistoryLimit: spec.successfulJobsHistoryLimit,
     failedJobsHistoryLimit: spec.failedJobsHistoryLimit,

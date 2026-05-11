@@ -15,10 +15,21 @@ import { applyYAML, getWorkload, type CRRef } from './workload';
 export interface QueueInput {
   name: string;
   weight?: number;
-  capability?: Record<string, string>; // e.g. { cpu: "10", memory: "100Gi", "volcano.sh/vgpu-number": "8" }
+  // Free-form ResourceList — any resource name → quantity. Keys are
+  // not validated client-side; the API server rejects unknown ones.
+  capability?: Record<string, string>;
+  // Deserved: resources the queue is guaranteed to receive when
+  // available; over-the-line allocation can be reclaimed back.
+  deserved?: Record<string, string>;
+  // Guarantee.resource: resources reserved for this queue (won't be
+  // shared even if idle). Wrapped under .resource per the CRD.
+  guarantee?: Record<string, string>;
   reclaimable?: boolean;
   parent?: string;
   priority?: number;
+  // type is a free-form string (default "kube"); used by multi-
+  // cluster setups to mark queue source. Rarely set in practice.
+  type?: string;
 }
 
 export function buildQueueManifest(input: QueueInput): unknown {
@@ -28,11 +39,18 @@ export function buildQueueManifest(input: QueueInput): unknown {
   if (input.capability && Object.keys(input.capability).length > 0) {
     spec.capability = input.capability;
   }
+  if (input.deserved && Object.keys(input.deserved).length > 0) {
+    spec.deserved = input.deserved;
+  }
+  if (input.guarantee && Object.keys(input.guarantee).length > 0) {
+    spec.guarantee = { resource: input.guarantee };
+  }
   if (typeof input.reclaimable === 'boolean') {
     spec.reclaimable = input.reclaimable;
   }
   if (input.parent) spec.parent = input.parent;
   if (typeof input.priority === 'number') spec.priority = input.priority;
+  if (input.type) spec.type = input.type;
   return {
     apiVersion: 'scheduling.volcano.sh/v1beta1',
     kind: 'Queue',
@@ -64,10 +82,28 @@ export interface JobInput {
   // Gang-scheduling: minimum number of pods that must be co-scheduled
   // before any can start. Defaults to total task replicas if omitted.
   minAvailable?: number;
+  // Min number of pods that must succeed for the Job to be marked
+  // Complete. Distinct from MinAvailable (start-time gang).
+  minSuccess?: number;
+  // Max retries before marking the Job Failed. Defaults to 3 server-
+  // side; only emitted when the user picks something different.
+  maxRetry?: number;
+  // Auto-cleanup window after Job reaches Completed / Failed.
+  ttlSecondsAfterFinished?: number;
+  // Hint for the running duration (Go duration string like "1h30m").
+  // Surfaces as spec.runningEstimate — used by sla plugin and
+  // estimate-aware schedulers.
+  runningEstimate?: string;
   // Volcano plugins to enable on the Job (env, svc, ssh, mpi, ...).
   // Keep simple — pass them as a string list, server builds the map.
   plugins?: string[];
   tasks: JobTaskInput[];
+  // NetworkTopology (works with HyperNode CRD) — same shape as the
+  // PodGroup field but applied at Job level. Volcano controller
+  // propagates this to the generated PodGroup.
+  networkTopologyMode?: 'hard' | 'soft';
+  networkTopologyHighestTierAllowed?: number;
+  networkTopologyHighestTierName?: string;
 }
 
 export function buildJobManifest(input: JobInput): unknown {
@@ -99,6 +135,19 @@ export function buildJobManifest(input: JobInput): unknown {
   };
   if (input.queue) spec.queue = input.queue;
   if (input.priorityClassName) spec.priorityClassName = input.priorityClassName;
+  if (typeof input.minSuccess === 'number' && input.minSuccess > 0) {
+    spec.minSuccess = input.minSuccess;
+  }
+  if (typeof input.maxRetry === 'number' && input.maxRetry >= 0) {
+    spec.maxRetry = input.maxRetry;
+  }
+  if (
+    typeof input.ttlSecondsAfterFinished === 'number' &&
+    input.ttlSecondsAfterFinished >= 0
+  ) {
+    spec.ttlSecondsAfterFinished = input.ttlSecondsAfterFinished;
+  }
+  if (input.runningEstimate) spec.runningEstimate = input.runningEstimate;
   if (input.plugins && input.plugins.length > 0) {
     // Volcano plugins value is a list of args per plugin; for v1 we
     // pass empty arrays — every supported plugin has sensible defaults.
@@ -106,6 +155,18 @@ export function buildJobManifest(input: JobInput): unknown {
     for (const p of input.plugins) pluginsMap[p] = [];
     spec.plugins = pluginsMap;
   }
+  const nt: Record<string, unknown> = {};
+  if (input.networkTopologyMode) nt.mode = input.networkTopologyMode;
+  if (
+    typeof input.networkTopologyHighestTierAllowed === 'number' &&
+    input.networkTopologyHighestTierAllowed >= 0
+  ) {
+    nt.highestTierAllowed = input.networkTopologyHighestTierAllowed;
+  }
+  if (input.networkTopologyHighestTierName) {
+    nt.highestTierName = input.networkTopologyHighestTierName;
+  }
+  if (Object.keys(nt).length > 0) spec.networkTopology = nt;
   return {
     apiVersion: 'batch.volcano.sh/v1alpha1',
     kind: 'Job',
@@ -118,6 +179,11 @@ export interface CronJobInput {
   name: string;
   namespace: string;
   schedule: string; // standard cron expression, e.g. "0 */6 * * *"
+  // IANA TZ name (e.g. "Asia/Shanghai"); falls back to the
+  // controller-manager's local TZ if omitted.
+  timeZone?: string;
+  // Max wait before considering a missed trigger a failure.
+  startingDeadlineSeconds?: number;
   // Forbid / Allow / Replace (matches batch/v1 CronJob semantics).
   concurrencyPolicy?: 'Allow' | 'Forbid' | 'Replace';
   successfulJobsHistoryLimit?: number;
@@ -141,6 +207,13 @@ export function buildCronJobManifest(input: CronJobInput): unknown {
     concurrencyPolicy: input.concurrencyPolicy ?? 'Allow',
     jobTemplate: { spec: jobManifest.spec },
   };
+  if (input.timeZone) spec.timeZone = input.timeZone;
+  if (
+    typeof input.startingDeadlineSeconds === 'number' &&
+    input.startingDeadlineSeconds >= 0
+  ) {
+    spec.startingDeadlineSeconds = input.startingDeadlineSeconds;
+  }
   if (typeof input.successfulJobsHistoryLimit === 'number') {
     spec.successfulJobsHistoryLimit = input.successfulJobsHistoryLimit;
   }

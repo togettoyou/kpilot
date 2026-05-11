@@ -55,7 +55,19 @@ export default {
   'pages.compute.queueForm.parent.extra': 'Optional — set when building hierarchical queues',
   'pages.compute.queueForm.capability': 'Capability (resource cap)',
   'pages.compute.queueForm.capability.extra':
-    'Resource cap for the queue. Leave empty to keep unlimited. GPU keys map to volcano-vgpu-device-plugin labels.',
+    'Upper resource bound. Keys can be any K8s resource: cpu / memory / nvidia.com/gpu / volcano.sh/vgpu-{number,memory,cores}. Leave empty to keep unlimited.',
+  'pages.compute.queueForm.capability.add': 'Add resource',
+  'pages.compute.queueForm.deserved': 'Deserved',
+  'pages.compute.queueForm.deserved.extra':
+    'Resources the queue is normally entitled to. Excess can be lent to other queues and reclaimed back. Used by capacity / proportion plugins.',
+  'pages.compute.queueForm.deserved.add': 'Add resource',
+  'pages.compute.queueForm.guarantee': 'Guarantee',
+  'pages.compute.queueForm.guarantee.extra':
+    'Reserved resources — never lent out even if idle. Strong minimum reservation.',
+  'pages.compute.queueForm.guarantee.add': 'Add resource',
+  'pages.compute.queueForm.type': 'Type',
+  'pages.compute.queueForm.type.extra':
+    'Optional; defaults to "kube". Used in multi-cluster setups to tag queue origin.',
 
   // Job form + actions
   'pages.compute.job.create': 'New Job',
@@ -83,6 +95,25 @@ export default {
   'pages.compute.jobForm.minAvailable': 'minAvailable',
   'pages.compute.jobForm.minAvailable.extra':
     'Gang-scheduling minimum: this many pods must be co-scheduled before any can start. Defaults to total task replicas.',
+  'pages.compute.jobForm.minSuccess': 'minSuccess',
+  'pages.compute.jobForm.minSuccess.extra':
+    'Job is marked Completed once this many pods reach Succeeded. Leave empty to use Volcano default (= total task replicas).',
+  'pages.compute.jobForm.maxRetry': 'maxRetry',
+  'pages.compute.jobForm.maxRetry.extra':
+    'Maximum retries before the Job is marked Failed. Defaults to 3.',
+  'pages.compute.jobForm.ttl': 'ttlSecondsAfterFinished',
+  'pages.compute.jobForm.ttl.extra':
+    'Seconds to wait after the Job reaches a terminal state before auto-deletion. 0 = delete immediately; empty = never auto-delete.',
+  'pages.compute.jobForm.runningEstimate': 'Running estimate',
+  'pages.compute.jobForm.runningEstimate.extra':
+    'Go duration string (e.g. 1h30m / 45m / 2h). Hint consumed by the sla plugin and estimate-aware schedulers.',
+  'pages.compute.jobForm.networkTopology': 'Network topology',
+  'pages.compute.jobForm.networkTopology.extra':
+    'Works with HyperNode CRD: bind the Job\'s pods to a topology domain. Volcano propagates this to the generated PodGroup.',
+  'pages.compute.jobForm.ntMode': 'Mode',
+  'pages.compute.jobForm.ntMode.placeholder': 'Disabled',
+  'pages.compute.jobForm.ntTierAllowed': 'highestTierAllowed',
+  'pages.compute.jobForm.ntTierName': 'highestTierName',
   'pages.compute.jobForm.plugins': 'Volcano plugins',
   'pages.compute.jobForm.plugins.extra':
     'env injects index env vars; svc creates a headless Service; ssh wires up authorized_keys; mpi/pytorch/tensorflow set up the matching distributed runtime',
@@ -113,6 +144,12 @@ export default {
   'pages.compute.cronJobForm.schedule': 'Cron schedule',
   'pages.compute.cronJobForm.schedule.extra': 'Standard 5-field cron, e.g. "0 * * * *" = every hour at :00',
   'pages.compute.cronJobForm.concurrency': 'Concurrency policy',
+  'pages.compute.cronJobForm.timeZone': 'Time zone',
+  'pages.compute.cronJobForm.timeZone.extra':
+    'IANA TZ name (e.g. Asia/Shanghai). Leave empty to use the controller-manager container\'s local TZ.',
+  'pages.compute.cronJobForm.startingDeadline': 'startingDeadlineSeconds',
+  'pages.compute.cronJobForm.startingDeadline.extra':
+    'Max seconds late a missed trigger can be before it counts as Failed. Empty = no limit.',
   'pages.compute.cronJobForm.successHistory': 'Successful job history',
   'pages.compute.cronJobForm.failedHistory': 'Failed job history',
 
