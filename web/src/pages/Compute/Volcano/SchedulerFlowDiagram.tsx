@@ -217,7 +217,7 @@ export default function SchedulerFlowDiagram({
   };
 
   return (
-    <div style={{ height: 480, width: '100%' }}>
+    <div style={{ height: '100%', minHeight: 480, width: '100%' }}>
       <FlowDirectionGraph
         data={data as any}
         autoFit="view"
@@ -231,11 +231,10 @@ export default function SchedulerFlowDiagram({
             ports: [{ placement: 'left' }, { placement: 'right' }],
           },
         }}
-        // No zoom-canvas / drag-canvas: the pipeline is small (start
-        // + ~6 actions + end), autoFit="view" already sizes it to
-        // fit the card, and wheel-to-zoom would hijack the page's
-        // natural scroll when the cursor crosses the canvas.
-        behaviors={[]}
+        // Diagram lives inside a Drawer overlay (see Scheduler.tsx) —
+        // page scroll isn't in play, so we can offer the full G6
+        // interaction set: wheel to zoom, drag to pan.
+        behaviors={['zoom-canvas', 'drag-canvas']}
       />
     </div>
   );

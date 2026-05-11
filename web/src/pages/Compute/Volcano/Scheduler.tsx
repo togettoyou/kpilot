@@ -5,6 +5,7 @@ import {
   EditOutlined,
   InfoCircleOutlined,
   MinusCircleOutlined,
+  PartitionOutlined,
   PlusOutlined,
   ReloadOutlined,
   SaveOutlined,
@@ -16,6 +17,7 @@ import {
   Button,
   Card,
   Collapse,
+  Drawer,
   Empty,
   Input,
   InputNumber,
@@ -186,6 +188,11 @@ export default function VolcanoSchedulerPage() {
   );
 
   const [view, setView] = useState<'form' | 'yaml'>('form');
+  // Flow diagram opens in a Drawer on demand: defers the @antv/g6
+  // import (~800 KB) until the user actually wants to see it, and
+  // gives the diagram its own scroll context so wheel-zoom doesn't
+  // hijack the page.
+  const [flowOpen, setFlowOpen] = useState(false);
   const [draft, setDraft] = useState<SchedulerConf>({
     actions: '',
     tiers: [],
@@ -347,6 +354,13 @@ export default function VolcanoSchedulerPage() {
           {intl.formatMessage({ id: 'pages.compute.scheduler.title' })}
         </Text>
         <Tag>{volcanoNs}/volcano-scheduler-configmap</Tag>
+        <Button
+          size="small"
+          icon={<PartitionOutlined />}
+          onClick={() => setFlowOpen(true)}
+        >
+          {intl.formatMessage({ id: 'pages.compute.scheduler.flow.button' })}
+        </Button>
       </Space>
 
       <Paragraph type="secondary" style={{ marginBottom: 12 }}>
@@ -355,23 +369,32 @@ export default function VolcanoSchedulerPage() {
 
       <HelpSection />
 
-      <Card
-        size="small"
-        title={intl.formatMessage({
-          id: 'pages.compute.scheduler.flow.title',
-        })}
-        style={{ marginBottom: 12 }}
+      <Drawer
+        title={intl.formatMessage({ id: 'pages.compute.scheduler.flow.title' })}
+        open={flowOpen}
+        onClose={() => setFlowOpen(false)}
+        size="large"
+        // Each open mounts a fresh diagram so it re-derives from the
+        // current draft state (which may have changed between opens).
+        destroyOnClose
       >
         <Suspense
           fallback={
-            <div style={{ height: 480 }}>
+            <div
+              style={{
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
               <Spin />
             </div>
           }
         >
-          <SchedulerFlowDiagram draft={draft} />
+          {flowOpen && <SchedulerFlowDiagram draft={draft} />}
         </Suspense>
-      </Card>
+      </Drawer>
 
       <Tabs
         activeKey={view}
