@@ -24,7 +24,18 @@ import (
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
 
-const opTimeout = 30 * time.Second
+const (
+	// writeOpTimeout caps mutating operations (apply / update / patch /
+	// delete) — a 30s ceiling keeps a stuck admission webhook from
+	// pinning a Worker goroutine indefinitely.
+	writeOpTimeout = 30 * time.Second
+	// readOpTimeout is more generous for read paths (list / list-full /
+	// get / describe). A describe on a Pod with hundreds of events,
+	// or a list on a large CRD, can legitimately take longer than the
+	// write budget; tightening it caused real "context deadline exceeded"
+	// noise from Volcano list pages on busy clusters.
+	readOpTimeout = 120 * time.Second
+)
 
 // tableAccept mirrors kubectl's exact Accept header for table requests.
 // Format from k8s.io/kubectl source:
@@ -100,7 +111,12 @@ func New(
 // Handle satisfies the tunnel.Client.SetResourceHandler signature.
 // It runs in its own goroutine per request.
 func (p *Proxy) Handle(requestID string, req *proto.ResourceRequest) {
-	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	timeout := readOpTimeout
+	switch req.Action {
+	case "apply", "update", "patch", "delete":
+		timeout = writeOpTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	resp := p.execute(ctx, req)
 	p.sendFn(requestID, resp)
@@ -328,10 +344,19 @@ func (p *Proxy) patch(ctx context.Context, mapping *apimeta.RESTMapping, namespa
 // the events block, which is what users actually want for "describe".
 //
 // ShowEvents=true so output always includes the recent events block.
-func (p *Proxy) describe(mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {
+//
+// Named return + deferred recover so a panic inside kubectl's describer
+// (historically possible on malformed unstructured shapes) becomes a
+// failed ResourceResponse instead of crashing the Worker process.
+func (p *Proxy) describe(mapping *apimeta.RESTMapping, namespace, name string) (resp *proto.ResourceResponse) {
 	if name == "" {
 		return fail("name is required for describe")
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			resp = fail(fmt.Sprintf("describe panicked: %v", r))
+		}
+	}()
 	describer, ok := describe.DescriberFor(mapping.GroupVersionKind.GroupKind(), p.cfg)
 	if !ok {
 		describer, ok = describe.GenericDescriberFor(mapping, p.cfg)
@@ -366,6 +391,6 @@ func marshal(v interface{}) *proto.ResourceResponse {
 }
 
 func fail(msg string) *proto.ResourceResponse {
-	log.Printf("[proxy] resource op failed: err=%q", msg)
+	log.Printf("[proxy] resource op failed: err=%v", msg)
 	return &proto.ResourceResponse{Success: false, Error: msg}
 }

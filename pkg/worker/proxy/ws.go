@@ -85,6 +85,16 @@ func (m *WSManager) Start(sessionID string, req *proto.WSStartRequest) {
 		_ = m.pusher.SendWSEnd(sessionID, &proto.WSEnd{Reason: "url required"})
 		return
 	}
+	// Defense-in-depth: the only legitimate upstream schemes for a WS
+	// reverse proxy are ws / wss / http / https (gorilla/websocket accepts
+	// the http variants and upgrades them). Reject anything else so a
+	// regression in the Server-side URL builder can't make us dial unix://
+	// or file:// transports.
+	if scheme, ok := schemeOf(req.Url); !ok ||
+		(scheme != "ws" && scheme != "wss" && scheme != "http" && scheme != "https") {
+		_ = m.pusher.SendWSEnd(sessionID, &proto.WSEnd{Reason: "unsupported url scheme"})
+		return
+	}
 
 	header := http.Header{}
 	for _, h := range req.Headers {

@@ -264,31 +264,42 @@ export function PodLogsDrawer({
     [containers],
   );
 
-  // Compile the pattern once per render. An invalid regex is reported
-  // via `regexError` and treated as no filter so the user keeps seeing
-  // logs while they're mid-typing the regex.
-  let pattern: RegExp | null = null;
-  let regexError: string | null = null;
-  if (debouncedQuery) {
+  // Memoize regex compilation so it only re-runs when the query / mode
+  // changes, not on every forceTick (every new chunk). An invalid regex
+  // is reported via `regexError` and treated as no filter so the user
+  // keeps seeing logs while they're mid-typing the regex.
+  const { pattern, regexError } = useMemo<{
+    pattern: RegExp | null;
+    regexError: string | null;
+  }>(() => {
+    if (!debouncedQuery) return { pattern: null, regexError: null };
     try {
-      pattern = new RegExp(
-        useRegex ? debouncedQuery : escapeRegExp(debouncedQuery),
-        'gi',
-      );
+      return {
+        pattern: new RegExp(
+          useRegex ? debouncedQuery : escapeRegExp(debouncedQuery),
+          'gi',
+        ),
+        regexError: null,
+      };
     } catch (e: any) {
-      regexError = String(e?.message ?? e);
+      return { pattern: null, regexError: String(e?.message ?? e) };
     }
-  }
+  }, [debouncedQuery, useRegex]);
 
   const lineCount = linesRef.current.length;
-  // Filter for grep at render time. 5k×O(line length) regex tests is
-  // negligible compared with the React reconcile that follows.
-  const visibleLines = pattern
-    ? linesRef.current.filter((l) => {
-        pattern!.lastIndex = 0;
-        return pattern!.test(l);
-      })
-    : linesRef.current;
+  // Memoized so pattern stays stable across re-renders that don't change
+  // the buffer contents (autoScroll toggles, container/tail Select hovers,
+  // resize). Without this, every render re-walks 5k lines × regex test
+  // and the whole <pre> reconciles.
+  const visibleLines = useMemo(() => {
+    if (!pattern) return linesRef.current;
+    return linesRef.current.filter((l) => {
+      pattern.lastIndex = 0;
+      return pattern.test(l);
+    });
+    // lineCount is the proxy for "linesRef.current changed" — it's a ref,
+    // so we need an explicit dep that bumps when the buffer mutates.
+  }, [pattern, lineCount]);
   const matchCount = visibleLines.length;
 
   return (

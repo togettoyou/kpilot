@@ -71,6 +71,35 @@ type Client struct {
 	mu     sync.Mutex
 	sendMu sync.Mutex // serializes concurrent Send calls on the active stream
 	stream proto.PilotService_ConnectClient
+
+	// streamCtx is bound to the *current* gRPC stream's lifetime — cancelled
+	// when connect() returns (any reason: server closed, network gone,
+	// reconnect about to start). Long-lived per-session goroutines (Pod
+	// logs, exec, ws-proxy) derive their own context from StreamContext()
+	// so they tear down promptly on disconnect instead of waiting for
+	// the next failed Send to notice.
+	streamCtxMu     sync.RWMutex
+	streamCtx       context.Context
+	streamCtxCancel context.CancelFunc
+}
+
+// StreamContext returns a context tied to the current gRPC stream. When
+// the worker disconnects (or before a connection is established) the
+// returned context is cancelled — callers using it as the parent for
+// per-session work get notified the moment the tunnel is gone, instead
+// of relying on stream-Send errors to surface the loss.
+func (c *Client) StreamContext() context.Context {
+	c.streamCtxMu.RLock()
+	ctx := c.streamCtx
+	c.streamCtxMu.RUnlock()
+	if ctx == nil {
+		// Pre-connect / between reconnects: hand back an already-cancelled
+		// context so callers don't have to special-case nil.
+		dead, cancel := context.WithCancel(context.Background())
+		cancel()
+		return dead
+	}
+	return ctx
 }
 
 func NewClient(serverAddr, clusterToken, clusterDomain string) *Client {
@@ -335,13 +364,27 @@ func (c *Client) connect(ctx context.Context) error {
 	c.stream = stream
 	c.mu.Unlock()
 
+	// streamCtx is parented to the Run() ctx so a Worker shutdown (SIGTERM)
+	// also tears it down — but cancelling on connect() exit is the primary
+	// signal. Both heartbeat and per-session goroutines (logs / exec / ws)
+	// derive from this so they exit promptly when the stream dies, instead
+	// of waiting for their next Send to fail.
+	streamCtx, streamCtxCancel := context.WithCancel(ctx)
+	c.streamCtxMu.Lock()
+	c.streamCtx, c.streamCtxCancel = streamCtx, streamCtxCancel
+	c.streamCtxMu.Unlock()
+
 	defer func() {
 		c.mu.Lock()
 		c.stream = nil
 		c.mu.Unlock()
+		c.streamCtxMu.Lock()
+		streamCtxCancel()
+		c.streamCtx, c.streamCtxCancel = nil, nil
+		c.streamCtxMu.Unlock()
 	}()
 
-	go c.heartbeat(ctx, stream)
+	go c.heartbeat(streamCtx, stream)
 
 	for {
 		msg, err := stream.Recv()

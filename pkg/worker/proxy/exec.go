@@ -52,10 +52,13 @@ func NewExecManager(cfg *rest.Config, clientset kubernetes.Interface, tunnel str
 
 // Start runs in its own goroutine (the tunnel dispatcher invokes via go).
 // Builds an SPDY executor for the target pod/container, bridges its stdio
-// to the gRPC stream, and blocks until the remote command exits or the
-// session is cancelled.
+// to the gRPC stream, and blocks until the remote command exits, the session
+// is cancelled, or the tunnel itself disconnects.
 func (m *ExecManager) Start(sessionID string, req *proto.ExecStartRequest) {
-	ctx, cancel := context.WithCancel(context.Background())
+	// Parent ctx is the tunnel's stream ctx — disconnect cancels the
+	// SPDY executor immediately instead of letting the user's shell
+	// continue executing on a worker the Server can no longer reach.
+	ctx, cancel := context.WithCancel(m.tunnel.StreamContext())
 
 	stdinR, stdinW := io.Pipe()
 	resizeCh := make(chan remotecommand.TerminalSize, 4)
@@ -113,8 +116,13 @@ func (m *ExecManager) Start(sessionID string, req *proto.ExecStartRequest) {
 		return
 	}
 
-	stdoutW := &execWriter{sessionID: sessionID, stream: 1, tunnel: m.tunnel}
-	stderrW := &execWriter{sessionID: sessionID, stream: 2, tunnel: m.tunnel}
+	// onSendErr fires when the tunnel can't take stdout/stderr frames any
+	// more (Server gone, stream closed). Cancelling the session ctx unwinds
+	// the SPDY executor's StreamWithContext call so we don't keep running
+	// the user's command against a peer that can't see its output.
+	onSendErr := func() { cancel() }
+	stdoutW := &execWriter{sessionID: sessionID, stream: 1, tunnel: m.tunnel, onSendErr: onSendErr}
+	stderrW := &execWriter{sessionID: sessionID, stream: 2, tunnel: m.tunnel, onSendErr: onSendErr}
 
 	streamErr := executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:             stdinR,
@@ -237,11 +245,16 @@ func (m *ExecManager) hasShell(namespace, pod, container, shell string) bool {
 }
 
 // execWriter implements io.Writer by wrapping each chunk in an ExecOutput
-// frame and pushing it through the tunnel.
+// frame and pushing it through the tunnel. onSendErr is invoked when a
+// tunnel send fails so the owning Start() can cancel its session ctx and
+// unwind the SPDY executor — otherwise the executor ignores stdout write
+// errors and the user's command keeps running on a Worker whose output
+// is going nowhere.
 type execWriter struct {
 	sessionID string
 	stream    uint32
 	tunnel    streamSender
+	onSendErr func()
 }
 
 func (w *execWriter) Write(p []byte) (int, error) {
@@ -254,6 +267,9 @@ func (w *execWriter) Write(p []byte) (int, error) {
 		Stream: w.stream,
 		Data:   chunk,
 	}); err != nil {
+		if w.onSendErr != nil {
+			w.onSendErr()
+		}
 		return 0, err
 	}
 	return len(p), nil

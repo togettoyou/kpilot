@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"fmt"
+	"log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 
@@ -49,6 +51,12 @@ type Stream struct {
 
 	closeMu sync.Mutex
 	closed  bool
+
+	// dropped counts frames discarded because msgCh was full. Tracked so
+	// we can log on-drop instead of silently losing data — a slow consumer
+	// would otherwise be invisible. Atomic so deliver() doesn't need
+	// closeMu just to bump it.
+	dropped atomic.Uint64
 }
 
 // SessionID returns the session id. Sent as request_id on the wire to
@@ -125,6 +133,8 @@ func (s *Stream) Close() {
 // Holds closeMu so that concurrent Close() can't race the channel send into
 // a panic on a closed channel. Drops the frame if the consumer is too slow
 // (buffer full) — for logs that's a brief gap, for exec the terminal lags.
+// Drops are logged at exponentially-spaced intervals (powers of two) so a
+// stuck consumer is visible without flooding the log on sustained backlog.
 func (s *Stream) deliver(msg *proto.WorkerMessage) {
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
@@ -134,6 +144,11 @@ func (s *Stream) deliver(msg *proto.WorkerMessage) {
 	select {
 	case s.msgCh <- msg:
 	default:
+		n := s.dropped.Add(1)
+		if n == 1 || n&(n-1) == 0 {
+			log.Printf("[gateway] stream backlog full, dropped frame: session=%s cluster=%s dropped_total=%d",
+				s.sessionID, s.clusterID, n)
+		}
 	}
 }
 

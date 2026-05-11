@@ -9,10 +9,23 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
+
+// schemeOf returns the lower-cased URL scheme. ok=false on parse failure
+// so callers can reject malformed input cleanly. Used by both the HTTP
+// and WebSocket reverse-proxy paths.
+func schemeOf(rawURL string) (scheme string, ok bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" {
+		return "", false
+	}
+	return strings.ToLower(u.Scheme), true
+}
 
 // proxyMaxRespBytes caps the upstream response body the Worker will buffer
 // before sending it back to Server over gRPC. Mirrors the Server's request
@@ -99,6 +112,13 @@ func (p *HTTPProxy) Handle(requestID string, req *proto.HTTPRequest) {
 func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 	if req.Method == "" || req.Url == "" {
 		return nil, errors.New("method and url are required")
+	}
+	// Defense-in-depth: Server constructs the URL today (FQDN of the
+	// in-cluster Service), but if that ever regresses to passing user
+	// input through, we don't want this proxy to start dispatching
+	// file:// or unix:// requests. Restrict to http(s) explicitly.
+	if scheme, ok := schemeOf(req.Url); !ok || (scheme != "http" && scheme != "https") {
+		return nil, fmt.Errorf("unsupported url scheme: %s", req.Url)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

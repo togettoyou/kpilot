@@ -146,25 +146,22 @@ func UpdateCluster(c *gin.Context) {
 		apiErr(c, http.StatusBadRequest, code)
 		return
 	}
-	exists, err := store.ClusterExists(req.Name)
-	if err != nil {
+	// Existence check: GORM UPDATE silently no-ops on missing id, so we'd
+	// otherwise return 204 for a non-existent cluster. Same Get → act
+	// pattern as DeleteCluster.
+	if _, err := store.GetClusterByID(id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+			return
+		}
 		apiErrInternal(c, err)
 		return
 	}
-	if exists {
-		// Allow updating to the same name (e.g. only changing description).
-		cluster, err := store.GetClusterByID(id)
-		if err != nil || cluster.Name != req.Name {
-			apiErr(c, http.StatusConflict, CodeClusterNameExists)
-			return
-		}
-	}
-	if err = store.UpdateCluster(id, req.Name, req.Description); err != nil {
-		// Concurrent rename to the same new name slips past the
-		// ClusterExists check above when two requests race; the unique
-		// index then rejects the loser with ErrDuplicatedKey. Translate
-		// to the same 409 the user would have seen on a sequential
-		// duplicate so the UI message stays consistent.
+	// Uniqueness is enforced by the DB unique index — let it tell us.
+	// A pre-check would TOCTOU-race against a concurrent rename anyway,
+	// and ErrDuplicatedKey (via GORM TranslateError) covers both same-name
+	// no-op (no error: row already has that name) and real conflicts.
+	if err := store.UpdateCluster(id, req.Name, req.Description); err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			apiErr(c, http.StatusConflict, CodeClusterNameExists)
 			return

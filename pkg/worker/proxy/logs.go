@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"sync"
@@ -13,13 +14,25 @@ import (
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
 
-// logsChunkSize bounds a single read+forward; smaller chunks → snappier UI
-// but more gRPC frames. 4KiB is a reasonable middle ground for tailing.
-const logsChunkSize = 4096
+const (
+	// logsChunkSize bounds a single read+forward; smaller chunks → snappier UI
+	// but more gRPC frames. 4KiB is a reasonable middle ground for tailing.
+	logsChunkSize = 4096
+	// maxLogBytes caps cumulative bytes streamed per log session. A chatty
+	// pod tailed indefinitely could otherwise stream gigabytes through this
+	// goroutine and the gRPC tunnel. 64 MiB ≈ 5 minutes of a pod logging
+	// at 200 KB/s — plenty for diagnostic tailing, well shy of OOM. The
+	// UI shows a clear LogsEnd error when the cap fires so the user knows
+	// to reload or `kubectl logs --tail=...` for the rest.
+	maxLogBytes int64 = 64 * 1024 * 1024
+)
 
 // streamSender is satisfied by *tunnel.Client (avoids package import cycle).
+// StreamContext returns a context tied to the current tunnel connection so
+// per-session goroutines tear down on disconnect.
 type streamSender interface {
 	SendStreamMessage(sessionID string, payload any) error
+	StreamContext() context.Context
 }
 
 // LogsManager owns the lifecycle of all in-flight Pod log streaming sessions
@@ -44,9 +57,13 @@ func NewLogsManager(clientset kubernetes.Interface, tunnel streamSender) *LogsMa
 
 // Start runs in its own goroutine (the tunnel dispatcher invokes us via go).
 // Streams logs from the K8s API and forwards chunks to the Server until the
-// stream ends or the session is cancelled.
+// stream ends, the session is cancelled, the tunnel disconnects, or the
+// per-session byte cap is reached.
 func (m *LogsManager) Start(sessionID string, req *proto.LogsStartRequest) {
-	ctx, cancel := context.WithCancel(context.Background())
+	// Parent ctx is the tunnel's stream ctx — when the worker disconnects,
+	// the K8s log Stream() call unblocks via context cancel and we exit
+	// instead of leaking until the pod stops logging.
+	ctx, cancel := context.WithCancel(m.tunnel.StreamContext())
 	m.mu.Lock()
 	m.sessions[sessionID] = cancel
 	m.mu.Unlock()
@@ -72,6 +89,7 @@ func (m *LogsManager) Start(sessionID string, req *proto.LogsStartRequest) {
 	defer stream.Close()
 
 	buf := make([]byte, logsChunkSize)
+	var sent int64
 	for {
 		n, readErr := stream.Read(buf)
 		if n > 0 {
@@ -80,6 +98,14 @@ func (m *LogsManager) Start(sessionID string, req *proto.LogsStartRequest) {
 			copy(chunk, buf[:n])
 			if sendErr := m.tunnel.SendStreamMessage(sessionID, &proto.LogsChunk{Data: chunk}); sendErr != nil {
 				log.Printf("[logs] send failed, ending stream: session=%s err=%v", sessionID, sendErr)
+				return
+			}
+			sent += int64(n)
+			if sent >= maxLogBytes {
+				log.Printf("[logs] byte cap reached, ending stream: session=%s sent=%d cap=%d", sessionID, sent, maxLogBytes)
+				_ = m.tunnel.SendStreamMessage(sessionID, &proto.LogsEnd{
+					Error: fmt.Sprintf("log stream exceeded %d-byte session cap; reopen to continue", maxLogBytes),
+				})
 				return
 			}
 		}

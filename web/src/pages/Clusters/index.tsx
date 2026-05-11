@@ -6,6 +6,7 @@ import {
   DatabaseFilled,
   DeleteOutlined,
   EditOutlined,
+  ExclamationCircleFilled,
   KeyOutlined,
   MinusCircleOutlined,
   MoreOutlined,
@@ -68,7 +69,9 @@ const TokenModal: React.FC<{
       width={520}
     >
       <Space direction="vertical" className="w-full" size="middle">
-        <Text type="warning">⚠️ {warning}</Text>
+        <Text type="warning">
+          <ExclamationCircleFilled /> {warning}
+        </Text>
         <div>
           <Text strong>
             {intl.formatMessage({ id: 'pages.clusters.token.label' })}

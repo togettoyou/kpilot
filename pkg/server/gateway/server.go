@@ -144,7 +144,12 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 	}
 	defer g.unregister(worker)
 
-	if err = stream.Send(&proto.ServerMessage{
+	// Wrap with sendMu: once the worker is registered in g.workers above,
+	// any HTTP handler can grab it and call SendResourceRequest concurrently
+	// with this RegisterAck Send. gRPC stream Send is not concurrency-safe;
+	// without sendMu the two writes can interleave on the wire.
+	worker.sendMu.Lock()
+	err = stream.Send(&proto.ServerMessage{
 		RequestId: msg.RequestId,
 		Payload: &proto.ServerMessage_RegisterAck{
 			RegisterAck: &proto.RegisterAck{
@@ -153,7 +158,9 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 				Message:   "registered",
 			},
 		},
-	}); err != nil {
+	})
+	worker.sendMu.Unlock()
+	if err != nil {
 		return err
 	}
 

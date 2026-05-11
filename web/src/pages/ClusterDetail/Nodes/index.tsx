@@ -191,6 +191,12 @@ export default function NodesPage() {
   type Mode = 'describe' | 'overview' | 'yaml';
   const [active, setActive] = useState<{ name: string; mode: Mode } | null>(null);
 
+  // Per-row cordon-in-flight tracker. Modal.confirm fires the request,
+  // but the table button has no idea — without this, double-clicking
+  // submits twice. Keyed by node name; the button in the action column
+  // checks its name and shows a spinner while pending.
+  const [cordonBusy, setCordonBusy] = useState<Set<string>>(new Set());
+
   const handleCordon = (name: string, cordoned: boolean) => {
     const next = !cordoned;
     modal.confirm({
@@ -210,6 +216,11 @@ export default function NodesPage() {
       okButtonProps: next ? { danger: true } : undefined,
       cancelText: intl.formatMessage({ id: 'pages.nodes.cordon.cancel' }),
       onOk: async () => {
+        setCordonBusy((prev) => {
+          const n = new Set(prev);
+          n.add(name);
+          return n;
+        });
         try {
           await cordonNode(clusterId!, name, next);
           message.success(
@@ -220,6 +231,12 @@ export default function NodesPage() {
           refresh();
         } catch (e: any) {
           message.error(String(e?.message ?? e));
+        } finally {
+          setCordonBusy((prev) => {
+            const n = new Set(prev);
+            n.delete(name);
+            return n;
+          });
         }
       },
     });
@@ -335,6 +352,8 @@ export default function NodesPage() {
                     type="link"
                     size="small"
                     danger={!cordoned}
+                    loading={cordonBusy.has(r.name)}
+                    disabled={cordonBusy.has(r.name)}
                     onClick={() => handleCordon(r.name, cordoned)}
                   >
                     {intl.formatMessage({
