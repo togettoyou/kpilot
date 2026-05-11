@@ -203,8 +203,9 @@ export default {
   'pages.pluginInstallLog.running': 'In progress',
   'pages.pluginInstallLog.success': 'Success',
   'pages.pluginInstallLog.failed': 'Failed',
-  'pages.pluginInstallLog.empty':
-    'Waiting for the worker to push log lines… (if the plugin sits here a long time, check the worker is online)',
+  'pages.pluginInstallLog.empty': 'Connecting to log stream…',
+  'pages.pluginInstallLog.stale':
+    'No log available: the 10-minute retention window has expired, or no operation is currently running. Re-run enable / disable to start a new log session.',
 
   'pages.models.landing.title': 'Model Hub',
   'pages.models.landing.subtitle':

@@ -204,8 +204,9 @@ export default {
   'pages.pluginInstallLog.running': '进行中',
   'pages.pluginInstallLog.success': '成功',
   'pages.pluginInstallLog.failed': '失败',
-  'pages.pluginInstallLog.empty':
-    '等待 Worker 推送日志…（如果插件长时间停在此处，请检查 Worker 是否在线）',
+  'pages.pluginInstallLog.empty': '正在连接日志通道…',
+  'pages.pluginInstallLog.stale':
+    '暂无可用日志：保留期（10 分钟）已过，或当前没有正在进行的操作。重新启用 / 禁用插件可触发新一轮日志。',
 
   'pages.models.landing.title': '模型中心',
   'pages.models.landing.subtitle': '从模型仓库到部署、调试、路由的端到端面板（建设中）',

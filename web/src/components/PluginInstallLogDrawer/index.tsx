@@ -58,17 +58,49 @@ export function PluginInstallLogDrawer({
 
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [endStatus, setEndStatus] = useState<{ success: boolean; summary: string } | null>(null);
+  // isStale = WS opened, nothing came back within the silence
+  // window. Means either the ring buffer's 10-min TTL expired or
+  // no operation is running on this plugin right now. We swap the
+  // placeholder message and close the WS so the connection isn't
+  // sitting idle on a Failed-but-stale plugin.
+  const [isStale, setIsStale] = useState(false);
   const preRef = useRef<HTMLPreElement | null>(null);
 
-  // Open the WS when the drawer opens; close on unmount or re-open.
+  // Open the WS when the drawer opens; close on unmount, re-open,
+  // receipt of an `end` frame, or expiry of the silence timer.
   // destroyOnHidden on the Drawer below means this effect's deps
   // flip cleanly between open/close, so we don't need extra state.
   useEffect(() => {
     if (!open || !clusterId || !pluginName) return;
     setEntries([]);
     setEndStatus(null);
+    setIsStale(false);
     const ws = new WebSocket(buildPluginInstallLogURL(clusterId, pluginName));
+
+    // Silence timer: server writes the snapshot immediately on WS
+    // upgrade. Healthy paths (mid-install, recently-ended) get the
+    // first frame within tens of ms. If we go 2 s with nothing, the
+    // session has no buffer AND no operation in flight — flip to the
+    // stale placeholder and close. 2 s is well above realistic
+    // WS handshake + snapshot replay latency on slow networks.
+    let staleTimer: number | null = window.setTimeout(() => {
+      staleTimer = null;
+      setIsStale(true);
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+    }, 2000);
+    const clearStale = () => {
+      if (staleTimer !== null) {
+        window.clearTimeout(staleTimer);
+        staleTimer = null;
+      }
+    };
+
     ws.onmessage = (e) => {
+      clearStale();
       try {
         const entry: LogEntry = JSON.parse(e.data);
         if (entry.kind === 'reset') {
@@ -81,7 +113,19 @@ export function PluginInstallLogDrawer({
         }
         setEntries((prev) => [...prev, entry]);
         if (entry.kind === 'end') {
-          setEndStatus({ success: !!entry.success, summary: entry.summary ?? '' });
+          setEndStatus({
+            success: !!entry.success,
+            summary: entry.summary ?? '',
+          });
+          // No more chunks are coming for this session — close the
+          // socket so we don't hold an idle connection. If the user
+          // triggers another operation later, the drawer closes and
+          // reopens via destroyOnHidden, which makes a fresh WS.
+          try {
+            ws.close();
+          } catch {
+            // ignore — already closed
+          }
         }
       } catch {
         // Malformed frame — skip silently. Backend always emits valid
@@ -89,6 +133,7 @@ export function PluginInstallLogDrawer({
       }
     };
     return () => {
+      clearStale();
       try {
         ws.close();
       } catch {
@@ -173,7 +218,11 @@ export function PluginInstallLogDrawer({
       >
         {entries.length === 0 && (
           <Typography.Text type="secondary">
-            {intl.formatMessage({ id: 'pages.pluginInstallLog.empty' })}
+            {intl.formatMessage({
+              id: isStale
+                ? 'pages.pluginInstallLog.stale'
+                : 'pages.pluginInstallLog.empty',
+            })}
           </Typography.Text>
         )}
         {entries.map((entry, i) => {
