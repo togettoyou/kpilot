@@ -30,7 +30,12 @@ import {
   Typography,
 } from 'antd';
 import yaml from 'js-yaml';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+
+// FlowDirectionGraph (and the G6 runtime it ships) is ~800 KB —
+// lazy-load so the rest of the scheduler page stays light and the
+// chart only loads once the user actually opens this page.
+const SchedulerFlowDiagram = lazy(() => import('./SchedulerFlowDiagram'));
 
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import { listClusterPlugins } from '@/services/kpilot/plugin';
@@ -349,6 +354,24 @@ export default function VolcanoSchedulerPage() {
       </Paragraph>
 
       <HelpSection />
+
+      <Card
+        size="small"
+        title={intl.formatMessage({
+          id: 'pages.compute.scheduler.flow.title',
+        })}
+        style={{ marginBottom: 12 }}
+      >
+        <Suspense
+          fallback={
+            <div style={{ height: 480 }}>
+              <Spin />
+            </div>
+          }
+        >
+          <SchedulerFlowDiagram draft={draft} />
+        </Suspense>
+      </Card>
 
       <Tabs
         activeKey={view}

@@ -140,6 +140,13 @@ export default {
     '在命名空间「{ns}」下未找到 volcano-scheduler-configmap。请确认 Volcano 插件已启用。',
   'pages.compute.scheduler.tier': 'Tier {n}',
   'pages.compute.scheduler.tier.pluginCount': '{n} 个插件',
+  'pages.compute.scheduler.flow.title': '调度数据流（只读）',
+  'pages.compute.scheduler.flow.start': 'Pending PodGroup',
+  'pages.compute.scheduler.flow.start.desc': '等待调度的作业进入循环',
+  'pages.compute.scheduler.flow.end': 'Scheduled',
+  'pages.compute.scheduler.flow.end.desc': '作业 pod 已绑定节点',
+  'pages.compute.scheduler.flow.empty':
+    '当前未配置任何 actions，无可视化数据流。',
   'pages.compute.scheduler.noPluginsInTier':
     '本 tier 暂无插件。点下方「添加插件」加入一个。',
   'pages.compute.scheduler.addPlugin': '添加插件',

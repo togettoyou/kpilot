@@ -139,6 +139,14 @@ export default {
     'Could not find volcano-scheduler-configmap in namespace "{ns}". Make sure the Volcano plugin is enabled.',
   'pages.compute.scheduler.tier': 'Tier {n}',
   'pages.compute.scheduler.tier.pluginCount': '{n} plugin(s)',
+  'pages.compute.scheduler.flow.title': 'Scheduling data flow (read-only)',
+  'pages.compute.scheduler.flow.start': 'Pending PodGroup',
+  'pages.compute.scheduler.flow.start.desc':
+    'Pending jobs entering the scheduling loop',
+  'pages.compute.scheduler.flow.end': 'Scheduled',
+  'pages.compute.scheduler.flow.end.desc': 'Pods bound to nodes',
+  'pages.compute.scheduler.flow.empty':
+    'No actions configured — no flow to render.',
   'pages.compute.scheduler.noPluginsInTier':
     'No plugins in this tier. Click "Add plugin" below to add one.',
   'pages.compute.scheduler.addPlugin': 'Add plugin',
