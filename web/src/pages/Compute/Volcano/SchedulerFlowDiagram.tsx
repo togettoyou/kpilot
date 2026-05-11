@@ -249,7 +249,18 @@ export default function SchedulerFlowDiagram({
           },
         }}
         edge={{
-          style: { lineWidth: 1.5, stroke: 'var(--ant-color-border)' },
+          // Override FlowGraph's default polyline + orth router with
+          // a smooth left-to-right cubic curve. The orth router
+          // produced erratic right-angle paths when action cards
+          // have different heights (allocate has many plugins,
+          // enqueue may have one); cubic-horizontal stays clean for
+          // any vertical offset.
+          type: 'cubic-horizontal',
+          style: {
+            lineWidth: 1.5,
+            stroke: 'var(--ant-color-border)',
+            endArrow: true,
+          },
           state: {
             active: { stroke: 'var(--ant-color-primary)', lineWidth: 2 },
           },
