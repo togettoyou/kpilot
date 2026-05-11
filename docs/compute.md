@@ -54,7 +54,7 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 
 - **专用列表端点**：每种 CR 一个 server handler（`pkg/server/api/handler/volcano.go`），通过 worker 的 `list-full` action 一次取齐 spec + status，server 端把字段投影成 slim row JSON 下发前端。**100 个 Queue 渲染 = 1 个 HTTP 请求**——不再是「1 list + 100 GET」N+1 模式
 - **Worker `list-full` action**（`pkg/worker/proxy/proxy.go::listFull`）：与通用 K8s Table API 路径并存，dynamic.List 返回完整对象。按需添加新 GVK 时只需在 server 端加 handler，worker 不动
-- **页面结构**：所有 5 个页都直接渲染 `<ProTable>`（不再包 `WorkloadsContent`），列定义按 kind 单独写，cell 全部 props-driven 纯渲染（无 per-row fetch）。共享 helper 在 `pages/Compute/Volcano/shared/Layout.tsx`：`<NotInstalled>`、`useAutoRefresh`、`<RefreshControl>`、`formatAge`
+- **页面结构**：所有 5 个页都直接渲染 `<ProTable>`（不再包 `WorkloadsContent`），列定义按 kind 单独写，cell 全部 props-driven 纯渲染（无 per-row fetch）。共享 helper 在 `pages/Compute/Volcano/shared/Layout.tsx`：`<NotInstalled>`、`useAutoRefresh`、`<AutoRefreshSelect>`、`formatAge`。手动刷新走 ProTable 自带的 reload 图标（`options={{ reload: refresh }}`）
 - **错误兜底**：list 端点在 CRD 不存在时返回 `404 / RESOURCE_NOT_AVAILABLE`，页面切换为 `<NotInstalled>` 显示「集群尚未安装 Volcano，前往插件管理」
 - **NamespacePicker**：顶部命名空间选择器识别 `/compute/:id/{jobs,cronjobs,podgroups}` namespaced 路径，cluster-scoped 的 queues / hypernodes / scheduler 自动隐藏（见 `components/NamespacePicker/index.tsx::COMPUTE_NAMESPACED_KINDS`）。namespaced 页面通过 `useModel('namespace')` 读取选中的 ns 加到 list 请求 query
 - **写操作**：edit / delete 仍走通用 `/workloads/_cr` PUT/DELETE（带 GVK query），form drawer 走 `/apply` SSA。Volcano CR 写保护与 K8s 通用工作负载共用同一套 backend 检查

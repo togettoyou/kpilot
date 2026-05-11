@@ -127,7 +127,7 @@ web/src/
 │   │   └── Logging/         # 日志页（VictoriaLogs Explorer K8S dashboard）
 │   ├── Compute/             # 算力调度
 │   │   ├── index.tsx        # 顶级 landing（集群 picker，进入 → /scheduler）
-│   │   └── Volcano/         # 5 个 CR 页（Queues / Jobs / CronJobs / PodGroups / HyperNodes）+ Scheduler + 对应 Form drawer + schedulerMeta + shared/Layout（NotInstalled / useAutoRefresh / RefreshControl / formatAge）
+│   │   └── Volcano/         # 5 个 CR 页（Queues / Jobs / CronJobs / PodGroups / HyperNodes）+ Scheduler + 对应 Form drawer + schedulerMeta + shared/Layout（NotInstalled / useAutoRefresh / AutoRefreshSelect / formatAge）
 │   ├── ModelHub/            # 模型中心 landing（P7 占位）
 │   ├── Plugins/             # 全局插件注册表 CRUD
 │   └── exception/404/

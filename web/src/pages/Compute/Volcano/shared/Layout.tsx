@@ -1,6 +1,5 @@
-import { ReloadOutlined } from '@ant-design/icons';
 import { history, useIntl } from '@umijs/max';
-import { Button, Result, Select, Space } from 'antd';
+import { Button, Result, Select } from 'antd';
 import React, { useEffect } from 'react';
 
 // Layout helpers shared by every Volcano list page.
@@ -67,44 +66,36 @@ export function useAutoRefresh(refresh: () => void, ready: boolean) {
   return [interval, setIntervalState] as const;
 }
 
-interface RefreshControlProps {
+interface AutoRefreshSelectProps {
   interval: number;
   setInterval: (n: number) => void;
-  refresh: () => void;
-  loading?: boolean;
 }
 
-// RefreshControl: interval picker + manual refresh button. Sits in
-// the ProTable toolBarRender result alongside per-page extras.
-export function RefreshControl({
+// AutoRefreshSelect: auto-refresh interval picker. Manual refresh is
+// covered by ProTable's built-in reload icon (wired via the page's
+// `options={{ reload: refresh }}` prop), so this component is only
+// the interval dropdown.
+export function AutoRefreshSelect({
   interval,
   setInterval,
-  refresh,
-  loading,
-}: RefreshControlProps) {
+}: AutoRefreshSelectProps) {
   const intl = useIntl();
   return (
-    <Space.Compact>
-      <Button
-        icon={<ReloadOutlined />}
-        loading={loading}
-        onClick={refresh}
-      >
-        {intl.formatMessage({ id: 'pages.workloads.refresh' })}
-      </Button>
-      <Select
-        value={interval}
-        onChange={setInterval}
-        style={{ width: 96 }}
-        options={[
-          { value: 0, label: intl.formatMessage({ id: 'pages.workloads.refresh.off' }) },
-          { value: 5_000, label: '5s' },
-          { value: 10_000, label: '10s' },
-          { value: 30_000, label: '30s' },
-          { value: 60_000, label: '60s' },
-        ]}
-      />
-    </Space.Compact>
+    <Select
+      value={interval}
+      onChange={setInterval}
+      style={{ width: 110 }}
+      options={[
+        {
+          value: 0,
+          label: intl.formatMessage({ id: 'pages.workloads.refresh.off' }),
+        },
+        { value: 5_000, label: '5s' },
+        { value: 10_000, label: '10s' },
+        { value: 30_000, label: '30s' },
+        { value: 60_000, label: '60s' },
+      ]}
+    />
   );
 }
 

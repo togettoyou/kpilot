@@ -13,8 +13,8 @@ import { sendCommand } from '@/services/kpilot/volcano';
 import { deleteWorkload } from '@/services/kpilot/workload';
 import { QueueFormDrawer } from './QueueForm';
 import {
+  AutoRefreshSelect,
   NotInstalled,
-  RefreshControl,
   formatAge,
   isResourceNotAvailable,
   useAutoRefresh,
@@ -153,7 +153,7 @@ export default function VolcanoQueuesPage() {
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
         scroll={{ x: 'max-content' }}
-        options={{ reload: false }}
+        options={{ reload: refresh }}
         headerTitle={
           <Space>
             <Typography.Text strong>Queue</Typography.Text>
@@ -171,12 +171,10 @@ export default function VolcanoQueuesPage() {
           >
             {intl.formatMessage({ id: 'pages.compute.queue.create' })}
           </Button>,
-          <RefreshControl
-            key="refresh"
+          <AutoRefreshSelect
+            key="auto"
             interval={interval}
             setInterval={setInterval}
-            refresh={refresh}
-            loading={loading}
           />,
         ]}
       />
