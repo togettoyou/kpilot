@@ -207,6 +207,48 @@ func (c *Client) PushPluginStatus(crdName string, st *proto.PluginStatusPush) {
 	})
 }
 
+// PushPluginLog forwards one line of install / upgrade / uninstall
+// progress for the given plugin to the Server. Best-effort: if the
+// tunnel is down, we silently drop — the next reconcile will produce
+// fresh log lines, and the user can't see partial progress when
+// disconnected anyway. Safe to call from any goroutine.
+func (c *Client) PushPluginLog(crdName, level, message string, ts int64) {
+	c.mu.Lock()
+	s := c.stream
+	c.mu.Unlock()
+	if s == nil {
+		return
+	}
+	_ = c.safeSend(s, &proto.WorkerMessage{
+		Payload: &proto.WorkerMessage_PluginLog{PluginLog: &proto.PluginLogChunk{
+			CrdName: crdName,
+			Level:   level,
+			Ts:      ts,
+			Message: message,
+		}},
+	})
+}
+
+// PushPluginLogEnd closes the log session for a plugin reconcile.
+// After Server sees this, the per-(cluster, plugin) ring buffer keeps
+// holding the lines for the TTL window so a UI tab opened late still
+// sees the outcome.
+func (c *Client) PushPluginLogEnd(crdName string, success bool, summary string) {
+	c.mu.Lock()
+	s := c.stream
+	c.mu.Unlock()
+	if s == nil {
+		return
+	}
+	_ = c.safeSend(s, &proto.WorkerMessage{
+		Payload: &proto.WorkerMessage_PluginLogEnd{PluginLogEnd: &proto.PluginLogEnd{
+			CrdName: crdName,
+			Success: success,
+			Summary: summary,
+		}},
+	})
+}
+
 // SetStreamHandlers registers callbacks for streaming sessions (Pod logs and
 // Exec). Start handlers are invoked in a new goroutine — they own the
 // session's lifetime and must consume their own follow-up frames (stdin,

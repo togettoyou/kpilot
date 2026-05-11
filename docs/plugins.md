@@ -84,6 +84,7 @@ status:
 - **Helm chart cache**：本地 .tgz 存于 `$DATA_DIR/charts/<sha256>.tgz`，atomic write + sha256 校验。Repo chart 在 `$DATA_DIR/helm/cache/` 缓存，`LoadChart` 命中时跳过 Pull
 - **Helm release storage**：secrets driver（v3 默认），keyed by (release_name, release_namespace)
 - **失败错误展示**：Failed phase tag hover 触发 Popover（非 Tooltip，可滚动 + 复制按钮 + `overscroll-behavior: contain`）
+- **实时安装日志**（V1）：Worker 把 Helm SDK 的 `inst.Log` callback 接到 `tunnel.PushPluginLog`，加上 reconciler 里几条关键里程碑（chart 加载 / helm install starting / 完成或失败），通过新增的 `WorkerMessage.PluginLogChunk` + `PluginLogEnd` 推回 Server。Server 端 `pkg/server/gateway/plugin_log.go` 维护 per-`(cluster, plugin)` ring buffer（500 条 / 10min TTL）+ 订阅者 fanout；WS 端点 `/api/v1/clusters/:id/plugins/:name/install-log` 上线时先 replay buffer 再订阅 live。前端 `<PluginInstallLogDrawer>` 渲染 `kind=chunk` / `kind=end` 两种帧，自动滚底，终态用绿勾 / 红叉 banner。两个触发点：用户在 `EnableDrawer` 点提交后自动开启该 drawer（看启用进度）；卡片在 Pending/Installing/Upgrading/Uninstalling/Failed phase 显示「查看日志」按钮（回头看进度或排查失败）。不做 DB 持久化 —— buffer TTL 过后只剩 phase + message
 - **Reconcile-on-Watch 防抖**（`pkg/worker/plugin/reconciler.go::reconcileTriggerPredicate`）：仅 spec generation 变化、Create、Delete、新设 DeletionTimestamp 触发 Reconcile。status-only 写入与 finalizer add/remove 不触发
 - **Worker 注册 TOCTOU 保护**：`gateway.Connect` 的 occupied 检查与 slot 写入合并到单次 `g.mu.Lock()`
 - **⚠️ Helm SDK 陷阱**：不要使用 `RunWithContext` + `defer cancel()`——install 成功后 deferred cancel 会污染 K8s client transport，导致后续 K8s 读取静默挂起。使用 `Run()` 不带 ctx，disable 期间的 install 等待 Helm 自身 timeout（10min）

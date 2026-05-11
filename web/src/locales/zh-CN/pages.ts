@@ -198,6 +198,15 @@ export default {
   'pages.compute.hyperNode.col.members': '成员',
   'pages.compute.hyperNode.col.age': '创建时间',
 
+  // 插件安装日志（Cluster Plugins 页 → 查看日志）
+  'pages.clusterPlugins.viewLog': '查看日志',
+  'pages.pluginInstallLog.title': '{name} · 安装日志',
+  'pages.pluginInstallLog.running': '进行中',
+  'pages.pluginInstallLog.success': '成功',
+  'pages.pluginInstallLog.failed': '失败',
+  'pages.pluginInstallLog.empty':
+    '等待 Worker 推送日志…（如果插件长时间停在此处，请检查 Worker 是否在线）',
+
   'pages.models.landing.title': '模型中心',
   'pages.models.landing.subtitle': '从模型仓库到部署、调试、路由的端到端面板（建设中）',
   'pages.models.landing.comingSoon': '建设中',

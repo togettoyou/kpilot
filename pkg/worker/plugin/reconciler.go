@@ -26,13 +26,19 @@ import (
 // cluster API removes the Plugin CRD object.
 const finalizerName = "kpilot.io/plugin-cleanup"
 
-// StatusPusher is the contract the tunnel client implements: push a
-// PluginStatusPush message back to Server. The reconciler invokes this on
-// every successful status update so Server's view stays current without
-// polling.
-type StatusPusher interface {
+// Pusher is the contract the tunnel client implements. Originally it was
+// just status, but install-log streaming (worker → server push for each
+// Helm log line + reconciler milestones) folded into the same interface
+// so the reconciler holds one pointer instead of two.
+type Pusher interface {
 	PushPluginStatus(crdName string, status *kpilotv1alpha1.PluginStatus)
+	PushPluginLog(crdName, level, message string)
+	PushPluginLogEnd(crdName string, success bool, summary string)
 }
+
+// StatusPusher is kept as an alias for backwards-compat with anyone
+// embedding kpilot's plugin package. Internal callers use Pusher.
+type StatusPusher = Pusher
 
 // Reconciler reconciles a Plugin CRD by driving its Helm release toward
 // the spec. One reconciler instance per Worker.
@@ -40,7 +46,7 @@ type Reconciler struct {
 	Client client.Client
 	Helm   *HelmRunner
 	Cache  *ChartCache
-	Push   StatusPusher
+	Push   Pusher
 	Scheme *runtime.Scheme
 }
 
@@ -110,11 +116,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			plugin.Status.Phase = kpilotv1alpha1.PluginPhaseUninstalling
 			r.touchAndPush(ctx, &plugin, "uninstalling release")
 		}
-		if err := r.Helm.Uninstall(plugin.Spec.Release.Name, plugin.Spec.Release.Namespace); err != nil {
+		r.Push.PushPluginLog(plugin.Name, "info",
+			fmt.Sprintf("uninstalling release name=%s ns=%s",
+				plugin.Spec.Release.Name, plugin.Spec.Release.Namespace))
+		logger := r.helmLoggerFor(plugin.Name)
+		if err := r.Helm.Uninstall(plugin.Spec.Release.Name, plugin.Spec.Release.Namespace, logger); err != nil {
+			r.Push.PushPluginLogEnd(plugin.Name, false, "uninstall: "+err.Error())
 			r.markFailed(ctx, &plugin, fmt.Errorf("uninstall: %w", err))
 			// Requeue to retry; finalizer stays so Server sees Failed.
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
+		r.Push.PushPluginLogEnd(plugin.Name, true, "release removed")
 		// Remove finalizer so the API can delete the CRD object.
 		plugin.Finalizers = removeFinalizer(plugin.Finalizers, finalizerName)
 		if err := r.Client.Update(ctx, &plugin); err != nil {
@@ -214,23 +226,45 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	values, err := ParseValues(plugin.Spec.Values)
 	if err != nil {
+		r.Push.PushPluginLogEnd(plugin.Name, false, "parse values: "+err.Error())
 		r.markFailed(ctx, &plugin, err)
 		return ctrl.Result{}, nil
 	}
 
+	// Milestones before / after each long-running step so the UI shows
+	// progress even when Helm's own logger is quiet (chart pull is
+	// silent on cache hit, for example).
+	r.Push.PushPluginLog(plugin.Name, "info",
+		fmt.Sprintf("loading chart type=%s version=%s",
+			plugin.Spec.Chart.Type, plugin.Spec.Chart.Version))
 	chart, err := r.Helm.LoadChart(chartRef)
 	if err != nil {
+		r.Push.PushPluginLogEnd(plugin.Name, false, "load chart: "+err.Error())
 		r.markFailed(ctx, &plugin, fmt.Errorf("load chart: %w", err))
 		return ctrl.Result{}, nil
 	}
+	r.Push.PushPluginLog(plugin.Name, "info",
+		fmt.Sprintf("chart loaded name=%s version=%s",
+			chart.Metadata.Name, chart.Metadata.Version))
 
+	verb := "install"
+	if plugin.Status.HelmRevision > 0 {
+		verb = "upgrade"
+	}
+	r.Push.PushPluginLog(plugin.Name, "info",
+		fmt.Sprintf("helm %s starting release=%s ns=%s (waiting for resources to be ready, up to 10m)",
+			verb, plugin.Spec.Release.Name, plugin.Spec.Release.Namespace))
+
+	logger := r.helmLoggerFor(plugin.Name)
 	rel, err := r.Helm.InstallOrUpgrade(
 		plugin.Spec.Release.Name,
 		plugin.Spec.Release.Namespace,
 		chart,
 		values,
+		logger,
 	)
 	if err != nil {
+		r.Push.PushPluginLogEnd(plugin.Name, false, "helm "+verb+": "+err.Error())
 		r.markFailed(ctx, &plugin, fmt.Errorf("helm: %w", err))
 		return ctrl.Result{}, nil
 	}
@@ -245,9 +279,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		plugin.Status.InstalledAt = &t
 	}
 	r.touchAndPush(ctx, &plugin, "")
+	r.Push.PushPluginLogEnd(plugin.Name, true,
+		fmt.Sprintf("running rev=%d ver=%s", rel.Version, rel.Chart.Metadata.Version))
 	log.Printf("[plugin] release reconciled: name=%s ns=%s rev=%d ver=%s",
 		plugin.Spec.Release.Name, plugin.Spec.Release.Namespace, rel.Version, rel.Chart.Metadata.Version)
 	return ctrl.Result{}, nil
+}
+
+// helmLoggerFor returns a Helm SDK logger that forwards each progress
+// line as a PluginLogChunk. Helm's logger gets called with format +
+// args (e.g. "creating %d resource(s)"); we render it eagerly so the
+// wire payload is plain text.
+func (r *Reconciler) helmLoggerFor(crdName string) Logger {
+	return func(format string, args ...interface{}) {
+		r.Push.PushPluginLog(crdName, "info", fmt.Sprintf(format, args...))
+	}
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────

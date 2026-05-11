@@ -23,6 +23,14 @@ message WorkerMessage {
     ResourceResponse   resource_resp   = 30;
     PluginStatusPush   plugin_status   = 40;
 
+    // Plugin install / upgrade log streaming. Worker pushes one chunk
+    // per Helm log line + key reconciler milestones; PluginLogEnd
+    // closes the session and carries the final outcome. Tagged by
+    // crd_name (matches PluginStatusPush.crd_name) so the Server can
+    // route to the right per-(cluster, plugin) ring buffer.
+    PluginLogChunk     plugin_log      = 41;
+    PluginLogEnd       plugin_log_end  = 42;
+
     // Streaming sessions (logs / exec)
     LogsChunk          logs_chunk      = 50;
     LogsEnd            logs_end        = 51;
@@ -75,6 +83,35 @@ message PluginStatusPush {
   int32  helm_revision        = 6;
   int64  installed_at         = 7; // unix seconds, 0 if not installed
   int64  last_updated_at      = 8; // unix seconds
+}
+
+// PluginLogChunk carries a single progress line from a running install
+// / upgrade / uninstall. Emitted both by the Helm SDK's own logger and
+// by reconciler milestones around it. Frontend renders these in
+// real time so the user can see WHY a long-running install is stuck.
+message PluginLogChunk {
+  // Matches PluginStatusPush.crd_name.
+  string crd_name = 1;
+  // "info" / "warn" / "error". Worker classifies; frontend colorizes.
+  string level    = 2;
+  // Unix milliseconds when the line was generated.
+  int64  ts       = 3;
+  // Single line of progress text. Worker is responsible for not
+  // emitting secrets / values content; helm SDK output is safe.
+  string message  = 4;
+}
+
+// PluginLogEnd terminates a log session. After Server sees this, the
+// per-(cluster, plugin) ring buffer keeps replaying its contents for
+// the TTL window, then evicts. Subscribers reading the buffer also
+// see this frame and render the final outcome.
+message PluginLogEnd {
+  string crd_name = 1;
+  bool   success  = 2;
+  // Optional one-line summary ("installed v1.14.2 at rev 1",
+  // "failed: timeout waiting for Deployment grafana"). Frontend
+  // shows this in the terminal-state banner.
+  string summary  = 3;
 }
 
 // ─── Server → Worker ─────────────────────────────────────────────────────────

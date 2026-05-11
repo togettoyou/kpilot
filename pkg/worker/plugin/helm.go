@@ -79,14 +79,28 @@ func NewHelmRunner(cfg *rest.Config, dataDir string) *HelmRunner {
 	return &HelmRunner{cfg: cfg, settings: settings, registryClient: rc}
 }
 
+// Logger is the per-action progress sink shape Helm SDK expects. Used
+// by reconciler to capture install / upgrade / uninstall progress and
+// forward it to the per-(cluster, plugin) log stream for the UI to
+// render. Nil = fall back to stdout (helmLogf below).
+type Logger func(format string, args ...interface{})
+
 // newConfiguration builds an action.Configuration scoped to the given
 // release namespace. Helm's release storage uses one Secret per release
 // in that namespace, so the namespace must match what's used for both
 // install and uninstall (otherwise uninstall can't find the release).
-func (h *HelmRunner) newConfiguration(namespace string) (*action.Configuration, error) {
+//
+// The logger is what Helm calls with progress lines like "creating x
+// resource(s) for resource", "beginning wait", "Patch X in namespace
+// Y" — feeding it back into the reconciler lets us stream those to
+// the UI in real time.
+func (h *HelmRunner) newConfiguration(namespace string, logger Logger) (*action.Configuration, error) {
+	if logger == nil {
+		logger = helmLogf
+	}
 	getter := newRESTClientGetter(h.cfg, namespace)
 	cfg := new(action.Configuration)
-	if err := cfg.Init(getter, namespace, HelmDriver, helmLogf); err != nil {
+	if err := cfg.Init(getter, namespace, HelmDriver, action.DebugLog(logger)); err != nil {
 		return nil, fmt.Errorf("init helm config: %w", err)
 	}
 	// Required for OCI charts. Set even when this install is non-OCI —
@@ -96,8 +110,9 @@ func (h *HelmRunner) newConfiguration(namespace string) (*action.Configuration, 
 	return cfg, nil
 }
 
-// helmLogf is the per-action progress sink. We forward to the standard
-// log package so reconcile output sits next to everything else.
+// helmLogf is the fallback progress sink when no per-install logger is
+// supplied (e.g. boot-time chart loads). Forwards to the standard log
+// package so reconcile output sits next to everything else.
 func helmLogf(format string, args ...interface{}) {
 	log.Printf("[plugin-helm] "+format, args...)
 }
@@ -315,8 +330,9 @@ func (h *HelmRunner) InstallOrUpgrade(
 	releaseName, namespace string,
 	chart *chart.Chart,
 	values map[string]any,
+	logger Logger,
 ) (*release.Release, error) {
-	cfg, err := h.newConfiguration(namespace)
+	cfg, err := h.newConfiguration(namespace, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -359,8 +375,8 @@ func (h *HelmRunner) InstallOrUpgrade(
 
 // Uninstall removes the release. If the release doesn't exist, returns nil
 // (idempotent; matches `helm uninstall --wait` behavior with no release).
-func (h *HelmRunner) Uninstall(releaseName, namespace string) error {
-	cfg, err := h.newConfiguration(namespace)
+func (h *HelmRunner) Uninstall(releaseName, namespace string, logger Logger) error {
+	cfg, err := h.newConfiguration(namespace, logger)
 	if err != nil {
 		return err
 	}
@@ -378,7 +394,7 @@ func (h *HelmRunner) Uninstall(releaseName, namespace string) error {
 
 // Get returns the latest release info, or nil if not installed.
 func (h *HelmRunner) Get(releaseName, namespace string) (*release.Release, error) {
-	cfg, err := h.newConfiguration(namespace)
+	cfg, err := h.newConfiguration(namespace, nil)
 	if err != nil {
 		return nil, err
 	}

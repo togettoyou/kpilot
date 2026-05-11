@@ -151,3 +151,20 @@ export function disablePlugin(clusterId: string, pluginName: string) {
     { method: 'POST' },
   );
 }
+
+// buildPluginInstallLogURL returns the WebSocket URL the worker
+// pushes Helm install / upgrade / uninstall progress through. The
+// server's gateway holds a per-(cluster, plugin) ring buffer, so
+// connecting mid-install replays the lines accumulated so far and
+// then streams new ones until the install ends.
+//
+// One frame per JSON object on the wire:
+//   { kind: "chunk", level: "info|warn|error", ts: <unix-ms>, message: "..." }
+//   { kind: "end",   success: true|false, summary: "..." }
+export function buildPluginInstallLogURL(
+  clusterId: string,
+  pluginName: string,
+): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}/api/v1/clusters/${clusterId}/plugins/${pluginName}/install-log`;
+}

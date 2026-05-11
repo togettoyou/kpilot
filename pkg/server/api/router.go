@@ -104,6 +104,10 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.GET("/:id/plugins", handler.ListClusterPlugins)
 		clusters.POST("/:id/plugins/:name/enable", handler.EnablePlugin(gw))
 		clusters.POST("/:id/plugins/:name/disable", handler.DisablePlugin(gw))
+		// Real-time install / upgrade / uninstall log (WebSocket). Subscribes
+		// to the gateway's per-(cluster, plugin) ring buffer; same JWT cookie
+		// auth as everything else above.
+		clusters.GET("/:id/plugins/:name/install-log", handler.PluginInstallLog(gw))
 
 		// Reverse proxy to plugin-managed in-cluster Services. The browser
 		// loads /api/v1/clusters/<id>/proxy/grafana/... and KPilot Server

@@ -64,15 +64,23 @@ type GatewayServer struct {
 	// Keyed by session_id (which is sent as request_id on the wire).
 	streamMu sync.Mutex
 	streams  map[string]*Stream
+
+	// pluginLogMu guards the per-(cluster, plugin) install-log buffers
+	// + their subscriber sets. See plugin_log.go.
+	pluginLogMu       sync.Mutex
+	pluginLogSessions map[string]*pluginLogSession
 }
 
 func NewGatewayServer() *GatewayServer {
-	return &GatewayServer{
-		workers:     make(map[string]*ConnectedWorker),
-		pending:     make(map[string]chan *proto.ResourceResponse),
-		pendingHTTP: make(map[string]chan *proto.HTTPResponse),
-		streams:     make(map[string]*Stream),
+	g := &GatewayServer{
+		workers:           make(map[string]*ConnectedWorker),
+		pending:           make(map[string]chan *proto.ResourceResponse),
+		pendingHTTP:       make(map[string]chan *proto.HTTPResponse),
+		streams:           make(map[string]*Stream),
+		pluginLogSessions: make(map[string]*pluginLogSession),
 	}
+	go g.reapPluginLogs()
+	return g
 }
 
 func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
@@ -214,6 +222,10 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 		w.markSeen()
 	case *proto.WorkerMessage_PluginStatus:
 		g.handlePluginStatus(w, p.PluginStatus)
+	case *proto.WorkerMessage_PluginLog:
+		g.recordPluginLog(w.ClusterID, p.PluginLog)
+	case *proto.WorkerMessage_PluginLogEnd:
+		g.recordPluginLogEnd(w.ClusterID, p.PluginLogEnd)
 	case *proto.WorkerMessage_ResourceResp:
 		resp := p.ResourceResp
 		g.pendingMu.Lock()

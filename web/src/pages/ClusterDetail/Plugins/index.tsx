@@ -12,6 +12,7 @@ import {
   Empty,
   Popconfirm,
   Popover,
+  Space,
   Spin,
   Tag,
   Tooltip,
@@ -26,8 +27,22 @@ import type {
 } from '@/services/kpilot/plugin';
 import { disablePlugin, listClusterPlugins } from '@/services/kpilot/plugin';
 import { PluginCard } from '@/pages/Plugins/PluginCard';
+import { PluginInstallLogDrawer } from '@/components/PluginInstallLogDrawer';
 
 import { EnableDrawer } from './EnableDrawer';
+
+// Phases where the install-log drawer is worth opening: anything
+// actively running (worker still emitting log lines) or recently
+// failed (user wants to see WHY). Running / Disabled don't show the
+// button because their logs are either gone (TTL'd out) or
+// uninteresting.
+const LOGGABLE_PHASES = new Set<PluginPhase>([
+  'Pending',
+  'Installing',
+  'Upgrading',
+  'Uninstalling',
+  'Failed',
+]);
 
 const { Title } = Typography;
 
@@ -208,6 +223,12 @@ export default function ClusterPluginsPage() {
   // wiped on disable). PluginEditDrawer would only show registry
   // metadata, not the per-cluster install state.
   const [viewing, setViewing] = useState<ClusterPluginItem | null>(null);
+  // Live install-log drawer target. Set when the user (a) clicks
+  // 查看日志 on an in-flight / failed card, or (b) submits the
+  // EnableDrawer — we hand them straight to the progress view
+  // instead of a silent "submitted" toast.
+  const [installLogTarget, setInstallLogTarget] =
+    useState<ClusterPluginItem | null>(null);
 
   const { data, loading, refresh } = useRequest(
     () => listClusterPlugins(clusterId),
@@ -260,7 +281,7 @@ export default function ClusterPluginsPage() {
   const renderCard = (it: ClusterPluginItem) => {
     const phase = it.phase || 'Disabled';
     const phaseTag = <PhaseTag phase={phase} message={it.message} />;
-    const action = it.enabled ? (
+    const primaryAction = it.enabled ? (
       <Popconfirm
         title={intl.formatMessage(
           { id: 'pages.clusterPlugins.disable.confirm' },
@@ -282,13 +303,35 @@ export default function ClusterPluginsPage() {
         {intl.formatMessage({ id: 'pages.clusterPlugins.enable' })}
       </Button>
     );
+    // Show 查看日志 alongside the primary action whenever the plugin
+    // is in a phase the install-log is interesting for. Layout: small
+    // text button on the left of the primary action, so the destructive
+    // button (Disable/Enable) stays in the rightmost slot.
+    const logAction = LOGGABLE_PHASES.has(phase) ? (
+      <Button
+        size="small"
+        type="link"
+        onClick={() => setInstallLogTarget(it)}
+        style={{ paddingInline: 0 }}
+      >
+        {intl.formatMessage({ id: 'pages.clusterPlugins.viewLog' })}
+      </Button>
+    ) : null;
+    const actions = logAction ? (
+      <Space size={4}>
+        {logAction}
+        {primaryAction}
+      </Space>
+    ) : (
+      primaryAction
+    );
     return (
       <div key={it.plugin.id} style={{ width: 280 }}>
         <PluginCard
           plugin={it.plugin}
           onView={() => setViewing(it)}
           extra={phaseTag}
-          actions={action}
+          actions={actions}
         />
       </div>
     );
@@ -322,7 +365,13 @@ export default function ClusterPluginsPage() {
         clusterId={clusterId}
         target={enableTarget}
         onClose={() => setEnableTarget(null)}
-        onEnabled={refresh}
+        // Hand the user from the enable form straight into the live
+        // install-log so they see the chart pull / helm install /
+        // wait progress instead of a silent toast + polling card.
+        onEnabled={() => {
+          if (enableTarget) setInstallLogTarget(enableTarget);
+          refresh();
+        }}
       />
       <EnableDrawer
         open={!!viewing}
@@ -331,6 +380,13 @@ export default function ClusterPluginsPage() {
         readOnly
         onClose={() => setViewing(null)}
         onEnabled={() => {}}
+      />
+      <PluginInstallLogDrawer
+        open={!!installLogTarget}
+        clusterId={clusterId}
+        pluginName={installLogTarget?.plugin.name ?? ''}
+        displayName={installLogTarget?.plugin.display_name ?? ''}
+        onClose={() => setInstallLogTarget(null)}
       />
     </div>
   );
