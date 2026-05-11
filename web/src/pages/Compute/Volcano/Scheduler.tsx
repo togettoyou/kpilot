@@ -929,22 +929,23 @@ function PluginCard({
       }}
       styles={{ body: { padding: '8px 12px' } }}
     >
-      <Space
-        style={{ width: '100%', justifyContent: 'space-between' }}
-        align="start"
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: 8,
+        }}
       >
-        <Space size={8} align="center">
-          <Tag color="green" style={{ marginInlineEnd: 0 }}>
-            {name}
-          </Tag>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Tag color="green">{name}</Tag>
           <Text
             type="secondary"
-            style={{ fontSize: 12, maxWidth: 540 }}
-            ellipsis={{ tooltip: meta.desc }}
+            style={{ fontSize: 12, display: 'block', marginTop: 4 }}
           >
             {meta.desc}
           </Text>
-        </Space>
+        </div>
         {editable && (
           <Space size={0}>
             <Button
@@ -970,7 +971,7 @@ function PluginCard({
             />
           </Space>
         )}
-      </Space>
+      </div>
 
       <Collapse
         size="small"
