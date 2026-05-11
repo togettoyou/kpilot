@@ -52,6 +52,13 @@ export interface ArgSpec {
 
 export interface PluginMeta extends Meta {
   args?: ArgSpec[];
+  // Enable* yaml keys this plugin actually consumes. The 25-field
+  // PluginOption struct is generic — every YAML accepts every flag —
+  // but each plugin only registers a subset of session callbacks, so
+  // most flags are no-ops per plugin. Source-derived from `ssn.AddXxxFn`
+  // grep across pkg/scheduler/plugins/<p>/*.go. If omitted (custom /
+  // unrecognised plugin) the UI falls back to showing all 25.
+  callbacks?: string[];
 }
 
 export interface ActionMeta extends Meta {
@@ -318,26 +325,60 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   priority: {
     label: 'priority',
     desc: '按 PriorityClass 给 PodGroup 排序，高优先级先调度、被抢占的优先级低。',
+    callbacks: [
+      'enableJobOrder',
+      'enableTaskOrder',
+      'enablePreemptable',
+      'enabledSubJobOrder',
+    ],
   },
   gang: {
     label: 'gang',
     desc: '强制 minMember 个 pod 必须同时调度成功，否则本组都不启动。分布式训练 / MPI 必备。',
+    callbacks: [
+      'enableJobOrder',
+      'enableJobReady',
+      'enableJobPipelined',
+      'enablePreemptable',
+      'enableReclaimable',
+      'enabledSubJobReady',
+      'enabledSubJobPipelined',
+      'enabledSubJobOrder',
+    ],
   },
   conformance: {
     label: 'conformance',
     desc: '把控制器自身的 pod（kube-system / volcano-system）排除在 Volcano 调度之外，让默认调度器接管。',
+    callbacks: ['enablePreemptable', 'enableReclaimable'],
   },
   drf: {
     label: 'drf',
     desc: 'Dominant Resource Fairness —— 多用户共享时，按「用户最紧张那个资源」的比例公平分配。',
+    callbacks: [
+      'enableJobOrder',
+      'enableQueueOrder',
+      'enablePreemptable',
+      'enableReclaimable',
+      'enableHierarchy',
+    ],
   },
   proportion: {
     label: 'proportion',
     desc: '按 Queue.weight 比例切分集群资源；多 Queue 共存的核心策略。',
+    callbacks: [
+      'enableQueueOrder',
+      'enableJobEnqueued',
+      'enabledOverused',
+      'enabledAllocatable',
+      'enablePreemptive',
+      'enablePredicate',
+      'enableReclaimable',
+    ],
   },
   predicates: {
     label: 'predicates',
     desc: 'K8s 原生节点筛选：亲和、污点、资源是否够。沿用 default-scheduler 的所有 predicate。',
+    callbacks: ['enablePredicate', 'enableNodeOrder'],
     args: [
       {
         key: 'predicate.NodeAffinityEnable',
@@ -400,6 +441,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   nodeorder: {
     label: 'nodeorder',
     desc: '节点打分：综合空闲资源、镜像本地性、节点平衡度。allocate 阶段挑节点用的。',
+    callbacks: ['enableNodeOrder'],
     args: [
       {
         key: 'nodeaffinity.weight',
@@ -470,6 +512,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   binpack: {
     label: 'binpack',
     desc: '装箱策略：把 pod 集中到少数节点，留出整块空节点给将来的大作业。跟 nodeorder 互补。',
+    callbacks: ['enableNodeOrder'],
     args: [
       {
         key: 'binpack.weight',
@@ -506,6 +549,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   overcommit: {
     label: 'overcommit',
     desc: '允许 Queue 在调度时短暂超额（防止 enqueue 阶段过早卡死）。生产环境常和 proportion 一起开。',
+    callbacks: ['enableJobEnqueued'],
     args: [
       {
         key: 'overcommit-factor',
@@ -520,6 +564,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   deviceshare: {
     label: 'deviceshare',
     desc: 'GPU 设备共享调度。启用后才识别 volcano.sh/vgpu-* 资源；和 volcano-vgpu-device-plugin 配套使用。',
+    callbacks: ['enablePredicate', 'enableNodeOrder'],
     args: [
       {
         key: 'deviceshare.GPUSharingEnable',
@@ -583,6 +628,13 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   tdm: {
     label: 'tdm',
     desc: 'Time Division Multiplexing —— 时间维度的节点亲和（例如离线作业晚上跑、白天让出）。',
+    callbacks: [
+      'enableJobOrder',
+      'enableJobPipelined',
+      'enableNodeOrder',
+      'enablePredicate',
+      'enablePreemptable',
+    ],
     args: [
       {
         key: 'tdm.evict.period',
@@ -596,6 +648,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   'numa-aware': {
     label: 'numa-aware',
     desc: 'NUMA 拓扑感知：把 CPU + 内存绑定到同一个 NUMA 节点上，减少跨 socket 访问开销。',
+    callbacks: ['enablePredicate', 'enableNodeOrder'],
     args: [
       {
         key: 'weight',
@@ -610,6 +663,11 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   'network-topology-aware': {
     label: 'network-topology-aware',
     desc: '网络拓扑感知：配合 HyperNode 把 NCCL 任务收紧到同一机架 / spine 内，减少跨拓扑通信。',
+    callbacks: [
+      'enableNodeOrder',
+      'enabledHyperNodeOrder',
+      'enabledHyperNodeGradient',
+    ],
     args: [
       {
         key: 'weight',
@@ -662,6 +720,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   'task-topology': {
     label: 'task-topology',
     desc: 'Job 内任务亲和：master + worker 协同放置，例如 ps + worker 必须在不同节点。',
+    callbacks: ['enableTaskOrder', 'enableNodeOrder'],
     args: [
       {
         key: 'task-topology.weight',
@@ -676,6 +735,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   usage: {
     label: 'usage',
     desc: '基于实时利用率给节点打分，避开热点节点。需要 metrics 数据源（Prometheus / VictoriaMetrics）。',
+    callbacks: ['enableNodeOrder', 'enablePredicate'],
     args: [
       {
         key: 'usage.weight',
@@ -712,6 +772,15 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   extender: {
     label: 'extender',
     desc: '调度器扩展点：通过 webhook 接外部决策服务。复杂场景的逃生口。',
+    callbacks: [
+      'enablePredicate',
+      'enableNodeOrder',
+      'enableJobReady',
+      'enableJobEnqueued',
+      'enabledOverused',
+      'enablePreemptable',
+      'enableReclaimable',
+    ],
     args: [
       {
         key: 'extender.ignorable',
@@ -738,26 +807,41 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   capacity: {
     label: 'capacity',
     desc: 'Capacity 调度（V1.9+）：按 Queue 的 deserved/capability 资源声明做容量调度，是 proportion 的精细化版本。',
+    callbacks: [
+      'enableQueueOrder',
+      'enableJobEnqueued',
+      'enabledAllocatable',
+      'enablePreemptive',
+      'enablePredicate',
+      'enableReclaimable',
+      'enabledVictim',
+      'enableHierarchy',
+    ],
   },
   resourcequota: {
     label: 'resourcequota',
     desc: '让 Volcano 调度器尊重 K8s 原生 ResourceQuota；和 Volcano queue 配额并行起作用。',
+    callbacks: ['enableJobEnqueued'],
   },
   podgroup: {
     label: 'podgroup',
     desc: '处理 PodGroup 状态机的内置插件（一般无需手动加，gang 已经覆盖大部分场景）。',
+    callbacks: [],
   },
   pdb: {
     label: 'pdb',
     desc: '尊重 K8s PodDisruptionBudget：抢占 / 回收时不破坏 PDB 约束。',
+    callbacks: ['enablePreemptable', 'enableReclaimable'],
   },
   cdp: {
     label: 'cdp',
     desc: 'Cooldown Protection：作业刚启动后的冷却保护，避免立刻被抢占 / 回收。',
+    callbacks: ['enablePreemptable', 'enableReclaimable'],
   },
   sla: {
     label: 'sla',
     desc: 'SLA 保障：给 Job annotation 设置 sla-waiting-time，超时未调度的作业升优先级。',
+    callbacks: ['enableJobOrder', 'enableJobPipelined', 'enableJobEnqueued'],
     args: [
       {
         key: 'sla-waiting-time',
@@ -770,6 +854,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   nodegroup: {
     label: 'nodegroup',
     desc: '按 Queue.spec.affinity.nodeGroupAffinity 的节点组亲和性筛选节点。',
+    callbacks: ['enablePredicate', 'enableNodeOrder', 'enableHierarchy'],
     args: [
       {
         key: 'strict',
@@ -790,6 +875,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   'resource-strategy-fit': {
     label: 'resource-strategy-fit',
     desc: '基于资源策略的节点打分（按节点资源整体偏好做加权，配合 LeastRequest / MostRequest 微调）。',
+    callbacks: ['enablePredicate', 'enableNodeOrder'],
     args: [
       {
         key: 'resourceStrategyFitWeight',
@@ -810,6 +896,8 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   rescheduling: {
     label: 'rescheduling',
     desc: '基于指标的周期性 rescheduling（迁移占用过高节点上的低优先级 pod）。',
+    // rescheduling runs its own loop, doesn't register session callbacks.
+    callbacks: [],
     args: [
       {
         key: 'interval',

@@ -143,7 +143,9 @@ export default {
   'pages.compute.scheduler.addPlugin': 'Add plugin',
   'pages.compute.scheduler.add': 'Add',
   'pages.compute.scheduler.plugin.args': 'Plugin arguments',
-  'pages.compute.scheduler.plugin.enables': 'Advanced switches (25 callbacks)',
+  'pages.compute.scheduler.plugin.enables': 'Advanced switches ({n} callbacks)',
+  'pages.compute.scheduler.plugin.enables.none':
+    'This plugin does not register any session callbacks gated by enable switches.',
   'pages.compute.scheduler.plugin.extras': 'Other fields',
   'pages.compute.scheduler.plugin.extras.hint':
     'The following keys are outside KPilot\'s known schema and are preserved as-is. Switch to the YAML view to edit them.',

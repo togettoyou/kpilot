@@ -924,9 +924,10 @@ function PluginCard({
             label: (
               <Space size={6}>
                 <Text style={{ fontSize: 13 }}>
-                  {intl.formatMessage({
-                    id: 'pages.compute.scheduler.plugin.enables',
-                  })}
+                  {intl.formatMessage(
+                    { id: 'pages.compute.scheduler.plugin.enables' },
+                    { n: meta.callbacks?.length ?? ENABLE_FIELDS.length },
+                  )}
                 </Text>
                 {setEnabledCount > 0 && (
                   <Tag color="orange">{setEnabledCount}</Tag>
@@ -936,6 +937,7 @@ function PluginCard({
             children: (
               <EnableSwitchGrid
                 entry={entry}
+                pluginName={name}
                 onChange={setEnable}
                 editable={editable}
               />
@@ -982,13 +984,49 @@ function PluginCard({
 
 function EnableSwitchGrid({
   entry,
+  pluginName,
   onChange,
   editable,
 }: {
   entry: PluginEntry;
+  pluginName: string;
   onChange: (key: string, value: boolean | undefined) => void;
   editable: boolean;
 }) {
+  const intl = useIntl();
+  const meta = metaForPlugin(pluginName);
+  // PluginMeta.callbacks is the set of Enabled* keys this plugin
+  // actually consumes (source-derived from ssn.AddXxxFn). Unknown
+  // plugins fall back to "all 25" because we can't know better.
+  const visibleFields = meta.callbacks
+    ? ENABLE_FIELDS.filter((f) => meta.callbacks!.includes(f.key))
+    : ENABLE_FIELDS;
+  // If user previously set an Enabled* key that's not in this plugin's
+  // relevant set, surface it as well so they can see / unset it (the
+  // value survives in the entry even if the grid omits it, but better
+  // to make it visible than mystery-keep it).
+  const setNoOpFields = meta.callbacks
+    ? ENABLE_FIELDS.filter(
+        (f) =>
+          !meta.callbacks!.includes(f.key) && entry[f.key] !== undefined,
+      )
+    : [];
+  // Sort visible: callback-relevant first, then any extras the user
+  // set on this entry that the plugin doesn't actually consume.
+  const fields = [...visibleFields, ...setNoOpFields];
+
+  if (fields.length === 0) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        message={intl.formatMessage({
+          id: 'pages.compute.scheduler.plugin.enables.none',
+        })}
+      />
+    );
+  }
+
   return (
     <div
       style={{
@@ -997,7 +1035,7 @@ function EnableSwitchGrid({
         gap: 8,
       }}
     >
-      {ENABLE_FIELDS.map((f) => {
+      {fields.map((f) => {
         const raw = entry[f.key];
         const value: 'default' | 'true' | 'false' =
           raw === true ? 'true' : raw === false ? 'false' : 'default';

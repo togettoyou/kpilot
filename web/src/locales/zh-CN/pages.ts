@@ -144,7 +144,9 @@ export default {
   'pages.compute.scheduler.addPlugin': '添加插件',
   'pages.compute.scheduler.add': '添加',
   'pages.compute.scheduler.plugin.args': '插件参数 (arguments)',
-  'pages.compute.scheduler.plugin.enables': '高级开关 (25 个 callback)',
+  'pages.compute.scheduler.plugin.enables': '高级开关 ({n} 个 callback)',
+  'pages.compute.scheduler.plugin.enables.none':
+    '本插件没有注册任何会被 enable 开关控制的 session callback。',
   'pages.compute.scheduler.plugin.extras': '其他字段',
   'pages.compute.scheduler.plugin.extras.hint':
     '以下字段不在 KPilot 已识别的 schema 中，已保留原值；如需编辑请切换到 YAML 视图。',
