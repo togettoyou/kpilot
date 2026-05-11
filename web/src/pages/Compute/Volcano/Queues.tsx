@@ -153,7 +153,7 @@ export default function VolcanoQueuesPage() {
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
         scroll={{ x: 'max-content' }}
-        options={false}
+        options={{ reload: false }}
         headerTitle={
           <Space>
             <Typography.Text strong>Queue</Typography.Text>

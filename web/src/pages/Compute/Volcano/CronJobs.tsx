@@ -182,7 +182,7 @@ export default function VolcanoCronJobsPage() {
         search={false}
         pagination={{ pageSize: 20, showSizeChanger: true }}
         scroll={{ x: 'max-content' }}
-        options={false}
+        options={{ reload: false }}
         headerTitle={
           <Space>
             <Typography.Text strong>CronJob</Typography.Text>
