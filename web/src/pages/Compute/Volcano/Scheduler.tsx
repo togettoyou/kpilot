@@ -373,7 +373,11 @@ export default function VolcanoSchedulerPage() {
         title={intl.formatMessage({ id: 'pages.compute.scheduler.flow.title' })}
         open={flowOpen}
         onClose={() => setFlowOpen(false)}
-        size="large"
+        // Two-thirds of the viewport — large enough to lay out a
+        // wide pipeline (enqueue → allocate → preempt → reclaim →
+        // backfill → shuffle = 6 actions + 2 endpoints) without
+        // covering the form behind it.
+        width="66.66vw"
         // Each open mounts a fresh diagram so it re-derives from the
         // current draft state (which may have changed between opens).
         destroyOnClose
