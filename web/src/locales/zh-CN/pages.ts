@@ -330,13 +330,17 @@ export default {
   'errors.WORKER_ERROR': 'Worker 执行出错',
   'errors.WORKER_CONFLICT': '资源已被其他人修改，请关闭后重新打开重试',
   'errors.NAMESPACE_PROTECTED':
-    '该命名空间为只读（kube-* / kpilot-* 命名空间不允许直接修改）',
+    'kube-system 命名空间下的资源不允许直接修改',
   'errors.CRD_PROTECTED':
     'kpilot 自有 CRD（*.kpilot.io）不允许修改或删除——会破坏插件系统',
   'errors.NODE_PROTECTED':
-    '节点不支持通用编辑/删除，请通过专用按钮（如 cordon）操作',
+    '节点删除请通过 kubectl 等管理工具操作；节点 cordon / 标签 / 污点等编辑可在工作负载页执行',
   'errors.SYSTEM_PROTECTED':
     'K8s 控制面依赖的系统级资源（system:* RBAC / system-* PriorityClass）不允许修改或删除',
+  'errors.MANAGED_RESOURCE':
+    '该资源由 Helm 管理（属于某个已启用的插件），请通过插件管理页面修改对应插件的 values 而不是直接编辑',
+  'errors.DEFAULT_STORAGECLASS_PROTECTED':
+    '默认 StorageClass 不允许修改或删除——删除后所有新建 PVC 会无法绑定',
   'errors.RESOURCE_NOT_AVAILABLE': '集群未启用此资源类型',
   'errors.RESOURCE_NOT_AVAILABLE.subtitle':
     '此资源对应的 CRD 未安装，或所需 K8s feature gate（如 DRA / MutatingAdmissionPolicy）未开启。请先在集群上启用后再访问。',

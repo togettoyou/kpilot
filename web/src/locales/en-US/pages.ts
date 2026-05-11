@@ -342,13 +342,17 @@ export default {
   'errors.WORKER_CONFLICT':
     'Resource was modified by someone else. Close and reopen the editor to retry.',
   'errors.NAMESPACE_PROTECTED':
-    'This namespace is read-only (kube-* / kpilot-* namespaces cannot be edited directly)',
+    'Resources in kube-system are read-only',
   'errors.CRD_PROTECTED':
     'kpilot-owned CRDs (*.kpilot.io) cannot be edited or deleted — modifying them would break the plugin system',
   'errors.NODE_PROTECTED':
-    'Nodes don\'t support generic edit/delete; use the scoped buttons (e.g. cordon) instead',
+    'Node delete must go through kubectl or another admin tool; cordon / labels / taints can still be edited from the workloads page',
   'errors.SYSTEM_PROTECTED':
     'System-reserved resources (system:* RBAC / system-* PriorityClass) cannot be edited or deleted — the K8s control plane depends on them',
+  'errors.MANAGED_RESOURCE':
+    'This resource is managed by Helm (it belongs to an installed plugin). Edit the plugin\'s values via the Plugins page instead.',
+  'errors.DEFAULT_STORAGECLASS_PROTECTED':
+    'The default StorageClass cannot be modified or deleted — without it new PVCs would never bind',
   'errors.RESOURCE_NOT_AVAILABLE': 'Resource type not available on this cluster',
   'errors.RESOURCE_NOT_AVAILABLE.subtitle':
     'The corresponding CRD is not installed, or the required K8s feature gate (e.g. DRA / MutatingAdmissionPolicy) is not enabled. Enable it on the cluster first.',

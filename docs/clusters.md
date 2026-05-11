@@ -63,19 +63,38 @@
 - **Pod 终端（Exec）**：xterm.js + FitAddon，Worker 端默认 `/bin/bash`，不存在时自动回退 `/bin/sh`；二进制 WS 帧（首字节为类型）
 - **Pod 即时指标**：Pods 行操作栏「指标」按钮 → `GET /api/v1/clusters/:id/pods/:namespace/:name/top`，Server 拉 `metrics.k8s.io/v1beta1 PodMetrics` 转成 `{containers: [{name, cpu_milli, memory_bytes}]}`。Drawer 5s 自动刷新；"no matches for kind PodMetrics" 与 "podmetrics ... not found" 都翻译成 404 / `RESOURCE_NOT_AVAILABLE`，前端显示「请确认 Metrics Server 插件已启用」+ 跳插件管理。**路由用 `/pods/...` 前缀而非 `/workloads/pods/...`**，避免 Gin v1.12 的 GET radix 树静态段 `pods` 抢走 `:type` 通配的所有 `/workloads/pods/...` 流量
 
-### 写操作 protection（基于已解析 GVK）
+### 写操作 protection
 
-关键：**所有 protection 检查必须基于解析后的 GVK，不能依赖 URL `:type` 段**——`_cr` URL 可以指向任意 GVK，仅靠 `:type` 判断会被绕过。
+所有规则集中在 `pkg/server/protect/`，对外只暴露一个入口 `protect.Check(ctx, gw, clusterID, op, gvk, ns, name) *Err`。三个 handler（`ApplyWorkload` PUT、`DeleteWorkload` DELETE、`validateDoc` 批量 YAML）每处一行调用，新加 / 改规则不再翻 handler 文件。
 
-五道闸门（在 `ApplyWorkload` PUT、`DeleteWorkload` DELETE、`validateDoc` 批量 YAML 三处统一应用）：
+**为什么不放中间件**：部分规则需要先 GET 资源拿 label / annotation（Helm-managed、默认 StorageClass），中间件做意味着每个写请求多一次 worker 往返，handler 后续逻辑可能还要再 GET 一次；且三个调用点的输入形态完全不同（URL param vs 已 parse 的 unstructured）；validateDoc 还要在多文档 YAML 里逐 doc reject，中间件粒度太粗。把规则抽成 package + 单入口 `Check()`，handler 一行调用，是更精准的内聚方式。
 
-| 检查 | 触发条件 | 返回码 |
-|---|---|---|
-| `isProtectedNamespace(ns)` | namespace 以 `kube-` / `kpilot-` 开头 | 403 / `NAMESPACE_PROTECTED` |
-| `isProtectedCRDDefinitionGVK(gvk, name)` | `apiextensions.k8s.io/v1 CRD` + `*.kpilot.io` 名 | 403 / `CRD_PROTECTED` |
-| `isProtectedCRGroup(gvk.group)` | group `kpilot.io` 或 `*.kpilot.io` | 403 / `CRD_PROTECTED` |
-| `isNoGenericWriteGVK(gvk)` | core `Node`（cordon 走专用端点） | 403 / `NODE_PROTECTED` |
-| `isProtectedSystemNameGVK(gvk, name)` | RBAC `system:*` ClusterRole / ClusterRoleBinding，或 `system-*` PriorityClass | 403 / `SYSTEM_PROTECTED` |
+**两类 gate**：
+
+- **静态 gate**（无 IO，cheap）—— 只看 op + GVK + ns + name
+- **动态 gate**（worker GET 一次）—— Helm-managed label、默认 StorageClass annotation；GET 失败时 swallow 错误（让真正的写操作去报真实错误，不重复失败）
+
+`op` 区分 `OpModify`（PUT / SSA Patch / StrategicMerge Patch）vs `OpDelete`，少数 gate 只对其中一种生效。
+
+**关键设计：所有 gate 都基于解析后的 GVK，不依赖 URL `:type` 段** —— `_cr` URL 可以指向任意 GVK，仅靠 `:type` 判断会被绕过（例：`_cr?group=&version=v1&kind=Node` 解析后是 Node，但 `:type=="_cr"`）。
+
+| Gate | 触发条件 | 适用 op | 返回码 |
+|---|---|---|---|
+| 硬编码只读 namespace | namespace == `kube-system` | 两者 | 403 / `NAMESPACE_PROTECTED` |
+| kpilot CRD 定义 | `apiextensions.k8s.io/v1 CRD` + `*.kpilot.io` 名 | 两者 | 403 / `CRD_PROTECTED` |
+| kpilot CR 实例 | group `kpilot.io` 或 `*.kpilot.io` | 两者 | 403 / `CRD_PROTECTED` |
+| Node 删除 | core `Node` | **仅 OpDelete** —— 编辑允许（用户能给 Node 打 label / taint） | 403 / `NODE_PROTECTED` |
+| 系统级 RBAC / PriorityClass | `system:*` ClusterRole / ClusterRoleBinding；`system-*` PriorityClass | 两者 | 403 / `SYSTEM_PROTECTED` |
+| 默认 StorageClass | annotation `storageclass.kubernetes.io/is-default-class=true` | 两者（GET StorageClass） | 403 / `DEFAULT_STORAGECLASS_PROTECTED` |
+| Helm-managed 资源 | label `app.kubernetes.io/managed-by=Helm`（GET 资源） | 两者，但 `userEditableHelmResources` 白名单的 OpModify 放行 | 403 / `MANAGED_RESOURCE` |
+
+**设计要点**：
+
+- **kube-public / kube-node-lease 没有保护**：前者本就世界可读（cluster-info），后者 lease 自动重建，保护是噪声
+- **kpilot-* namespace 不再按前缀拦**：换成 Helm-managed label 检查，覆盖更准（Volcano scheduler Deployment 在 `kpilot-scheduling` 但用户在该 ns 自建的 Secret 现在可以编辑了），漏拦更少（其它命名空间下用户自装的 Helm 插件资源也能拦住）
+- **`userEditableHelmResources` 白名单**：今天只有 `ConfigMap:volcano-scheduler-configmap` 一项 —— 算力调度的 scheduler-config 编辑器需要 SSA 写它。仅对 OpModify 放行，删除依然拒绝（删了 brick 调度器）
+- **Node 编辑放行**：以前 `isNoGenericWriteGVK` 拦了所有 Node 通用写。改成只拦删除后，用户可以 Edit YAML 给节点打调度 label（`gpu-type=A100` 等常用操作），删除依然走 kubectl
+- **默认 StorageClass 保护**：删除后所有新建 PVC 永远 Pending，比删 `cluster-admin` 还常见的 footgun —— 之前没保护，现在 GET 一次看 annotation 决定
 
 Scoped action 端点的安全模式：
 - 路径：`POST /api/v1/clusters/:id/workloads/<kind>/:name/<action>`

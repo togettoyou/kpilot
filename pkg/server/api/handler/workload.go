@@ -17,7 +17,14 @@ import (
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+	"github.com/togettoyou/kpilot/pkg/server/protect"
 )
+
+// toProtectGVK adapts the local gvkInfo to the protect package's GVK
+// so handlers don't have to rebuild the struct at every call site.
+func toProtectGVK(g gvkInfo) protect.GVK {
+	return protect.GVK{Group: g.group, Version: g.version, Kind: g.kind}
+}
 
 // writeWorkerTimeout caps mutating requests (apply / delete / patch /
 // cordon). 30s matches the worker-side write timeout — both ends give
@@ -35,45 +42,9 @@ const (
 )
 const maxBodySize = 1 << 20 // 1 MB — sufficient for any K8s manifest
 
-// protectedNamespacePrefixes lists namespace name prefixes whose
-// resources are read-only via the Workloads UI. The frontend hides
-// edit/delete buttons for these and the backend rejects writes with
-// 403 / NAMESPACE_PROTECTED.
-//
-// `kube-*` covers control-plane namespaces (kube-system, kube-public,
-// kube-node-lease). `kpilot-*` protects the namespaces our built-in
-// plugins install into (kpilot-monitoring, kpilot-logging,
-// kpilot-scheduling) so users don't accidentally `kubectl delete
-// deployment` the VictoriaMetrics / Volcano controller pod from the
-// workload list.
-var protectedNamespacePrefixes = []string{"kube-", "kpilot-"}
-
-func isProtectedNamespace(ns string) bool {
-	for _, p := range protectedNamespacePrefixes {
-		if strings.HasPrefix(ns, p) {
-			return true
-		}
-	}
-	return false
-}
-
-// writableInProtectedNamespace is a small allowlist of (kind, name)
-// pairs that are user-editable inside an otherwise read-only kpilot-*
-// namespace. Today it's just the Volcano scheduler configmap — the
-// 算力调度 platform's scheduler-config editor SSA-applies a new copy
-// of `kpilot-scheduling/volcano-scheduler-configmap` and would
-// otherwise hit "namespace is read-only".
-//
-// Strictly write-side: deletion of these resources (which would
-// brick the corresponding workload) is NOT allowed and goes through
-// the normal protected path.
-var writableInProtectedNamespace = map[string]bool{
-	"ConfigMap:volcano-scheduler-configmap": true,
-}
-
-func isWritableInProtectedNamespace(kind, name string) bool {
-	return writableInProtectedNamespace[kind+":"+name]
-}
+// Write-protection rules now live in pkg/server/protect — see that
+// package for the full ruleset. Handlers below call protect.Check()
+// once instead of running five inline if-blocks each.
 
 type gvkInfo struct {
 	group, version, kind string
@@ -152,78 +123,6 @@ var resourceGVK = map[string]gvkInfo{
 	// API extensions group — exposed under the "扩展" submenu rather
 	// than "工作负载" since these are API-shape resources, not pods.
 	"customresourcedefinitions": {"apiextensions.k8s.io", "v1", "CustomResourceDefinition"},
-}
-
-// isNoGenericWriteGVK returns true when the resolved GVK is read-only
-// via the generic /workloads/:type/:name PUT and DELETE endpoints
-// (currently: core Node, which has the dedicated /cordon endpoint).
-//
-// **Critical**: this gates on the resolved GVK rather than the URL
-// `:type` segment. The earlier `rt == "nodes"` form was bypassable
-// via the `_cr` URL — `_cr?group=&version=v1&kind=Node` resolved to
-// the same GVK but `:type="_cr"`, slipping past the gate. Always
-// reason about protection on what the request actually targets.
-//
-// Cluster-scoped infrastructure types in particular (Node) get this
-// treatment because misedits propagate fleet-wide.
-func isNoGenericWriteGVK(gvk gvkInfo) bool {
-	return gvk.group == "" && gvk.kind == "Node"
-}
-
-// isProtectedCRDDefinitionGVK returns true for CRD-definition writes
-// that target a kpilot-owned CRD (`*.kpilot.io`). Same `_cr` bypass
-// concern as `isNoGenericWriteGVK`: a request like
-// `_cr?group=apiextensions.k8s.io&kind=CustomResourceDefinition&
-// name=plugins.kpilot.io` would skip a `:type=="customresourcedefinitions"`
-// gate, so we look at the resolved GVK instead. Group is required —
-// custom resources whose Kind happens to be "CustomResourceDefinition"
-// in some other group must not collide.
-func isProtectedCRDDefinitionGVK(gvk gvkInfo, name string) bool {
-	return gvk.group == "apiextensions.k8s.io" &&
-		gvk.kind == "CustomResourceDefinition" &&
-		isProtectedCRD(name)
-}
-
-// isProtectedSystemNameGVK gates writes against cluster-scoped K8s
-// objects whose name carries the well-known `system:` (RBAC) or
-// `system-` (PriorityClass) prefix that the control plane depends on.
-// Deleting `cluster-admin` ClusterRoleBinding or
-// `system-cluster-critical` PriorityClass would break the cluster
-// silently and irrecoverably; user-created RBAC / priority classes
-// without these prefixes pass through.
-func isProtectedSystemNameGVK(gvk gvkInfo, name string) bool {
-	if gvk.group == "rbac.authorization.k8s.io" &&
-		(gvk.kind == "ClusterRole" || gvk.kind == "ClusterRoleBinding") {
-		return strings.HasPrefix(name, "system:")
-	}
-	if gvk.group == "scheduling.k8s.io" && gvk.kind == "PriorityClass" {
-		return strings.HasPrefix(name, "system-")
-	}
-	return false
-}
-
-// isProtectedCRD returns true for CRD names that kpilot itself owns —
-// deleting them via the workload UI would brick the running install
-// (e.g. removing plugins.kpilot.io leaves every ClusterPlugin row
-// pointing at a vanished kind, and the worker reconciler stops being
-// able to Watch / Reconcile anything). The same protection applies to
-// edit (Update would let a user clear schema fields and effectively
-// disable the CRD without removing the row).
-//
-// Match by group suffix rather than name list — anything we own lands
-// under *.kpilot.io, so this auto-extends as we add more kpilot CRDs.
-func isProtectedCRD(name string) bool {
-	return strings.HasSuffix(name, ".kpilot.io")
-}
-
-// isProtectedCRGroup returns true for API groups kpilot owns. CR
-// instances under these groups (e.g. `Plugin` under `kpilot.io`) are
-// reconciler-managed; users should drive them through the dedicated
-// pages (Plugins, etc.) rather than poking the CR directly via the
-// generic CR-instances viewer. Same defense-in-depth as
-// isProtectedCRD but for instances rather than the CRD definitions.
-func isProtectedCRGroup(group string) bool {
-	return group == "kpilot.io" || strings.HasSuffix(group, ".kpilot.io")
 }
 
 // resolveGVK looks up the request's GVK + resource type. Two paths:
@@ -361,41 +260,17 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		if isProtectedNamespace(namespace) &&
-			!isWritableInProtectedNamespace(gvk.kind, name) {
-			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
+		// Single protect.Check covers all gates (kube-system,
+		// kpilot.io CRDs/CRs, Node delete, system: prefixes,
+		// Helm-managed resources, default StorageClass). Some gates
+		// need a worker GET — Check tolerates lookup errors.
+		pctx, pcancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
+		if perr := protect.Check(pctx, gw, clusterID, protect.OpModify, toProtectGVK(gvk), namespace, name); perr != nil {
+			pcancel()
+			apiErr(c, perr.Status, perr.Code)
 			return
 		}
-		// kpilot-owned CRDs are read-only — editing one would clear the
-		// schema and brick the corresponding controller. Gate on GVK so
-		// `_cr?group=apiextensions.k8s.io&kind=CRD&name=plugins.kpilot.io`
-		// can't bypass.
-		if isProtectedCRDDefinitionGVK(gvk, name) {
-			apiErr(c, http.StatusForbidden, CodeCRDProtected)
-			return
-		}
-		// CR instances under kpilot.io groups are reconciler-managed —
-		// the user should drive them through the dedicated UI (Plugins
-		// page etc.), not the generic CR viewer. Group check is the
-		// authoritative one (works for both `:type=_cr` and any future
-		// builtin path with a kpilot.io kind).
-		if isProtectedCRGroup(gvk.group) {
-			apiErr(c, http.StatusForbidden, CodeCRDProtected)
-			return
-		}
-		// Node has a scoped /cordon endpoint; the generic Edit-YAML PUT
-		// path is closed off so the only way to mutate Node spec via the
-		// UI is through the constrained patch.
-		if isNoGenericWriteGVK(gvk) {
-			apiErr(c, http.StatusForbidden, CodeNodeProtected)
-			return
-		}
-		// system:* RBAC and system-* PriorityClass are control-plane
-		// load-bearing — block edits to keep the cluster usable.
-		if isProtectedSystemNameGVK(gvk, name) {
-			apiErr(c, http.StatusForbidden, CodeSystemProtected)
-			return
-		}
+		pcancel()
 
 		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBodySize))
 		if err != nil || len(body) == 0 {
@@ -551,11 +426,24 @@ func parseYAMLDocs(body []byte) ([]*unstructured.Unstructured, error) {
 }
 
 // validateDoc populates ApplyYamlResult.{Index,Kind,Namespace,Name} from
-// the unstructured object and runs the basic guards (kind/version present,
-// name present, namespace not in the read-only kube-* / kpilot-* set).
-// Returns (result, ok) — when ok is false the result already carries the
-// reason in .Error and the caller should append it directly.
-func validateDoc(idx int, obj *unstructured.Unstructured) (ApplyYamlResult, bool) {
+// the unstructured object and runs the basic shape guards plus the
+// shared protect.Check gates. The op argument is propagated from the
+// caller (applyOneDoc passes OpModify, deleteOneDoc OpDelete) so a
+// resource on the volcano-scheduler-configmap allowlist can pass an
+// Apply YAML doc through but still get rejected on bulk Delete.
+//
+// Returns (result, ok) — when ok is false the result already carries
+// the reason in .Error and the caller should append it directly.
+// Lookup-based gates may make a worker GET round-trip per doc; for
+// typical YAML batches (5-20 docs) the latency is negligible.
+func validateDoc(
+	ctx context.Context,
+	gw *gateway.GatewayServer,
+	clusterID string,
+	idx int,
+	obj *unstructured.Unstructured,
+	op protect.Op,
+) (ApplyYamlResult, bool) {
 	gvk := obj.GroupVersionKind()
 	r := ApplyYamlResult{
 		Index:     idx,
@@ -571,42 +459,49 @@ func validateDoc(idx int, obj *unstructured.Unstructured) (ApplyYamlResult, bool
 		r.Error = "missing metadata.name"
 		return r, false
 	}
-	if isProtectedNamespace(r.Namespace) &&
-		!isWritableInProtectedNamespace(gvk.Kind, r.Name) {
-		r.Error = "namespace " + r.Namespace + " is read-only"
-		return r, false
-	}
-	// All write protections gate on the resolved GVK (apiVersion + kind
-	// from the unstructured doc), never on the URL :type — same
-	// principle as the per-row handlers. (gvk declared above.)
-	if isProtectedCRDDefinitionGVK(gvkInfo{group: gvk.Group, version: gvk.Version, kind: gvk.Kind}, r.Name) {
-		r.Error = "CRD " + r.Name + " is owned by kpilot and read-only"
-		return r, false
-	}
-	// CR instances under kpilot.io groups (Plugin etc.) are
-	// reconciler-managed; per-row handlers reject them too.
-	if isProtectedCRGroup(gvk.Group) {
-		r.Error = r.Kind + "." + gvk.Group +
-			" is owned by kpilot and read-only"
-		return r, false
-	}
-	// Node: scoped /cordon endpoint is the only mutation path.
-	if isNoGenericWriteGVK(gvkInfo{group: gvk.Group, version: gvk.Version, kind: gvk.Kind}) {
-		r.Error = "Node is read-only via Apply YAML; use the cordon button"
-		return r, false
-	}
-	// system:* RBAC / system-* PriorityClass are control-plane load-
-	// bearing; block them from the bulk YAML path the same way per-
-	// row PUT/DELETE do.
-	if isProtectedSystemNameGVK(gvkInfo{group: gvk.Group, version: gvk.Version, kind: gvk.Kind}, r.Name) {
-		r.Error = r.Kind + " " + r.Name + " is a system-reserved resource and is read-only"
+	if perr := protect.Check(ctx, gw, clusterID, op, protect.GVK{
+		Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind,
+	}, r.Namespace, r.Name); perr != nil {
+		// Render a per-doc reason. Use the message from protect when
+		// supplied (managed-resource gate carries one); otherwise
+		// translate the code into a short human string for the
+		// per-doc result row.
+		if perr.Message != "" {
+			r.Error = perr.Message
+		} else {
+			r.Error = describeProtectErr(perr.Code, gvk.Group, gvk.Kind, r.Name, r.Namespace)
+		}
 		return r, false
 	}
 	return r, true
 }
 
+// describeProtectErr renders a per-doc rejection reason for the bulk
+// YAML response when protect.Check didn't supply its own message.
+// The static gates all return code-only Errs; this function fills in
+// the kind / name / namespace context the per-doc UI needs.
+func describeProtectErr(code, group, kind, name, namespace string) string {
+	switch code {
+	case protect.CodeNamespaceProtected:
+		return "namespace " + namespace + " is read-only"
+	case protect.CodeCRDProtected:
+		if kind == "CustomResourceDefinition" {
+			return "CRD " + name + " is owned by kpilot and read-only"
+		}
+		return kind + "." + group + " is owned by kpilot and read-only"
+	case protect.CodeNodeProtected:
+		return "Node is read-only via Apply YAML; use the cordon button"
+	case protect.CodeSystemProtected:
+		return kind + " " + name + " is a system-reserved resource and is read-only"
+	case protect.CodeDefaultStorageClassProtected:
+		return "StorageClass " + name + " is the default and is read-only"
+	default:
+		return code
+	}
+}
+
 func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID string, idx int, obj *unstructured.Unstructured) ApplyYamlResult {
-	r, ok := validateDoc(idx, obj)
+	r, ok := validateDoc(ctx, gw, clusterID, idx, obj, protect.OpModify)
 	if !ok {
 		return r
 	}
@@ -647,7 +542,7 @@ func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID strin
 // not sent — `kubectl delete -f` only needs the doc's identity (GVK +
 // namespace + name), not its spec/status.
 func deleteOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID string, idx int, obj *unstructured.Unstructured) ApplyYamlResult {
-	r, ok := validateDoc(idx, obj)
+	r, ok := validateDoc(ctx, gw, clusterID, idx, obj, protect.OpDelete)
 	if !ok {
 		return r
 	}
@@ -730,30 +625,17 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		if isProtectedNamespace(namespace) {
-			apiErr(c, http.StatusForbidden, CodeNamespaceProtected)
+		// Single protect.Check covers all gates. Note OpDelete: Node
+		// is in the rejection set here even though it's allowed for
+		// edit, and the volcano-scheduler-configmap allowlist does
+		// NOT apply (delete bricks the scheduler).
+		pctx, pcancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
+		if perr := protect.Check(pctx, gw, clusterID, protect.OpDelete, toProtectGVK(gvk), namespace, name); perr != nil {
+			pcancel()
+			apiErr(c, perr.Status, perr.Code)
 			return
 		}
-		// All gates here mirror ApplyWorkload — see the comments there
-		// for why we check resolved GVK rather than the URL `:type`.
-		if isProtectedCRDDefinitionGVK(gvk, name) {
-			apiErr(c, http.StatusForbidden, CodeCRDProtected)
-			return
-		}
-		if isProtectedCRGroup(gvk.group) {
-			apiErr(c, http.StatusForbidden, CodeCRDProtected)
-			return
-		}
-		// Node has no generic delete via this endpoint — drain + remove
-		// is a multi-step admin op, not an Edit-YAML-adjacent button.
-		if isNoGenericWriteGVK(gvk) {
-			apiErr(c, http.StatusForbidden, CodeNodeProtected)
-			return
-		}
-		if isProtectedSystemNameGVK(gvk, name) {
-			apiErr(c, http.StatusForbidden, CodeSystemProtected)
-			return
-		}
+		pcancel()
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
 		defer cancel()
