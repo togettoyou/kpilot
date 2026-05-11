@@ -930,11 +930,6 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
     desc: '让 Volcano 调度器尊重 K8s 原生 ResourceQuota；和 Volcano queue 配额并行起作用。',
     callbacks: ['enableJobEnqueued'],
   },
-  podgroup: {
-    label: 'podgroup',
-    desc: '处理 PodGroup 状态机的内置插件（一般无需手动加，gang 已经覆盖大部分场景）。',
-    callbacks: [],
-  },
   pdb: {
     label: 'pdb',
     desc: '尊重 K8s PodDisruptionBudget：抢占 / 回收时不破坏 PDB 约束。',
