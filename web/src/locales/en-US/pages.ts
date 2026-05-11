@@ -138,6 +138,23 @@ export default {
   'pages.compute.scheduler.notFound.subtitle':
     'Could not find volcano-scheduler-configmap in namespace "{ns}". Make sure the Volcano plugin is enabled.',
   'pages.compute.scheduler.tier': 'Tier {n}',
+  'pages.compute.scheduler.noPluginsInTier':
+    'No plugins in this tier. Click "Add plugin" below to add one.',
+  'pages.compute.scheduler.addPlugin': 'Add plugin',
+  'pages.compute.scheduler.add': 'Add',
+  'pages.compute.scheduler.plugin.args': 'Plugin arguments',
+  'pages.compute.scheduler.plugin.enables': 'Advanced switches (25 callbacks)',
+  'pages.compute.scheduler.plugin.extras': 'Other fields',
+  'pages.compute.scheduler.plugin.extras.hint':
+    'The following keys are outside KPilot\'s known schema and are preserved as-is. Switch to the YAML view to edit them.',
+  'pages.compute.scheduler.configurations': 'Action configurations',
+  'pages.compute.scheduler.configurations.tip':
+    'Some actions accept extra arguments — allocate/preempt/reclaim/backfill take predicateErrorCacheEnable, and preempt has topology-aware preemption knobs. Only actions currently in the Actions list with defined arguments are shown.',
+  'pages.compute.scheduler.metrics': 'Metrics',
+  'pages.compute.scheduler.metrics.tip':
+    'Volcano scheduler\'s own metrics-reporting config. Common keys: type (prometheus / otel), address, interval. Leave empty to use Volcano defaults.',
+  'pages.compute.scheduler.metrics.add': 'Add',
+  'pages.compute.scheduler.metrics.empty': 'No custom metrics config',
 
   // Shared: result-truncated banner for list endpoints
   'pages.compute.list.truncated':

@@ -139,6 +139,23 @@ export default {
   'pages.compute.scheduler.notFound.subtitle':
     '在命名空间「{ns}」下未找到 volcano-scheduler-configmap。请确认 Volcano 插件已启用。',
   'pages.compute.scheduler.tier': 'Tier {n}',
+  'pages.compute.scheduler.noPluginsInTier':
+    '本 tier 暂无插件。点下方「添加插件」加入一个。',
+  'pages.compute.scheduler.addPlugin': '添加插件',
+  'pages.compute.scheduler.add': '添加',
+  'pages.compute.scheduler.plugin.args': '插件参数 (arguments)',
+  'pages.compute.scheduler.plugin.enables': '高级开关 (25 个 callback)',
+  'pages.compute.scheduler.plugin.extras': '其他字段',
+  'pages.compute.scheduler.plugin.extras.hint':
+    '以下字段不在 KPilot 已识别的 schema 中，已保留原值；如需编辑请切换到 YAML 视图。',
+  'pages.compute.scheduler.configurations': '调度阶段参数 (configurations)',
+  'pages.compute.scheduler.configurations.tip':
+    '某些 action 接受额外参数 —— 例如 allocate / preempt / reclaim / backfill 都有 predicateErrorCacheEnable，preempt 还支持拓扑感知抢占的相关参数。仅展示当前 actions 列表里有自定义参数的阶段。',
+  'pages.compute.scheduler.metrics': '监控上报 (metrics)',
+  'pages.compute.scheduler.metrics.tip':
+    'Volcano 调度器自带的 metrics 上报配置。常见 key 例如 type (prometheus / otel)、address、interval。留空走 Volcano 默认。',
+  'pages.compute.scheduler.metrics.add': '添加',
+  'pages.compute.scheduler.metrics.empty': '未配置自定义 metrics 上报',
 
   // 共享文案：list 端点的截断提示
   'pages.compute.list.truncated':

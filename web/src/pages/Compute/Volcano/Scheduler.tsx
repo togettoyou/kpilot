@@ -1,4 +1,7 @@
 import {
+  CaretDownOutlined,
+  CaretUpOutlined,
+  DeleteOutlined,
   EditOutlined,
   InfoCircleOutlined,
   MinusCircleOutlined,
@@ -14,7 +17,11 @@ import {
   Card,
   Collapse,
   Empty,
+  Input,
+  InputNumber,
+  Radio,
   Result,
+  Segmented,
   Select,
   Space,
   Spin,
@@ -30,21 +37,31 @@ import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import { listClusterPlugins } from '@/services/kpilot/plugin';
 import { applyManifest } from '@/services/kpilot/volcano';
 import { getWorkload } from '@/services/kpilot/workload';
-import { NotInstalled } from './shared/Layout';
 import {
   ACTION_NAMES,
   ACTIONS_META,
+  type ArgSpec,
+  ENABLE_FIELDS,
+  knownPluginKeys,
   metaForAction,
   metaForPlugin,
   PLUGIN_NAMES,
   PLUGINS_META,
 } from './schedulerMeta';
+import { NotInstalled } from './shared/Layout';
 
 const { Text, Paragraph } = Typography;
+
+// ─── Types — mirror volcano-scheduler.conf YAML shape ──────────────────
 
 interface SchedulerConf {
   actions?: string;
   tiers?: TierEntry[];
+  configurations?: ConfigurationEntry[];
+  metrics?: Record<string, string>;
+  // Preserve anything else so users with unusual setups don't lose
+  // fields when saving from the form view.
+  [k: string]: unknown;
 }
 
 interface TierEntry {
@@ -53,36 +70,31 @@ interface TierEntry {
 
 interface PluginEntry {
   name?: string;
-  // Plugin args are open-ended; preserved as-is on round-trip so the
-  // YAML view can edit `enablePreemptable`, `priorityClassNames`,
-  // etc. The form view treats plugins as just-a-name; users who
-  // want to set plugin args drop into the YAML tab.
+  // The 25 generic Enabled* booleans live at this level (NOT under
+  // arguments). They're *bool in Go, so we preserve undefined ≠ false.
+  // Plugin-specific args live under .arguments map. Other top-level
+  // keys (unknown to us) are preserved as-is.
+  arguments?: Record<string, unknown>;
   [k: string]: unknown;
 }
 
+interface ConfigurationEntry {
+  name?: string;
+  arguments?: Record<string, unknown>;
+}
+
+// ─── Main component ────────────────────────────────────────────────────
+
 // VolcanoSchedulerPage renders the scheduler's runtime config from
-// volcano-scheduler-configmap, with two views the user can switch
-// between freely:
-//
-//   - 表单 view: action multi-select + per-tier plugin chips, every
-//     entry annotated with a one-line "what does this knob do"
-//     tooltip and a beginner-friendly help section at the bottom.
-//   - YAML view: full edit of the configmap's volcano-scheduler.conf
-//     key, for plugin args / hand-tuning that the form doesn't
-//     surface.
-//
-// Saving SSA-applies a new ConfigMap manifest with the rebuilt
-// volcano-scheduler.conf string. Volcano scheduler watches the
-// configmap and reloads automatically.
+// volcano-scheduler-configmap with two views (form / YAML), edit
+// mode, and SSA save. The form view auto-generates typed inputs per
+// the schema in schedulerMeta.ts, including all 25 Enabled* toggles
+// and per-plugin typed arguments.
 export default function VolcanoSchedulerPage() {
   const intl = useIntl();
   const { message } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
 
-  // Per-cluster plugin status, NOT the global registry. The global
-  // registry always lists Volcano (it's a built-in), so a check against
-  // it can't tell us whether *this* cluster has Volcano enabled and
-  // running — which is what gates the configmap fetch below.
   const plugins = useRequest(() => listClusterPlugins(clusterId!), {
     formatResult: (res) => res,
     ready: !!clusterId,
@@ -91,14 +103,9 @@ export default function VolcanoSchedulerPage() {
   const volcanoEntry = useMemo(() => {
     return plugins.data?.find((p) => p.plugin.name === 'volcano');
   }, [plugins.data]);
-  const volcanoNs =
-    volcanoEntry?.plugin.default_release_namespace ?? null;
+  const volcanoNs = volcanoEntry?.plugin.default_release_namespace ?? null;
   const volcanoReady = volcanoEntry?.phase === 'Running';
 
-  // Only fetch the scheduler configmap once we know Volcano is actually
-  // running on this cluster. Otherwise the request fails with a K8s
-  // "configmaps ... not found" that the global error handler would toast,
-  // even though the page already renders <NotInstalled> for this case.
   const cm = useRequest(
     () =>
       getWorkload(
@@ -114,9 +121,6 @@ export default function VolcanoSchedulerPage() {
     },
   );
 
-  // Editable state: draft is the canonical SchedulerConf we mutate
-  // from form events; yamlText is the same content as YAML for the
-  // YAML view. They sync on tab switch.
   const [view, setView] = useState<'form' | 'yaml'>('form');
   const [draft, setDraft] = useState<SchedulerConf>({
     actions: '',
@@ -125,13 +129,8 @@ export default function VolcanoSchedulerPage() {
   const [yamlText, setYamlText] = useState('');
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // Read-only by default: the page lands as a config inspector. The
-  // user clicks 编辑 to enter edit mode (which surfaces save / cancel
-  // and unlocks form inputs + the YAML editor). Cancel reverts to
-  // the last fetched snapshot.
   const [editing, setEditing] = useState(false);
 
-  // Re-seed draft + yamlText whenever a fresh configmap arrives.
   useEffect(() => {
     if (!cm.data) return;
     const obj: any = cm.data;
@@ -144,9 +143,9 @@ export default function VolcanoSchedulerPage() {
       try {
         parsed = (yaml.load(text) as SchedulerConf) ?? parsed;
       } catch {
-        // bad config in cluster; surface as parse error in form view
-        // by leaving draft empty. yamlText still gets the raw text
-        // so the user can fix it from the YAML tab.
+        // Bad config in cluster; surface as parse error in form view
+        // by leaving draft empty. yamlText still gets raw text so
+        // the user can fix it from the YAML tab.
       }
     }
     setDraft(parsed);
@@ -157,8 +156,6 @@ export default function VolcanoSchedulerPage() {
   }, [cm.data]);
 
   const cancelEdit = () => {
-    // Revert to the last fetched snapshot — re-runs the same effect
-    // body as the cm.data load above.
     const obj: any = cm.data;
     const text =
       obj?.data?.['volcano-scheduler.conf'] ??
@@ -182,7 +179,7 @@ export default function VolcanoSchedulerPage() {
     if (next === view) return;
     if (next === 'yaml') {
       try {
-        setYamlText(yaml.dump(draft));
+        setYamlText(yaml.dump(stripEmpty(draft)));
         setYamlError(null);
         setView('yaml');
       } catch (e: any) {
@@ -205,12 +202,7 @@ export default function VolcanoSchedulerPage() {
 
   const save = async () => {
     if (!cm.data || !volcanoNs) return;
-    // If the user is in YAML view, take the raw text as-is so plugin
-    // args / formatting they typed survive intact. Form view dumps
-    // from draft.
-    const text = view === 'yaml' ? yamlText : yaml.dump(draft);
-    // Validate the YAML before shipping; an unparseable conf would
-    // break the running scheduler.
+    const text = view === 'yaml' ? yamlText : yaml.dump(stripEmpty(draft));
     try {
       yaml.load(text);
     } catch (e: any) {
@@ -258,11 +250,6 @@ export default function VolcanoSchedulerPage() {
     );
   }
 
-  // Same NotInstalled state the 5 CR pages render. Covers all
-  // not-actually-running cases on this cluster: not in registry,
-  // never enabled, mid-install (Pending/Installing), Uninstalling,
-  // and Failed — pointing the user at the per-cluster Plugins page
-  // is the right next step in every one of those.
   if (plugins.data && !volcanoReady) {
     return clusterId ? <NotInstalled clusterId={clusterId} /> : null;
   }
@@ -302,9 +289,6 @@ export default function VolcanoSchedulerPage() {
         {intl.formatMessage({ id: 'pages.compute.scheduler.intro' })}
       </Paragraph>
 
-      {/* Help section sits above the editor — small users land here
-          looking for a reference, so the cheatsheet should be the
-          first thing they can crack open. */}
       <HelpSection />
 
       <Tabs
@@ -391,7 +375,7 @@ export default function VolcanoSchedulerPage() {
   );
 }
 
-// ─── Form view ──────────────────────────────────────────────────────────
+// ─── Form view shell ───────────────────────────────────────────────────
 
 function FormView({
   draft,
@@ -413,201 +397,971 @@ function FormView({
   );
   const tiers = draft.tiers ?? [];
 
-  const setActions = (next: string[]) => {
+  const setActions = (next: string[]) =>
     onChange({ ...draft, actions: next.join(', ') });
-  };
-  const setTiers = (next: TierEntry[]) => {
-    onChange({ ...draft, tiers: next });
-  };
-  const addTier = () => setTiers([...tiers, { plugins: [] }]);
-  const removeTier = (i: number) =>
-    setTiers(tiers.filter((_, idx) => idx !== i));
-  const setTierPlugins = (i: number, names: string[]) => {
-    // Preserve plugin args when the user keeps a plugin selected;
-    // drop entries the user removed from the multi-select; treat
-    // newly-added names as { name } only (args left to the YAML
-    // tab if needed).
-    const current = tiers[i]?.plugins ?? [];
-    const byName = new Map(current.filter((p) => p.name).map((p) => [p.name!, p]));
-    const nextPlugins: PluginEntry[] = names.map(
-      (n) => byName.get(n) ?? ({ name: n } as PluginEntry),
-    );
-    setTiers(tiers.map((t, idx) => (idx === i ? { plugins: nextPlugins } : t)));
-  };
+  const setTiers = (next: TierEntry[]) => onChange({ ...draft, tiers: next });
+  const setConfigurations = (next: ConfigurationEntry[]) =>
+    onChange({ ...draft, configurations: next });
+  const setMetrics = (next: Record<string, string> | undefined) =>
+    onChange({ ...draft, metrics: next });
 
   return (
     <>
-      <Card
-        size="small"
-        title={
-          <Space>
-            <span>
-              {intl.formatMessage({ id: 'pages.compute.scheduler.actions' })}
-            </span>
-            <Tooltip
-              title={intl.formatMessage({
-                id: 'pages.compute.scheduler.actions.tip',
-              })}
-            >
-              <InfoCircleOutlined style={{ color: '#999' }} />
-            </Tooltip>
-          </Space>
-        }
-        style={{ marginBottom: 12 }}
-      >
-        <Select
-          mode="multiple"
-          value={actions}
-          onChange={setActions}
-          disabled={!editable}
-          style={{ width: '100%' }}
-          placeholder={intl.formatMessage({
-            id: 'pages.compute.scheduler.actions.placeholder',
-          })}
-          options={ACTION_NAMES.map((n) => ({
-            label: <ActionOption name={n} />,
-            value: n,
-          }))}
-          optionLabelProp="value"
-          tagRender={(props) => (
-            <Tooltip title={metaForAction(props.value as string).desc}>
-              <Tag
-                color="blue"
-                closable={editable && props.closable}
-                onClose={props.onClose}
-                style={{ marginInlineEnd: 6, marginBlock: 2 }}
-              >
-                {props.value}
-              </Tag>
-            </Tooltip>
-          )}
-        />
-      </Card>
-
-      <Card
-        size="small"
-        title={
-          <Space>
-            <span>
-              {intl.formatMessage({ id: 'pages.compute.scheduler.tiers' })}
-            </span>
-            <Tooltip
-              title={intl.formatMessage({
-                id: 'pages.compute.scheduler.tiers.tip',
-              })}
-            >
-              <InfoCircleOutlined style={{ color: '#999' }} />
-            </Tooltip>
-          </Space>
-        }
-        extra={
-          editable ? (
-            <Button
-              type="link"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={addTier}
-            >
-              {intl.formatMessage({ id: 'pages.compute.scheduler.addTier' })}
-            </Button>
-          ) : null
-        }
-      >
-        {tiers.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={intl.formatMessage({
-              id: 'pages.compute.scheduler.noTiers',
-            })}
-          />
-        ) : (
-          tiers.map((tier, i) => {
-            const names = (tier.plugins ?? [])
-              .map((p) => p.name ?? '')
-              .filter(Boolean);
-            return (
-              <Card
-                key={i}
-                size="small"
-                type="inner"
-                title={intl.formatMessage(
-                  { id: 'pages.compute.scheduler.tier' },
-                  { n: i + 1 },
-                )}
-                style={{ marginBottom: 8 }}
-                extra={
-                  editable ? (
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<MinusCircleOutlined />}
-                      onClick={() => removeTier(i)}
-                    />
-                  ) : null
-                }
-              >
-                <Select
-                  mode="multiple"
-                  value={names}
-                  onChange={(next) => setTierPlugins(i, next as string[])}
-                  disabled={!editable}
-                  style={{ width: '100%' }}
-                  placeholder={intl.formatMessage({
-                    id: 'pages.compute.scheduler.plugins.placeholder',
-                  })}
-                  options={PLUGIN_NAMES.map((n) => ({
-                    label: <PluginOption name={n} />,
-                    value: n,
-                  }))}
-                  optionLabelProp="value"
-                  tagRender={(props) => (
-                    <Tooltip title={metaForPlugin(props.value as string).desc}>
-                      <Tag
-                        color="green"
-                        closable={editable && props.closable}
-                        onClose={props.onClose}
-                        style={{ marginInlineEnd: 6, marginBlock: 2 }}
-                      >
-                        {props.value}
-                      </Tag>
-                    </Tooltip>
-                  )}
-                />
-              </Card>
-            );
-          })
-        )}
-      </Card>
+      <ActionsCard
+        actions={actions}
+        onChange={setActions}
+        editable={editable}
+      />
+      <ConfigurationsCard
+        actions={actions}
+        configurations={draft.configurations ?? []}
+        onChange={setConfigurations}
+        editable={editable}
+      />
+      <TiersCard
+        tiers={tiers}
+        onChange={setTiers}
+        editable={editable}
+        intl={intl}
+      />
+      <MetricsCard
+        metrics={draft.metrics}
+        onChange={setMetrics}
+        editable={editable}
+      />
     </>
   );
 }
 
-function ActionOption({ name }: { name: string }) {
-  const m = metaForAction(name);
+// ─── Actions card ──────────────────────────────────────────────────────
+
+function ActionsCard({
+  actions,
+  onChange,
+  editable,
+}: {
+  actions: string[];
+  onChange: (next: string[]) => void;
+  editable: boolean;
+}) {
+  const intl = useIntl();
   return (
-    <div style={{ paddingBlock: 2 }}>
-      <div style={{ fontWeight: 500 }}>{m.label}</div>
-      <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}>
-        {m.desc}
-      </div>
+    <Card
+      size="small"
+      title={
+        <Space>
+          <span>
+            {intl.formatMessage({ id: 'pages.compute.scheduler.actions' })}
+          </span>
+          <Tooltip
+            title={intl.formatMessage({
+              id: 'pages.compute.scheduler.actions.tip',
+            })}
+          >
+            <InfoCircleOutlined style={{ color: '#999' }} />
+          </Tooltip>
+        </Space>
+      }
+      style={{ marginBottom: 12 }}
+    >
+      <Select
+        mode="multiple"
+        value={actions}
+        onChange={onChange}
+        disabled={!editable}
+        style={{ width: '100%' }}
+        placeholder={intl.formatMessage({
+          id: 'pages.compute.scheduler.actions.placeholder',
+        })}
+        options={ACTION_NAMES.map((n) => ({
+          label: <ActionOption name={n} />,
+          value: n,
+        }))}
+        optionLabelProp="value"
+        tagRender={(props) => (
+          <Tooltip title={metaForAction(props.value as string).desc}>
+            <Tag
+              color="blue"
+              closable={editable && props.closable}
+              onClose={props.onClose}
+              style={{ marginInlineEnd: 6, marginBlock: 2 }}
+            >
+              {props.value}
+            </Tag>
+          </Tooltip>
+        )}
+      />
+    </Card>
+  );
+}
+
+// ─── Configurations (action args) card ─────────────────────────────────
+
+function ConfigurationsCard({
+  actions,
+  configurations,
+  onChange,
+  editable,
+}: {
+  actions: string[];
+  configurations: ConfigurationEntry[];
+  onChange: (next: ConfigurationEntry[]) => void;
+  editable: boolean;
+}) {
+  const intl = useIntl();
+  // Only render rows for actions that (a) are currently in the
+  // actions list and (b) have at least one ArgSpec in metadata.
+  // Volcano accepts configurations[].name without matching a current
+  // action, but the UI shouldn't tempt users into orphan entries.
+  const eligibleActions = actions.filter((a) => ACTIONS_META[a]?.args?.length);
+
+  // For lookups; we still preserve raw entries through round-trip.
+  const byName = new Map<string, ConfigurationEntry>(
+    configurations.filter((c) => c.name).map((c) => [c.name!, c]),
+  );
+
+  const setEntry = (name: string, next: ConfigurationEntry | null) => {
+    let updated = configurations.filter((c) => c.name !== name);
+    if (next) updated = [...updated, { ...next, name }];
+    onChange(updated);
+  };
+
+  if (eligibleActions.length === 0) return null;
+
+  return (
+    <Card
+      size="small"
+      title={
+        <Space>
+          <span>
+            {intl.formatMessage({
+              id: 'pages.compute.scheduler.configurations',
+            })}
+          </span>
+          <Tooltip
+            title={intl.formatMessage({
+              id: 'pages.compute.scheduler.configurations.tip',
+            })}
+          >
+            <InfoCircleOutlined style={{ color: '#999' }} />
+          </Tooltip>
+        </Space>
+      }
+      style={{ marginBottom: 12 }}
+    >
+      <Collapse
+        size="small"
+        items={eligibleActions.map((a) => {
+          const meta = metaForAction(a);
+          const entry = byName.get(a) ?? { name: a, arguments: {} };
+          const args = entry.arguments ?? {};
+          return {
+            key: a,
+            label: (
+              <Space>
+                <Tag color="blue">{a}</Tag>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {meta.desc}
+                </Text>
+              </Space>
+            ),
+            children: (
+              <ArgsFormSection
+                specs={meta.args ?? []}
+                values={args}
+                onChange={(nextArgs) =>
+                  setEntry(a, { name: a, arguments: nextArgs })
+                }
+                editable={editable}
+              />
+            ),
+          };
+        })}
+      />
+    </Card>
+  );
+}
+
+// ─── Tiers ─────────────────────────────────────────────────────────────
+
+function TiersCard({
+  tiers,
+  onChange,
+  editable,
+  intl,
+}: {
+  tiers: TierEntry[];
+  onChange: (next: TierEntry[]) => void;
+  editable: boolean;
+  intl: ReturnType<typeof useIntl>;
+}) {
+  const addTier = () => onChange([...tiers, { plugins: [] }]);
+  const removeTier = (i: number) =>
+    onChange(tiers.filter((_, idx) => idx !== i));
+  const setTierPlugins = (i: number, plugins: PluginEntry[]) =>
+    onChange(tiers.map((t, idx) => (idx === i ? { plugins } : t)));
+
+  return (
+    <Card
+      size="small"
+      title={
+        <Space>
+          <span>
+            {intl.formatMessage({ id: 'pages.compute.scheduler.tiers' })}
+          </span>
+          <Tooltip
+            title={intl.formatMessage({
+              id: 'pages.compute.scheduler.tiers.tip',
+            })}
+          >
+            <InfoCircleOutlined style={{ color: '#999' }} />
+          </Tooltip>
+        </Space>
+      }
+      extra={
+        editable ? (
+          <Button
+            type="link"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={addTier}
+          >
+            {intl.formatMessage({ id: 'pages.compute.scheduler.addTier' })}
+          </Button>
+        ) : null
+      }
+      style={{ marginBottom: 12 }}
+    >
+      {tiers.length === 0 ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={intl.formatMessage({
+            id: 'pages.compute.scheduler.noTiers',
+          })}
+        />
+      ) : (
+        tiers.map((tier, i) => (
+          <TierCard
+            key={i}
+            index={i}
+            plugins={tier.plugins ?? []}
+            onChange={(next) => setTierPlugins(i, next)}
+            onRemove={() => removeTier(i)}
+            editable={editable}
+          />
+        ))
+      )}
+    </Card>
+  );
+}
+
+function TierCard({
+  index,
+  plugins,
+  onChange,
+  onRemove,
+  editable,
+}: {
+  index: number;
+  plugins: PluginEntry[];
+  onChange: (next: PluginEntry[]) => void;
+  onRemove: () => void;
+  editable: boolean;
+}) {
+  const intl = useIntl();
+  const [addOpen, setAddOpen] = useState(false);
+  const [addName, setAddName] = useState<string | undefined>(undefined);
+
+  const updatePlugin = (i: number, next: PluginEntry) =>
+    onChange(plugins.map((p, idx) => (idx === i ? next : p)));
+  const removePlugin = (i: number) =>
+    onChange(plugins.filter((_, idx) => idx !== i));
+  const movePlugin = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= plugins.length) return;
+    const next = [...plugins];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  const addPlugin = () => {
+    if (!addName) return;
+    onChange([...plugins, { name: addName }]);
+    setAddName(undefined);
+    setAddOpen(false);
+  };
+
+  // Names already in this tier — disable in the Add picker so users
+  // don't add the same plugin twice within one tier (Volcano accepts
+  // it but it's almost always a config error).
+  const usedNames = new Set(plugins.map((p) => p.name).filter(Boolean));
+
+  return (
+    <Card
+      size="small"
+      type="inner"
+      title={intl.formatMessage(
+        { id: 'pages.compute.scheduler.tier' },
+        { n: index + 1 },
+      )}
+      style={{ marginBottom: 8 }}
+      extra={
+        editable ? (
+          <Button
+            type="text"
+            size="small"
+            danger
+            icon={<MinusCircleOutlined />}
+            onClick={onRemove}
+          />
+        ) : null
+      }
+    >
+      {plugins.length === 0 ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={intl.formatMessage({
+            id: 'pages.compute.scheduler.noPluginsInTier',
+          })}
+        />
+      ) : (
+        plugins.map((p, i) => (
+          <PluginCard
+            key={`${p.name ?? '_'}-${i}`}
+            entry={p}
+            onChange={(next) => updatePlugin(i, next)}
+            onMoveUp={i > 0 ? () => movePlugin(i, -1) : undefined}
+            onMoveDown={
+              i < plugins.length - 1 ? () => movePlugin(i, 1) : undefined
+            }
+            onRemove={() => removePlugin(i)}
+            editable={editable}
+          />
+        ))
+      )}
+
+      {editable && (
+        <div style={{ marginTop: 8 }}>
+          {addOpen ? (
+            <Space.Compact style={{ width: '100%' }}>
+              <Select
+                showSearch
+                placeholder={intl.formatMessage({
+                  id: 'pages.compute.scheduler.plugins.placeholder',
+                })}
+                value={addName}
+                onChange={setAddName}
+                style={{ width: '100%' }}
+                options={PLUGIN_NAMES.filter((n) => !usedNames.has(n)).map(
+                  (n) => ({ label: <PluginOption name={n} />, value: n }),
+                )}
+                optionLabelProp="value"
+              />
+              <Button type="primary" onClick={addPlugin} disabled={!addName}>
+                {intl.formatMessage({ id: 'pages.compute.scheduler.add' })}
+              </Button>
+              <Button
+                onClick={() => {
+                  setAddOpen(false);
+                  setAddName(undefined);
+                }}
+              >
+                {intl.formatMessage({ id: 'pages.workloads.cancel' })}
+              </Button>
+            </Space.Compact>
+          ) : (
+            <Button
+              type="dashed"
+              icon={<PlusOutlined />}
+              onClick={() => setAddOpen(true)}
+              block
+            >
+              {intl.formatMessage({ id: 'pages.compute.scheduler.addPlugin' })}
+            </Button>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Plugin card ───────────────────────────────────────────────────────
+
+function PluginCard({
+  entry,
+  onChange,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+  editable,
+}: {
+  entry: PluginEntry;
+  onChange: (next: PluginEntry) => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  onRemove: () => void;
+  editable: boolean;
+}) {
+  const intl = useIntl();
+  const name = entry.name ?? '';
+  const meta = metaForPlugin(name);
+  const args = (entry.arguments ?? {}) as Record<string, unknown>;
+
+  const setArgs = (next: Record<string, unknown>) => {
+    if (Object.keys(next).length === 0) {
+      const { arguments: _omit, ...rest } = entry;
+      onChange(rest);
+    } else {
+      onChange({ ...entry, arguments: next });
+    }
+  };
+
+  const setEnable = (key: string, value: boolean | undefined) => {
+    const next = { ...entry };
+    if (value === undefined) delete next[key];
+    else next[key] = value;
+    onChange(next);
+  };
+
+  // Bucket the top-level keys of the entry: known enables vs unknown
+  // extras. We render unknown extras as a small read-only list with a
+  // hint so they survive round-trip without surprising the user.
+  const known = knownPluginKeys(name);
+  const unknownTopLevel: [string, unknown][] = Object.entries(entry).filter(
+    ([k]) => !known.has(k),
+  );
+  const setEnabledCount = ENABLE_FIELDS.filter(
+    (e) => entry[e.key] !== undefined,
+  ).length;
+  const setArgsCount =
+    meta.args?.filter((a) => args[a.key] !== undefined).length ?? 0;
+
+  return (
+    <Card
+      size="small"
+      style={{
+        marginBottom: 8,
+        background: 'var(--ant-color-fill-quaternary)',
+      }}
+      styles={{ body: { padding: '8px 12px' } }}
+    >
+      <Space
+        style={{ width: '100%', justifyContent: 'space-between' }}
+        align="start"
+      >
+        <Space size={8} align="center">
+          <Tag color="green" style={{ marginInlineEnd: 0 }}>
+            {name}
+          </Tag>
+          <Text
+            type="secondary"
+            style={{ fontSize: 12, maxWidth: 540 }}
+            ellipsis={{ tooltip: meta.desc }}
+          >
+            {meta.desc}
+          </Text>
+        </Space>
+        {editable && (
+          <Space size={0}>
+            <Button
+              type="text"
+              size="small"
+              icon={<CaretUpOutlined />}
+              disabled={!onMoveUp}
+              onClick={onMoveUp}
+            />
+            <Button
+              type="text"
+              size="small"
+              icon={<CaretDownOutlined />}
+              disabled={!onMoveDown}
+              onClick={onMoveDown}
+            />
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={onRemove}
+            />
+          </Space>
+        )}
+      </Space>
+
+      <Collapse
+        size="small"
+        ghost
+        style={{ marginTop: 4 }}
+        items={[
+          ...(meta.args && meta.args.length > 0
+            ? [
+                {
+                  key: 'args',
+                  label: (
+                    <Space size={6}>
+                      <Text style={{ fontSize: 13 }}>
+                        {intl.formatMessage({
+                          id: 'pages.compute.scheduler.plugin.args',
+                        })}
+                      </Text>
+                      {setArgsCount > 0 && (
+                        <Tag color="blue">{setArgsCount}</Tag>
+                      )}
+                    </Space>
+                  ),
+                  children: (
+                    <ArgsFormSection
+                      specs={meta.args}
+                      values={args}
+                      onChange={setArgs}
+                      editable={editable}
+                    />
+                  ),
+                },
+              ]
+            : []),
+          {
+            key: 'enables',
+            label: (
+              <Space size={6}>
+                <Text style={{ fontSize: 13 }}>
+                  {intl.formatMessage({
+                    id: 'pages.compute.scheduler.plugin.enables',
+                  })}
+                </Text>
+                {setEnabledCount > 0 && (
+                  <Tag color="orange">{setEnabledCount}</Tag>
+                )}
+              </Space>
+            ),
+            children: (
+              <EnableSwitchGrid
+                entry={entry}
+                onChange={setEnable}
+                editable={editable}
+              />
+            ),
+          },
+          ...(unknownTopLevel.length > 0
+            ? [
+                {
+                  key: 'extras',
+                  label: (
+                    <Space size={6}>
+                      <Text style={{ fontSize: 13 }}>
+                        {intl.formatMessage({
+                          id: 'pages.compute.scheduler.plugin.extras',
+                        })}
+                      </Text>
+                      <Tag>{unknownTopLevel.length}</Tag>
+                    </Space>
+                  ),
+                  children: (
+                    <Alert
+                      type="info"
+                      showIcon
+                      message={intl.formatMessage({
+                        id: 'pages.compute.scheduler.plugin.extras.hint',
+                      })}
+                      description={
+                        <pre style={{ margin: 0, fontSize: 12 }}>
+                          {yaml.dump(Object.fromEntries(unknownTopLevel))}
+                        </pre>
+                      }
+                    />
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
+    </Card>
+  );
+}
+
+// ─── Enable switch grid ────────────────────────────────────────────────
+
+function EnableSwitchGrid({
+  entry,
+  onChange,
+  editable,
+}: {
+  entry: PluginEntry;
+  onChange: (key: string, value: boolean | undefined) => void;
+  editable: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+        gap: 8,
+      }}
+    >
+      {ENABLE_FIELDS.map((f) => {
+        const raw = entry[f.key];
+        const value: 'default' | 'true' | 'false' =
+          raw === true ? 'true' : raw === false ? 'false' : 'default';
+        return (
+          <Card
+            key={f.key}
+            size="small"
+            styles={{ body: { padding: '6px 10px' } }}
+          >
+            <Space
+              size={6}
+              align="center"
+              style={{ width: '100%', justifyContent: 'space-between' }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{f.label}</div>
+                <Tooltip title={f.desc}>
+                  <code
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--ant-color-text-tertiary)',
+                      cursor: 'help',
+                    }}
+                  >
+                    {f.key}
+                  </code>
+                </Tooltip>
+              </div>
+              <Segmented
+                size="small"
+                disabled={!editable}
+                value={value}
+                onChange={(v) =>
+                  onChange(f.key, v === 'default' ? undefined : v === 'true')
+                }
+                options={[
+                  { label: '默认', value: 'default' },
+                  { label: '开', value: 'true' },
+                  { label: '关', value: 'false' },
+                ]}
+              />
+            </Space>
+          </Card>
+        );
+      })}
     </div>
   );
 }
 
-function PluginOption({ name }: { name: string }) {
-  const m = metaForPlugin(name);
+// ─── Generic ArgSpec form ──────────────────────────────────────────────
+
+function ArgsFormSection({
+  specs,
+  values,
+  onChange,
+  editable,
+}: {
+  specs: ArgSpec[];
+  values: Record<string, unknown>;
+  onChange: (next: Record<string, unknown>) => void;
+  editable: boolean;
+}) {
+  const setOne = (key: string, raw: unknown) => {
+    const next = { ...values };
+    if (raw === undefined || raw === null || raw === '') delete next[key];
+    else next[key] = raw;
+    onChange(next);
+  };
+
   return (
-    <div style={{ paddingBlock: 2 }}>
-      <div style={{ fontWeight: 500 }}>{m.label}</div>
-      <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}>
-        {m.desc}
-      </div>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+        gap: 12,
+      }}
+    >
+      {specs.map((s) => (
+        <ArgField
+          key={s.key}
+          spec={s}
+          value={values[s.key]}
+          onChange={(v) => setOne(s.key, v)}
+          editable={editable}
+        />
+      ))}
     </div>
   );
 }
 
-// ─── Help section ───────────────────────────────────────────────────────
+function ArgField({
+  spec,
+  value,
+  onChange,
+  editable,
+}: {
+  spec: ArgSpec;
+  value: unknown;
+  onChange: (next: unknown) => void;
+  editable: boolean;
+}) {
+  let input: React.ReactNode;
+  switch (spec.type) {
+    case 'int':
+    case 'float':
+      input = (
+        <InputNumber
+          disabled={!editable}
+          value={typeof value === 'number' ? value : undefined}
+          onChange={(n) => onChange(n)}
+          placeholder={
+            spec.default !== undefined ? String(spec.default) : undefined
+          }
+          min={spec.min}
+          max={spec.max}
+          step={spec.type === 'float' ? 0.1 : 1}
+          style={{ width: '100%' }}
+        />
+      );
+      break;
+    case 'bool': {
+      const cur: 'default' | 'true' | 'false' =
+        value === true ? 'true' : value === false ? 'false' : 'default';
+      input = (
+        <Radio.Group
+          disabled={!editable}
+          value={cur}
+          onChange={(e) =>
+            onChange(
+              e.target.value === 'default'
+                ? undefined
+                : e.target.value === 'true',
+            )
+          }
+          optionType="button"
+          size="small"
+        >
+          <Radio.Button value="default">默认</Radio.Button>
+          <Radio.Button value="true">true</Radio.Button>
+          <Radio.Button value="false">false</Radio.Button>
+        </Radio.Group>
+      );
+      break;
+    }
+    case 'object':
+      input = (
+        <ObjectInput
+          value={value}
+          onChange={onChange}
+          editable={editable}
+          placeholder={
+            spec.default !== undefined ? String(spec.default) : undefined
+          }
+        />
+      );
+      break;
+    default:
+      input = (
+        <Input
+          disabled={!editable}
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={
+            spec.default !== undefined ? String(spec.default) : undefined
+          }
+        />
+      );
+      break;
+  }
+  return (
+    <div>
+      <div style={{ marginBottom: 4, fontSize: 13 }}>
+        <span style={{ fontWeight: 500 }}>{spec.label}</span>
+        <Text
+          type="secondary"
+          style={{
+            fontSize: 11,
+            marginInlineStart: 8,
+            fontFamily: 'monospace',
+          }}
+        >
+          {spec.key}
+        </Text>
+      </div>
+      {input}
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {spec.desc}
+      </Text>
+    </div>
+  );
+}
+
+// ObjectInput is a small YAML/JSON sub-editor for complex args
+// (thresholds, strategies, resources). The user types YAML; on blur
+// we parse and store the value. Round-trip preserves the raw text
+// when parsing fails so users can fix typos without losing input.
+function ObjectInput({
+  value,
+  onChange,
+  editable,
+  placeholder,
+}: {
+  value: unknown;
+  onChange: (next: unknown) => void;
+  editable: boolean;
+  placeholder?: string;
+}) {
+  const [text, setText] = useState<string>(() => {
+    if (value === undefined) return '';
+    try {
+      return yaml.dump(value).trimEnd();
+    } catch {
+      return '';
+    }
+  });
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Re-sync if upstream value changes (e.g. YAML tab edit + switch
+    // back). Don't overwrite while the user is mid-edit (text would
+    // jump under them); only re-seed when the parsed shapes differ.
+    try {
+      const parsed = text.trim() ? yaml.load(text) : undefined;
+      if (JSON.stringify(parsed) !== JSON.stringify(value)) {
+        setText(value === undefined ? '' : yaml.dump(value).trimEnd());
+        setErr(null);
+      }
+    } catch {
+      // keep current text
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  return (
+    <div>
+      <Input.TextArea
+        disabled={!editable}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          if (!text.trim()) {
+            onChange(undefined);
+            setErr(null);
+            return;
+          }
+          try {
+            const parsed = yaml.load(text);
+            onChange(parsed);
+            setErr(null);
+          } catch (e: any) {
+            setErr(String(e?.message ?? e));
+          }
+        }}
+        placeholder={placeholder}
+        autoSize={{ minRows: 3, maxRows: 10 }}
+        style={{ fontFamily: 'monospace', fontSize: 12 }}
+      />
+      {err && (
+        <Text type="danger" style={{ fontSize: 12 }}>
+          {err}
+        </Text>
+      )}
+    </div>
+  );
+}
+
+// ─── Metrics card ──────────────────────────────────────────────────────
+
+function MetricsCard({
+  metrics,
+  onChange,
+  editable,
+}: {
+  metrics?: Record<string, string>;
+  onChange: (next: Record<string, string> | undefined) => void;
+  editable: boolean;
+}) {
+  const intl = useIntl();
+  const entries = Object.entries(metrics ?? {});
+
+  const setEntry = (i: number, k: string, v: string) => {
+    const next = [...entries];
+    next[i] = [k, v];
+    commit(next);
+  };
+  const removeEntry = (i: number) =>
+    commit(entries.filter((_, idx) => idx !== i));
+  const addEntry = () => commit([...entries, ['', '']]);
+
+  const commit = (rows: [string, string][]) => {
+    const obj: Record<string, string> = {};
+    for (const [k, v] of rows) if (k) obj[k] = v;
+    onChange(Object.keys(obj).length === 0 ? undefined : obj);
+  };
+
+  return (
+    <Card
+      size="small"
+      title={
+        <Space>
+          <span>
+            {intl.formatMessage({ id: 'pages.compute.scheduler.metrics' })}
+          </span>
+          <Tooltip
+            title={intl.formatMessage({
+              id: 'pages.compute.scheduler.metrics.tip',
+            })}
+          >
+            <InfoCircleOutlined style={{ color: '#999' }} />
+          </Tooltip>
+        </Space>
+      }
+      extra={
+        editable ? (
+          <Button
+            type="link"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={addEntry}
+          >
+            {intl.formatMessage({ id: 'pages.compute.scheduler.metrics.add' })}
+          </Button>
+        ) : null
+      }
+      style={{ marginBottom: 12 }}
+    >
+      {entries.length === 0 ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={intl.formatMessage({
+            id: 'pages.compute.scheduler.metrics.empty',
+          })}
+        />
+      ) : (
+        entries.map(([k, v], i) => (
+          <Space.Compact key={i} style={{ width: '100%', marginBottom: 6 }}>
+            <Input
+              placeholder="key"
+              disabled={!editable}
+              value={k}
+              onChange={(e) => setEntry(i, e.target.value, v)}
+              style={{ width: '40%' }}
+            />
+            <Input
+              placeholder="value"
+              disabled={!editable}
+              value={v}
+              onChange={(e) => setEntry(i, k, e.target.value)}
+            />
+            {editable && (
+              <Button
+                danger
+                icon={<MinusCircleOutlined />}
+                onClick={() => removeEntry(i)}
+              />
+            )}
+          </Space.Compact>
+        ))
+      )}
+    </Card>
+  );
+}
+
+// ─── Help section ──────────────────────────────────────────────────────
 
 function HelpSection() {
   const intl = useIntl();
@@ -622,10 +1376,7 @@ function HelpSection() {
           }),
           children: (
             <ReferenceList
-              items={Object.entries(ACTIONS_META).map(([k, v]) => ({
-                k,
-                v,
-              }))}
+              items={Object.entries(ACTIONS_META).map(([k, v]) => ({ k, v }))}
             />
           ),
         },
@@ -636,10 +1387,7 @@ function HelpSection() {
           }),
           children: (
             <ReferenceList
-              items={Object.entries(PLUGINS_META).map(([k, v]) => ({
-                k,
-                v,
-              }))}
+              items={Object.entries(PLUGINS_META).map(([k, v]) => ({ k, v }))}
             />
           ),
         },
@@ -668,4 +1416,67 @@ function ReferenceList({
       ))}
     </div>
   );
+}
+
+// ─── Common option renderers ──────────────────────────────────────────
+
+function ActionOption({ name }: { name: string }) {
+  const m = metaForAction(name);
+  return (
+    <div style={{ paddingBlock: 2 }}>
+      <div style={{ fontWeight: 500 }}>{m.label}</div>
+      <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}>
+        {m.desc}
+      </div>
+    </div>
+  );
+}
+
+function PluginOption({ name }: { name: string }) {
+  const m = metaForPlugin(name);
+  return (
+    <div style={{ paddingBlock: 2 }}>
+      <div style={{ fontWeight: 500 }}>{m.label}</div>
+      <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}>
+        {m.desc}
+      </div>
+    </div>
+  );
+}
+
+// ─── YAML emission helpers ─────────────────────────────────────────────
+
+// stripEmpty walks the draft and removes empty arguments maps,
+// empty configurations / metrics objects, etc. — Volcano accepts
+// `arguments: {}` but it clutters the output and reads weirdly.
+function stripEmpty(conf: SchedulerConf): SchedulerConf {
+  const out: SchedulerConf = { ...conf };
+  if (out.tiers) {
+    out.tiers = out.tiers.map((t) => ({
+      plugins: (t.plugins ?? []).map((p) => {
+        const { arguments: args, ...rest } = p;
+        const cleanRest: PluginEntry = { ...rest };
+        if (args && Object.keys(args).length > 0) cleanRest.arguments = args;
+        return cleanRest;
+      }),
+    }));
+  }
+  if (out.configurations) {
+    out.configurations = out.configurations
+      .map((c) => {
+        const args = c.arguments;
+        if (!args || Object.keys(args).length === 0) {
+          return { name: c.name };
+        }
+        return c;
+      })
+      .filter((c) => c.name);
+  }
+  if (out.configurations?.every((c) => !c.arguments)) {
+    delete out.configurations;
+  }
+  if (out.metrics && Object.keys(out.metrics).length === 0) {
+    delete out.metrics;
+  }
+  return out;
 }
