@@ -1128,33 +1128,30 @@ function EnableSwitchGrid({
           <Card
             key={f.key}
             size="small"
-            styles={{ body: { padding: '6px 10px' } }}
+            styles={{ body: { padding: '8px 10px' } }}
           >
-            <Space
-              size={6}
-              align="center"
-              style={{ width: '100%', justifyContent: 'space-between' }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{f.label}</div>
-                <Tooltip title={f.desc}>
-                  <code
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--ant-color-text-tertiary)',
-                      cursor: 'help',
-                    }}
-                  >
-                    {f.key}
-                  </code>
-                </Tooltip>
-              </div>
+            <div style={{ fontSize: 13, marginBottom: 6 }}>
+              <span style={{ fontWeight: 500 }}>{f.label}</span>
+              <code
+                style={{
+                  fontSize: 11,
+                  color: 'var(--ant-color-text-tertiary)',
+                  marginInlineStart: 8,
+                }}
+              >
+                {f.key}
+              </code>
+            </div>
+            <div style={{ marginBottom: 6 }}>
               <TristateSegmented
                 disabled={!editable}
                 value={value}
                 onChange={(next) => onChange(f.key, next)}
               />
-            </Space>
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {f.desc}
+            </Text>
           </Card>
         );
       })}
