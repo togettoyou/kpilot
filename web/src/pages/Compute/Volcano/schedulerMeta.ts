@@ -329,6 +329,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
       'enableJobOrder',
       'enableTaskOrder',
       'enablePreemptable',
+      'enableJobStarving',
       'enabledSubJobOrder',
     ],
   },
@@ -339,6 +340,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
       'enableJobOrder',
       'enableJobReady',
       'enableJobPipelined',
+      'enableJobStarving',
       'enablePreemptable',
       'enableReclaimable',
       'enabledSubJobReady',
@@ -435,6 +437,20 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
         desc: 'PVC / PV 绑定检查（动态制备 PV 时影响调度时机）。',
         type: 'bool',
         default: true,
+      },
+      {
+        key: 'predicate.DynamicResourceAllocationEnable',
+        label: 'DynamicResourceAllocation',
+        desc: 'K8s DRA（Dynamic Resource Allocation）筛选；需要集群启用 DynamicResourceAllocation feature gate。',
+        type: 'bool',
+        default: false,
+      },
+      {
+        key: 'predicate.CacheEnable',
+        label: 'CachePredicate',
+        desc: '本轮调度内缓存 predicate 失败结果，避免对相同节点 / Pod 组合重复计算。',
+        type: 'bool',
+        default: false,
       },
     ],
   },
@@ -623,6 +639,24 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
         default: 10,
         min: 0,
       },
+      {
+        key: 'deviceshare.KnownGeometriesCMName',
+        label: 'KnownGeometriesCMName',
+        desc: 'GPU 几何切分配置 ConfigMap 名称（高级用法，需配套自定义 vGPU 配置）。',
+        type: 'string',
+      },
+      {
+        key: 'deviceshare.KnownGeometriesCMNamespace',
+        label: 'KnownGeometriesCMNamespace',
+        desc: '上述 ConfigMap 所在命名空间。',
+        type: 'string',
+      },
+      {
+        key: 'deviceshare.GPUExclusiveRules',
+        label: 'GPUExclusiveRules',
+        desc: 'GPU 独占规则数组（按 GPU 型号 / 资源声明独占；复杂嵌套，建议 YAML 视图编辑）。',
+        type: 'object',
+      },
     ],
   },
   tdm: {
@@ -631,9 +665,11 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
     callbacks: [
       'enableJobOrder',
       'enableJobPipelined',
+      'enableJobStarving',
       'enableNodeOrder',
       'enablePredicate',
       'enablePreemptable',
+      'enabledVictim',
     ],
     args: [
       {
@@ -802,6 +838,78 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
         type: 'string',
         default: '1s',
       },
+      {
+        key: 'extender.managedResources',
+        label: 'managedResources',
+        desc: 'extender 关心的资源名数组（如 nvidia.com/gpu）；Pod 不请求这些资源时跳过 extender 调用。',
+        type: 'object',
+      },
+      {
+        key: 'extender.predicateVerb',
+        label: 'predicateVerb',
+        desc: '远端 predicate 接口的子路径（默认 predicate）。',
+        type: 'string',
+      },
+      {
+        key: 'extender.prioritizeVerb',
+        label: 'prioritizeVerb',
+        desc: '远端 prioritize 接口的子路径。',
+        type: 'string',
+      },
+      {
+        key: 'extender.preemptableVerb',
+        label: 'preemptableVerb',
+        desc: '远端 preemptable 接口的子路径。',
+        type: 'string',
+      },
+      {
+        key: 'extender.reclaimableVerb',
+        label: 'reclaimableVerb',
+        desc: '远端 reclaimable 接口的子路径。',
+        type: 'string',
+      },
+      {
+        key: 'extender.queueOverusedVerb',
+        label: 'queueOverusedVerb',
+        desc: '远端 queueOverused 接口的子路径。',
+        type: 'string',
+      },
+      {
+        key: 'extender.jobEnqueueableVerb',
+        label: 'jobEnqueueableVerb',
+        desc: '远端 jobEnqueueable 接口的子路径。',
+        type: 'string',
+      },
+      {
+        key: 'extender.jobReadyVerb',
+        label: 'jobReadyVerb',
+        desc: '远端 jobReady 接口的子路径。',
+        type: 'string',
+      },
+      {
+        key: 'extender.allocateFuncVerb',
+        label: 'allocateFuncVerb',
+        desc: 'allocate 阶段回调 webhook 的子路径。',
+        type: 'string',
+      },
+      {
+        key: 'extender.deallocateFuncVerb',
+        label: 'deallocateFuncVerb',
+        desc: 'deallocate 阶段回调 webhook 的子路径。',
+        type: 'string',
+      },
+      {
+        key: 'extender.onSessionOpenVerb',
+        label: 'onSessionOpenVerb',
+        desc: 'session 开启时的钩子子路径。',
+        type: 'string',
+      },
+      {
+        key: 'extender.onSessionCloseVerb',
+        label: 'onSessionCloseVerb',
+        desc: 'session 关闭时的钩子子路径。',
+        type: 'string',
+      },
     ],
   },
   capacity: {
@@ -814,7 +922,6 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
       'enablePreemptive',
       'enablePredicate',
       'enableReclaimable',
-      'enabledVictim',
       'enableHierarchy',
     ],
   },
@@ -831,7 +938,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   pdb: {
     label: 'pdb',
     desc: '尊重 K8s PodDisruptionBudget：抢占 / 回收时不破坏 PDB 约束。',
-    callbacks: ['enablePreemptable', 'enableReclaimable'],
+    callbacks: ['enablePreemptable', 'enableReclaimable', 'enabledVictim'],
   },
   cdp: {
     label: 'cdp',
@@ -854,7 +961,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   nodegroup: {
     label: 'nodegroup',
     desc: '按 Queue.spec.affinity.nodeGroupAffinity 的节点组亲和性筛选节点。',
-    callbacks: ['enablePredicate', 'enableNodeOrder', 'enableHierarchy'],
+    callbacks: ['enablePredicate', 'enableNodeOrder'],
     args: [
       {
         key: 'strict',
@@ -886,9 +993,28 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
         min: 0,
       },
       {
+        key: 'sra.weight',
+        label: 'sra.weight',
+        desc: 'SRA（Spread-Reservation-Aware）子打分权重。',
+        type: 'int',
+        min: 0,
+      },
+      {
         key: 'resources',
         label: 'resources',
-        desc: '按资源粒度的策略配置（嵌套结构，建议在 YAML 视图编辑）。',
+        desc: '按资源粒度的策略配置 (map[ResourceName]ResourcesType)，嵌套结构，建议在 YAML 视图编辑。',
+        type: 'object',
+      },
+      {
+        key: 'proportional',
+        label: 'proportional',
+        desc: '按比例分配的子策略配置（嵌套结构，YAML 视图编辑）。',
+        type: 'object',
+      },
+      {
+        key: 'sra',
+        label: 'sra',
+        desc: 'SRA 子策略配置（嵌套结构，YAML 视图编辑）。',
         type: 'object',
       },
     ],
@@ -896,8 +1022,7 @@ export const PLUGINS_META: Record<string, PluginMeta> = {
   rescheduling: {
     label: 'rescheduling',
     desc: '基于指标的周期性 rescheduling（迁移占用过高节点上的低优先级 pod）。',
-    // rescheduling runs its own loop, doesn't register session callbacks.
-    callbacks: [],
+    callbacks: ['enabledVictim'],
     args: [
       {
         key: 'interval',
