@@ -205,15 +205,29 @@ export default function SchedulerFlowDiagram({
     );
   }
 
-  // Per-node size: endpoints are slim left/right caps; action cards
-  // grow vertically with plugin density. Computed per-node so dagre
-  // can lay out the row at the right rank.
+  // Per-node size: snug to content. Endpoint chips are sized for
+  // their short "Pending PodGroup / Scheduled" label. Action cards
+  // grow vertically with plugin density; horizontal width is chosen
+  // to fit the longest plugin name in current tiers (network-topology-
+  // aware ≈ 22 chars is the realistic worst case) — short-name configs
+  // get a tight card, long-name ones get just enough.
+  const longestPluginLen = Math.max(
+    ...data.nodes.flatMap((n) =>
+      (n.data.plugins ?? []).map((p) => p.name.length),
+    ),
+    8, // floor so empty / short-plugin pipelines still look balanced
+  );
+  // ~7 px per char at 11 px font + 24 px Tag horizontal padding +
+  // 16 px card padding. Clamped: never narrower than action name
+  // would want, never wider than ~220 px so a chain of 6 actions
+  // still fits in the drawer without horizontal scroll.
+  const actionWidth = Math.min(220, Math.max(140, longestPluginLen * 7 + 40));
   const nodeSize = (n: { data?: NodeData }): [number, number] => {
     const d = n.data;
-    if (!d || d.kind !== 'action') return [180, 50];
+    if (!d || d.kind !== 'action') return [150, 46];
     const pluginCount = d.plugins?.length ?? 0;
     // ~28 px per plugin tag row, +60 for header + padding.
-    return [240, Math.max(80, 60 + pluginCount * 28)];
+    return [actionWidth, Math.max(76, 60 + pluginCount * 28)];
   };
 
   return (
