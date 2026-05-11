@@ -177,7 +177,7 @@ interface CommandTarget {
   uid?: string;
 }
 
-export function buildCommandManifest(
+function buildCommandManifest(
   action: VolcanoAction,
   target: CommandTarget,
   reason?: string,

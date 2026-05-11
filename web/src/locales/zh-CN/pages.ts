@@ -555,17 +555,6 @@ export default {
   'pages.workloads.col.volumeMode': '卷模式',
   'pages.workloads.col.volumeAttributesClass': '卷属性类',
 
-  // cluster detail sidebar
-  'pages.cluster.nav.nodes': '节点概览',
-  'pages.cluster.nav.workloads': '工作负载',
-  'pages.cluster.nav.network': '网络',
-  'pages.cluster.nav.config': '配置',
-  'pages.cluster.nav.storage': '存储',
-  'pages.cluster.nav.plugins': '插件管理',
-  'pages.cluster.nav.gpu': 'GPU 管理',
-  'pages.cluster.nav.models': '模型中心',
-  'pages.cluster.nav.monitoring': '监控中心',
-  'pages.cluster.nav.logging': '日志中心',
   'pages.cluster.back': '集群列表',
 
   // global namespace picker (top bar)
@@ -581,7 +570,6 @@ export default {
     '将删除当前 YAML 中的所有资源（按 GVK + 命名空间 + 名称匹配），此操作不可恢复。',
   'pages.applyYaml.delete.confirmOk': '删除',
   'pages.applyYaml.delete.successN': '成功删除 {n} 个资源',
-  'pages.applyYaml.success': '已应用',
   'pages.applyYaml.successN': '成功应用 {n} 个资源',
   'pages.applyYaml.partial': '已应用 {ok} / {total} 个资源，其余失败',
   'pages.applyYaml.expand': '展开',

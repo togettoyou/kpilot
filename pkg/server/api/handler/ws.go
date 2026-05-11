@@ -34,9 +34,6 @@ func newWSConn(conn *websocket.Conn) *wsConn {
 	return &wsConn{conn: conn}
 }
 
-// Underlying returns the raw *websocket.Conn for reads / handler hooks.
-func (w *wsConn) Underlying() *websocket.Conn { return w.conn }
-
 func (w *wsConn) WriteMessage(messageType int, data []byte) error {
 	w.writeMu.Lock()
 	defer w.writeMu.Unlock()

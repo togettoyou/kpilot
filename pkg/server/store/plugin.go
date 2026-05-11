@@ -30,24 +30,14 @@ func GetPluginByName(name string) (*Plugin, error) {
 	return &p, nil
 }
 
-func ListPlugins() ([]Plugin, error) {
-	var plugins []Plugin
-	// Order: built-ins first (so the "内置" group renders at the top),
-	// then by category for stable grouping, then by sort_order within
-	// the category (lets seed.go put VictoriaMetrics ahead of node-
-	// exporter even though "n" < "v" alphabetically), with name as
-	// final tie-breaker.
-	if err := DB.Order("is_builtin desc, category, sort_order, name").Find(&plugins).Error; err != nil {
-		return nil, err
-	}
-	return plugins, nil
-}
-
-// ListPluginsBrief is ListPlugins minus the heavy `default_values` blob
-// (a 64 KiB cap per row, typically a few KiB but spikey). The list
+// ListPluginsBrief returns plugin rows without the heavy `default_values`
+// blob (a 64 KiB cap per row, typically a few KiB but spikey). The list
 // endpoints only need metadata for cards / table rows; full values are
 // fetched on demand by the editor / enable drawer via GetPluginByID.
-// Same Order as ListPlugins so the caller can drop in the brief variant
+// Order: built-ins first (so the "内置" group renders at the top), then
+// by category for stable grouping, then by sort_order within the
+// category (lets seed.go put VictoriaMetrics ahead of node-exporter
+// even though "n" < "v" alphabetically), with name as final tie-breaker.
 // without re-sorting on the frontend.
 func ListPluginsBrief() ([]Plugin, error) {
 	var plugins []Plugin

@@ -574,17 +574,6 @@ export default {
   'pages.workloads.col.volumeMode': 'Volume Mode',
   'pages.workloads.col.volumeAttributesClass': 'Volume Attributes Class',
 
-  // cluster detail sidebar
-  'pages.cluster.nav.nodes': 'Nodes',
-  'pages.cluster.nav.workloads': 'Workloads',
-  'pages.cluster.nav.network': 'Network',
-  'pages.cluster.nav.config': 'Config',
-  'pages.cluster.nav.storage': 'Storage',
-  'pages.cluster.nav.plugins': 'Plugins',
-  'pages.cluster.nav.gpu': 'GPU',
-  'pages.cluster.nav.models': 'Model Hub',
-  'pages.cluster.nav.monitoring': 'Monitoring',
-  'pages.cluster.nav.logging': 'Logging',
   'pages.cluster.back': 'Clusters',
 
   // global namespace picker (top bar)
@@ -600,7 +589,6 @@ export default {
     'Every resource in the current YAML (matched by GVK + namespace + name) will be deleted. This cannot be undone.',
   'pages.applyYaml.delete.confirmOk': 'Delete',
   'pages.applyYaml.delete.successN': 'Deleted {n} resource(s)',
-  'pages.applyYaml.success': 'Applied',
   'pages.applyYaml.successN': 'Applied {n} resource(s)',
   'pages.applyYaml.partial': 'Applied {ok} / {total} — others failed',
   'pages.applyYaml.expand': 'Expand',
