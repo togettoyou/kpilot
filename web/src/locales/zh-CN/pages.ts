@@ -205,6 +205,7 @@ export default {
   'pages.pluginInstallLog.success': '成功',
   'pages.pluginInstallLog.failed': '失败',
   'pages.pluginInstallLog.empty': '正在连接日志通道…',
+  'pages.pluginInstallLog.unavailable': '不可用',
   'pages.pluginInstallLog.stale':
     '暂无可用日志：保留期（10 分钟）已过，或当前没有正在进行的操作。重新启用 / 禁用插件可触发新一轮日志。',
 

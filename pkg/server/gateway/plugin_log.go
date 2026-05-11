@@ -122,8 +122,15 @@ func (g *GatewayServer) appendPluginLog(clusterID, crdName string, entry PluginL
 		// "installed ✓" right before "uninstalling release…" + signal
 		// live subscribers to clear their local state via a reset frame
 		// (handled below before this fresh chunk lands).
+		//
+		// nil (not buf[:0]) so the prior backing array is fully eligible
+		// for GC immediately. With [:0] the old PluginLogEntry structs
+		// stay reachable through the array storage until each slot gets
+		// overwritten by future appends — a fresh install that only
+		// emits 50 lines would otherwise hold the previous 450 entries
+		// in memory until the 10-min TTL reap.
 		sess.closed = false
-		sess.buf = sess.buf[:0]
+		sess.buf = nil
 		reset := PluginLogEntry{Kind: "reset"}
 		for sub := range sess.subs {
 			select {

@@ -151,6 +151,16 @@ export function PluginInstallLogDrawer({
   });
 
   const banner = useMemo(() => {
+    if (isStale) {
+      // WS opened, got nothing in the silence window — buffer expired
+      // or no operation is running right now. "In progress" would be
+      // a lie since there's nothing in progress; use a neutral Tag.
+      return (
+        <Tag>
+          {intl.formatMessage({ id: 'pages.pluginInstallLog.unavailable' })}
+        </Tag>
+      );
+    }
     if (!endStatus) {
       return (
         <Tag icon={<LoadingOutlined spin />} color="processing">
@@ -167,7 +177,7 @@ export function PluginInstallLogDrawer({
         {intl.formatMessage({ id: 'pages.pluginInstallLog.failed' })}
       </Tag>
     );
-  }, [endStatus, intl]);
+  }, [endStatus, isStale, intl]);
 
   return (
     <Drawer

@@ -204,6 +204,7 @@ export default {
   'pages.pluginInstallLog.success': 'Success',
   'pages.pluginInstallLog.failed': 'Failed',
   'pages.pluginInstallLog.empty': 'Connecting to log stream…',
+  'pages.pluginInstallLog.unavailable': 'Unavailable',
   'pages.pluginInstallLog.stale':
     'No log available: the 10-minute retention window has expired, or no operation is currently running. Re-run enable / disable to start a new log session.',
 
