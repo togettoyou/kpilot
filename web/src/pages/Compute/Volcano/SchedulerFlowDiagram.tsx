@@ -1,7 +1,8 @@
+import { AimOutlined } from '@ant-design/icons';
 import { FlowDirectionGraph } from '@ant-design/graphs';
 import { useIntl } from '@umijs/max';
-import { Tag, Tooltip, Typography } from 'antd';
-import React, { useMemo } from 'react';
+import { Button, Tag, Tooltip, Typography } from 'antd';
+import React, { useMemo, useRef } from 'react';
 
 import { PLUGINS_META, metaForAction, metaForPlugin } from './schedulerMeta';
 
@@ -207,9 +208,34 @@ export default function SchedulerFlowDiagram({
     return [260, h];
   };
 
+  // Hold the G6 Graph instance so we can drive the reset-view button.
+  // autoFit="view" handles the first render; after the user zooms or
+  // pans, fitView() snaps the layout back to that initial framing.
+  const graphRef = useRef<any>(null);
+
   return (
-    <div style={{ height: '100%', minHeight: 480, width: '100%' }}>
+    <div
+      style={{
+        height: '100%',
+        minHeight: 480,
+        width: '100%',
+        position: 'relative',
+      }}
+    >
+      <Tooltip
+        title={intl.formatMessage({
+          id: 'pages.compute.scheduler.flow.fitView',
+        })}
+      >
+        <Button
+          size="small"
+          icon={<AimOutlined />}
+          onClick={() => graphRef.current?.fitView?.()}
+          style={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}
+        />
+      </Tooltip>
       <FlowDirectionGraph
+        ref={graphRef}
         data={data as any}
         autoFit="view"
         animation={false}

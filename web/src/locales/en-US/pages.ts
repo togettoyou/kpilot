@@ -141,6 +141,7 @@ export default {
   'pages.compute.scheduler.tier.pluginCount': '{n} plugin(s)',
   'pages.compute.scheduler.flow.title': 'Scheduling data flow',
   'pages.compute.scheduler.flow.button': 'View data flow',
+  'pages.compute.scheduler.flow.fitView': 'Reset zoom',
   'pages.compute.scheduler.flow.start': 'Pending PodGroup',
   'pages.compute.scheduler.flow.start.desc':
     'Pending jobs entering the scheduling loop',

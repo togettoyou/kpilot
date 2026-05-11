@@ -142,6 +142,7 @@ export default {
   'pages.compute.scheduler.tier.pluginCount': '{n} 个插件',
   'pages.compute.scheduler.flow.title': '调度数据流',
   'pages.compute.scheduler.flow.button': '查看数据流',
+  'pages.compute.scheduler.flow.fitView': '恢复默认缩放',
   'pages.compute.scheduler.flow.start': 'Pending PodGroup',
   'pages.compute.scheduler.flow.start.desc': '等待调度的作业进入循环',
   'pages.compute.scheduler.flow.end': 'Scheduled',
