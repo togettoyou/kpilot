@@ -1347,22 +1347,43 @@ function MetricsCard({
   editable: boolean;
 }) {
   const intl = useIntl();
-  const entries = Object.entries(metrics ?? {});
+
+  // Local row list keeps the user's in-progress empty rows alive
+  // across renders. If we derived rows from `metrics` every render,
+  // a freshly-added `['', '']` would be filtered out by commit's
+  // empty-key guard before the parent state round-tripped back —
+  // the Add button would visibly do nothing. Re-seed from upstream
+  // only when the parent's metrics actually differs from our
+  // non-empty rows (covers YAML-tab edits / cancel / fresh fetch).
+  const [rows, setRows] = useState<[string, string][]>(() =>
+    Object.entries(metrics ?? {}),
+  );
+  const upstreamJSON = JSON.stringify(metrics ?? {});
+  const localJSON = JSON.stringify(
+    Object.fromEntries(rows.filter(([k]) => k)),
+  );
+  useEffect(() => {
+    if (upstreamJSON !== localJSON) {
+      setRows(Object.entries(metrics ?? {}));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upstreamJSON]);
+
+  const commit = (next: [string, string][]) => {
+    setRows(next);
+    const obj: Record<string, string> = {};
+    for (const [k, v] of next) if (k) obj[k] = v;
+    onChange(Object.keys(obj).length === 0 ? undefined : obj);
+  };
 
   const setEntry = (i: number, k: string, v: string) => {
-    const next = [...entries];
+    const next = [...rows];
     next[i] = [k, v];
     commit(next);
   };
   const removeEntry = (i: number) =>
-    commit(entries.filter((_, idx) => idx !== i));
-  const addEntry = () => commit([...entries, ['', '']]);
-
-  const commit = (rows: [string, string][]) => {
-    const obj: Record<string, string> = {};
-    for (const [k, v] of rows) if (k) obj[k] = v;
-    onChange(Object.keys(obj).length === 0 ? undefined : obj);
-  };
+    commit(rows.filter((_, idx) => idx !== i));
+  const addEntry = () => commit([...rows, ['', '']]);
 
   return (
     <Card
@@ -1395,7 +1416,7 @@ function MetricsCard({
       }
       style={{ marginBottom: 12 }}
     >
-      {entries.length === 0 ? (
+      {rows.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={intl.formatMessage({
@@ -1403,7 +1424,7 @@ function MetricsCard({
           })}
         />
       ) : (
-        entries.map(([k, v], i) => (
+        rows.map(([k, v], i) => (
           <Space.Compact key={i} style={{ width: '100%', marginBottom: 6 }}>
             <Input
               placeholder="key"
