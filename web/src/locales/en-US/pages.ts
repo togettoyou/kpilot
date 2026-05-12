@@ -49,6 +49,9 @@ export default {
   'pages.compute.queueForm.name.extra': 'DNS-1123: lowercase, digits, hyphens, up to 63 chars',
   'pages.compute.queueForm.weight': 'Weight',
   'pages.compute.queueForm.weight.extra': 'Resources are split between queues proportional to weight; higher = preferred',
+  'pages.compute.queueForm.priority': 'Priority',
+  'pages.compute.queueForm.priority.extra':
+    'Optional, non-negative integer (default 0). Higher = scheduled first AND reclaimed last (counter-intuitive: high-priority queues lose resources last).',
   'pages.compute.queueForm.reclaimable': 'Reclaimable',
   'pages.compute.queueForm.reclaimable.extra': 'Allow other queues to reclaim this queue\'s resources under contention',
   'pages.compute.queueForm.parent': 'Parent queue',
@@ -68,6 +71,14 @@ export default {
   'pages.compute.queueForm.type': 'Type',
   'pages.compute.queueForm.type.extra':
     'Optional; defaults to "kube". Used in multi-cluster setups to tag queue origin.',
+  'pages.compute.queueForm.affinity': 'Node-group affinity',
+  'pages.compute.queueForm.affinity.extra':
+    'Optional; consumed by the nodegroup scheduler plugin. Enter node-group names below; for richer affinity shapes edit via the YAML view.',
+  'pages.compute.queueForm.affinity.required': 'Affinity – required',
+  'pages.compute.queueForm.affinity.preferred': 'Affinity – preferred',
+  'pages.compute.queueForm.antiAffinity.required': 'Anti-affinity – required',
+  'pages.compute.queueForm.antiAffinity.preferred': 'Anti-affinity – preferred',
+  'pages.compute.queueForm.affinity.placeholder': 'Comma- or enter-separated nodeGroup names',
 
   // Job form + actions
   'pages.compute.job.create': 'New Job',

@@ -8,6 +8,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Select,
   Space,
   Spin,
   Switch,
@@ -51,15 +52,27 @@ interface ResourceListFV {
   extras?: ResourceRow[];
 }
 
+interface AffinityFV {
+  nodeGroupAffinity?: { required?: string[]; preferred?: string[] };
+  nodeGroupAntiAffinity?: { required?: string[]; preferred?: string[] };
+}
+
 interface FormValues {
   name: string;
   weight: number;
+  // Volcano CRD: priority >= 0, defaults 0. Affects scheduling
+  // (higher = first) and reclamation (higher = reclaimed last).
+  priority?: number;
   reclaimable: boolean;
   parent?: string;
   type?: string;
   capability?: ResourceListFV;
   deserved?: ResourceListFV;
   guarantee?: ResourceListFV;
+  // Queue-level node-group affinity consumed by the nodegroup plugin.
+  // The form covers the common shape (lists of nodeGroup names); more
+  // complex affinity should be edited via the YAML view.
+  affinity?: AffinityFV;
 }
 
 const QUEUE_CR = {
@@ -102,15 +115,13 @@ export function QueueFormDrawer({
   const isEdit = !!editing;
 
   // editOriginalRef stashes spec fields the form doesn't surface so
-  // submit can re-emit them. Beyond spec.priority (which we let the
-  // builder accept but the form has no input for), the upstream
-  // QueueSpec also has extendClusters / affinity / dequeueStrategy —
-  // complex nested fields KPilot doesn't visualize; preserving here
-  // means edits won't silently drop them.
+  // submit can re-emit them. `priority` and `affinity` are now driven
+  // by the form, so they're not preserved here. `extendClusters` and
+  // `dequeueStrategy` remain form-invisible advanced knobs — round-
+  // trip them through here so edits in the form view don't silently
+  // drop values a user set via YAML / kubectl.
   const editOriginalRef = useRef<{
-    priority?: number;
     extendClusters?: unknown;
-    affinity?: unknown;
     dequeueStrategy?: unknown;
   } | null>(null);
 
@@ -133,11 +144,9 @@ export function QueueFormDrawer({
         form.setFieldsValue(formValuesFromManifest(obj, editing.name));
         const spec = obj?.spec ?? {};
         editOriginalRef.current = {
-          priority: typeof spec.priority === 'number' ? spec.priority : undefined,
           extendClusters: Array.isArray(spec.extendClusters)
             ? spec.extendClusters
             : undefined,
-          affinity: spec.affinity ?? undefined,
           dequeueStrategy: spec.dequeueStrategy ?? undefined,
         };
       })
@@ -193,20 +202,15 @@ export function QueueFormDrawer({
         return;
       }
       const input = fvToInput(v);
-      // Re-attach preserved fields the form doesn't expose so SSA
-      // doesn't blank them out. YAML view takes the user's typed
-      // text as-is and doesn't need this.
-      if (editOriginalRef.current?.priority !== undefined) {
-        input.priority = editOriginalRef.current.priority;
-      }
       manifest = buildQueueManifest(input);
-      // Splice in the complex preserved fields directly on the
-      // manifest spec — builder doesn't model them, but they're
-      // valid spec keys the API server accepts.
+      // Splice in the form-invisible preserved fields directly on the
+      // manifest spec — builder doesn't model them, but they're valid
+      // spec keys the API server accepts. Without this, editing a
+      // queue in the form view would silently drop extendClusters /
+      // dequeueStrategy a user set via YAML.
       const preserved = editOriginalRef.current ?? {};
       const m: any = manifest;
       if (preserved.extendClusters) m.spec.extendClusters = preserved.extendClusters;
-      if (preserved.affinity) m.spec.affinity = preserved.affinity;
       if (preserved.dequeueStrategy) m.spec.dequeueStrategy = preserved.dequeueStrategy;
     } else {
       try {
@@ -334,6 +338,18 @@ export function QueueFormDrawer({
             </Form.Item>
 
             <Form.Item
+              name="priority"
+              label={intl.formatMessage({
+                id: 'pages.compute.queueForm.priority',
+              })}
+              extra={intl.formatMessage({
+                id: 'pages.compute.queueForm.priority.extra',
+              })}
+            >
+              <InputNumber min={0} style={{ width: 160 }} placeholder="0" />
+            </Form.Item>
+
+            <Form.Item
               name="reclaimable"
               label={intl.formatMessage({
                 id: 'pages.compute.queueForm.reclaimable',
@@ -406,6 +422,7 @@ export function QueueFormDrawer({
                 id: 'pages.compute.queueForm.guarantee.add',
               })}
             />
+            <AffinitySection />
           </Form>
         ) : (
           <div
@@ -419,6 +436,92 @@ export function QueueFormDrawer({
         )}
       </Spin>
     </Drawer>
+  );
+}
+
+// AffinitySection renders Queue.spec.affinity as four
+// Select-mode-tags inputs (required / preferred × affinity / anti-
+// affinity), each holding a list of node-group names. The form
+// only covers this common shape — more elaborate affinity
+// (custom matchExpressions, weights, etc.) should be edited in the
+// YAML view; the builder collapses empty lists so unused buckets
+// don't leak into the stored manifest.
+function AffinitySection() {
+  const intl = useIntl();
+  const tagInput = (
+    name: (string | number)[],
+    placeholder: string,
+  ) => (
+    <Form.Item name={name} style={{ marginBottom: 8 }}>
+      <Select
+        mode="tags"
+        tokenSeparators={[',', ' ']}
+        placeholder={placeholder}
+        style={{ width: '100%' }}
+      />
+    </Form.Item>
+  );
+  return (
+    <>
+      <div style={{ marginTop: 16, marginBottom: 4, fontWeight: 500 }}>
+        {intl.formatMessage({ id: 'pages.compute.queueForm.affinity' })}
+      </div>
+      <div
+        style={{
+          marginBottom: 8,
+          color: 'var(--ant-color-text-tertiary)',
+          fontSize: 12,
+        }}
+      >
+        {intl.formatMessage({
+          id: 'pages.compute.queueForm.affinity.extra',
+        })}
+      </div>
+      <div style={{ marginBottom: 4, fontSize: 12 }}>
+        {intl.formatMessage({
+          id: 'pages.compute.queueForm.affinity.required',
+        })}
+      </div>
+      {tagInput(
+        ['affinity', 'nodeGroupAffinity', 'required'],
+        intl.formatMessage({
+          id: 'pages.compute.queueForm.affinity.placeholder',
+        }),
+      )}
+      <div style={{ marginBottom: 4, fontSize: 12 }}>
+        {intl.formatMessage({
+          id: 'pages.compute.queueForm.affinity.preferred',
+        })}
+      </div>
+      {tagInput(
+        ['affinity', 'nodeGroupAffinity', 'preferred'],
+        intl.formatMessage({
+          id: 'pages.compute.queueForm.affinity.placeholder',
+        }),
+      )}
+      <div style={{ marginBottom: 4, fontSize: 12 }}>
+        {intl.formatMessage({
+          id: 'pages.compute.queueForm.antiAffinity.required',
+        })}
+      </div>
+      {tagInput(
+        ['affinity', 'nodeGroupAntiAffinity', 'required'],
+        intl.formatMessage({
+          id: 'pages.compute.queueForm.affinity.placeholder',
+        }),
+      )}
+      <div style={{ marginBottom: 4, fontSize: 12 }}>
+        {intl.formatMessage({
+          id: 'pages.compute.queueForm.antiAffinity.preferred',
+        })}
+      </div>
+      {tagInput(
+        ['affinity', 'nodeGroupAntiAffinity', 'preferred'],
+        intl.formatMessage({
+          id: 'pages.compute.queueForm.affinity.placeholder',
+        }),
+      )}
+    </>
   );
 }
 
@@ -577,13 +680,43 @@ function fvToInput(v: FormValues): QueueInput {
   return {
     name: v.name?.trim() ?? '',
     weight: v.weight ?? 1,
+    priority: typeof v.priority === 'number' ? v.priority : undefined,
     reclaimable: v.reclaimable,
     parent: t(v.parent),
     type: t(v.type),
     capability,
     deserved: Object.keys(deserved).length > 0 ? deserved : undefined,
     guarantee: Object.keys(guarantee).length > 0 ? guarantee : undefined,
+    affinity: affinityFVToInput(v.affinity),
   };
+}
+
+// affinityFVToInput passes the form's affinity shape through to the
+// builder, dropping the whole object when every list is empty so we
+// don't emit `spec.affinity: {}` (which would otherwise cause SSA
+// to claim ownership of an empty field).
+function affinityFVToInput(
+  a?: AffinityFV,
+): QueueInput['affinity'] | undefined {
+  if (!a) return undefined;
+  const trimList = (xs?: string[]) =>
+    (xs ?? []).map((s) => s.trim()).filter(Boolean);
+  const aff = {
+    required: trimList(a.nodeGroupAffinity?.required),
+    preferred: trimList(a.nodeGroupAffinity?.preferred),
+  };
+  const anti = {
+    required: trimList(a.nodeGroupAntiAffinity?.required),
+    preferred: trimList(a.nodeGroupAntiAffinity?.preferred),
+  };
+  const hasAny =
+    aff.required.length +
+      aff.preferred.length +
+      anti.required.length +
+      anti.preferred.length >
+    0;
+  if (!hasAny) return undefined;
+  return { nodeGroupAffinity: aff, nodeGroupAntiAffinity: anti };
 }
 
 // formValuesFromManifest reverses the manifest → form mapping. Used
@@ -593,6 +726,7 @@ function formValuesFromManifest(obj: any, fallbackName: string): FormValues {
   return {
     name: obj?.metadata?.name ?? fallbackName,
     weight: typeof spec.weight === 'number' ? spec.weight : 1,
+    priority: typeof spec.priority === 'number' ? spec.priority : undefined,
     reclaimable:
       typeof spec.reclaimable === 'boolean' ? spec.reclaimable : true,
     parent: spec.parent ?? undefined,
@@ -602,5 +736,44 @@ function formValuesFromManifest(obj: any, fallbackName: string): FormValues {
     // Guarantee has a .resource wrapper per the CRD
     // (Guarantee struct → resource: ResourceList).
     guarantee: recordToResourceListFV(spec.guarantee?.resource),
+    affinity: affinityFromManifest(spec.affinity),
   };
+}
+
+// affinityFromManifest collapses the CRD's verbose
+// XxxDuringSchedulingIgnoredDuringExecution keys back into the
+// form's short `required` / `preferred` shape. Non-array values are
+// ignored so a manifest with unexpected shapes doesn't crash the
+// form (the YAML view stays usable).
+function affinityFromManifest(a: any): AffinityFV | undefined {
+  if (!a || typeof a !== 'object') return undefined;
+  const pick = (
+    obj: any,
+  ): { required?: string[]; preferred?: string[] } | undefined => {
+    if (!obj || typeof obj !== 'object') return undefined;
+    const req = Array.isArray(obj.requiredDuringSchedulingIgnoredDuringExecution)
+      ? (obj.requiredDuringSchedulingIgnoredDuringExecution as unknown[]).filter(
+          (x): x is string => typeof x === 'string',
+        )
+      : [];
+    const pref = Array.isArray(
+      obj.preferredDuringSchedulingIgnoredDuringExecution,
+    )
+      ? (obj.preferredDuringSchedulingIgnoredDuringExecution as unknown[]).filter(
+          (x): x is string => typeof x === 'string',
+        )
+      : [];
+    if (req.length === 0 && pref.length === 0) return undefined;
+    const out: { required?: string[]; preferred?: string[] } = {};
+    if (req.length > 0) out.required = req;
+    if (pref.length > 0) out.preferred = pref;
+    return out;
+  };
+  const aff = pick(a.nodeGroupAffinity);
+  const anti = pick(a.nodeGroupAntiAffinity);
+  if (!aff && !anti) return undefined;
+  const out: AffinityFV = {};
+  if (aff) out.nodeGroupAffinity = aff;
+  if (anti) out.nodeGroupAntiAffinity = anti;
+  return out;
 }

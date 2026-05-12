@@ -29,7 +29,8 @@ interface SchedulerConfShape {
 // yaml keys whose callbacks that action triggers in the scheduler
 // loop. Source-derived from pkg/scheduler/actions/<a>/*.go behavior:
 //
-//   - enqueue: walks PodGroup queue, calls JobEnqueueable / QueueOrder
+//   - enqueue: walks PodGroup queue, sorts per Queue via JobOrder,
+//     then calls JobEnqueueable / QueueOrder
 //   - allocate: full pick-node loop — Queue/Job/TaskOrder + Predicate +
 //     NodeOrder + BestNode + Allocatable + Ready/Pipelined checks +
 //     HyperNode hooks (when network-topology-aware enabled) +
@@ -41,7 +42,7 @@ interface SchedulerConfShape {
 //   - backfill: best-effort small-job fit — Predicate / NodeOrder only
 //   - shuffle: rebalance — Victim (Volcano 1.7+; rare)
 const ACTION_CALLBACKS: Record<string, string[]> = {
-  enqueue: ['enableJobEnqueued', 'enableQueueOrder'],
+  enqueue: ['enableJobEnqueued', 'enableQueueOrder', 'enableJobOrder'],
   allocate: [
     'enableQueueOrder',
     'enableJobOrder',

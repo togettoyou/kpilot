@@ -49,6 +49,9 @@ export default {
   'pages.compute.queueForm.name.extra': 'DNS-1123，小写字母 / 数字 / 短横线，最多 63 字符',
   'pages.compute.queueForm.weight': '权重 (Weight)',
   'pages.compute.queueForm.weight.extra': '调度时按权重比例分配资源；越大越优先',
+  'pages.compute.queueForm.priority': '优先级 (Priority)',
+  'pages.compute.queueForm.priority.extra':
+    '可选；非负整数，默认 0。值越大调度越优先；同时在资源回收时越晚被回收（高优先级队列资源最后被抢）。',
   'pages.compute.queueForm.reclaimable': '可回收 (Reclaimable)',
   'pages.compute.queueForm.reclaimable.extra': '是否允许其它队列在资源紧张时回收本队列的资源',
   'pages.compute.queueForm.parent': '父队列 (Parent)',
@@ -68,6 +71,14 @@ export default {
   'pages.compute.queueForm.type': '类型 (Type)',
   'pages.compute.queueForm.type.extra':
     '可选；默认 "kube"。多集群环境用来标记队列来源。普通场景留空',
+  'pages.compute.queueForm.affinity': '节点组亲和 (Affinity)',
+  'pages.compute.queueForm.affinity.extra':
+    '可选；由 nodegroup 调度插件消费。下列各列表填写节点组名称，复杂结构请在 YAML 视图中编辑。',
+  'pages.compute.queueForm.affinity.required': '亲和 - 必选 (required)',
+  'pages.compute.queueForm.affinity.preferred': '亲和 - 优先 (preferred)',
+  'pages.compute.queueForm.antiAffinity.required': '反亲和 - 必选 (required)',
+  'pages.compute.queueForm.antiAffinity.preferred': '反亲和 - 优先 (preferred)',
+  'pages.compute.queueForm.affinity.placeholder': '回车 / 逗号分隔的 nodeGroup 名称',
 
   // Job 表单 + 操作
   'pages.compute.job.create': '新建作业',

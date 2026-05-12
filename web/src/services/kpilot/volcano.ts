@@ -12,6 +12,22 @@ import { applyYAML, getWorkload, type CRRef } from './workload';
 // `---` is YAML-only but a single JSON document is valid YAML on its
 // own). Avoiding js-yaml saves a dependency and a build-time hit.
 
+// QueueAffinityInput models Volcano's Queue.spec.affinity: lists of
+// node-group names for nodegroup-plugin scheduling. The CRD uses
+// requiredDuringSchedulingIgnoredDuringExecution /
+// preferredDuringSchedulingIgnoredDuringExecution; we expose them as
+// shorter `required` / `preferred` and translate at build time.
+export interface QueueAffinityInput {
+  nodeGroupAffinity?: {
+    required?: string[];
+    preferred?: string[];
+  };
+  nodeGroupAntiAffinity?: {
+    required?: string[];
+    preferred?: string[];
+  };
+}
+
 export interface QueueInput {
   name: string;
   weight?: number;
@@ -26,10 +42,17 @@ export interface QueueInput {
   guarantee?: Record<string, string>;
   reclaimable?: boolean;
   parent?: string;
+  // Queue priority. Higher values are prioritized at scheduling time
+  // AND considered later during reclamation (counter-intuitive: high-
+  // priority queues lose resources last). Defaults to 0.
   priority?: number;
   // type is a free-form string (default "kube"); used by multi-
   // cluster setups to mark queue source. Rarely set in practice.
   type?: string;
+  // Optional queue-level node-group affinity (consumed by the
+  // nodegroup scheduler plugin). Complex shapes outside this typed
+  // surface should be edited via the YAML view instead.
+  affinity?: QueueAffinityInput;
 }
 
 export function buildQueueManifest(input: QueueInput): unknown {
@@ -51,12 +74,47 @@ export function buildQueueManifest(input: QueueInput): unknown {
   if (input.parent) spec.parent = input.parent;
   if (typeof input.priority === 'number') spec.priority = input.priority;
   if (input.type) spec.type = input.type;
+  const affinity = buildQueueAffinity(input.affinity);
+  if (affinity) spec.affinity = affinity;
   return {
     apiVersion: 'scheduling.volcano.sh/v1beta1',
     kind: 'Queue',
     metadata: { name: input.name },
     spec,
   };
+}
+
+// buildQueueAffinity expands the short `required` / `preferred` form
+// into the CRD's verbose XxxDuringSchedulingIgnoredDuringExecution
+// keys. Empty lists are dropped so we don't emit `{}` slots that
+// confuse `kubectl diff` and make stored manifests noisier.
+function buildQueueAffinity(
+  input?: QueueAffinityInput,
+): Record<string, unknown> | undefined {
+  if (!input) return undefined;
+  const expand = (
+    a?: { required?: string[]; preferred?: string[] },
+  ): Record<string, unknown> | undefined => {
+    if (!a) return undefined;
+    const req = (a.required ?? []).filter((s) => s && s.trim());
+    const pref = (a.preferred ?? []).filter((s) => s && s.trim());
+    if (req.length === 0 && pref.length === 0) return undefined;
+    const out: Record<string, unknown> = {};
+    if (req.length > 0) {
+      out.requiredDuringSchedulingIgnoredDuringExecution = req;
+    }
+    if (pref.length > 0) {
+      out.preferredDuringSchedulingIgnoredDuringExecution = pref;
+    }
+    return out;
+  };
+  const aff = expand(input.nodeGroupAffinity);
+  const anti = expand(input.nodeGroupAntiAffinity);
+  if (!aff && !anti) return undefined;
+  const out: Record<string, unknown> = {};
+  if (aff) out.nodeGroupAffinity = aff;
+  if (anti) out.nodeGroupAntiAffinity = anti;
+  return out;
 }
 
 export interface JobTaskInput {
@@ -226,9 +284,12 @@ export function buildCronJobManifest(input: CronJobInput): unknown {
   }) as { spec: Record<string, unknown> };
   const spec: Record<string, unknown> = {
     schedule: input.schedule,
-    concurrencyPolicy: input.concurrencyPolicy ?? 'Allow',
     jobTemplate: { spec: jobManifest.spec },
   };
+  // Volcano CronJob spec defaults concurrencyPolicy=Allow via kubebuilder,
+  // so only emit when the user picks a non-default value. Keeps stored
+  // manifests cleaner and avoids spurious diffs on round-trip.
+  if (input.concurrencyPolicy) spec.concurrencyPolicy = input.concurrencyPolicy;
   if (input.timeZone) spec.timeZone = input.timeZone;
   if (
     typeof input.startingDeadlineSeconds === 'number' &&
