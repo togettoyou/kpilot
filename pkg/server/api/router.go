@@ -99,6 +99,11 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.GET("/:id/volcano/cronjobs", handler.ListVolcanoCronJobs(gw))
 		clusters.GET("/:id/volcano/podgroups", handler.ListVolcanoPodGroups(gw))
 		clusters.GET("/:id/volcano/hypernodes", handler.ListVolcanoHyperNodes(gw))
+		clusters.GET("/:id/volcano/jobflows", handler.ListVolcanoJobFlows(gw))
+		clusters.GET("/:id/volcano/jobtemplates", handler.ListVolcanoJobTemplates(gw))
+		clusters.GET("/:id/volcano/numatopologies", handler.ListVolcanoNumatopologies(gw))
+		clusters.GET("/:id/volcano/nodeshards", handler.ListVolcanoNodeShards(gw))
+		clusters.GET("/:id/volcano/colocationconfigurations", handler.ListVolcanoColocationConfigurations(gw))
 
 		// Per-cluster plugin state (read-only registry view + enable/disable)
 		clusters.GET("/:id/plugins", handler.ListClusterPlugins)

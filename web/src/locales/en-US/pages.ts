@@ -359,6 +359,87 @@ export default {
     'Match by node labels (only effective when member type is Node)',
   'pages.compute.hyperNodeForm.member.labels.add': 'Add label',
 
+  // YAML-only create/edit drawer (shared)
+  'pages.compute.yamlDrawer.success': 'Applied',
+  'pages.compute.yamlDrawer.submit': 'Create',
+  'pages.compute.yamlDrawer.save': 'Save',
+
+  // JobFlow (flow.volcano.sh/v1alpha1)
+  'pages.compute.jobFlow.create': 'New JobFlow',
+  'pages.compute.jobFlow.create.title': 'New JobFlow',
+  'pages.compute.jobFlow.edit.title': 'Edit JobFlow',
+  'pages.compute.jobFlow.col.name': 'Name',
+  'pages.compute.jobFlow.col.namespace': 'Namespace',
+  'pages.compute.jobFlow.col.phase': 'Phase',
+  'pages.compute.jobFlow.col.flows': 'Flows',
+  'pages.compute.jobFlow.col.progress': 'Progress',
+  'pages.compute.jobFlow.col.retainPolicy': 'Retain policy',
+  'pages.compute.jobFlow.col.age': 'Age',
+
+  // JobTemplate (flow.volcano.sh/v1alpha1)
+  'pages.compute.jobTemplate.create': 'New JobTemplate',
+  'pages.compute.jobTemplate.create.title': 'New JobTemplate',
+  'pages.compute.jobTemplate.edit.title': 'Edit JobTemplate',
+  'pages.compute.jobTemplate.col.name': 'Name',
+  'pages.compute.jobTemplate.col.namespace': 'Namespace',
+  'pages.compute.jobTemplate.col.queue': 'Queue',
+  'pages.compute.jobTemplate.col.minAvailable': 'minAvailable',
+  'pages.compute.jobTemplate.col.tasks': 'Tasks',
+  'pages.compute.jobTemplate.col.priorityClassName': 'PriorityClass',
+  'pages.compute.jobTemplate.col.age': 'Age',
+
+  // Numatopology (nodeinfo.volcano.sh/v1alpha1) — read-only
+  'pages.compute.numa.col.node': 'Node',
+  'pages.compute.numa.col.policies': 'Policies',
+  'pages.compute.numa.col.numaResources': 'NUMA resources',
+  'pages.compute.numa.col.cpuCount': 'CPU count',
+  'pages.compute.numa.col.reserved': 'Reserved',
+  'pages.compute.numa.col.age': 'Age',
+
+  // NodeShard (shard.volcano.sh/v1alpha1)
+  'pages.compute.nodeShard.create': 'New NodeShard',
+  'pages.compute.nodeShard.create.title': 'New NodeShard',
+  'pages.compute.nodeShard.edit.title': 'Edit NodeShard',
+  'pages.compute.nodeShard.created': 'NodeShard created',
+  'pages.compute.nodeShard.updated': 'NodeShard updated',
+  'pages.compute.nodeShard.name': 'Name',
+  'pages.compute.nodeShard.name.extra':
+    'DNS-1123 — shard identifier for multi-scheduler setups',
+  'pages.compute.nodeShard.nodesDesired': 'Desired nodes',
+  'pages.compute.nodeShard.nodesDesired.extra':
+    "Names of nodes this shard should manage. The controller diffs against the live node set and surfaces toAdd / toRemove.",
+  'pages.compute.nodeShard.nodesDesired.placeholder':
+    'Comma- or enter-separated node names',
+  'pages.compute.nodeShard.col.name': 'Name',
+  'pages.compute.nodeShard.col.desired': 'Desired',
+  'pages.compute.nodeShard.col.status': 'Status',
+  'pages.compute.nodeShard.col.lastUpdate': 'Last update',
+  'pages.compute.nodeShard.col.age': 'Age',
+
+  // ColocationConfiguration (config.volcano.sh/v1alpha1)
+  'pages.compute.colocation.create': 'New ColocationConfig',
+  'pages.compute.colocation.create.title': 'New ColocationConfiguration',
+  'pages.compute.colocation.edit.title': 'Edit ColocationConfiguration',
+  'pages.compute.colocation.created': 'Created',
+  'pages.compute.colocation.updated': 'Updated',
+  'pages.compute.colocation.name': 'Name',
+  'pages.compute.colocation.namespace': 'Namespace',
+  'pages.compute.colocation.highRatio.extra':
+    'Memory throttling ratio 0-100 (default 100)',
+  'pages.compute.colocation.lowRatio.extra':
+    'Memory priority protection ratio 0-100 (default 0)',
+  'pages.compute.colocation.minRatio.extra':
+    'Absolute memory protection ratio 0-100 (default 0)',
+  'pages.compute.colocation.matchLabels': 'matchLabels',
+  'pages.compute.colocation.matchLabels.extra':
+    'Selects Pods via matchLabels. For complex selectors (matchExpressions etc.) use the YAML view.',
+  'pages.compute.colocation.matchLabels.add': 'Add label',
+  'pages.compute.colocation.col.name': 'Name',
+  'pages.compute.colocation.col.namespace': 'Namespace',
+  'pages.compute.colocation.col.selector': 'Selector',
+  'pages.compute.colocation.col.available': 'Available',
+  'pages.compute.colocation.col.age': 'Age',
+
   // Plugin install log (Cluster Plugins page → View log)
   'pages.clusterPlugins.viewLog': 'View log',
   'pages.pluginInstallLog.title': '{name} · operation log',

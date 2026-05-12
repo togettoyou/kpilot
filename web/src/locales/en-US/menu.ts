@@ -85,4 +85,9 @@ export default {
   'menu.compute.resources.cronjobs': 'CronJob',
   'menu.compute.resources.podgroups': 'PodGroup',
   'menu.compute.resources.hypernodes': 'HyperNode',
+  'menu.compute.resources.jobflows': 'JobFlow',
+  'menu.compute.resources.jobtemplates': 'JobTemplate',
+  'menu.compute.resources.numatopologies': 'NumaTopology',
+  'menu.compute.resources.nodeshards': 'NodeShard',
+  'menu.compute.resources.colocationconfigurations': 'ColocationConfig',
 };

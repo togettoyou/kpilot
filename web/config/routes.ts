@@ -102,6 +102,26 @@ export default [
         component: './Compute/Volcano/HyperNodes',
       },
       {
+        path: '/compute/:id/jobflows',
+        component: './Compute/Volcano/JobFlows',
+      },
+      {
+        path: '/compute/:id/jobtemplates',
+        component: './Compute/Volcano/JobTemplates',
+      },
+      {
+        path: '/compute/:id/numatopologies',
+        component: './Compute/Volcano/NumaTopologies',
+      },
+      {
+        path: '/compute/:id/nodeshards',
+        component: './Compute/Volcano/NodeShards',
+      },
+      {
+        path: '/compute/:id/colocationconfigurations',
+        component: './Compute/Volcano/ColocationConfigurations',
+      },
+      {
         // Read-only view of volcano-scheduler-configmap → the
         // currently configured actions + plugin tiers. Editing
         // happens through the volcano plugin's helm values, not

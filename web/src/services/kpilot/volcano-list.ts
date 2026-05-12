@@ -167,3 +167,133 @@ export function listVolcanoHyperNodes(
     { method: 'GET', params: listParams(params) },
   );
 }
+
+// ─── JobFlow ────────────────────────────────────────────────────────────
+
+export interface JobFlowRow {
+  name: string;
+  namespace: string;
+  uid: string;
+  creationTimestamp: string;
+  phase: string; // Succeed / Terminating / Failed / Running / Pending / ''
+  jobRetainPolicy?: string; // retain | delete
+  flowCount: number;
+  pendingCount: number;
+  runningCount: number;
+  completedCount: number;
+  failedCount: number;
+  terminatedCount: number;
+  unknownCount: number;
+}
+
+export function listVolcanoJobFlows(
+  clusterId: string,
+  namespace?: string,
+  params?: Omit<VolcanoListParams, 'namespace'>,
+) {
+  return request<VolcanoListResponse<JobFlowRow>>(
+    `/api/v1/clusters/${clusterId}/volcano/jobflows`,
+    { method: 'GET', params: listParams({ ...params, namespace }) },
+  );
+}
+
+// ─── JobTemplate ────────────────────────────────────────────────────────
+
+export interface JobTemplateRow {
+  name: string;
+  namespace: string;
+  uid: string;
+  creationTimestamp: string;
+  queue?: string;
+  schedulerName?: string;
+  minAvailable: number;
+  taskCount: number;
+  priorityClassName?: string;
+}
+
+export function listVolcanoJobTemplates(
+  clusterId: string,
+  namespace?: string,
+  params?: Omit<VolcanoListParams, 'namespace'>,
+) {
+  return request<VolcanoListResponse<JobTemplateRow>>(
+    `/api/v1/clusters/${clusterId}/volcano/jobtemplates`,
+    { method: 'GET', params: listParams({ ...params, namespace }) },
+  );
+}
+
+// ─── Numatopology ───────────────────────────────────────────────────────
+
+export interface NumaResourceRow {
+  name: string;
+  allocatable?: string;
+  capacity: number;
+}
+
+export interface NumatopologyRow {
+  name: string;
+  uid: string;
+  creationTimestamp: string;
+  policies?: Record<string, string>;
+  resReserved?: Record<string, string>;
+  numaResources?: NumaResourceRow[];
+  cpuCount: number;
+}
+
+export function listVolcanoNumatopologies(
+  clusterId: string,
+  params?: VolcanoListParams,
+) {
+  return request<VolcanoListResponse<NumatopologyRow>>(
+    `/api/v1/clusters/${clusterId}/volcano/numatopologies`,
+    { method: 'GET', params: listParams(params) },
+  );
+}
+
+// ─── NodeShard ──────────────────────────────────────────────────────────
+
+export interface NodeShardRow {
+  name: string;
+  uid: string;
+  creationTimestamp: string;
+  nodesDesired?: string[];
+  nodesInUse?: string[];
+  nodesToAdd?: string[];
+  nodesToRemove?: string[];
+  lastUpdateTime?: string;
+}
+
+export function listVolcanoNodeShards(
+  clusterId: string,
+  params?: VolcanoListParams,
+) {
+  return request<VolcanoListResponse<NodeShardRow>>(
+    `/api/v1/clusters/${clusterId}/volcano/nodeshards`,
+    { method: 'GET', params: listParams(params) },
+  );
+}
+
+// ─── ColocationConfiguration ────────────────────────────────────────────
+
+export interface ColocationConfigurationRow {
+  name: string;
+  namespace: string;
+  uid: string;
+  creationTimestamp: string;
+  highRatio: number;
+  lowRatio: number;
+  minRatio: number;
+  selectorSummary?: string;
+  available?: string; // condition status: True / False / Unknown / ''
+}
+
+export function listVolcanoColocationConfigurations(
+  clusterId: string,
+  namespace?: string,
+  params?: Omit<VolcanoListParams, 'namespace'>,
+) {
+  return request<VolcanoListResponse<ColocationConfigurationRow>>(
+    `/api/v1/clusters/${clusterId}/volcano/colocationconfigurations`,
+    { method: 'GET', params: listParams({ ...params, namespace }) },
+  );
+}

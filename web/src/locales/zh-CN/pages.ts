@@ -363,6 +363,82 @@ export default {
     '按节点 labels 匹配（仅当类型为 Node 时生效）',
   'pages.compute.hyperNodeForm.member.labels.add': '添加 label',
 
+  // YAML-only create/edit drawer (shared)
+  'pages.compute.yamlDrawer.success': '已应用',
+  'pages.compute.yamlDrawer.submit': '创建',
+  'pages.compute.yamlDrawer.save': '保存',
+
+  // JobFlow (flow.volcano.sh/v1alpha1)
+  'pages.compute.jobFlow.create': '新建 JobFlow',
+  'pages.compute.jobFlow.create.title': '新建 JobFlow',
+  'pages.compute.jobFlow.edit.title': '编辑 JobFlow',
+  'pages.compute.jobFlow.col.name': '名称',
+  'pages.compute.jobFlow.col.namespace': '命名空间',
+  'pages.compute.jobFlow.col.phase': '状态',
+  'pages.compute.jobFlow.col.flows': '流程数',
+  'pages.compute.jobFlow.col.progress': '执行情况',
+  'pages.compute.jobFlow.col.retainPolicy': '保留策略',
+  'pages.compute.jobFlow.col.age': '存活',
+
+  // JobTemplate (flow.volcano.sh/v1alpha1)
+  'pages.compute.jobTemplate.create': '新建 JobTemplate',
+  'pages.compute.jobTemplate.create.title': '新建 JobTemplate',
+  'pages.compute.jobTemplate.edit.title': '编辑 JobTemplate',
+  'pages.compute.jobTemplate.col.name': '名称',
+  'pages.compute.jobTemplate.col.namespace': '命名空间',
+  'pages.compute.jobTemplate.col.queue': 'Queue',
+  'pages.compute.jobTemplate.col.minAvailable': 'minAvailable',
+  'pages.compute.jobTemplate.col.tasks': 'Task 数',
+  'pages.compute.jobTemplate.col.priorityClassName': '优先级类',
+  'pages.compute.jobTemplate.col.age': '存活',
+
+  // Numatopology (nodeinfo.volcano.sh/v1alpha1) — 只读
+  'pages.compute.numa.col.node': '节点',
+  'pages.compute.numa.col.policies': '管理策略',
+  'pages.compute.numa.col.numaResources': 'NUMA 资源',
+  'pages.compute.numa.col.cpuCount': 'CPU 数',
+  'pages.compute.numa.col.reserved': '预留资源',
+  'pages.compute.numa.col.age': '存活',
+
+  // NodeShard (shard.volcano.sh/v1alpha1)
+  'pages.compute.nodeShard.create': '新建 NodeShard',
+  'pages.compute.nodeShard.create.title': '新建 NodeShard',
+  'pages.compute.nodeShard.edit.title': '编辑 NodeShard',
+  'pages.compute.nodeShard.created': 'NodeShard 已创建',
+  'pages.compute.nodeShard.updated': 'NodeShard 已更新',
+  'pages.compute.nodeShard.name': '名称',
+  'pages.compute.nodeShard.name.extra': 'DNS-1123，多调度器场景下用作 shard 标识',
+  'pages.compute.nodeShard.nodesDesired': '期望节点',
+  'pages.compute.nodeShard.nodesDesired.extra':
+    '该 shard 应包含的节点名列表。控制器根据真实节点状况算出 toAdd / toRemove。',
+  'pages.compute.nodeShard.nodesDesired.placeholder': '回车 / 逗号分隔的节点名',
+  'pages.compute.nodeShard.col.name': '名称',
+  'pages.compute.nodeShard.col.desired': '期望数',
+  'pages.compute.nodeShard.col.status': '状态',
+  'pages.compute.nodeShard.col.lastUpdate': '上次更新',
+  'pages.compute.nodeShard.col.age': '存活',
+
+  // ColocationConfiguration (config.volcano.sh/v1alpha1)
+  'pages.compute.colocation.create': '新建 ColocationConfig',
+  'pages.compute.colocation.create.title': '新建 ColocationConfiguration',
+  'pages.compute.colocation.edit.title': '编辑 ColocationConfiguration',
+  'pages.compute.colocation.created': '已创建',
+  'pages.compute.colocation.updated': '已更新',
+  'pages.compute.colocation.name': '名称',
+  'pages.compute.colocation.namespace': '命名空间',
+  'pages.compute.colocation.highRatio.extra': '内存限流比例 0-100，默认 100',
+  'pages.compute.colocation.lowRatio.extra': '优先级保护比例 0-100，默认 0',
+  'pages.compute.colocation.minRatio.extra': '绝对保护比例 0-100，默认 0',
+  'pages.compute.colocation.matchLabels': '匹配标签 (matchLabels)',
+  'pages.compute.colocation.matchLabels.extra':
+    '依照 matchLabels 选中 Pod；复杂选择器请用 YAML 视图（matchExpressions 等）',
+  'pages.compute.colocation.matchLabels.add': '添加 label',
+  'pages.compute.colocation.col.name': '名称',
+  'pages.compute.colocation.col.namespace': '命名空间',
+  'pages.compute.colocation.col.selector': '选择器',
+  'pages.compute.colocation.col.available': 'Available',
+  'pages.compute.colocation.col.age': '存活',
+
   // 插件安装日志（Cluster Plugins 页 → 查看日志）
   'pages.clusterPlugins.viewLog': '查看日志',
   'pages.pluginInstallLog.title': '{name} · 操作日志',

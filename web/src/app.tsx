@@ -499,6 +499,31 @@ function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
           name: 'hypernodes',
           icon: <DeploymentUnitOutlined />,
         },
+        {
+          path: `${base}/jobflows`,
+          name: 'jobflows',
+          icon: <BlockOutlined />,
+        },
+        {
+          path: `${base}/jobtemplates`,
+          name: 'jobtemplates',
+          icon: <BlockOutlined />,
+        },
+        {
+          path: `${base}/numatopologies`,
+          name: 'numatopologies',
+          icon: <DesktopOutlined />,
+        },
+        {
+          path: `${base}/nodeshards`,
+          name: 'nodeshards',
+          icon: <DeploymentUnitOutlined />,
+        },
+        {
+          path: `${base}/colocationconfigurations`,
+          name: 'colocationconfigurations',
+          icon: <ControlOutlined />,
+        },
       ],
     },
   ];

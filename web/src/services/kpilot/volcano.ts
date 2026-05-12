@@ -520,6 +520,62 @@ export function buildHyperNodeManifest(input: HyperNodeInput): unknown {
   };
 }
 
+// ─── NodeShard ─────────────────────────────────────────────────────────
+
+export interface NodeShardInput {
+  name: string;
+  // Cluster-scoped list of node names this shard should manage.
+  // The controller diffs against the live node set and surfaces the
+  // delta in status.nodesToAdd / nodesToRemove.
+  nodesDesired: string[];
+}
+
+export function buildNodeShardManifest(input: NodeShardInput): unknown {
+  return {
+    apiVersion: 'shard.volcano.sh/v1alpha1',
+    kind: 'NodeShard',
+    metadata: { name: input.name },
+    spec: {
+      nodesDesired: input.nodesDesired,
+    },
+  };
+}
+
+// ─── ColocationConfiguration ───────────────────────────────────────────
+
+export interface ColocationConfigurationInput {
+  name: string;
+  namespace: string;
+  // Optional matchLabels — the typed form only models this simple
+  // shape; matchExpressions can be added through the YAML view.
+  matchLabels?: Record<string, string>;
+  // MemoryQos cgroup ratios. Per the CRD, all three are 0–100.
+  // Defaults: high=100, low=0, min=0.
+  highRatio?: number;
+  lowRatio?: number;
+  minRatio?: number;
+}
+
+export function buildColocationConfigurationManifest(
+  input: ColocationConfigurationInput,
+): unknown {
+  const spec: Record<string, unknown> = {};
+  const memoryQos: Record<string, unknown> = {};
+  if (typeof input.highRatio === 'number') memoryQos.highRatio = input.highRatio;
+  if (typeof input.lowRatio === 'number') memoryQos.lowRatio = input.lowRatio;
+  if (typeof input.minRatio === 'number') memoryQos.minRatio = input.minRatio;
+  if (Object.keys(memoryQos).length > 0) spec.memoryQos = memoryQos;
+  if (input.matchLabels && Object.keys(input.matchLabels).length > 0) {
+    spec.selector = { matchLabels: input.matchLabels };
+  }
+  return {
+    apiVersion: 'config.volcano.sh/v1alpha1',
+    kind: 'ColocationConfiguration',
+    metadata: { name: input.name, namespace: input.namespace },
+    spec,
+  };
+}
+
 function parseApiVersion(av: string): { group: string; version: string } {
   const slash = av.indexOf('/');
   if (slash < 0) return { group: '', version: av };

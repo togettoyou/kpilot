@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -486,6 +488,502 @@ func ListVolcanoHyperNodes(gw *gateway.GatewayServer) gin.HandlerFunc {
 			RemainingItemCount: remaining,
 		})
 	}
+}
+
+// ─── JobFlow (flow.volcano.sh/v1alpha1) ────────────────────────────────
+
+type jobFlowRow struct {
+	Name              string   `json:"name"`
+	Namespace         string   `json:"namespace"`
+	UID               string   `json:"uid"`
+	CreationTimestamp string   `json:"creationTimestamp"`
+	Phase             string   `json:"phase"`
+	JobRetainPolicy   string   `json:"jobRetainPolicy,omitempty"`
+	// Slim status counts. Each is the count of names in the
+	// corresponding status list — the names themselves are not
+	// projected to keep payload small.
+	FlowCount      int `json:"flowCount"`
+	PendingCount   int `json:"pendingCount"`
+	RunningCount   int `json:"runningCount"`
+	CompletedCount int `json:"completedCount"`
+	FailedCount    int `json:"failedCount"`
+	TerminatedCount int `json:"terminatedCount"`
+	UnknownCount   int `json:"unknownCount"`
+}
+
+func ListVolcanoJobFlows(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		namespace := c.Query("namespace")
+		limit, cont := parseListParams(c)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:        "list-full",
+			Group:         "flow.volcano.sh",
+			Version:       "v1alpha1",
+			Kind:          "JobFlow",
+			Namespace:     namespace,
+			Limit:         limit,
+			ContinueToken: cont,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				log.Printf("[handler] volcano CRD not available: cluster=%s kind=JobFlow", clusterID)
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
+			apiErrWorker(c, resp.Error)
+			return
+		}
+
+		items, contNext, remaining, err := unstructuredItems(resp.Data)
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+
+		out := make([]jobFlowRow, 0, len(items))
+		for _, it := range items {
+			meta := metaOf(it)
+			spec := mapOf(it["spec"])
+			status := mapOf(it["status"])
+			state := mapOf(status["state"])
+			out = append(out, jobFlowRow{
+				Name:              str(meta["name"]),
+				Namespace:         str(meta["namespace"]),
+				UID:               str(meta["uid"]),
+				CreationTimestamp: str(meta["creationTimestamp"]),
+				Phase:             str(state["phase"]),
+				JobRetainPolicy:   str(spec["jobRetainPolicy"]),
+				FlowCount:         len(sliceOf(spec["flows"])),
+				PendingCount:      len(sliceOf(status["pendingJobs"])),
+				RunningCount:      len(sliceOf(status["runningJobs"])),
+				CompletedCount:    len(sliceOf(status["completedJobs"])),
+				FailedCount:       len(sliceOf(status["failedJobs"])),
+				TerminatedCount:   len(sliceOf(status["terminatedJobs"])),
+				UnknownCount:      len(sliceOf(status["unKnowJobs"])),
+			})
+		}
+		c.JSON(http.StatusOK, volcanoListResponse[jobFlowRow]{
+			Items:              out,
+			Continue:           contNext,
+			RemainingItemCount: remaining,
+		})
+	}
+}
+
+// ─── JobTemplate (flow.volcano.sh/v1alpha1) ────────────────────────────
+
+type jobTemplateRow struct {
+	Name              string `json:"name"`
+	Namespace         string `json:"namespace"`
+	UID               string `json:"uid"`
+	CreationTimestamp string `json:"creationTimestamp"`
+	Queue             string `json:"queue,omitempty"`
+	SchedulerName     string `json:"schedulerName,omitempty"`
+	MinAvailable      int64  `json:"minAvailable"`
+	TaskCount         int    `json:"taskCount"`
+	PriorityClassName string `json:"priorityClassName,omitempty"`
+}
+
+func ListVolcanoJobTemplates(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		namespace := c.Query("namespace")
+		limit, cont := parseListParams(c)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:        "list-full",
+			Group:         "flow.volcano.sh",
+			Version:       "v1alpha1",
+			Kind:          "JobTemplate",
+			Namespace:     namespace,
+			Limit:         limit,
+			ContinueToken: cont,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				log.Printf("[handler] volcano CRD not available: cluster=%s kind=JobTemplate", clusterID)
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
+			apiErrWorker(c, resp.Error)
+			return
+		}
+
+		items, contNext, remaining, err := unstructuredItems(resp.Data)
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+
+		out := make([]jobTemplateRow, 0, len(items))
+		for _, it := range items {
+			meta := metaOf(it)
+			// JobTemplate's spec inlines a JobSpec — but the kubebuilder
+			// scaffolding actually stores it directly under spec (no
+			// jobSpec wrapper), so read like a Job's spec.
+			spec := mapOf(it["spec"])
+			out = append(out, jobTemplateRow{
+				Name:              str(meta["name"]),
+				Namespace:         str(meta["namespace"]),
+				UID:               str(meta["uid"]),
+				CreationTimestamp: str(meta["creationTimestamp"]),
+				Queue:             str(spec["queue"]),
+				SchedulerName:     str(spec["schedulerName"]),
+				MinAvailable:      int64Of(spec["minAvailable"]),
+				TaskCount:         len(sliceOf(spec["tasks"])),
+				PriorityClassName: str(spec["priorityClassName"]),
+			})
+		}
+		c.JSON(http.StatusOK, volcanoListResponse[jobTemplateRow]{
+			Items:              out,
+			Continue:           contNext,
+			RemainingItemCount: remaining,
+		})
+	}
+}
+
+// ─── Numatopology (nodeinfo.volcano.sh/v1alpha1) ───────────────────────
+
+// numaResourceRow surfaces one entry of spec.numares (per-resource
+// NUMA capacity/allocatable). UI renders these as a small badge per
+// resource so users see the NUMA pool at a glance.
+type numaResourceRow struct {
+	Name        string `json:"name"`
+	Allocatable string `json:"allocatable,omitempty"`
+	Capacity    int64  `json:"capacity"`
+}
+
+type numatopologyRow struct {
+	Name              string                  `json:"name"`
+	UID               string                  `json:"uid"`
+	CreationTimestamp string                  `json:"creationTimestamp"`
+	Policies          map[string]string       `json:"policies,omitempty"`
+	ResReserved       map[string]string       `json:"resReserved,omitempty"`
+	NumaResources     []numaResourceRow       `json:"numaResources,omitempty"`
+	CPUCount          int                     `json:"cpuCount"`
+}
+
+func ListVolcanoNumatopologies(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		limit, cont := parseListParams(c)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:        "list-full",
+			Group:         "nodeinfo.volcano.sh",
+			Version:       "v1alpha1",
+			Kind:          "Numatopology",
+			Limit:         limit,
+			ContinueToken: cont,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				log.Printf("[handler] volcano CRD not available: cluster=%s kind=Numatopology", clusterID)
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
+			apiErrWorker(c, resp.Error)
+			return
+		}
+
+		items, contNext, remaining, err := unstructuredItems(resp.Data)
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+
+		out := make([]numatopologyRow, 0, len(items))
+		for _, it := range items {
+			meta := metaOf(it)
+			spec := mapOf(it["spec"])
+			cpuDetail := mapOf(spec["cpuDetail"])
+			out = append(out, numatopologyRow{
+				Name:              str(meta["name"]),
+				UID:               str(meta["uid"]),
+				CreationTimestamp: str(meta["creationTimestamp"]),
+				Policies:          stringMap(spec["policies"]),
+				ResReserved:       stringMap(spec["resReserved"]),
+				NumaResources:     numaResourcesOf(spec["numares"]),
+				CPUCount:          len(cpuDetail),
+			})
+		}
+		c.JSON(http.StatusOK, volcanoListResponse[numatopologyRow]{
+			Items:              out,
+			Continue:           contNext,
+			RemainingItemCount: remaining,
+		})
+	}
+}
+
+// numaResourcesOf flattens spec.numares (resourceName → ResourceInfo)
+// into a stable list the UI can render row-by-row.
+func numaResourcesOf(v any) []numaResourceRow {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) == 0 {
+		return nil
+	}
+	out := make([]numaResourceRow, 0, len(m))
+	for name, raw := range m {
+		ri := mapOf(raw)
+		out = append(out, numaResourceRow{
+			Name:        name,
+			Allocatable: str(ri["allocatable"]),
+			Capacity:    int64Of(ri["capacity"]),
+		})
+	}
+	return out
+}
+
+// ─── NodeShard (shard.volcano.sh/v1alpha1) ─────────────────────────────
+
+type nodeShardRow struct {
+	Name              string   `json:"name"`
+	UID               string   `json:"uid"`
+	CreationTimestamp string   `json:"creationTimestamp"`
+	NodesDesired      []string `json:"nodesDesired,omitempty"`
+	NodesInUse        []string `json:"nodesInUse,omitempty"`
+	NodesToAdd        []string `json:"nodesToAdd,omitempty"`
+	NodesToRemove     []string `json:"nodesToRemove,omitempty"`
+	LastUpdateTime    string   `json:"lastUpdateTime,omitempty"`
+}
+
+func ListVolcanoNodeShards(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		limit, cont := parseListParams(c)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:        "list-full",
+			Group:         "shard.volcano.sh",
+			Version:       "v1alpha1",
+			Kind:          "NodeShard",
+			Limit:         limit,
+			ContinueToken: cont,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				log.Printf("[handler] volcano CRD not available: cluster=%s kind=NodeShard", clusterID)
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
+			apiErrWorker(c, resp.Error)
+			return
+		}
+
+		items, contNext, remaining, err := unstructuredItems(resp.Data)
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+
+		out := make([]nodeShardRow, 0, len(items))
+		for _, it := range items {
+			meta := metaOf(it)
+			spec := mapOf(it["spec"])
+			status := mapOf(it["status"])
+			out = append(out, nodeShardRow{
+				Name:              str(meta["name"]),
+				UID:               str(meta["uid"]),
+				CreationTimestamp: str(meta["creationTimestamp"]),
+				NodesDesired:      stringSlice(spec["nodesDesired"]),
+				NodesInUse:        stringSlice(status["nodesInUse"]),
+				NodesToAdd:        stringSlice(status["nodesToAdd"]),
+				NodesToRemove:     stringSlice(status["nodesToRemove"]),
+				LastUpdateTime:    str(status["lastUpdateTime"]),
+			})
+		}
+		c.JSON(http.StatusOK, volcanoListResponse[nodeShardRow]{
+			Items:              out,
+			Continue:           contNext,
+			RemainingItemCount: remaining,
+		})
+	}
+}
+
+// stringSlice safely projects a []any of strings into []string,
+// dropping non-string entries (defensive — the API server schema
+// constrains items to strings, but unstructured decode loses that
+// type info).
+func stringSlice(v any) []string {
+	s, ok := v.([]any)
+	if !ok || len(s) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(s))
+	for _, item := range s {
+		if str, ok := item.(string); ok && str != "" {
+			out = append(out, str)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// ─── ColocationConfiguration (config.volcano.sh/v1alpha1) ──────────────
+
+type colocationConfigurationRow struct {
+	Name              string            `json:"name"`
+	Namespace         string            `json:"namespace"`
+	UID               string            `json:"uid"`
+	CreationTimestamp string            `json:"creationTimestamp"`
+	HighRatio         int64             `json:"highRatio"`
+	LowRatio          int64             `json:"lowRatio"`
+	MinRatio          int64             `json:"minRatio"`
+	// Stringified selector summary like "app=web" — the actual
+	// LabelSelector shape is complex (matchExpressions + matchLabels);
+	// the row projects only the matchLabels into "k=v" pairs joined
+	// by comma. Full structure available via the Describe drawer.
+	SelectorSummary string `json:"selectorSummary,omitempty"`
+	// Status condition snapshot — pick the latest type=Available
+	// status. Empty when the controller hasn't reconciled yet.
+	Available string `json:"available,omitempty"`
+}
+
+func ListVolcanoColocationConfigurations(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		namespace := c.Query("namespace")
+		limit, cont := parseListParams(c)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
+		defer cancel()
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+			Action:        "list-full",
+			Group:         "config.volcano.sh",
+			Version:       "v1alpha1",
+			Kind:          "ColocationConfiguration",
+			Namespace:     namespace,
+			Limit:         limit,
+			ContinueToken: cont,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				log.Printf("[handler] volcano CRD not available: cluster=%s kind=ColocationConfiguration", clusterID)
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
+			apiErrWorker(c, resp.Error)
+			return
+		}
+
+		items, contNext, remaining, err := unstructuredItems(resp.Data)
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+
+		out := make([]colocationConfigurationRow, 0, len(items))
+		for _, it := range items {
+			meta := metaOf(it)
+			spec := mapOf(it["spec"])
+			memQos := mapOf(spec["memoryQos"])
+			out = append(out, colocationConfigurationRow{
+				Name:              str(meta["name"]),
+				Namespace:         str(meta["namespace"]),
+				UID:               str(meta["uid"]),
+				CreationTimestamp: str(meta["creationTimestamp"]),
+				HighRatio:         int64Of(memQos["highRatio"]),
+				LowRatio:          int64Of(memQos["lowRatio"]),
+				MinRatio:          int64Of(memQos["minRatio"]),
+				SelectorSummary:   selectorSummary(spec["selector"]),
+				Available:         latestCondition(it["status"], "Available"),
+			})
+		}
+		c.JSON(http.StatusOK, volcanoListResponse[colocationConfigurationRow]{
+			Items:              out,
+			Continue:           contNext,
+			RemainingItemCount: remaining,
+		})
+	}
+}
+
+// selectorSummary collapses a LabelSelector's matchLabels into a
+// "k=v,k=v" string. matchExpressions is intentionally ignored — the
+// table cell stays compact; users wanting the full structure click
+// through to Describe.
+func selectorSummary(v any) string {
+	sel := mapOf(v)
+	if len(sel) == 0 {
+		return ""
+	}
+	labels := mapOf(sel["matchLabels"])
+	if len(labels) == 0 {
+		// Even if matchExpressions is set, surface a placeholder so
+		// the cell isn't empty (otherwise the user can't tell whether
+		// the selector is absent vs just expressions-only).
+		if len(sliceOf(sel["matchExpressions"])) > 0 {
+			return "(matchExpressions only)"
+		}
+		return ""
+	}
+	pairs := make([]string, 0, len(labels))
+	for k, raw := range labels {
+		if v, ok := raw.(string); ok {
+			pairs = append(pairs, k+"="+v)
+		}
+	}
+	if len(pairs) == 0 {
+		return ""
+	}
+	// Sort for stable rendering across refreshes — unstructured map
+	// iteration order is non-deterministic in Go.
+	sort.Strings(pairs)
+	return strings.Join(pairs, ",")
+}
+
+// latestCondition picks the Status of the most recent condition of
+// the given type, or "" if none. Used to surface a single status
+// string in the list row without dumping the whole conditions array.
+func latestCondition(rawStatus any, condType string) string {
+	status := mapOf(rawStatus)
+	conds := sliceOf(status["conditions"])
+	var latestTime, latestStatus string
+	for _, c := range conds {
+		cm := mapOf(c)
+		if str(cm["type"]) != condType {
+			continue
+		}
+		t := str(cm["lastTransitionTime"])
+		// String compare works for RFC3339-formatted timestamps that
+		// share a fixed-width layout — newer > older lexicographically.
+		if t >= latestTime {
+			latestTime = t
+			latestStatus = str(cm["status"])
+		}
+	}
+	return latestStatus
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────
