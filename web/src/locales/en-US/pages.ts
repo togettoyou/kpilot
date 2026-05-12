@@ -47,6 +47,28 @@ export default {
   'pages.compute.queueForm.updated': 'Queue updated',
   'pages.compute.queueForm.name': 'Name',
   'pages.compute.queueForm.name.extra': 'DNS-1123: lowercase, digits, hyphens, up to 63 chars',
+  // ResourceIntro — one-line "what is this" hint at the top of each CR page
+  'pages.compute.intro.queue':
+    'Resource-pool abstraction. Allocates exclusive/shared quotas to workloads; the capacity / proportion plugins divide cluster resources by weight. Think of it as Volcano\'s notion of an "account".',
+  'pages.compute.intro.job':
+    'Volcano-native batch job. Adds gang scheduling (minAvailable pods must start together), multi-task coordination, and Queue quotas on top of native K8s Job. Essential for distributed training / MPI.',
+  'pages.compute.intro.cronjob':
+    'Cron-triggered Volcano Job. Same idea as K8s CronJob, but the produced instances are vcjobs (gang-scheduled).',
+  'pages.compute.intro.podgroup':
+    'The gang-scheduling unit: all-or-nothing scheduling for a pod set, avoiding "half-started" distributed-job deadlocks. Auto-created by Volcano Job; also creatable standalone for raw Pods.',
+  'pages.compute.intro.hypernode':
+    'Network-topology grouping. Models switch tiers (rack / spine / cluster); the network-topology-aware plugin uses it to keep training jobs inside a single NCCL domain.',
+  'pages.compute.intro.jobflow':
+    'DAG orchestration over Volcano Jobs. Each node references a JobTemplate; dependsOn (optionally with HTTP / TCP / task-status probes) defines edges. Fits pipelines like data-prep → train → eval. Requires the jobflow sub-chart to be enabled.',
+  'pages.compute.intro.jobtemplate':
+    'Reusable Volcano Job blueprint. Does nothing on its own — referenced by JobFlow, so you don\'t inline a full JobSpec in every flow node. Requires the jobflow sub-chart.',
+  'pages.compute.intro.numatopology':
+    'Per-node NUMA topology + CPU layout. Auto-maintained by the volcano-resource-exporter DaemonSet (read-only). The numa-aware plugin scores nodes using this data.',
+  'pages.compute.intro.nodeshard':
+    'Carves a subset of nodes for a specific Volcano scheduler instance. Only relevant when running multiple Volcano schedulers; single-scheduler clusters (most cases) do not need this. Requires Volcano 1.10+.',
+  'pages.compute.intro.colocationconfiguration':
+    'Memory-QoS overlay for online/offline colocation. Configures memory.high / memory.low / memory.min cgroup ratios for the matchLabels-selected pods. Requires volcano-agent + kernel cgroup memory support.',
+
   'pages.compute.queueForm.weight': 'Weight',
   'pages.compute.queueForm.weight.extra': 'Resources are split between queues proportional to weight; higher = preferred',
   'pages.compute.queueForm.priority': 'Priority',

@@ -15,6 +15,7 @@ import { PodGroupFormDrawer } from './PodGroupForm';
 import {
   NotInstalled,
   RefreshControl,
+  ResourceIntro,
   TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
@@ -186,6 +187,7 @@ export default function VolcanoPodGroupsPage() {
 
   return (
     <div className="p-6">
+      <ResourceIntro id="pages.compute.intro.podgroup" />
       {truncated && (
         <TruncatedBanner shown={items.length} count={items.length} />
       )}

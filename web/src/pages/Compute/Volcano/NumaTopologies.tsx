@@ -12,6 +12,7 @@ import {
 import {
   NotInstalled,
   RefreshControl,
+  ResourceIntro,
   TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
@@ -154,6 +155,7 @@ export default function VolcanoNumaTopologiesPage() {
 
   return (
     <div className="p-6">
+      <ResourceIntro id="pages.compute.intro.numatopology" />
       {truncated && (
         <TruncatedBanner shown={items.length} count={items.length} />
       )}

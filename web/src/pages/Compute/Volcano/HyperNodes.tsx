@@ -15,6 +15,7 @@ import { HyperNodeFormDrawer } from './HyperNodeForm';
 import {
   NotInstalled,
   RefreshControl,
+  ResourceIntro,
   TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
@@ -162,6 +163,7 @@ export default function VolcanoHyperNodesPage() {
 
   return (
     <div className="p-6">
+      <ResourceIntro id="pages.compute.intro.hypernode" />
       {truncated && (
         <TruncatedBanner shown={items.length} count={items.length} />
       )}

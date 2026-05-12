@@ -169,6 +169,25 @@ export function useStaggeredRefresh(refresh: () => void) {
   };
 }
 
+// ResourceIntro renders a one-line "what is this" hint at the top of
+// each Volcano CR page so a user landing cold understands what the
+// resource is for + when to use it without leaving the UI. The text
+// itself lives in pages.compute.intro.<resource> i18n keys; the
+// component is just a thin wrapper so all pages share styling +
+// position. Non-closable: the cost of one persistent line is small
+// and we'd rather keep onboarding consistent than save a few px.
+export function ResourceIntro({ id }: { id: string }) {
+  const intl = useIntl();
+  return (
+    <Alert
+      type="info"
+      showIcon
+      style={{ marginBottom: 8 }}
+      message={intl.formatMessage({ id })}
+    />
+  );
+}
+
 // TruncatedBanner surfaces the server-side cap (default 500 rows) when
 // a Volcano list endpoint returned a `continue` token. We don't wire
 // cursor pagination yet — for now the banner just tells the user there

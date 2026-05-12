@@ -47,6 +47,28 @@ export default {
   'pages.compute.queueForm.updated': '队列已更新',
   'pages.compute.queueForm.name': '名称',
   'pages.compute.queueForm.name.extra': 'DNS-1123，小写字母 / 数字 / 短横线，最多 63 字符',
+  // ResourceIntro — 每个 CR 页顶部的"这是啥"说明
+  'pages.compute.intro.queue':
+    '资源池抽象。给作业划分独占/共享配额；capacity / proportion 插件按权重切分集群资源，可看作 Volcano 的"账户"概念。',
+  'pages.compute.intro.job':
+    'Volcano 原生批作业。比 K8s Job 多了 Gang 调度（minAvailable 必须同时启动）+ 多 Task 协同 + Queue 配额。分布式训练 / MPI 必用。',
+  'pages.compute.intro.cronjob':
+    '周期性触发的 Volcano Job。类似 K8s CronJob，但产生的实例是 vcjob（带 gang 调度）。',
+  'pages.compute.intro.podgroup':
+    'Gang 调度的最小单元：一组 pod 要么全调度成功，要么都不启动。Volcano Job 会自动生成对应的 PodGroup；也可独立创建给原生 Pod 用。',
+  'pages.compute.intro.hypernode':
+    '网络拓扑节点组。把交换机层级（rack / spine / cluster）建模成 tier，配合 network-topology-aware 插件让训练任务优先落在同一 NCCL 通信域内。',
+  'pages.compute.intro.jobflow':
+    '多个 Volcano Job 按 DAG 依赖运行的编排资源。每个节点引用一个 JobTemplate，靠 dependsOn 串联（可加 HTTP/TCP/Task-Status 探针决定上游何时算完成）。数据预处理 → 训练 → 评估这类流水线适用。需要 jobflow 子 chart 启用。',
+  'pages.compute.intro.jobtemplate':
+    '可复用的 Volcano Job 蓝图。本身不执行，被 JobFlow 引用，避免在 JobFlow 里重复内嵌完整 JobSpec。需要 jobflow 子 chart 启用。',
+  'pages.compute.intro.numatopology':
+    '每个节点的 NUMA 拓扑 + CPU 详情，由 volcano-resource-exporter DaemonSet 自动维护（只读）。numa-aware 调度插件依据这份数据做 NUMA 亲和决策。',
+  'pages.compute.intro.nodeshard':
+    '把节点集合"划分"给特定 Volcano 调度器实例。多 Volcano 调度器共存时用来切分管辖范围；单调度器集群（多数情况）用不上。需要 Volcano 1.10+。',
+  'pages.compute.intro.colocationconfiguration':
+    '在离线混部的内存 QoS 策略。给 matchLabels 选中的 Pod 配 memory.high / memory.low / memory.min cgroup 比例。需要 volcano-agent + 内核 cgroup memory 支持。',
+
   'pages.compute.queueForm.weight': '权重 (Weight)',
   'pages.compute.queueForm.weight.extra': '调度时按权重比例分配资源；越大越优先',
   'pages.compute.queueForm.priority': '优先级 (Priority)',

@@ -15,6 +15,7 @@ import { NodeShardFormDrawer } from './NodeShardForm';
 import {
   NotInstalled,
   RefreshControl,
+  ResourceIntro,
   TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
@@ -181,6 +182,7 @@ export default function VolcanoNodeShardsPage() {
 
   return (
     <div className="p-6">
+      <ResourceIntro id="pages.compute.intro.nodeshard" />
       {truncated && (
         <TruncatedBanner shown={items.length} count={items.length} />
       )}

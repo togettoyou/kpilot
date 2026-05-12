@@ -16,6 +16,7 @@ import { JobFormDrawer } from './JobForm';
 import {
   NotInstalled,
   RefreshControl,
+  ResourceIntro,
   TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
@@ -227,6 +228,7 @@ export default function VolcanoJobsPage() {
 
   return (
     <div className="p-6">
+      <ResourceIntro id="pages.compute.intro.job" />
       {truncated && (
         <TruncatedBanner shown={items.length} count={items.length} />
       )}

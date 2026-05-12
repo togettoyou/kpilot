@@ -15,6 +15,7 @@ import { ColocationConfigurationFormDrawer } from './ColocationConfigurationForm
 import {
   NotInstalled,
   RefreshControl,
+  ResourceIntro,
   TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
@@ -196,6 +197,7 @@ export default function VolcanoColocationConfigurationsPage() {
 
   return (
     <div className="p-6">
+      <ResourceIntro id="pages.compute.intro.colocationconfiguration" />
       {truncated && (
         <TruncatedBanner shown={items.length} count={items.length} />
       )}

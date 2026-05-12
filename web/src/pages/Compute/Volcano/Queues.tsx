@@ -16,6 +16,7 @@ import { QueueFormDrawer } from './QueueForm';
 import {
   NotInstalled,
   RefreshControl,
+  ResourceIntro,
   TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
@@ -159,6 +160,7 @@ export default function VolcanoQueuesPage() {
 
   return (
     <div className="p-6">
+      <ResourceIntro id="pages.compute.intro.queue" />
       {truncated && (
         <TruncatedBanner shown={items.length} count={items.length} />
       )}

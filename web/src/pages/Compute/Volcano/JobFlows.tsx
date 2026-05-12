@@ -14,6 +14,7 @@ import { deleteWorkload } from '@/services/kpilot/workload';
 import {
   NotInstalled,
   RefreshControl,
+  ResourceIntro,
   TruncatedBanner,
   formatAge,
   isResourceNotAvailable,
@@ -197,6 +198,7 @@ export default function VolcanoJobFlowsPage() {
 
   return (
     <div className="p-6">
+      <ResourceIntro id="pages.compute.intro.jobflow" />
       {truncated && (
         <TruncatedBanner shown={items.length} count={items.length} />
       )}
