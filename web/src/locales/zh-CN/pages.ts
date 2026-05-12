@@ -124,8 +124,8 @@ export default {
   'pages.compute.jobForm.task.name': '任务名',
   'pages.compute.jobForm.task.replicas': '副本数',
   'pages.compute.jobForm.task.restartPolicy': '重启策略',
-  'pages.compute.jobForm.task.minAvailable': '任务最小启动数 (minAvailable)',
-  'pages.compute.jobForm.task.maxRetry': '任务重试上限 (maxRetry)',
+  'pages.compute.jobForm.task.minAvailable': '最小启动数 (minAvailable)',
+  'pages.compute.jobForm.task.maxRetry': '重试上限 (maxRetry)',
   'pages.compute.jobForm.task.topologyPolicy': 'NUMA 策略 (topologyPolicy)',
   'pages.compute.jobForm.task.topologyPolicy.placeholder': '不限制',
   'pages.compute.jobForm.task.resources.extras':
