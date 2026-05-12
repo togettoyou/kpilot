@@ -127,6 +127,10 @@ export interface JobTaskInput {
     requests?: Record<string, string>;
     limits?: Record<string, string>;
   };
+  // Container-level imagePullPolicy. Undefined = let kubelet derive
+  // from the image tag (Always for :latest / no-tag, IfNotPresent
+  // otherwise). Explicit values: Always / IfNotPresent / Never.
+  imagePullPolicy?: 'Always' | 'IfNotPresent' | 'Never';
   // Pod-level restartPolicy. Volcano defaults Job-level restartPolicy
   // off the task block; OnFailure works for most batch use cases.
   restartPolicy?: 'OnFailure' | 'Never' | 'Always';
@@ -187,6 +191,7 @@ export function buildJobManifest(input: JobInput): unknown {
     if (t.command && t.command.length > 0) container.command = t.command;
     if (t.args && t.args.length > 0) container.args = t.args;
     if (t.resources) container.resources = t.resources;
+    if (t.imagePullPolicy) container.imagePullPolicy = t.imagePullPolicy;
     const taskOut: Record<string, unknown> = {
       name: t.name,
       replicas: t.replicas,

@@ -49,6 +49,10 @@ interface TaskFV {
   name: string;
   replicas: number;
   image: string;
+  // Container imagePullPolicy. Same semantics as JobForm — empty
+  // means "let kubelet derive from tag"; explicit values are passed
+  // through verbatim to spec.tasks[].template.spec.containers[0].
+  imagePullPolicy?: '' | 'Always' | 'IfNotPresent' | 'Never';
   command?: string;
   args?: string;
   cpu?: string;
@@ -716,18 +720,43 @@ export function CronJobFormDrawer({
                     </Form.Item>
                   </Space.Compact>
 
-                  <Form.Item
-                    name={[field.name, 'image']}
-                    label={intl.formatMessage({
-                      id: 'pages.compute.jobForm.task.image',
-                    })}
-                    rules={[{ required: true }]}
-                  >
-                    <Input
-                      maxLength={512}
-                      placeholder="nvcr.io/nvidia/pytorch:23.04-py3"
-                    />
-                  </Form.Item>
+                  <Space.Compact block>
+                    <Form.Item
+                      name={[field.name, 'image']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.image',
+                      })}
+                      rules={[{ required: true }]}
+                      style={{ flex: 3 }}
+                    >
+                      <Input
+                        maxLength={512}
+                        placeholder="nvcr.io/nvidia/pytorch:23.04-py3"
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'imagePullPolicy']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.imagePullPolicy',
+                      })}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.imagePullPolicy.tip',
+                      })}
+                      style={{ flex: 1, marginInlineStart: 12 }}
+                    >
+                      <Select
+                        allowClear
+                        placeholder={intl.formatMessage({
+                          id: 'pages.compute.jobForm.task.imagePullPolicy.placeholder',
+                        })}
+                        options={[
+                          { label: 'IfNotPresent', value: 'IfNotPresent' },
+                          { label: 'Always', value: 'Always' },
+                          { label: 'Never', value: 'Never' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Space.Compact>
 
                   <Space.Compact block>
                     <Form.Item
@@ -913,6 +942,8 @@ function fvToInput(v: FormValues): CronJobInput {
           name: tr(t.name) ?? 'task',
           replicas: t.replicas,
           image: tr(t.image) ?? '',
+          // Same Auto → undefined collapse as JobForm.
+          imagePullPolicy: t.imagePullPolicy || undefined,
           command: splitWS(t.command),
           args: splitWS(t.args),
           restartPolicy: t.restartPolicy,
@@ -999,6 +1030,12 @@ function extractCronTasks(specTasks: any): TaskFV[] {
       name: t.name ?? 'task',
       replicas: typeof t.replicas === 'number' ? t.replicas : 1,
       image: c.image ?? '',
+      imagePullPolicy:
+        c.imagePullPolicy === 'Always' ||
+        c.imagePullPolicy === 'IfNotPresent' ||
+        c.imagePullPolicy === 'Never'
+          ? c.imagePullPolicy
+          : undefined,
       command: Array.isArray(c.command) ? c.command.join(' ') : undefined,
       args: Array.isArray(c.args) ? c.args.join(' ') : undefined,
       cpu: lim['cpu'] ?? req['cpu'],

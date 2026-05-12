@@ -173,6 +173,10 @@ export default {
   'pages.compute.queueForm.extras.label':
     '其他资源（GPU / ephemeral-storage / volcano.sh/vgpu-* / 自定义扩展资源）',
   'pages.compute.jobForm.task.image': '镜像',
+  'pages.compute.jobForm.task.imagePullPolicy': '拉取策略',
+  'pages.compute.jobForm.task.imagePullPolicy.placeholder': '自动',
+  'pages.compute.jobForm.task.imagePullPolicy.tip':
+    'imagePullPolicy。留空表示由 kubelet 按镜像标签推断（:latest / 无 tag → Always；其它 → IfNotPresent）。',
   'pages.compute.jobForm.task.command': '命令 (command)',
   'pages.compute.jobForm.task.args': '参数 (args)',
   'pages.compute.jobForm.task.resources': '资源请求 (留空不限制)',

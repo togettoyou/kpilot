@@ -170,6 +170,10 @@ export default {
   'pages.compute.queueForm.extras.label':
     'Other resources (GPU / ephemeral-storage / volcano.sh/vgpu-* / custom extended)',
   'pages.compute.jobForm.task.image': 'Image',
+  'pages.compute.jobForm.task.imagePullPolicy': 'Pull policy',
+  'pages.compute.jobForm.task.imagePullPolicy.placeholder': 'Auto',
+  'pages.compute.jobForm.task.imagePullPolicy.tip':
+    'imagePullPolicy. Leave empty to let kubelet derive from the image tag (:latest / no tag → Always; otherwise → IfNotPresent).',
   'pages.compute.jobForm.task.command': 'command',
   'pages.compute.jobForm.task.args': 'args',
   'pages.compute.jobForm.task.resources': 'Resource requests (empty = unlimited)',
