@@ -10,7 +10,7 @@ import {
   type CronJobRow,
 } from '@/services/kpilot/volcano-list';
 import { applyManifest } from '@/services/kpilot/volcano';
-import { deleteWorkload } from '@/services/kpilot/workload';
+import { deleteWorkload, getWorkload } from '@/services/kpilot/workload';
 import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
 import { CronJobFormDrawer } from './CronJobForm';
 import {
@@ -308,12 +308,35 @@ function SuspendAction({
 
   const onConfirm = async () => {
     try {
-      const res = await applyManifest(clusterId, {
+      // Fetch the full CronJob first, mutate spec.suspend, and SSA-
+      // apply the entire manifest. Sending only {spec:{suspend:next}}
+      // would seem like a clean partial patch, but Volcano's CronJob
+      // CRD declares spec.schedule and spec.jobTemplate as required —
+      // and the API server runs schema validation against the SSA
+      // patch body (not the merged result), so a minimal patch trips
+      // a "Required value" error.
+      const obj = (await getWorkload(
+        clusterId,
+        '_cr',
+        record.name,
+        record.namespace,
+        {
+          group: 'batch.volcano.sh',
+          version: 'v1alpha1',
+          kind: 'CronJob',
+          scope: 'Namespaced',
+        },
+      )) as any;
+      const manifest = {
         apiVersion: 'batch.volcano.sh/v1alpha1',
         kind: 'CronJob',
-        metadata: { name: record.name, namespace: record.namespace },
-        spec: { suspend: next },
-      });
+        metadata: {
+          name: record.name,
+          namespace: record.namespace,
+        },
+        spec: { ...(obj?.spec ?? {}), suspend: next },
+      };
+      const res = await applyManifest(clusterId, manifest);
       const fail = res?.results?.find((r) => !r.success);
       if (fail) {
         message.error(fail.error ?? 'patch failed');

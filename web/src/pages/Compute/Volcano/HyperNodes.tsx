@@ -99,14 +99,25 @@ export default function VolcanoHyperNodesPage() {
       render: (_, r) => (
         <Space direction="vertical" size={2} style={{ lineHeight: 1.4 }}>
           {(r.members ?? []).map((m, i) => (
-            <Typography.Text key={i} style={{ fontSize: 12 }}>
-              <Tag color={m.type === 'Node' ? 'cyan' : 'geekblue'}>
+            <div
+              key={i}
+              style={{
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <Tag
+                color={m.type === 'Node' ? 'cyan' : 'geekblue'}
+                style={{ marginInlineEnd: 0 }}
+              >
                 {m.type}
               </Tag>
               <span style={{ color: 'var(--ant-color-text-secondary)' }}>
                 {m.selector}
               </span>
-            </Typography.Text>
+            </div>
           ))}
           {(!r.members || r.members.length === 0) && (
             <Typography.Text type="secondary">-</Typography.Text>
