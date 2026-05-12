@@ -2,7 +2,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams, useRequest } from '@umijs/max';
-import { App, Button, Space, Tag, Typography } from 'antd';
+import { App, Button, Popconfirm, Space, Tag, Typography } from 'antd';
 import React, { useState } from 'react';
 
 import {
@@ -28,7 +28,7 @@ import {
 export default function VolcanoHyperNodesPage() {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
 
   const { data, loading, error, refresh } = useRequest(
     () => listVolcanoHyperNodes(clusterId!),
@@ -52,31 +52,22 @@ export default function VolcanoHyperNodesPage() {
   const items = data?.items ?? [];
   const truncated = !!data?.continue;
 
-  const onDelete = (name: string) => {
-    modal.confirm({
-      title: intl.formatMessage(
-        { id: 'pages.workloads.delete.confirm' },
-        { name },
-      ),
-      okType: 'danger',
-      onOk: async () => {
-        try {
-          await deleteWorkload(clusterId, '_cr', name, '', {
-            group: 'topology.volcano.sh',
-            version: 'v1alpha1',
-            kind: 'HyperNode',
-            scope: 'Cluster',
-          });
-          message.success(
-            intl.formatMessage({ id: 'pages.workloads.delete.success' }),
-          );
-          refresh();
-        } catch (e: any) {
-          const m = e?.response?.data?.message ?? e?.message;
-          if (m) message.error(String(m));
-        }
-      },
-    });
+  const doDelete = async (name: string) => {
+    try {
+      await deleteWorkload(clusterId, '_cr', name, '', {
+        group: 'topology.volcano.sh',
+        version: 'v1alpha1',
+        kind: 'HyperNode',
+        scope: 'Cluster',
+      });
+      message.success(
+        intl.formatMessage({ id: 'pages.workloads.delete.success' }),
+      );
+      refresh();
+    } catch (e: any) {
+      const m = e?.response?.data?.message ?? e?.message;
+      if (m) message.error(String(m));
+    }
   };
 
   const columns: ProColumns<HyperNodeRow>[] = [
@@ -152,14 +143,18 @@ export default function VolcanoHyperNodesPage() {
           >
             {intl.formatMessage({ id: 'pages.workloads.edit' })}
           </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            onClick={() => onDelete(record.name)}
+          <Popconfirm
+            title={intl.formatMessage(
+              { id: 'pages.workloads.delete.confirm' },
+              { name: record.name },
+            )}
+            onConfirm={() => doDelete(record.name)}
+            okType="danger"
           >
-            {intl.formatMessage({ id: 'pages.workloads.delete' })}
-          </Button>
+            <Button type="link" size="small" danger>
+              {intl.formatMessage({ id: 'pages.workloads.delete' })}
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },

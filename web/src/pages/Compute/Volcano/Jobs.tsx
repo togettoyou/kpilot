@@ -2,7 +2,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useModel, useParams, useRequest } from '@umijs/max';
-import { App, Button, Dropdown, Space, Tag, Typography } from 'antd';
+import { App, Button, Dropdown, Popconfirm, Space, Tag, Typography } from 'antd';
 import React, { useState } from 'react';
 
 import {
@@ -71,37 +71,22 @@ export default function VolcanoJobsPage() {
   const items = data?.items ?? [];
   const truncated = !!data?.continue;
 
-  const onDelete = (record: JobRow) => {
-    modal.confirm({
-      title: intl.formatMessage(
-        { id: 'pages.workloads.delete.confirm' },
-        { name: record.name },
-      ),
-      okType: 'danger',
-      onOk: async () => {
-        try {
-          await deleteWorkload(
-            clusterId,
-            '_cr',
-            record.name,
-            record.namespace,
-            {
-              group: 'batch.volcano.sh',
-              version: 'v1alpha1',
-              kind: 'Job',
-              scope: 'Namespaced',
-            },
-          );
-          message.success(
-            intl.formatMessage({ id: 'pages.workloads.delete.success' }),
-          );
-          refresh();
-        } catch (e: any) {
-          const m = e?.response?.data?.message ?? e?.message;
-          if (m) message.error(String(m));
-        }
-      },
-    });
+  const doDelete = async (record: JobRow) => {
+    try {
+      await deleteWorkload(clusterId, '_cr', record.name, record.namespace, {
+        group: 'batch.volcano.sh',
+        version: 'v1alpha1',
+        kind: 'Job',
+        scope: 'Namespaced',
+      });
+      message.success(
+        intl.formatMessage({ id: 'pages.workloads.delete.success' }),
+      );
+      refresh();
+    } catch (e: any) {
+      const m = e?.response?.data?.message ?? e?.message;
+      if (m) message.error(String(m));
+    }
   };
 
   const columns: ProColumns<JobRow>[] = [
@@ -223,14 +208,18 @@ export default function VolcanoJobsPage() {
           >
             {intl.formatMessage({ id: 'pages.workloads.edit' })}
           </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            onClick={() => onDelete(record)}
+          <Popconfirm
+            title={intl.formatMessage(
+              { id: 'pages.workloads.delete.confirm' },
+              { name: record.name },
+            )}
+            onConfirm={() => doDelete(record)}
+            okType="danger"
           >
-            {intl.formatMessage({ id: 'pages.workloads.delete' })}
-          </Button>
+            <Button type="link" size="small" danger>
+              {intl.formatMessage({ id: 'pages.workloads.delete' })}
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },

@@ -29,7 +29,7 @@ import {
 export default function VolcanoCronJobsPage() {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const namespaceModel = useModel('namespace');
   const ns = clusterId ? namespaceModel.get(clusterId).selected : '';
 
@@ -62,37 +62,22 @@ export default function VolcanoCronJobsPage() {
   const items = data?.items ?? [];
   const truncated = !!data?.continue;
 
-  const onDelete = (record: CronJobRow) => {
-    modal.confirm({
-      title: intl.formatMessage(
-        { id: 'pages.workloads.delete.confirm' },
-        { name: record.name },
-      ),
-      okType: 'danger',
-      onOk: async () => {
-        try {
-          await deleteWorkload(
-            clusterId,
-            '_cr',
-            record.name,
-            record.namespace,
-            {
-              group: 'batch.volcano.sh',
-              version: 'v1alpha1',
-              kind: 'CronJob',
-              scope: 'Namespaced',
-            },
-          );
-          message.success(
-            intl.formatMessage({ id: 'pages.workloads.delete.success' }),
-          );
-          refresh();
-        } catch (e: any) {
-          const m = e?.response?.data?.message ?? e?.message;
-          if (m) message.error(String(m));
-        }
-      },
-    });
+  const doDelete = async (record: CronJobRow) => {
+    try {
+      await deleteWorkload(clusterId, '_cr', record.name, record.namespace, {
+        group: 'batch.volcano.sh',
+        version: 'v1alpha1',
+        kind: 'CronJob',
+        scope: 'Namespaced',
+      });
+      message.success(
+        intl.formatMessage({ id: 'pages.workloads.delete.success' }),
+      );
+      refresh();
+    } catch (e: any) {
+      const m = e?.response?.data?.message ?? e?.message;
+      if (m) message.error(String(m));
+    }
   };
 
   const columns: ProColumns<CronJobRow>[] = [
@@ -193,14 +178,18 @@ export default function VolcanoCronJobsPage() {
           >
             {intl.formatMessage({ id: 'pages.workloads.edit' })}
           </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            onClick={() => onDelete(record)}
+          <Popconfirm
+            title={intl.formatMessage(
+              { id: 'pages.workloads.delete.confirm' },
+              { name: record.name },
+            )}
+            onConfirm={() => doDelete(record)}
+            okType="danger"
           >
-            {intl.formatMessage({ id: 'pages.workloads.delete' })}
-          </Button>
+            <Button type="link" size="small" danger>
+              {intl.formatMessage({ id: 'pages.workloads.delete' })}
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },
