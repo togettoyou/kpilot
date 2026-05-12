@@ -121,9 +121,15 @@ export default {
   'pages.compute.jobForm.task.name': 'Task name',
   'pages.compute.jobForm.task.replicas': 'Replicas',
   'pages.compute.jobForm.task.restartPolicy': 'Restart policy',
-  'pages.compute.jobForm.task.minAvailable': 'minAvailable (per-task)',
-  'pages.compute.jobForm.task.maxRetry': 'maxRetry (per-task)',
-  'pages.compute.jobForm.task.topologyPolicy': 'topologyPolicy (NUMA)',
+  'pages.compute.jobForm.task.minAvailable': 'minAvailable',
+  'pages.compute.jobForm.task.minAvailable.tip':
+    'Minimum pods of THIS task that must co-schedule (independent of job-level minAvailable).',
+  'pages.compute.jobForm.task.maxRetry': 'maxRetry',
+  'pages.compute.jobForm.task.maxRetry.tip':
+    'Retry budget for this task (independent of job-level maxRetry).',
+  'pages.compute.jobForm.task.topologyPolicy': 'topologyPolicy',
+  'pages.compute.jobForm.task.topologyPolicy.tip':
+    'NUMA policy: none / best-effort / restricted / single-numa-node',
   'pages.compute.jobForm.task.topologyPolicy.placeholder': 'Unconstrained',
   'pages.compute.jobForm.task.resources.extras':
     'Extended resources (GPU / ephemeral-storage / hugepages-* / custom) — written to limits per K8s convention',

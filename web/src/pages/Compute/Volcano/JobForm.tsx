@@ -740,6 +740,9 @@ export function JobFormDrawer({
                       label={intl.formatMessage({
                         id: 'pages.compute.jobForm.task.minAvailable',
                       })}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.minAvailable.tip',
+                      })}
                       style={{ flex: 1 }}
                     >
                       <InputNumber
@@ -752,6 +755,9 @@ export function JobFormDrawer({
                       name={[field.name, 'taskMaxRetry']}
                       label={intl.formatMessage({
                         id: 'pages.compute.jobForm.task.maxRetry',
+                      })}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.maxRetry.tip',
                       })}
                       style={{ flex: 1, marginInlineStart: 12 }}
                     >
@@ -766,7 +772,10 @@ export function JobFormDrawer({
                       label={intl.formatMessage({
                         id: 'pages.compute.jobForm.task.topologyPolicy',
                       })}
-                      style={{ flex: 1.5, marginInlineStart: 12 }}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.topologyPolicy.tip',
+                      })}
+                      style={{ flex: 1, marginInlineStart: 12 }}
                     >
                       <Select
                         allowClear

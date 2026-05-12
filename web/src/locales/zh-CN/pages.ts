@@ -124,9 +124,15 @@ export default {
   'pages.compute.jobForm.task.name': '任务名',
   'pages.compute.jobForm.task.replicas': '副本数',
   'pages.compute.jobForm.task.restartPolicy': '重启策略',
-  'pages.compute.jobForm.task.minAvailable': '最小启动数 (minAvailable)',
-  'pages.compute.jobForm.task.maxRetry': '重试上限 (maxRetry)',
-  'pages.compute.jobForm.task.topologyPolicy': 'NUMA 策略 (topologyPolicy)',
+  'pages.compute.jobForm.task.minAvailable': '最小启动数',
+  'pages.compute.jobForm.task.minAvailable.tip':
+    'minAvailable：本 task 的 pod 需共同启动的最小数量',
+  'pages.compute.jobForm.task.maxRetry': '重试上限',
+  'pages.compute.jobForm.task.maxRetry.tip':
+    'maxRetry：本 task 的重试次数上限（与 job 级 maxRetry 独立）',
+  'pages.compute.jobForm.task.topologyPolicy': 'NUMA 策略',
+  'pages.compute.jobForm.task.topologyPolicy.tip':
+    'topologyPolicy：none / best-effort / restricted / single-numa-node',
   'pages.compute.jobForm.task.topologyPolicy.placeholder': '不限制',
   'pages.compute.jobForm.task.resources.extras':
     '扩展资源 (GPU / ephemeral-storage / hugepages-* / 其他扩展资源)，按 K8s 约定写入 limits',
