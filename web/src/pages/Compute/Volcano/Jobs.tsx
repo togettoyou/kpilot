@@ -11,6 +11,7 @@ import {
 } from '@/services/kpilot/volcano-list';
 import { sendCommand, type VolcanoAction } from '@/services/kpilot/volcano';
 import { deleteWorkload } from '@/services/kpilot/workload';
+import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
 import { JobFormDrawer } from './JobForm';
 import {
   NotInstalled,
@@ -43,6 +44,10 @@ export default function VolcanoJobsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<{
+    name: string;
+    namespace: string;
+  } | null>(null);
+  const [describing, setDescribing] = useState<{
     name: string;
     namespace: string;
   } | null>(null);
@@ -193,10 +198,22 @@ export default function VolcanoJobsPage() {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       key: 'action',
       fixed: 'right',
-      width: 220,
+      width: 280,
       render: (_, record) => (
         <Space size={0}>
           <JobLifecycleAction record={record} refresh={refresh} />
+          <Button
+            type="link"
+            size="small"
+            onClick={() =>
+              setDescribing({
+                name: record.name,
+                namespace: record.namespace,
+              })
+            }
+          >
+            {intl.formatMessage({ id: 'pages.workloads.describe' })}
+          </Button>
           <Button
             type="link"
             size="small"
@@ -276,6 +293,20 @@ export default function VolcanoJobsPage() {
         onSaved={() => {
           setEditing(null);
           refresh();
+        }}
+      />
+      <DescribeDrawer
+        open={!!describing}
+        onClose={() => setDescribing(null)}
+        clusterId={clusterId}
+        resourceType="_cr"
+        name={describing?.name ?? ''}
+        namespace={describing?.namespace ?? ''}
+        cr={{
+          group: 'batch.volcano.sh',
+          version: 'v1alpha1',
+          kind: 'Job',
+          scope: 'Namespaced',
         }}
       />
     </div>

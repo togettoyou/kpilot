@@ -11,6 +11,7 @@ import {
 } from '@/services/kpilot/volcano-list';
 import { sendCommand } from '@/services/kpilot/volcano';
 import { deleteWorkload } from '@/services/kpilot/workload';
+import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
 import { QueueFormDrawer } from './QueueForm';
 import {
   NotInstalled,
@@ -33,6 +34,7 @@ export default function VolcanoQueuesPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
+  const [describingName, setDescribingName] = useState<string | null>(null);
 
   const { data, loading, error, refresh } = useRequest(
     () => listVolcanoQueues(clusterId!),
@@ -129,10 +131,17 @@ export default function VolcanoQueuesPage() {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       key: 'action',
       fixed: 'right',
-      width: 220,
+      width: 280,
       render: (_, record) => (
         <Space size={0}>
           <QueueStateAction record={record} refresh={refresh} />
+          <Button
+            type="link"
+            size="small"
+            onClick={() => setDescribingName(record.name)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.describe' })}
+          </Button>
           <Button
             type="link"
             size="small"
@@ -210,6 +219,20 @@ export default function VolcanoQueuesPage() {
         onSaved={() => {
           setEditingName(null);
           refresh();
+        }}
+      />
+      <DescribeDrawer
+        open={!!describingName}
+        onClose={() => setDescribingName(null)}
+        clusterId={clusterId}
+        resourceType="_cr"
+        name={describingName ?? ''}
+        namespace=""
+        cr={{
+          group: 'scheduling.volcano.sh',
+          version: 'v1beta1',
+          kind: 'Queue',
+          scope: 'Cluster',
         }}
       />
     </div>

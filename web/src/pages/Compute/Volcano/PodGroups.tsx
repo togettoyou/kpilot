@@ -10,6 +10,7 @@ import {
   type PodGroupRow,
 } from '@/services/kpilot/volcano-list';
 import { deleteWorkload } from '@/services/kpilot/workload';
+import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
 import { PodGroupFormDrawer } from './PodGroupForm';
 import {
   NotInstalled,
@@ -44,6 +45,10 @@ export default function VolcanoPodGroupsPage() {
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<{
+    name: string;
+    namespace: string;
+  } | null>(null);
+  const [describing, setDescribing] = useState<{
     name: string;
     namespace: string;
   } | null>(null);
@@ -153,9 +158,21 @@ export default function VolcanoPodGroupsPage() {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       key: 'action',
       fixed: 'right',
-      width: 160,
+      width: 220,
       render: (_, record) => (
         <Space size={0}>
+          <Button
+            type="link"
+            size="small"
+            onClick={() =>
+              setDescribing({
+                name: record.name,
+                namespace: record.namespace,
+              })
+            }
+          >
+            {intl.formatMessage({ id: 'pages.workloads.describe' })}
+          </Button>
           <Button
             type="link"
             size="small"
@@ -236,6 +253,20 @@ export default function VolcanoPodGroupsPage() {
         onSaved={() => {
           setEditing(null);
           refresh();
+        }}
+      />
+      <DescribeDrawer
+        open={!!describing}
+        onClose={() => setDescribing(null)}
+        clusterId={clusterId}
+        resourceType="_cr"
+        name={describing?.name ?? ''}
+        namespace={describing?.namespace ?? ''}
+        cr={{
+          group: 'scheduling.volcano.sh',
+          version: 'v1beta1',
+          kind: 'PodGroup',
+          scope: 'Namespaced',
         }}
       />
     </div>

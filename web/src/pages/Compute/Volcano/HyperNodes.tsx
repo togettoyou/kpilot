@@ -10,6 +10,7 @@ import {
   type HyperNodeRow,
 } from '@/services/kpilot/volcano-list';
 import { deleteWorkload } from '@/services/kpilot/workload';
+import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
 import { HyperNodeFormDrawer } from './HyperNodeForm';
 import {
   NotInstalled,
@@ -41,6 +42,7 @@ export default function VolcanoHyperNodesPage() {
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
+  const [describingName, setDescribingName] = useState<string | null>(null);
 
   if (!clusterId) return null;
   if (error && isResourceNotAvailable(error)) {
@@ -122,9 +124,16 @@ export default function VolcanoHyperNodesPage() {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       key: 'action',
       fixed: 'right',
-      width: 160,
+      width: 220,
       render: (_, record) => (
         <Space size={0}>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => setDescribingName(record.name)}
+          >
+            {intl.formatMessage({ id: 'pages.workloads.describe' })}
+          </Button>
           <Button
             type="link"
             size="small"
@@ -202,6 +211,20 @@ export default function VolcanoHyperNodesPage() {
         onSaved={() => {
           setEditingName(null);
           refresh();
+        }}
+      />
+      <DescribeDrawer
+        open={!!describingName}
+        onClose={() => setDescribingName(null)}
+        clusterId={clusterId}
+        resourceType="_cr"
+        name={describingName ?? ''}
+        namespace=""
+        cr={{
+          group: 'topology.volcano.sh',
+          version: 'v1alpha1',
+          kind: 'HyperNode',
+          scope: 'Cluster',
         }}
       />
     </div>

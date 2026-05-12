@@ -11,6 +11,7 @@ import {
 } from '@/services/kpilot/volcano-list';
 import { applyManifest } from '@/services/kpilot/volcano';
 import { deleteWorkload } from '@/services/kpilot/workload';
+import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
 import { CronJobFormDrawer } from './CronJobForm';
 import {
   NotInstalled,
@@ -34,6 +35,10 @@ export default function VolcanoCronJobsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<{
+    name: string;
+    namespace: string;
+  } | null>(null);
+  const [describing, setDescribing] = useState<{
     name: string;
     namespace: string;
   } | null>(null);
@@ -163,10 +168,22 @@ export default function VolcanoCronJobsPage() {
       title: intl.formatMessage({ id: 'pages.workloads.col.actions' }),
       key: 'action',
       fixed: 'right',
-      width: 240,
+      width: 300,
       render: (_, record) => (
         <Space size={0}>
           <SuspendAction record={record} refresh={refresh} />
+          <Button
+            type="link"
+            size="small"
+            onClick={() =>
+              setDescribing({
+                name: record.name,
+                namespace: record.namespace,
+              })
+            }
+          >
+            {intl.formatMessage({ id: 'pages.workloads.describe' })}
+          </Button>
           <Button
             type="link"
             size="small"
@@ -246,6 +263,20 @@ export default function VolcanoCronJobsPage() {
         onSaved={() => {
           setEditing(null);
           refresh();
+        }}
+      />
+      <DescribeDrawer
+        open={!!describing}
+        onClose={() => setDescribing(null)}
+        clusterId={clusterId}
+        resourceType="_cr"
+        name={describing?.name ?? ''}
+        namespace={describing?.namespace ?? ''}
+        cr={{
+          group: 'batch.volcano.sh',
+          version: 'v1alpha1',
+          kind: 'CronJob',
+          scope: 'Namespaced',
         }}
       />
     </div>
