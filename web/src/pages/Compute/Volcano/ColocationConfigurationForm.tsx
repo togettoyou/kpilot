@@ -13,7 +13,7 @@ import {
   Tabs,
 } from 'antd';
 import yaml from 'js-yaml';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import {
@@ -77,6 +77,13 @@ export function ColocationConfigurationFormDrawer({
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const isEdit = !!editing;
+  // Preserve selector fields the form view doesn't model (today just
+  // matchExpressions). On submit we splice it back into spec.selector
+  // so editing a Pod-selector with operator-based rules via the form
+  // doesn't silently drop them. Alert below surfaces the situation so
+  // the user knows to open YAML view if they want to touch them.
+  const matchExpressionsRef = useRef<unknown[] | null>(null);
+  const [hasMatchExpressions, setHasMatchExpressions] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -84,6 +91,8 @@ export function ColocationConfigurationFormDrawer({
     setView('form');
     setYamlText('');
     setYamlError(null);
+    matchExpressionsRef.current = null;
+    setHasMatchExpressions(false);
     if (!editing) {
       form.setFieldsValue({
         namespace: currentNs,
@@ -102,6 +111,11 @@ export function ColocationConfigurationFormDrawer({
         const spec = obj?.spec ?? {};
         const mq = spec.memoryQos ?? {};
         const labels = spec?.selector?.matchLabels ?? {};
+        const expr = spec?.selector?.matchExpressions;
+        if (Array.isArray(expr) && expr.length > 0) {
+          matchExpressionsRef.current = expr;
+          setHasMatchExpressions(true);
+        }
         form.setFieldsValue({
           name: obj?.metadata?.name ?? editing.name,
           namespace: obj?.metadata?.namespace ?? editing.namespace,
@@ -145,6 +159,17 @@ export function ColocationConfigurationFormDrawer({
         const spec = parsed.spec ?? {};
         const mq = spec.memoryQos ?? {};
         const labels = spec?.selector?.matchLabels ?? {};
+        // Capture matchExpressions on YAML→form switch too so a user
+        // who edits the operator-based rules in YAML then flips back
+        // to form view doesn't lose them on submit.
+        const expr = spec?.selector?.matchExpressions;
+        if (Array.isArray(expr) && expr.length > 0) {
+          matchExpressionsRef.current = expr;
+          setHasMatchExpressions(true);
+        } else {
+          matchExpressionsRef.current = null;
+          setHasMatchExpressions(false);
+        }
         form.setFieldsValue({
           name: parsed?.metadata?.name ?? form.getFieldValue('name'),
           namespace:
@@ -175,6 +200,15 @@ export function ColocationConfigurationFormDrawer({
         return;
       }
       manifest = buildColocationConfigurationManifest(fvToInput(v));
+      // Re-attach preserved matchExpressions so the form view doesn't
+      // silently drop operator-based selector rules a user set via
+      // YAML / kubectl. The builder only ever emits matchLabels.
+      if (matchExpressionsRef.current) {
+        const m: any = manifest;
+        m.spec = m.spec ?? {};
+        m.spec.selector = m.spec.selector ?? {};
+        m.spec.selector.matchExpressions = matchExpressionsRef.current;
+      }
     } else {
       try {
         manifest = yaml.load(yamlText);
@@ -258,6 +292,16 @@ export function ColocationConfigurationFormDrawer({
           onClose={() => setYamlError(null)}
           style={{ marginBottom: 12 }}
           message={yamlError}
+        />
+      )}
+      {hasMatchExpressions && view === 'form' && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={intl.formatMessage({
+            id: 'pages.compute.colocation.matchExpressions.preserved',
+          })}
         />
       )}
       <Spin spinning={loading}>

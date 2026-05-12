@@ -434,6 +434,8 @@ export default {
   'pages.compute.colocation.matchLabels.extra':
     'Selects Pods via matchLabels. For complex selectors (matchExpressions etc.) use the YAML view.',
   'pages.compute.colocation.matchLabels.add': 'Add label',
+  'pages.compute.colocation.matchExpressions.preserved':
+    'This resource has matchExpressions selectors that are not editable in the form. They will be preserved on save — switch to YAML view to edit them.',
   'pages.compute.colocation.col.name': 'Name',
   'pages.compute.colocation.col.namespace': 'Namespace',
   'pages.compute.colocation.col.selector': 'Selector',

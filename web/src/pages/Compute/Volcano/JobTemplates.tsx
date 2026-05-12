@@ -34,11 +34,12 @@ const JOB_TEMPLATE_CR = {
   scope: 'Namespaced' as const,
 };
 
-const DEFAULT_JOBTEMPLATE_YAML = `apiVersion: flow.volcano.sh/v1alpha1
+function buildDefaultJobTemplateYaml(namespace: string): string {
+  return `apiVersion: flow.volcano.sh/v1alpha1
 kind: JobTemplate
 metadata:
   name: example-template
-  namespace: default
+  namespace: ${namespace || 'default'}
 spec:
   minAvailable: 1
   schedulerName: volcano
@@ -54,6 +55,7 @@ spec:
               image: busybox
               command: ['sh', '-c', 'echo hello && sleep 30']
 `;
+}
 
 export default function VolcanoJobTemplatesPage() {
   const intl = useIntl();
@@ -246,7 +248,7 @@ export default function VolcanoJobTemplatesPage() {
           id: 'pages.compute.jobTemplate.edit.title',
         })}
         cr={JOB_TEMPLATE_CR}
-        defaultYaml={DEFAULT_JOBTEMPLATE_YAML}
+        defaultYaml={buildDefaultJobTemplateYaml(ns)}
         onClose={() => setCreateOpen(false)}
         onSaved={() => {
           setCreateOpen(false);
@@ -263,7 +265,7 @@ export default function VolcanoJobTemplatesPage() {
           id: 'pages.compute.jobTemplate.edit.title',
         })}
         cr={JOB_TEMPLATE_CR}
-        defaultYaml={DEFAULT_JOBTEMPLATE_YAML}
+        defaultYaml={buildDefaultJobTemplateYaml(ns)}
         editing={editing}
         onClose={() => setEditing(null)}
         onSaved={() => {

@@ -34,14 +34,16 @@ const JOB_FLOW_CR = {
 };
 
 // Starter template — minimal valid JobFlow that references two
-// JobTemplates with a single dependency edge. Users adjust the
-// metadata.namespace via the namespace picker before opening this
-// drawer.
-const DEFAULT_JOBFLOW_YAML = `apiVersion: flow.volcano.sh/v1alpha1
+// JobTemplates with a single dependency edge. namespace is templated
+// from the current NamespacePicker selection at drawer open time so
+// "current namespace = foo, click Create" lands the new flow in foo,
+// not in `default`.
+function buildDefaultJobFlowYaml(namespace: string): string {
+  return `apiVersion: flow.volcano.sh/v1alpha1
 kind: JobFlow
 metadata:
   name: example-flow
-  namespace: default
+  namespace: ${namespace || 'default'}
 spec:
   jobRetainPolicy: retain
   flows:
@@ -51,6 +53,7 @@ spec:
         targets:
           - prepare-data
 `;
+}
 
 export default function VolcanoJobFlowsPage() {
   const intl = useIntl();
@@ -238,7 +241,7 @@ export default function VolcanoJobFlowsPage() {
           id: 'pages.compute.jobFlow.edit.title',
         })}
         cr={JOB_FLOW_CR}
-        defaultYaml={DEFAULT_JOBFLOW_YAML}
+        defaultYaml={buildDefaultJobFlowYaml(ns)}
         onClose={() => setCreateOpen(false)}
         onSaved={() => {
           setCreateOpen(false);
@@ -253,7 +256,7 @@ export default function VolcanoJobFlowsPage() {
           id: 'pages.compute.jobFlow.edit.title',
         })}
         cr={JOB_FLOW_CR}
-        defaultYaml={DEFAULT_JOBFLOW_YAML}
+        defaultYaml={buildDefaultJobFlowYaml(ns)}
         editing={editing}
         onClose={() => setEditing(null)}
         onSaved={() => {

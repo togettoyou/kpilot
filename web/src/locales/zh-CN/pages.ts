@@ -433,6 +433,8 @@ export default {
   'pages.compute.colocation.matchLabels.extra':
     '依照 matchLabels 选中 Pod；复杂选择器请用 YAML 视图（matchExpressions 等）',
   'pages.compute.colocation.matchLabels.add': '添加 label',
+  'pages.compute.colocation.matchExpressions.preserved':
+    '该资源含 matchExpressions 选择器，表单中不可见但保存时会保留原值。要编辑请切换到 YAML 视图。',
   'pages.compute.colocation.col.name': '名称',
   'pages.compute.colocation.col.namespace': '命名空间',
   'pages.compute.colocation.col.selector': '选择器',
