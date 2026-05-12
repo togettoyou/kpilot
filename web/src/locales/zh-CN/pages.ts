@@ -49,7 +49,7 @@ export default {
   'pages.compute.queueForm.name.extra': 'DNS-1123，小写字母 / 数字 / 短横线，最多 63 字符',
   // ResourceIntro — 每个 CR 页顶部的"这是啥"说明
   'pages.compute.intro.queue':
-    '资源池抽象。给作业划分独占/共享配额；capacity / proportion 插件按权重切分集群资源，可看作 Volcano 的"账户"概念。',
+    '资源池抽象。给作业划分独占/共享配额；capacity / proportion 插件按权重切分集群资源。',
   'pages.compute.intro.job':
     'Volcano 原生批作业。比 K8s Job 多了 Gang 调度（minAvailable 必须同时启动）+ 多 Task 协同 + Queue 配额。分布式训练 / MPI 必用。',
   'pages.compute.intro.cronjob':

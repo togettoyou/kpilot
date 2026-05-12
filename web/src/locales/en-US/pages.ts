@@ -49,7 +49,7 @@ export default {
   'pages.compute.queueForm.name.extra': 'DNS-1123: lowercase, digits, hyphens, up to 63 chars',
   // ResourceIntro — one-line "what is this" hint at the top of each CR page
   'pages.compute.intro.queue':
-    'Resource-pool abstraction. Allocates exclusive/shared quotas to workloads; the capacity / proportion plugins divide cluster resources by weight. Think of it as Volcano\'s notion of an "account".',
+    'Resource-pool abstraction. Allocates exclusive/shared quotas to workloads; the capacity / proportion plugins divide cluster resources by weight.',
   'pages.compute.intro.job':
     'Volcano-native batch job. Adds gang scheduling (minAvailable pods must start together), multi-task coordination, and Queue quotas on top of native K8s Job. Essential for distributed training / MPI.',
   'pages.compute.intro.cronjob':
