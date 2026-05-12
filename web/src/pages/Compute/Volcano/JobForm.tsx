@@ -41,17 +41,27 @@ const JOB_CR = {
   scope: 'Namespaced' as const,
 };
 
+interface TaskResourceRow {
+  key: string;
+  value: string;
+}
+
 interface TaskFV {
   name: string;
   replicas: number;
   image: string;
   command?: string;       // single string, split on whitespace
   args?: string;          // ditto
+  // Fixed cpu / memory inputs — used in almost every batch job.
+  // cpu/memory are emitted into BOTH requests and limits (same
+  // value) since gang-scheduled batch usually wants reservations.
   cpu?: string;
   memory?: string;
-  vgpuNumber?: string;
-  vgpuMemory?: string;
-  vgpuCores?: string;
+  // Free-form extra resources (extended resources / GPUs / ephemeral-
+  // storage / hugepages-*). Emitted into limits only — extended
+  // resources require requests == limits per K8s convention, and
+  // K8s mirrors limit → request automatically when only limit is set.
+  resourceExtras?: TaskResourceRow[];
   restartPolicy: 'OnFailure' | 'Never' | 'Always';
   // Per-task knobs that exist as TaskSpec siblings in upstream.
   // Separate from job-level fields with the same name (e.g. the
@@ -837,29 +847,62 @@ export function JobFormDrawer({
                       <Input placeholder="4Gi" maxLength={32} />
                     </Form.Item>
                   </Space.Compact>
-                  <Space.Compact block>
-                    <Form.Item
-                      name={[field.name, 'vgpuNumber']}
-                      label="vgpu-number"
-                      style={{ flex: 1 }}
-                    >
-                      <Input placeholder="1" maxLength={32} />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'vgpuMemory']}
-                      label="vgpu-memory"
-                      style={{ flex: 1, marginInlineStart: 12 }}
-                    >
-                      <Input placeholder="8000" maxLength={32} />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'vgpuCores']}
-                      label="vgpu-cores"
-                      style={{ flex: 1, marginInlineStart: 12 }}
-                    >
-                      <Input placeholder="50" maxLength={32} />
-                    </Form.Item>
-                  </Space.Compact>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--ant-color-text-tertiary)',
+                      margin: '4px 0 6px',
+                    }}
+                  >
+                    {intl.formatMessage({
+                      id: 'pages.compute.jobForm.task.resources.extras',
+                    })}
+                  </div>
+                  <Form.List name={[field.name, 'resourceExtras']}>
+                    {(rfields, { add: addR, remove: rmR }) => (
+                      <>
+                        {rfields.map((rf) => (
+                          <Space
+                            key={rf.key}
+                            style={{ display: 'flex', marginBottom: 8 }}
+                            align="baseline"
+                          >
+                            <Form.Item
+                              name={[rf.name, 'key']}
+                              rules={[{ required: true }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Input
+                                placeholder="nvidia.com/gpu / volcano.sh/vgpu-number"
+                                style={{ width: 280 }}
+                              />
+                            </Form.Item>
+                            <Form.Item
+                              name={[rf.name, 'value']}
+                              rules={[{ required: true }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Input
+                                placeholder="1 / 8000"
+                                style={{ width: 140 }}
+                              />
+                            </Form.Item>
+                            <MinusCircleOutlined onClick={() => rmR(rf.name)} />
+                          </Space>
+                        ))}
+                        <Button
+                          type="dashed"
+                          size="small"
+                          onClick={() => addR({ key: '', value: '' })}
+                          icon={<PlusOutlined />}
+                        >
+                          {intl.formatMessage({
+                            id: 'pages.compute.jobForm.task.resources.extras.add',
+                          })}
+                        </Button>
+                      </>
+                    )}
+                  </Form.List>
                 </Card>
               ))}
               <Button
@@ -925,11 +968,10 @@ function fvToInput(v: FormValues): JobInput {
     tasks: (v.tasks ?? []).map((t) => {
       const cpu = tr(t.cpu);
       const memory = tr(t.memory);
-      const vNum = tr(t.vgpuNumber);
-      const vMem = tr(t.vgpuMemory);
-      const vCore = tr(t.vgpuCores);
       const requests: Record<string, string> = {};
       const limits: Record<string, string> = {};
+      // cpu / memory go into both halves so gang-scheduled batch
+      // jobs get the reservation they implicitly expect.
       if (cpu) {
         requests['cpu'] = cpu;
         limits['cpu'] = cpu;
@@ -938,9 +980,15 @@ function fvToInput(v: FormValues): JobInput {
         requests['memory'] = memory;
         limits['memory'] = memory;
       }
-      if (vNum) limits['volcano.sh/vgpu-number'] = vNum;
-      if (vMem) limits['volcano.sh/vgpu-memory'] = vMem;
-      if (vCore) limits['volcano.sh/vgpu-cores'] = vCore;
+      // Free-form extras (GPU / extended resources / ephemeral-storage
+      // / hugepages-* / ...) land only in limits — K8s mirrors limit
+      // → request automatically for extended resources, and that's
+      // the convention upstream Volcano docs follow too.
+      for (const row of t.resourceExtras ?? []) {
+        const k = row?.key?.trim();
+        const val = row?.value?.trim();
+        if (k && val && k !== 'cpu' && k !== 'memory') limits[k] = val;
+      }
       const hasResources =
         Object.keys(requests).length > 0 || Object.keys(limits).length > 0;
       return {
@@ -1023,6 +1071,22 @@ function extractTasks(specTasks: any): TaskFV[] {
     const r = c.resources ?? {};
     const lim = (r.limits ?? {}) as Record<string, string>;
     const req = (r.requests ?? {}) as Record<string, string>;
+    // Pull cpu/memory out and route everything else (vgpu-* /
+    // nvidia.com/gpu / ephemeral-storage / hugepages-* / ...) into
+    // the free-form extras list. Prefer the union of limits + requests
+    // so we don't lose keys that only exist on one side.
+    const extras: TaskResourceRow[] = [];
+    const seen = new Set<string>(['cpu', 'memory']);
+    for (const [k, v] of Object.entries(lim)) {
+      if (seen.has(k)) continue;
+      extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
+      seen.add(k);
+    }
+    for (const [k, v] of Object.entries(req)) {
+      if (seen.has(k)) continue;
+      extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
+      seen.add(k);
+    }
     return {
       name: t.name ?? 'task',
       replicas: typeof t.replicas === 'number' ? t.replicas : 1,
@@ -1031,9 +1095,7 @@ function extractTasks(specTasks: any): TaskFV[] {
       args: Array.isArray(c.args) ? c.args.join(' ') : undefined,
       cpu: lim['cpu'] ?? req['cpu'],
       memory: lim['memory'] ?? req['memory'],
-      vgpuNumber: lim['volcano.sh/vgpu-number'],
-      vgpuMemory: lim['volcano.sh/vgpu-memory'],
-      vgpuCores: lim['volcano.sh/vgpu-cores'],
+      resourceExtras: extras,
       restartPolicy:
         (podSpec.restartPolicy as TaskFV['restartPolicy']) ?? 'OnFailure',
       taskMinAvailable:

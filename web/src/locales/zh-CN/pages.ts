@@ -128,6 +128,11 @@ export default {
   'pages.compute.jobForm.task.maxRetry': '任务重试上限 (maxRetry)',
   'pages.compute.jobForm.task.topologyPolicy': 'NUMA 策略 (topologyPolicy)',
   'pages.compute.jobForm.task.topologyPolicy.placeholder': '不限制',
+  'pages.compute.jobForm.task.resources.extras':
+    '扩展资源 (GPU / ephemeral-storage / hugepages-* / 其他扩展资源)，按 K8s 约定写入 limits',
+  'pages.compute.jobForm.task.resources.extras.add': '添加资源',
+  'pages.compute.queueForm.extras.label':
+    '其他资源（GPU / ephemeral-storage / volcano.sh/vgpu-* / 自定义扩展资源）',
   'pages.compute.jobForm.task.image': '镜像',
   'pages.compute.jobForm.task.command': '命令 (command)',
   'pages.compute.jobForm.task.args': '参数 (args)',

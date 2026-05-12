@@ -125,6 +125,11 @@ export default {
   'pages.compute.jobForm.task.maxRetry': 'maxRetry (per-task)',
   'pages.compute.jobForm.task.topologyPolicy': 'topologyPolicy (NUMA)',
   'pages.compute.jobForm.task.topologyPolicy.placeholder': 'Unconstrained',
+  'pages.compute.jobForm.task.resources.extras':
+    'Extended resources (GPU / ephemeral-storage / hugepages-* / custom) — written to limits per K8s convention',
+  'pages.compute.jobForm.task.resources.extras.add': 'Add resource',
+  'pages.compute.queueForm.extras.label':
+    'Other resources (GPU / ephemeral-storage / volcano.sh/vgpu-* / custom extended)',
   'pages.compute.jobForm.task.image': 'Image',
   'pages.compute.jobForm.task.command': 'command',
   'pages.compute.jobForm.task.args': 'args',

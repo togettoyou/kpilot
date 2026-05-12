@@ -40,6 +40,11 @@ const CRONJOB_CR = {
   scope: 'Namespaced' as const,
 };
 
+interface TaskResourceRow {
+  key: string;
+  value: string;
+}
+
 interface TaskFV {
   name: string;
   replicas: number;
@@ -48,9 +53,8 @@ interface TaskFV {
   args?: string;
   cpu?: string;
   memory?: string;
-  vgpuNumber?: string;
-  vgpuMemory?: string;
-  vgpuCores?: string;
+  // Free-form extras row matches JobForm; emitted to limits only.
+  resourceExtras?: TaskResourceRow[];
   restartPolicy: 'OnFailure' | 'Never' | 'Always';
   // Per-task TaskSpec siblings, same shape as JobForm.
   topologyPolicy?:
@@ -764,29 +768,62 @@ export function CronJobFormDrawer({
                       <Input placeholder="4Gi" maxLength={32} />
                     </Form.Item>
                   </Space.Compact>
-                  <Space.Compact block>
-                    <Form.Item
-                      name={[field.name, 'vgpuNumber']}
-                      label="vgpu-number"
-                      style={{ flex: 1 }}
-                    >
-                      <Input placeholder="1" maxLength={32} />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'vgpuMemory']}
-                      label="vgpu-memory"
-                      style={{ flex: 1, marginInlineStart: 12 }}
-                    >
-                      <Input placeholder="8000" maxLength={32} />
-                    </Form.Item>
-                    <Form.Item
-                      name={[field.name, 'vgpuCores']}
-                      label="vgpu-cores"
-                      style={{ flex: 1, marginInlineStart: 12 }}
-                    >
-                      <Input placeholder="50" maxLength={32} />
-                    </Form.Item>
-                  </Space.Compact>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--ant-color-text-tertiary)',
+                      margin: '4px 0 6px',
+                    }}
+                  >
+                    {intl.formatMessage({
+                      id: 'pages.compute.jobForm.task.resources.extras',
+                    })}
+                  </div>
+                  <Form.List name={[field.name, 'resourceExtras']}>
+                    {(rfields, { add: addR, remove: rmR }) => (
+                      <>
+                        {rfields.map((rf) => (
+                          <Space
+                            key={rf.key}
+                            style={{ display: 'flex', marginBottom: 8 }}
+                            align="baseline"
+                          >
+                            <Form.Item
+                              name={[rf.name, 'key']}
+                              rules={[{ required: true }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Input
+                                placeholder="nvidia.com/gpu / volcano.sh/vgpu-number"
+                                style={{ width: 280 }}
+                              />
+                            </Form.Item>
+                            <Form.Item
+                              name={[rf.name, 'value']}
+                              rules={[{ required: true }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Input
+                                placeholder="1 / 8000"
+                                style={{ width: 140 }}
+                              />
+                            </Form.Item>
+                            <MinusCircleOutlined onClick={() => rmR(rf.name)} />
+                          </Space>
+                        ))}
+                        <Button
+                          type="dashed"
+                          size="small"
+                          onClick={() => addR({ key: '', value: '' })}
+                          icon={<PlusOutlined />}
+                        >
+                          {intl.formatMessage({
+                            id: 'pages.compute.jobForm.task.resources.extras.add',
+                          })}
+                        </Button>
+                      </>
+                    )}
+                  </Form.List>
                 </Card>
               ))}
               <Button
@@ -846,9 +883,6 @@ function fvToInput(v: FormValues): CronJobInput {
       tasks: (v.tasks ?? []).map((t) => {
         const cpu = tr(t.cpu);
         const memory = tr(t.memory);
-        const vNum = tr(t.vgpuNumber);
-        const vMem = tr(t.vgpuMemory);
-        const vCore = tr(t.vgpuCores);
         const requests: Record<string, string> = {};
         const limits: Record<string, string> = {};
         if (cpu) {
@@ -859,9 +893,11 @@ function fvToInput(v: FormValues): CronJobInput {
           requests['memory'] = memory;
           limits['memory'] = memory;
         }
-        if (vNum) limits['volcano.sh/vgpu-number'] = vNum;
-        if (vMem) limits['volcano.sh/vgpu-memory'] = vMem;
-        if (vCore) limits['volcano.sh/vgpu-cores'] = vCore;
+        for (const row of t.resourceExtras ?? []) {
+          const k = row?.key?.trim();
+          const val = row?.value?.trim();
+          if (k && val && k !== 'cpu' && k !== 'memory') limits[k] = val;
+        }
         const hasResources =
           Object.keys(requests).length > 0 || Object.keys(limits).length > 0;
         return {
@@ -936,6 +972,20 @@ function extractCronTasks(specTasks: any): TaskFV[] {
     const r = c.resources ?? {};
     const lim = (r.limits ?? {}) as Record<string, string>;
     const req = (r.requests ?? {}) as Record<string, string>;
+    // Same cpu/memory + everything-else split as JobForm. Union of
+    // limits + requests so single-sided keys don't disappear on edit.
+    const extras: TaskResourceRow[] = [];
+    const seen = new Set<string>(['cpu', 'memory']);
+    for (const [k, v] of Object.entries(lim)) {
+      if (seen.has(k)) continue;
+      extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
+      seen.add(k);
+    }
+    for (const [k, v] of Object.entries(req)) {
+      if (seen.has(k)) continue;
+      extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
+      seen.add(k);
+    }
     return {
       name: t.name ?? 'task',
       replicas: typeof t.replicas === 'number' ? t.replicas : 1,
@@ -944,9 +994,7 @@ function extractCronTasks(specTasks: any): TaskFV[] {
       args: Array.isArray(c.args) ? c.args.join(' ') : undefined,
       cpu: lim['cpu'] ?? req['cpu'],
       memory: lim['memory'] ?? req['memory'],
-      vgpuNumber: lim['volcano.sh/vgpu-number'],
-      vgpuMemory: lim['volcano.sh/vgpu-memory'],
-      vgpuCores: lim['volcano.sh/vgpu-cores'],
+      resourceExtras: extras,
       restartPolicy:
         (podSpec.restartPolicy as TaskFV['restartPolicy']) ?? 'OnFailure',
       taskMinAvailable:

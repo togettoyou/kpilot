@@ -40,18 +40,26 @@ interface ResourceRow {
   value: string;
 }
 
+// ResourceListWithFixed lets users edit cpu + memory inline (they're
+// in nearly every Queue) plus a free-form Form.List for anything else
+// — extended resources like nvidia.com/gpu, volcano.sh/vgpu-*,
+// ephemeral-storage, hugepages-*, etc. Keys are not validated client-
+// side; whatever the user types is sent through to the API server.
+interface ResourceListFV {
+  cpu?: string;
+  memory?: string;
+  extras?: ResourceRow[];
+}
+
 interface FormValues {
   name: string;
   weight: number;
   reclaimable: boolean;
   parent?: string;
   type?: string;
-  // Free-form ResourceList rows so users can configure any K8s
-  // resource (cpu / memory / nvidia.com/gpu / volcano.sh/vgpu-* / ...)
-  // not just the 5 preset keys the previous version supported.
-  capability?: ResourceRow[];
-  deserved?: ResourceRow[];
-  guarantee?: ResourceRow[];
+  capability?: ResourceListFV;
+  deserved?: ResourceListFV;
+  guarantee?: ResourceListFV;
 }
 
 const QUEUE_CR = {
@@ -414,10 +422,12 @@ export function QueueFormDrawer({
   );
 }
 
-// ResourceListSection renders a free-form ResourceList editor —
-// key/value Form.List with an "Add" button. Used for three Queue
-// fields (capability / deserved / guarantee) plus shared by other
-// forms in the same shape.
+// ResourceListSection renders a per-section ResourceList editor: two
+// fixed Form.Item inputs for cpu + memory (overwhelmingly common —
+// almost every Queue sets these), plus a Form.List below for
+// everything else (GPU resources, ephemeral-storage, hugepages-*,
+// custom extended resources). Keys in `extras` are user-typed and
+// passed through verbatim to the API server.
 function ResourceListSection({
   name,
   title,
@@ -429,6 +439,7 @@ function ResourceListSection({
   hint: string;
   addLabel: string;
 }) {
+  const intl = useIntl();
   return (
     <>
       <div style={{ marginTop: 16, marginBottom: 4, fontWeight: 500 }}>
@@ -443,7 +454,35 @@ function ResourceListSection({
       >
         {hint}
       </div>
-      <Form.List name={name}>
+      <Space style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+        <Form.Item
+          name={[name, 'cpu']}
+          label="cpu"
+          style={{ marginBottom: 0 }}
+        >
+          <Input placeholder="4" style={{ width: 160 }} maxLength={32} />
+        </Form.Item>
+        <Form.Item
+          name={[name, 'memory']}
+          label="memory"
+          style={{ marginBottom: 0, marginInlineStart: 16 }}
+        >
+          <Input placeholder="8Gi" style={{ width: 160 }} maxLength={32} />
+        </Form.Item>
+      </Space>
+      <div
+        style={{
+          marginTop: 8,
+          marginBottom: 6,
+          fontSize: 12,
+          color: 'var(--ant-color-text-tertiary)',
+        }}
+      >
+        {intl.formatMessage({
+          id: 'pages.compute.queueForm.extras.label',
+        })}
+      </div>
+      <Form.List name={[name, 'extras']}>
         {(fields, { add, remove }) => (
           <>
             {fields.map((field) => (
@@ -458,7 +497,7 @@ function ResourceListSection({
                   style={{ marginBottom: 0 }}
                 >
                   <Input
-                    placeholder="cpu / memory / volcano.sh/vgpu-number"
+                    placeholder="nvidia.com/gpu / volcano.sh/vgpu-number"
                     style={{ width: 280 }}
                   />
                 </Form.Item>
@@ -467,7 +506,7 @@ function ResourceListSection({
                   rules={[{ required: true }]}
                   style={{ marginBottom: 0 }}
                 >
-                  <Input placeholder="4 / 8Gi" style={{ width: 140 }} />
+                  <Input placeholder="1 / 40000" style={{ width: 140 }} />
                 </Form.Item>
                 <MinusCircleOutlined onClick={() => remove(field.name)} />
               </Space>
@@ -487,22 +526,42 @@ function ResourceListSection({
   );
 }
 
-function rowsToRecord(rows?: ResourceRow[]): Record<string, string> {
+// resourceListFVToRecord flattens cpu / memory / extras into a single
+// Record<string, string> for the manifest builder. cpu/memory are
+// only included when set; user-typed extras get their key trimmed.
+function resourceListFVToRecord(
+  v: ResourceListFV | undefined,
+): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const row of rows ?? []) {
+  const cpu = v?.cpu?.trim();
+  const memory = v?.memory?.trim();
+  if (cpu) out['cpu'] = cpu;
+  if (memory) out['memory'] = memory;
+  for (const row of v?.extras ?? []) {
     const k = row?.key?.trim();
-    const v = row?.value?.trim();
-    if (k && v) out[k] = v;
+    const val = row?.value?.trim();
+    // Ignore extras that collide with cpu/memory (user would have
+    // also filled those above) — fixed inputs win, no surprise from
+    // ordering.
+    if (k && val && k !== 'cpu' && k !== 'memory') out[k] = val;
   }
   return out;
 }
 
-function recordToRows(rec?: Record<string, unknown>): ResourceRow[] {
-  if (!rec) return [];
-  return Object.entries(rec).map(([key, value]) => ({
-    key,
-    value: typeof value === 'string' ? value : String(value),
-  }));
+// recordToResourceListFV is the reverse: pull cpu/memory out of the
+// record (if present) and route the rest into extras rows.
+function recordToResourceListFV(
+  rec?: Record<string, unknown>,
+): ResourceListFV {
+  const out: ResourceListFV = { extras: [] };
+  if (!rec) return out;
+  for (const [k, v] of Object.entries(rec)) {
+    const s = typeof v === 'string' ? v : String(v);
+    if (k === 'cpu') out.cpu = s;
+    else if (k === 'memory') out.memory = s;
+    else (out.extras ??= []).push({ key: k, value: s });
+  }
+  return out;
 }
 
 // fvToInput translates the form's flat field shape into the
@@ -512,9 +571,9 @@ function fvToInput(v: FormValues): QueueInput {
   // map — K8s quantity parser rejects whitespace, and "  100Gi "
   // would surface as a not-very-helpful apply error.
   const t = (s?: string) => s?.trim() || undefined;
-  const capability = rowsToRecord(v.capability);
-  const deserved = rowsToRecord(v.deserved);
-  const guarantee = rowsToRecord(v.guarantee);
+  const capability = resourceListFVToRecord(v.capability);
+  const deserved = resourceListFVToRecord(v.deserved);
+  const guarantee = resourceListFVToRecord(v.guarantee);
   return {
     name: v.name?.trim() ?? '',
     weight: v.weight ?? 1,
@@ -538,10 +597,10 @@ function formValuesFromManifest(obj: any, fallbackName: string): FormValues {
       typeof spec.reclaimable === 'boolean' ? spec.reclaimable : true,
     parent: spec.parent ?? undefined,
     type: spec.type ?? undefined,
-    capability: recordToRows(spec.capability),
-    deserved: recordToRows(spec.deserved),
+    capability: recordToResourceListFV(spec.capability),
+    deserved: recordToResourceListFV(spec.deserved),
     // Guarantee has a .resource wrapper per the CRD
     // (Guarantee struct → resource: ResourceList).
-    guarantee: recordToRows(spec.guarantee?.resource),
+    guarantee: recordToResourceListFV(spec.guarantee?.resource),
   };
 }
