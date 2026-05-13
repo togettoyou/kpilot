@@ -211,7 +211,13 @@ export default function VolcanoOverviewPage() {
                     fontSize: 14,
                     color: 'var(--ant-color-text-secondary)',
                     lineHeight: 1.4,
-                    minHeight: 22,
+                    // Reserve 2 lines of vertical space for the title
+                    // even when it's only 1 line long. Some labels
+                    // ("Pending Pod", "HyperNode 总数") wrap at typical
+                    // KPI card widths; without a reserved height the
+                    // value below would float up on single-line cards
+                    // and the row's numbers wouldn't share a baseline.
+                    minHeight: 40,
                   }}
                 >
                   {intl.formatMessage({
