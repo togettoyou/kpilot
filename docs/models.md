@@ -1,4 +1,4 @@
-# 模型中心（`/models`，P7）
+# 模型服务（`/models`，P7）
 
 > 上层文档：[CLAUDE.md](../CLAUDE.md)。本文档为 P7 模块占位 + 落地计划。
 

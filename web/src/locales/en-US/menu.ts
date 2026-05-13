@@ -4,7 +4,7 @@ export default {
   // Top-level platforms (4 modules).
   'menu.clusters': 'Clusters',
   'menu.compute': 'Compute Scheduling',
-  'menu.models': 'Model Hub',
+  'menu.models': 'Model Serving',
   'menu.plugins': 'Plugins',
 
   // Cluster detail sider — injected when a cluster is selected under

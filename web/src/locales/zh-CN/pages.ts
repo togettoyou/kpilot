@@ -478,7 +478,7 @@ export default {
   'pages.pluginInstallLog.stale':
     '暂无可用日志：保留期（10 分钟）已过，或当前没有正在进行的操作。重新启用 / 禁用插件可触发新一轮日志。',
 
-  'pages.models.landing.title': '模型中心',
+  'pages.models.landing.title': '模型服务',
   'pages.models.landing.subtitle': '从模型仓库到部署、调试、路由的端到端面板（建设中）',
   'pages.models.landing.comingSoon': '建设中',
   'pages.models.landing.registry.title': '模型仓库',

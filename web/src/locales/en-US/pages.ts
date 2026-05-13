@@ -479,7 +479,7 @@ export default {
   'pages.pluginInstallLog.stale':
     'No log available: the 10-minute retention window has expired, or no operation is currently running. Re-run enable / disable to start a new log session.',
 
-  'pages.models.landing.title': 'Model Hub',
+  'pages.models.landing.title': 'Model Serving',
   'pages.models.landing.subtitle':
     'Registry, deployment, chat playground, and routing — coming soon',
   'pages.models.landing.comingSoon': 'Coming soon',
