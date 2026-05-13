@@ -225,9 +225,10 @@ export default {
   'pages.compute.overview.kpi.cronjobs': '定时作业',
   'pages.compute.overview.kpi.hypernodes': 'HyperNode 总数',
   'pages.compute.overview.queues.title': '队列资源使用',
-  'pages.compute.overview.queues.subtitle': '共 {n} 个队列',
+  'pages.compute.overview.queues.subtitle': '按最高利用率排序，共 {n} 个队列',
   'pages.compute.overview.queues.empty':
     '当前没有队列，或所有队列都没有 capability / allocated 数据',
+  'pages.compute.overview.queues.col.queue': '队列',
   'pages.compute.overview.jobs.empty': '当前命名空间下没有 Volcano 作业',
   'pages.compute.overview.hypernodes.title': 'HyperNode 层级分布',
   'pages.compute.overview.hypernodes.subtitle': '共 {n} 个 HyperNode',

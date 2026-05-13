@@ -280,98 +280,65 @@ function clusterCapacity(data: BundleData): ClusterCapacity {
   };
 }
 
-// ─── Queue resource usage (with optional GPU facets) ──────────────────
+// ─── Queue resource usage (queue × resource table) ────────────────────
+
+interface QueueResourceRow {
+  name: string;
+  cpu: { allocated: number; total: number };
+  memory: { allocated: number; total: number }; // GiB
+  gpu: { allocated: number; total: number };
+  // Pre-computed for sorting: the highest utilization across the
+  // three resource types. A queue at 90% CPU and 5% memory bubbles
+  // to the top because the CPU is the bottleneck.
+  maxUtil: number;
+}
 
 function QueueResourceCard({ data }: { data: BundleData }) {
   const intl = useIntl();
-  // Build chart rows. Facets are added dynamically only when at least
-  // one queue has data for them — keeps the chart compact on
-  // GPU-less clusters.
-  const { rows, hasGpu, hasNvidia } = useMemo(() => {
+  // Build one row per queue with cpu/mem/gpu allocated + total.
+  // The earlier stacked-facet Column chart became hard to read on
+  // realistic clusters (10+ queues × 3-4 facets = a wall of narrow
+  // bars on three different y scales). The table form gives every
+  // queue one row and every resource its own mini utilization bar,
+  // so "which queue × which resource is hot" is a single eye scan.
+  const { rows, hasGpu } = useMemo(() => {
     let _hasGpu = false;
-    let _hasNvidia = false;
-    const out: {
-      queue: string;
-      metric: string;
-      value: number;
-      kind: string;
-    }[] = [];
+    const out: QueueResourceRow[] = [];
     for (const q of data.queues) {
-      const cpuCap = parseQuantity(q.capability?.['cpu']);
       const cpuAlloc = parseQuantity(q.allocated?.['cpu']);
-      const memCap = parseQuantity(q.capability?.['memory']);
-      const memAlloc = parseQuantity(q.allocated?.['memory']);
-      out.push(
-        {
-          queue: q.name,
-          metric: 'cpu (cores)',
-          value: cpuAlloc,
-          kind: 'allocated',
-        },
-        {
-          queue: q.name,
-          metric: 'cpu (cores)',
-          value: Math.max(cpuCap - cpuAlloc, 0),
-          kind: 'free',
-        },
-        {
-          queue: q.name,
-          metric: 'memory (GiB)',
-          value: memAlloc / 1024 ** 3,
-          kind: 'allocated',
-        },
-        {
-          queue: q.name,
-          metric: 'memory (GiB)',
-          value: Math.max((memCap - memAlloc) / 1024 ** 3, 0),
-          kind: 'free',
-        },
+      const cpuCap = parseQuantity(q.capability?.['cpu']);
+      const memAlloc = parseQuantity(q.allocated?.['memory']) / 1024 ** 3;
+      const memCap = parseQuantity(q.capability?.['memory']) / 1024 ** 3;
+      // GPU = vgpu + nvidia.com/gpu (Volcano supports either).
+      const gpuAlloc =
+        parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
+        parseQuantity(q.allocated?.['nvidia.com/gpu']);
+      const gpuCap =
+        parseQuantity(q.capability?.['volcano.sh/vgpu-number']) +
+        parseQuantity(q.capability?.['nvidia.com/gpu']);
+      if (gpuAlloc > 0 || gpuCap > 0) _hasGpu = true;
+      const u = (a: number, t: number) => (t > 0 ? a / t : 0);
+      const maxUtil = Math.max(
+        u(cpuAlloc, cpuCap),
+        u(memAlloc, memCap),
+        u(gpuAlloc, gpuCap),
       );
-      const vgpuCap = parseQuantity(q.capability?.['volcano.sh/vgpu-number']);
-      const vgpuAlloc = parseQuantity(q.allocated?.['volcano.sh/vgpu-number']);
-      if (vgpuCap > 0 || vgpuAlloc > 0) {
-        _hasGpu = true;
-        out.push(
-          {
-            queue: q.name,
-            metric: 'vgpu',
-            value: vgpuAlloc,
-            kind: 'allocated',
-          },
-          {
-            queue: q.name,
-            metric: 'vgpu',
-            value: Math.max(vgpuCap - vgpuAlloc, 0),
-            kind: 'free',
-          },
-        );
-      }
-      const nvCap = parseQuantity(q.capability?.['nvidia.com/gpu']);
-      const nvAlloc = parseQuantity(q.allocated?.['nvidia.com/gpu']);
-      if (nvCap > 0 || nvAlloc > 0) {
-        _hasNvidia = true;
-        out.push(
-          {
-            queue: q.name,
-            metric: 'nvidia.com/gpu',
-            value: nvAlloc,
-            kind: 'allocated',
-          },
-          {
-            queue: q.name,
-            metric: 'nvidia.com/gpu',
-            value: Math.max(nvCap - nvAlloc, 0),
-            kind: 'free',
-          },
-        );
-      }
+      out.push({
+        name: q.name,
+        cpu: { allocated: cpuAlloc, total: cpuCap },
+        memory: { allocated: memAlloc, total: memCap },
+        gpu: { allocated: gpuAlloc, total: gpuCap },
+        maxUtil,
+      });
     }
-    return { rows: out, hasGpu: _hasGpu, hasNvidia: _hasNvidia };
+    // Sort by max utilization desc so the most-stressed queues sit
+    // at the top of the table. Tie-break by name for stability.
+    out.sort((a, b) => b.maxUtil - a.maxUtil || a.name.localeCompare(b.name));
+    return { rows: out, hasGpu: _hasGpu };
   }, [data.queues]);
 
-  // Bump height as more facets show up so each one stays legible.
-  const facetCount = 2 + (hasGpu ? 1 : 0) + (hasNvidia ? 1 : 0);
-  const chartHeight = Math.max(280, facetCount * 100);
+  // Grid columns: queue (160px) + N resource columns (1fr each).
+  const cols = hasGpu ? '160px 1fr 1fr 1fr' : '160px 1fr 1fr';
 
   return (
     <Card
@@ -386,39 +353,162 @@ function QueueResourceCard({ data }: { data: BundleData }) {
           )}
         </Text>
       }
+      styles={{ body: { padding: '8px 16px 12px', maxHeight: 420, overflow: 'auto' } }}
     >
       {rows.length === 0 ? (
         <EmptyHint id="pages.compute.overview.queues.empty" />
       ) : (
-        <Column
-          height={chartHeight}
-          data={rows}
-          xField="queue"
-          yField="value"
-          colorField="kind"
-          stack
-          axis={{ x: { labelAutoRotate: true }, y: { title: false } }}
-          legend={{ color: { position: 'top' } }}
-          facet={{ type: 'rect', fields: ['metric'] }}
-          scale={{
-            color: {
-              domain: ['allocated', 'free'],
-              range: ['#1677ff', '#d9d9d9'],
-            },
-          }}
-          tooltip={{
-            title: (d: any) => `${d.queue} · ${d.metric}`,
-            items: [
-              {
-                field: 'value',
-                name: (d: any) => d.kind,
-                valueFormatter: (v: number) => v.toFixed(2),
-              },
-            ],
-          }}
-        />
+        <div>
+          {/* Header — same grid as data rows so columns align. */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: cols,
+              gap: 16,
+              padding: '6px 0',
+              fontSize: 12,
+              color: 'var(--ant-color-text-tertiary)',
+              borderBottom: '1px solid var(--ant-color-split)',
+            }}
+          >
+            <div>
+              {intl.formatMessage({
+                id: 'pages.compute.overview.queues.col.queue',
+              })}
+            </div>
+            <div>
+              {intl.formatMessage({ id: 'pages.compute.overview.gauge.cpu' })}
+            </div>
+            <div>
+              {intl.formatMessage({
+                id: 'pages.compute.overview.gauge.memory',
+              })}
+            </div>
+            {hasGpu && (
+              <div>
+                {intl.formatMessage({
+                  id: 'pages.compute.overview.gauge.gpu',
+                })}
+              </div>
+            )}
+          </div>
+          {rows.map((r) => (
+            <div
+              key={r.name}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: cols,
+                gap: 16,
+                alignItems: 'center',
+                padding: '8px 0',
+                borderBottom: '1px solid var(--ant-color-split)',
+              }}
+            >
+              <Text
+                strong
+                style={{ fontSize: 13 }}
+                ellipsis={{ tooltip: r.name }}
+              >
+                {r.name}
+              </Text>
+              <UtilCell allocated={r.cpu.allocated} total={r.cpu.total} unit="" />
+              <UtilCell
+                allocated={r.memory.allocated}
+                total={r.memory.total}
+                unit="GiB"
+              />
+              {hasGpu && (
+                <UtilCell allocated={r.gpu.allocated} total={r.gpu.total} unit="" />
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </Card>
+  );
+}
+
+// UtilCell is one cell of the queue × resource table: thin
+// utilization bar + "X / Y unit" + percentage + warning glyph at
+// ≥85%. Renders an em-dash when the queue didn't declare capability
+// for this resource (so the row stays aligned across queues).
+function UtilCell({
+  allocated,
+  total,
+  unit,
+}: {
+  allocated: number;
+  total: number;
+  unit: string;
+}) {
+  if (total <= 0 && allocated <= 0) {
+    return (
+      <span style={{ color: 'var(--ant-color-text-quaternary)', fontSize: 13 }}>
+        —
+      </span>
+    );
+  }
+  const unbounded = total <= 0;
+  const pct = unbounded ? 0 : Math.min(allocated / total, 1);
+  const color = pct >= 0.85 ? '#ff4d4f' : pct >= 0.6 ? '#faad14' : '#52c41a';
+  const overloaded = pct >= 0.85;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      <div
+        style={{
+          flex: 1,
+          minWidth: 40,
+          height: 8,
+          background: 'var(--ant-color-fill-tertiary)',
+          borderRadius: 2,
+          overflow: 'hidden',
+        }}
+      >
+        {!unbounded && (
+          <div
+            style={{
+              width: `${pct * 100}%`,
+              height: '100%',
+              background: color,
+            }}
+          />
+        )}
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          fontVariantNumeric: 'tabular-nums',
+          color: 'var(--ant-color-text-secondary)',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {unbounded ? (
+          <>
+            {formatNum(allocated)}
+            {unit ? ` ${unit}` : ''}
+          </>
+        ) : (
+          <>
+            {formatNum(allocated)}/{formatNum(total)}
+            {unit ? ` ${unit}` : ''}{' '}
+            <span style={{ color, fontWeight: 600, marginInlineStart: 2 }}>
+              {(pct * 100).toFixed(0)}%
+            </span>
+          </>
+        )}
+      </div>
+      {overloaded && (
+        <ExclamationCircleFilled
+          style={{ color: '#ff4d4f', fontSize: 12, flexShrink: 0 }}
+        />
+      )}
+    </div>
   );
 }
 
