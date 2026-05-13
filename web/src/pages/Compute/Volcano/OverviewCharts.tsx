@@ -241,6 +241,13 @@ interface ClusterCapacity {
 }
 
 function clusterCapacity(data: BundleData): ClusterCapacity {
+  // Hierarchical queues: a parent's status.allocated is the rolled-up
+  // sum of its descendants', and spec.capability is the cap for the
+  // whole subtree. Summing every queue double-counts (parent + each
+  // child), so cluster-wide totals come from the *roots only* —
+  // queues whose `parent` is empty or refers to a queue that isn't
+  // in our list. The root's rollup already covers everything below.
+  const names = new Set(data.queues.map((q) => q.name));
   let cpuT = 0,
     cpuA = 0,
     memT = 0,
@@ -249,6 +256,7 @@ function clusterCapacity(data: BundleData): ClusterCapacity {
     gpuA = 0,
     hasGpu = false;
   for (const q of data.queues) {
+    if (q.parent && names.has(q.parent)) continue;
     cpuT += parseQuantity(q.capability?.['cpu']);
     cpuA += parseQuantity(q.allocated?.['cpu']);
     memT += parseQuantity(q.capability?.['memory']);
