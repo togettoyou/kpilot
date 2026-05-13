@@ -222,7 +222,8 @@ export default {
   'pages.compute.overview.kpi.cronjobs': 'CronJobs',
   'pages.compute.overview.kpi.hypernodes': 'HyperNodes',
   'pages.compute.overview.queues.title': 'Queue resource usage',
-  'pages.compute.overview.queues.subtitle': '{n} queue(s), sorted by max utilization',
+  'pages.compute.overview.queues.subtitle':
+    '{n} queue(s) · bounded by util desc first, then unbounded by absolute use',
   'pages.compute.overview.queues.empty':
     'No queues, or no capability / allocated data on any queue',
   'pages.compute.overview.queues.col.queue': 'Queue',

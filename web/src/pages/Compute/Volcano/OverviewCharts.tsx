@@ -301,10 +301,15 @@ interface QueueResourceRow {
   cpu: { allocated: number; total: number };
   memory: { allocated: number; total: number }; // GiB
   gpu: { allocated: number; total: number };
-  // Pre-computed for sorting: the highest utilization across the
-  // three resource types. A queue at 90% CPU and 5% memory bubbles
-  // to the top because the CPU is the bottleneck.
+  // Pre-computed for sorting. `maxUtil` is the highest utilization
+  // across resource types when *any* resource is bounded — that
+  // queue can hit a cap, so it sorts by pressure. `unboundedLoad` is
+  // a synthetic score for fully-unbounded queues (no caps anywhere);
+  // they're ranked by absolute consumption so the largest still
+  // surfaces above the idle ones.
   maxUtil: number;
+  fullyUnbounded: boolean;
+  unboundedLoad: number;
 }
 
 function QueueResourceCard({ data }: { data: BundleData }) {
@@ -337,17 +342,40 @@ function QueueResourceCard({ data }: { data: BundleData }) {
         u(memAlloc, memCap),
         u(gpuAlloc, gpuCap),
       );
+      // Fully unbounded = no capability set on any resource. These
+      // rank below every bounded queue (they have no "pressure"),
+      // but among themselves they're ordered by absolute consumption
+      // so a heavy-but-unlimited queue still beats an idle one. CPU
+      // weighted 1:1 with memory GiB is a rough proxy for "load";
+      // doesn't need to be exact, just stable and intuitive.
+      const fullyUnbounded =
+        cpuCap <= 0 && memCap <= 0 && gpuCap <= 0;
+      const unboundedLoad = cpuAlloc + memAlloc + gpuAlloc;
       out.push({
         name: q.name,
         cpu: { allocated: cpuAlloc, total: cpuCap },
         memory: { allocated: memAlloc, total: memCap },
         gpu: { allocated: gpuAlloc, total: gpuCap },
         maxUtil,
+        fullyUnbounded,
+        unboundedLoad,
       });
     }
-    // Sort by max utilization desc so the most-stressed queues sit
-    // at the top of the table. Tie-break by name for stability.
-    out.sort((a, b) => b.maxUtil - a.maxUtil || a.name.localeCompare(b.name));
+    // Sort: bounded queues first (by utilization desc — who's
+    // closest to their cap), then fully-unbounded queues (by raw
+    // consumption desc — who's eating the most). Name tie-breaks
+    // within each block for stable rendering.
+    out.sort((a, b) => {
+      if (a.fullyUnbounded !== b.fullyUnbounded) {
+        return a.fullyUnbounded ? 1 : -1;
+      }
+      if (a.fullyUnbounded) {
+        return (
+          b.unboundedLoad - a.unboundedLoad || a.name.localeCompare(b.name)
+        );
+      }
+      return b.maxUtil - a.maxUtil || a.name.localeCompare(b.name);
+    });
     return { rows: out, hasGpu: _hasGpu };
   }, [data.queues]);
 
