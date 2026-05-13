@@ -120,9 +120,20 @@ function QueueResourceCard({ data }: { data: BundleData }) {
               range: ['#1677ff', '#d9d9d9'],
             },
           }}
-          tooltip={(d: any) =>
-            `${d.queue} · ${d.kind}: ${d.value.toFixed(2)}`
-          }
+          tooltip={{
+            // Title: which queue + which metric facet we're on.
+            // Items: label is the kind (allocated / free), value is
+            // the parsed number with 2-decimal precision so users
+            // don't see noisy ".999999".
+            title: (d: any) => `${d.queue} · ${d.metric}`,
+            items: [
+              {
+                field: 'value',
+                name: (d: any) => d.kind,
+                valueFormatter: (v: number) => v.toFixed(2),
+              },
+            ],
+          }}
         />
       )}
     </Card>
@@ -191,6 +202,12 @@ function JobPhaseCard({ data }: { data: BundleData }) {
             },
           }}
           legend={{ color: { position: 'right' } }}
+          // Default tooltip would render "count: N" — replace with
+          // "<phase>: N <jobs>" so hovering says "Running: 12".
+          tooltip={{
+            title: (d: any) => d.state,
+            items: [{ field: 'count', name: 'jobs' }],
+          }}
         />
       )}
     </Card>
@@ -255,6 +272,10 @@ function PodGroupPhaseCard({ data }: { data: BundleData }) {
             },
           }}
           legend={{ color: { position: 'right' } }}
+          tooltip={{
+            title: (d: any) => d.phase,
+            items: [{ field: 'count', name: 'PodGroups' }],
+          }}
         />
       )}
     </Card>
@@ -360,6 +381,10 @@ function HyperNodeTierCard({ data }: { data: BundleData }) {
           yField="count"
           label={{ position: 'top' }}
           style={{ fill: '#1677ff' }}
+          tooltip={{
+            title: (d: any) => d.tier,
+            items: [{ field: 'count', name: 'HyperNodes' }],
+          }}
         />
       )}
     </Card>
