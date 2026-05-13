@@ -19,7 +19,7 @@ export default function OverviewCharts({ data }: { data: BundleData }) {
       {/* Cluster capacity: 3 ring gauges side-by-side. GPU ring only
           renders when at least one queue has volcano.sh/vgpu-number
           or nvidia.com/gpu data. */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="stretch">
         <Col xs={24} sm={12} md={cluster.hasGpu ? 8 : 12}>
           <CapacityGaugeCard
             titleId="pages.compute.overview.gauge.cpu"
@@ -48,7 +48,7 @@ export default function OverviewCharts({ data }: { data: BundleData }) {
         )}
       </Row>
 
-      <Row gutter={[12, 12]}>
+      <Row gutter={[12, 12]} align="stretch">
         <Col xs={24}>
           <QueueResourceCard data={data} />
         </Col>
@@ -101,6 +101,7 @@ function CapacityGaugeCard({
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={intl.formatMessage({ id: titleId })}
       styles={{ body: { padding: '4px 8px 0' } }}
     >
@@ -255,6 +256,7 @@ function QueueResourceCard({ data }: { data: BundleData }) {
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={intl.formatMessage({ id: 'pages.compute.overview.queues.title' })}
       extra={
         <Text type="secondary" style={{ fontSize: 12 }}>
@@ -325,6 +327,7 @@ function JobPhaseCard({ data }: { data: BundleData }) {
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={intl.formatMessage({ id: 'pages.compute.overview.jobs.title' })}
       extra={
         <Text type="secondary" style={{ fontSize: 12 }}>
@@ -386,6 +389,7 @@ function PodGroupPhaseCard({ data }: { data: BundleData }) {
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={intl.formatMessage({
         id: 'pages.compute.overview.podgroups.title',
       })}
@@ -449,6 +453,7 @@ function JobFlowPhaseCard({ data }: { data: BundleData }) {
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={intl.formatMessage({
         id: 'pages.compute.overview.jobflows.title',
       })}
@@ -515,6 +520,7 @@ function JobByQueueCard({ data }: { data: BundleData }) {
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={intl.formatMessage({
         id: 'pages.compute.overview.jobByQueue.title',
       })}
@@ -605,6 +611,7 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={intl.formatMessage({
         id: 'pages.compute.overview.hierarchy.title',
       })}
@@ -659,6 +666,7 @@ function CronJobStateCard({ data }: { data: BundleData }) {
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={intl.formatMessage({
         id: 'pages.compute.overview.cronjobs.title',
       })}
@@ -722,6 +730,7 @@ function HyperNodeTierCard({ data }: { data: BundleData }) {
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={intl.formatMessage({
         id: 'pages.compute.overview.hypernodes.title',
       })}

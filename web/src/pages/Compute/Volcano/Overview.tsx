@@ -183,10 +183,14 @@ export default function VolcanoOverviewPage() {
       </Space>
 
       {/* KPI row first — quick scan of totals. 8 cards at lg+, fewer per row on smaller widths. */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="stretch">
         {kpis.map((k) => (
           <Col key={k.key} xs={12} sm={8} md={6} lg={3} xl={3}>
-            <Card size="small" loading={loading && !ready}>
+            <Card
+              size="small"
+              loading={loading && !ready}
+              style={{ height: '100%' }}
+            >
               <Statistic
                 title={intl.formatMessage({
                   id: `pages.compute.overview.kpi.${k.key}`,
@@ -257,7 +261,7 @@ export default function VolcanoOverviewPage() {
           left, latest-jobs feed on the right. Plain antd List rather
           than another chart — these are scan-and-act views. */}
       {ready && (
-        <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
+        <Row gutter={[12, 12]} style={{ marginTop: 12 }} align="stretch">
           <Col xs={24} lg={12}>
             <JobListCard
               titleId="pages.compute.overview.failed.title"
@@ -423,6 +427,7 @@ function JobListCard({
   return (
     <Card
       size="small"
+      style={{ height: '100%' }}
       title={
         <Space>
           {intl.formatMessage({ id: titleId })}
