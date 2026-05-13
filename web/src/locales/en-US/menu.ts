@@ -78,6 +78,7 @@ export default {
 
   // Compute platform sider — injected when a cluster is selected under
   // /compute/:id/*.
+  'menu.compute.overview': 'Overview',
   'menu.compute.scheduler': 'Scheduler Config',
   'menu.compute.resources': 'Resources',
   'menu.compute.resources.queues': 'Queue',

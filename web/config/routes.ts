@@ -69,12 +69,13 @@ export default [
         redirect: '/compute/:id/scheduler',
       },
       {
-        // /overview was the GPU dashboard route before the Volcano
-        // pivot. Browser tabs / bookmarks / cached SPA state still
-        // try to land here after the page was deleted — redirect
-        // them to the new default tab instead of 404.
+        // /overview now points at the Volcano dashboard: charts +
+        // KPIs aggregated from Queue / Job / CronJob / PodGroup /
+        // HyperNode in a single fetch. Same URL the pre-Volcano
+        // GPU dashboard lived at, so existing bookmarks just land
+        // on the new (and more relevant) Volcano overview.
         path: '/compute/:id/overview',
-        redirect: '/compute/:id/scheduler',
+        component: './Compute/Volcano/Overview',
       },
       // Volcano CR browsers — thin wrappers around the workload
       // page's CR-instances component (WorkloadsContent), preset

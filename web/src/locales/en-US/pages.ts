@@ -207,6 +207,40 @@ export default {
 
   // Scheduler configmap viewer / editor
   'pages.compute.scheduler.title': 'Volcano scheduler config',
+
+  // Scheduling overview dashboard
+  'pages.compute.overview.title': 'Volcano overview',
+  'pages.compute.overview.truncated':
+    'Some resource counts exceeded the list endpoint cap (500). Charts only reflect what was returned.',
+  'pages.compute.overview.empty':
+    'No Volcano resources in the current namespace',
+  'pages.compute.overview.kpi.queues': 'Queues',
+  'pages.compute.overview.kpi.jobs': 'Jobs',
+  'pages.compute.overview.kpi.pods.running': 'Running pods',
+  'pages.compute.overview.kpi.pods.pending': 'Pending pods',
+  'pages.compute.overview.kpi.jobs.failed': 'Failed jobs',
+  'pages.compute.overview.kpi.hypernodes': 'HyperNodes',
+  'pages.compute.overview.queues.title': 'Queue resource usage',
+  'pages.compute.overview.queues.subtitle': '{n} queue(s)',
+  'pages.compute.overview.queues.empty':
+    'No queues, or no capability / allocated data on any queue',
+  'pages.compute.overview.jobs.title': 'Job phase distribution',
+  'pages.compute.overview.jobs.subtitle': '{n} job(s)',
+  'pages.compute.overview.jobs.empty':
+    'No Volcano jobs in this namespace',
+  'pages.compute.overview.podgroups.title': 'PodGroup phase distribution',
+  'pages.compute.overview.podgroups.subtitle': '{n} PodGroup(s)',
+  'pages.compute.overview.podgroups.empty':
+    'No PodGroups in this namespace',
+  'pages.compute.overview.cronjobs.title': 'CronJob state',
+  'pages.compute.overview.cronjobs.subtitle': '{n} CronJob(s)',
+  'pages.compute.overview.cronjobs.empty':
+    'No CronJobs in this namespace',
+  'pages.compute.overview.cronjobs.active': 'Active',
+  'pages.compute.overview.cronjobs.suspended': 'Suspended',
+  'pages.compute.overview.hypernodes.title': 'HyperNode tier distribution',
+  'pages.compute.overview.hypernodes.subtitle': '{n} HyperNode(s)',
+  'pages.compute.overview.hypernodes.empty': 'No HyperNodes in cluster',
   'pages.compute.scheduler.intro':
     'Volcano schedules in two layers: actions control the per-round workflow (when to enqueue / allocate / preempt); plugins layer scoring + constraints in tiers (a tier must pass before the next one runs). Hover the ⓘ icons for one-liners; the collapsible reference at the bottom lists every action and plugin.',
   'pages.compute.scheduler.save': 'Save',

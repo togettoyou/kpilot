@@ -211,6 +211,38 @@ export default {
 
   // Scheduler configmap viewer / editor
   'pages.compute.scheduler.title': 'Volcano 调度策略',
+
+  // 调度概览大盘
+  'pages.compute.overview.title': 'Volcano 调度概览',
+  'pages.compute.overview.truncated':
+    '部分资源数量超出 list 端点上限（500），下方图表只反映已返回的数据',
+  'pages.compute.overview.empty': '当前命名空间下暂无 Volcano 资源',
+  'pages.compute.overview.kpi.queues': '队列总数',
+  'pages.compute.overview.kpi.jobs': '作业总数',
+  'pages.compute.overview.kpi.pods.running': '运行中 Pod',
+  'pages.compute.overview.kpi.pods.pending': 'Pending Pod',
+  'pages.compute.overview.kpi.jobs.failed': '失败作业',
+  'pages.compute.overview.kpi.hypernodes': 'HyperNode 总数',
+  'pages.compute.overview.queues.title': '队列资源使用',
+  'pages.compute.overview.queues.subtitle': '共 {n} 个队列',
+  'pages.compute.overview.queues.empty':
+    '当前没有队列，或所有队列都没有 capability / allocated 数据',
+  'pages.compute.overview.jobs.title': '作业状态分布',
+  'pages.compute.overview.jobs.subtitle': '共 {n} 个作业',
+  'pages.compute.overview.jobs.empty': '当前命名空间下没有 Volcano 作业',
+  'pages.compute.overview.podgroups.title': 'PodGroup 阶段分布',
+  'pages.compute.overview.podgroups.subtitle': '共 {n} 个 PodGroup',
+  'pages.compute.overview.podgroups.empty':
+    '当前命名空间下没有 PodGroup',
+  'pages.compute.overview.cronjobs.title': '定时作业状态',
+  'pages.compute.overview.cronjobs.subtitle': '共 {n} 个 CronJob',
+  'pages.compute.overview.cronjobs.empty':
+    '当前命名空间下没有 CronJob',
+  'pages.compute.overview.cronjobs.active': '运行中',
+  'pages.compute.overview.cronjobs.suspended': '已暂停',
+  'pages.compute.overview.hypernodes.title': 'HyperNode 层级分布',
+  'pages.compute.overview.hypernodes.subtitle': '共 {n} 个 HyperNode',
+  'pages.compute.overview.hypernodes.empty': '集群中没有 HyperNode',
   'pages.compute.scheduler.intro':
     'Volcano 调度器分两层做决策：① actions 控制每轮调度的工作流程（什么时候入队、何时分配资源、何时抢占）；② plugins 按 tier 分组叠加打分与约束（按顺序评估，前一 tier 通过才进入后一 tier）。每个选项右侧的 ⓘ 鼠标悬停可看作用说明，下方的「调度阶段一览 / 调度插件一览」是完整参考手册。',
   'pages.compute.scheduler.save': '保存',

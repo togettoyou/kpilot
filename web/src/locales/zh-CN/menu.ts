@@ -79,6 +79,7 @@ export default {
 
   // Compute platform sider — injected when a cluster is selected under
   // /compute/:id/*. P5b will add GPU monitoring as a sibling.
+  'menu.compute.overview': '调度概览',
   'menu.compute.scheduler': '调度策略',
   // Volcano CR 浏览器：Queue / Job / CronJob / PodGroup / HyperNode，
   // 全部塞在「调度资源」子菜单下。Kind 名（中英都直接保留）—— 这些是

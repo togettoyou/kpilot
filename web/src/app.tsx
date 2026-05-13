@@ -4,6 +4,7 @@ import {
   AppstoreOutlined,
   BlockOutlined,
   ControlOutlined,
+  DashboardOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
   DesktopOutlined,
@@ -462,6 +463,11 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
 function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
   const base = `/compute/${clusterId}`;
   return [
+    {
+      path: `${base}/overview`,
+      name: 'overview',
+      icon: <DashboardOutlined />,
+    },
     {
       path: `${base}/scheduler`,
       name: 'scheduler',
