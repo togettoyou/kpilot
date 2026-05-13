@@ -296,7 +296,10 @@ function formatResources(
       const short = k.startsWith('volcano.sh/vgpu-')
         ? k.slice('volcano.sh/'.length)
         : k;
-      return c ? `${short} ${a}/${c}` : `${short} ${a}`;
+      // No spec.capability for this resource → render the
+      // denominator as ∞ so the row reads as "unbounded" instead
+      // of being indistinguishable from "limit = allocated value".
+      return `${short} ${a}/${c ?? '∞'}`;
     })
     .join(' · ');
 }

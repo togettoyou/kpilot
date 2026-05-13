@@ -168,7 +168,12 @@ function CapacityRow({
         style={{
           flex: 1,
           height: 18,
-          background: 'var(--ant-color-fill-tertiary)',
+          // Diagonal stripes for unbounded clusters so the empty bar
+          // doesn't read as "0% used" — see the same pattern in
+          // UtilCell below.
+          background: unbounded
+            ? 'repeating-linear-gradient(45deg, var(--ant-color-fill-tertiary) 0 6px, transparent 6px 12px)'
+            : 'var(--ant-color-fill-tertiary)',
           borderRadius: 3,
           overflow: 'hidden',
           position: 'relative',
@@ -200,13 +205,14 @@ function CapacityRow({
       >
         {unbounded ? (
           <>
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <span style={{ color: 'var(--ant-color-text-secondary)' }}>
+              {formatNum(allocated)} / ∞{unit ? ` ${unit}` : ''}
+            </span>
+            <Tag style={{ marginInlineEnd: 0, fontSize: 11 }} color="default">
               {intl.formatMessage({
                 id: 'pages.compute.overview.gauge.unbounded',
-              })}{' '}
-              · {formatNum(allocated)}
-              {unit ? ` ${unit}` : ''}
-            </Text>
+              })}
+            </Tag>
           </>
         ) : (
           <>
@@ -473,7 +479,13 @@ function UtilCell({
           flex: 1,
           minWidth: 40,
           height: 8,
-          background: 'var(--ant-color-fill-tertiary)',
+          // Unbounded queues get a faint diagonal-stripe track so the
+          // empty bar doesn't read as "0% used" (which was the bug
+          // root with allocated=1 / capability=∞ surfaced). Bounded
+          // queues keep the solid neutral track.
+          background: unbounded
+            ? 'repeating-linear-gradient(45deg, var(--ant-color-fill-tertiary) 0 4px, transparent 4px 8px)'
+            : 'var(--ant-color-fill-tertiary)',
           borderRadius: 2,
           overflow: 'hidden',
         }}
@@ -497,9 +509,11 @@ function UtilCell({
         }}
       >
         {unbounded ? (
+          // X/∞ reads as "X out of unlimited" — same shape as the
+          // bounded "X/Y" so the row alignment + scanning rhythm is
+          // preserved, and it can't be mistaken for "limit = X".
           <>
-            {formatNum(allocated)}
-            {unit ? ` ${unit}` : ''}
+            {formatNum(allocated)}/∞{unit ? ` ${unit}` : ''}
           </>
         ) : (
           <>
