@@ -25,9 +25,10 @@ const ComputeLanding: React.FC = () => {
   });
   const clusters: Cluster[] = Array.isArray(data) ? data : [];
 
-  // Land on /scheduler — the platform's default tab after the
-  // Volcano pivot dropped the GPU overview page.
-  const enter = (id: string) => history.push(`/compute/${id}/scheduler`);
+  // Land on /overview — the Volcano dashboard. Users get a cluster-
+  // wide health snapshot first; /scheduler is one click away in the
+  // sider for config-only tasks.
+  const enter = (id: string) => history.push(`/compute/${id}/overview`);
 
   return (
     <PageContainer

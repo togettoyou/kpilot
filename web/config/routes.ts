@@ -65,8 +65,11 @@ export default [
         component: './Compute/index',
       },
       {
+        // Land on the dashboard so users see cluster-wide
+        // Volcano health first. /scheduler is one click away in
+        // the sider for config-only tasks.
         path: '/compute/:id',
-        redirect: '/compute/:id/scheduler',
+        redirect: '/compute/:id/overview',
       },
       {
         // /overview now points at the Volcano dashboard: charts +

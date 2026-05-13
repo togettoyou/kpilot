@@ -1,4 +1,4 @@
-import { Column, Pie } from '@ant-design/plots';
+import { Column, Gauge, Pie, Sunburst } from '@ant-design/plots';
 import { useIntl } from '@umijs/max';
 import { Card, Col, Empty, Row, Statistic, Typography } from 'antd';
 import React, { useMemo } from 'react';
@@ -7,84 +7,255 @@ import type { BundleData } from './Overview';
 
 const { Text } = Typography;
 
-// OverviewCharts owns the heavy @ant-design/plots imports — kept in
-// a separate file so React.lazy can code-split it. The parent page
-// fetches data once and forwards the bundle here.
+// OverviewCharts holds all the heavy @ant-design/plots renders.
+// Lazy-imported from Overview.tsx so the G2 runtime only ships on
+// dashboard open. Parent fetches everything once and passes the
+// bundle here; each chart card derives its own shape with useMemo.
 
 export default function OverviewCharts({ data }: { data: BundleData }) {
+  const cluster = useMemo(() => clusterCapacity(data), [data]);
   return (
-    <Row gutter={[12, 12]}>
-      <Col xs={24} lg={12}>
-        <QueueResourceCard data={data} />
-      </Col>
-      <Col xs={24} lg={12}>
-        <JobPhaseCard data={data} />
-      </Col>
-      <Col xs={24} lg={12}>
-        <PodGroupPhaseCard data={data} />
-      </Col>
-      <Col xs={24} lg={12}>
-        <CronJobStateCard data={data} />
-      </Col>
-      <Col xs={24}>
-        <HyperNodeTierCard data={data} />
-      </Col>
-    </Row>
+    <>
+      {/* Cluster capacity: 3 ring gauges side-by-side. GPU ring only
+          renders when at least one queue has volcano.sh/vgpu-number
+          or nvidia.com/gpu data. */}
+      <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+        <Col xs={24} sm={12} md={cluster.hasGpu ? 8 : 12}>
+          <CapacityGaugeCard
+            titleId="pages.compute.overview.gauge.cpu"
+            allocated={cluster.cpu.allocated}
+            total={cluster.cpu.total}
+            unit="cores"
+          />
+        </Col>
+        <Col xs={24} sm={12} md={cluster.hasGpu ? 8 : 12}>
+          <CapacityGaugeCard
+            titleId="pages.compute.overview.gauge.memory"
+            allocated={cluster.memory.allocated}
+            total={cluster.memory.total}
+            unit="GiB"
+          />
+        </Col>
+        {cluster.hasGpu && (
+          <Col xs={24} sm={12} md={8}>
+            <CapacityGaugeCard
+              titleId="pages.compute.overview.gauge.gpu"
+              allocated={cluster.gpu.allocated}
+              total={cluster.gpu.total}
+              unit=""
+            />
+          </Col>
+        )}
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24}>
+          <QueueResourceCard data={data} />
+        </Col>
+        <Col xs={24} md={12} lg={8}>
+          <JobPhaseCard data={data} />
+        </Col>
+        <Col xs={24} md={12} lg={8}>
+          <PodGroupPhaseCard data={data} />
+        </Col>
+        <Col xs={24} md={24} lg={8}>
+          <JobFlowPhaseCard data={data} />
+        </Col>
+        <Col xs={24}>
+          <JobByQueueCard data={data} />
+        </Col>
+        <Col xs={24} lg={12}>
+          <QueueHierarchyCard data={data} />
+        </Col>
+        <Col xs={24} lg={12}>
+          <CronJobStateCard data={data} />
+        </Col>
+        <Col xs={24}>
+          <HyperNodeTierCard data={data} />
+        </Col>
+      </Row>
+    </>
   );
 }
 
-// ─── Queue resources ───────────────────────────────────────────────────
+// ─── Cluster capacity gauges ──────────────────────────────────────────
 
-// Stacked grouped column: per-queue allocated vs capability for cpu /
-// memory. Two queues × {cpu, memory} = 4 series per row. Quantity
-// parsing is best-effort — we strip K8s unit suffixes the way kubectl
-// does for the simple cases (Gi / Mi / Ki / m for cpu millicores).
-// Charts are illustrative so we don't need to handle every edge case
-// the apimachinery parser does.
+function CapacityGaugeCard({
+  titleId,
+  allocated,
+  total,
+  unit,
+}: {
+  titleId: string;
+  allocated: number;
+  total: number;
+  unit: string;
+}) {
+  const intl = useIntl();
+  const pct = total > 0 ? Math.min(allocated / total, 1) : 0;
+  // antd-plots Gauge expects { target, total } in `data`. Color zones
+  // change as utilization climbs: green up to 60%, gold 60-85%, red
+  // above 85% — sane defaults that match what most ops dashboards do.
+  const color =
+    pct >= 0.85 ? '#ff4d4f' : pct >= 0.6 ? '#faad14' : '#52c41a';
+  return (
+    <Card
+      size="small"
+      title={intl.formatMessage({ id: titleId })}
+      styles={{ body: { padding: '4px 8px 0' } }}
+    >
+      <Gauge
+        height={170}
+        data={{ target: allocated, total: total || 1, name: titleId }}
+        scale={{ color: { range: ['#f0f0f0', color] } }}
+        style={{ textContent: () => `${(pct * 100).toFixed(1)}%` }}
+        legend={false}
+      />
+      <div
+        style={{
+          textAlign: 'center',
+          fontSize: 12,
+          color: 'var(--ant-color-text-secondary)',
+          paddingBottom: 8,
+        }}
+      >
+        {total > 0
+          ? `${formatNum(allocated)} / ${formatNum(total)}${unit ? ' ' + unit : ''}`
+          : '—'}
+      </div>
+    </Card>
+  );
+}
+
+interface ClusterCapacity {
+  cpu: { allocated: number; total: number };
+  memory: { allocated: number; total: number }; // in GiB
+  gpu: { allocated: number; total: number };
+  hasGpu: boolean;
+}
+
+function clusterCapacity(data: BundleData): ClusterCapacity {
+  let cpuT = 0,
+    cpuA = 0,
+    memT = 0,
+    memA = 0,
+    gpuT = 0,
+    gpuA = 0,
+    hasGpu = false;
+  for (const q of data.queues) {
+    cpuT += parseQuantity(q.capability?.['cpu']);
+    cpuA += parseQuantity(q.allocated?.['cpu']);
+    memT += parseQuantity(q.capability?.['memory']);
+    memA += parseQuantity(q.allocated?.['memory']);
+    const gT =
+      parseQuantity(q.capability?.['volcano.sh/vgpu-number']) +
+      parseQuantity(q.capability?.['nvidia.com/gpu']);
+    const gA =
+      parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
+      parseQuantity(q.allocated?.['nvidia.com/gpu']);
+    gpuT += gT;
+    gpuA += gA;
+    if (
+      q.capability?.['volcano.sh/vgpu-number'] ||
+      q.capability?.['nvidia.com/gpu'] ||
+      q.allocated?.['volcano.sh/vgpu-number'] ||
+      q.allocated?.['nvidia.com/gpu']
+    ) {
+      hasGpu = true;
+    }
+  }
+  return {
+    cpu: { allocated: cpuA, total: cpuT },
+    // Memory is bytes; convert to GiB for the gauge so the displayed
+    // numbers stay readable.
+    memory: { allocated: memA / 1024 ** 3, total: memT / 1024 ** 3 },
+    gpu: { allocated: gpuA, total: gpuT },
+    hasGpu,
+  };
+}
+
+// ─── Queue resource usage (with optional GPU facets) ──────────────────
+
 function QueueResourceCard({ data }: { data: BundleData }) {
   const intl = useIntl();
-  const rows = useMemo(() => {
+  // Build chart rows. Facets are added dynamically only when at least
+  // one queue has data for them — keeps the chart compact on
+  // GPU-less clusters.
+  const { rows, hasGpu, hasNvidia } = useMemo(() => {
+    let _hasGpu = false;
+    let _hasNvidia = false;
     const out: { queue: string; metric: string; value: number; kind: string }[] = [];
     for (const q of data.queues) {
-      // For each queue produce 4 bars: cpu allocated/capability, memory allocated/capability.
       const cpuCap = parseQuantity(q.capability?.['cpu']);
       const cpuAlloc = parseQuantity(q.allocated?.['cpu']);
       const memCap = parseQuantity(q.capability?.['memory']);
       const memAlloc = parseQuantity(q.allocated?.['memory']);
-      out.push({
-        queue: q.name,
-        metric: 'cpu (cores)',
-        value: cpuAlloc,
-        kind: 'allocated',
-      });
-      out.push({
-        queue: q.name,
-        metric: 'cpu (cores)',
-        value: Math.max(cpuCap - cpuAlloc, 0),
-        kind: 'free',
-      });
-      out.push({
-        queue: q.name,
-        metric: 'memory (GiB)',
-        value: memAlloc / (1024 * 1024 * 1024),
-        kind: 'allocated',
-      });
-      out.push({
-        queue: q.name,
-        metric: 'memory (GiB)',
-        value: Math.max((memCap - memAlloc) / (1024 * 1024 * 1024), 0),
-        kind: 'free',
-      });
+      out.push(
+        { queue: q.name, metric: 'cpu (cores)', value: cpuAlloc, kind: 'allocated' },
+        {
+          queue: q.name,
+          metric: 'cpu (cores)',
+          value: Math.max(cpuCap - cpuAlloc, 0),
+          kind: 'free',
+        },
+        {
+          queue: q.name,
+          metric: 'memory (GiB)',
+          value: memAlloc / 1024 ** 3,
+          kind: 'allocated',
+        },
+        {
+          queue: q.name,
+          metric: 'memory (GiB)',
+          value: Math.max((memCap - memAlloc) / 1024 ** 3, 0),
+          kind: 'free',
+        },
+      );
+      const vgpuCap = parseQuantity(q.capability?.['volcano.sh/vgpu-number']);
+      const vgpuAlloc = parseQuantity(q.allocated?.['volcano.sh/vgpu-number']);
+      if (vgpuCap > 0 || vgpuAlloc > 0) {
+        _hasGpu = true;
+        out.push(
+          { queue: q.name, metric: 'vgpu', value: vgpuAlloc, kind: 'allocated' },
+          {
+            queue: q.name,
+            metric: 'vgpu',
+            value: Math.max(vgpuCap - vgpuAlloc, 0),
+            kind: 'free',
+          },
+        );
+      }
+      const nvCap = parseQuantity(q.capability?.['nvidia.com/gpu']);
+      const nvAlloc = parseQuantity(q.allocated?.['nvidia.com/gpu']);
+      if (nvCap > 0 || nvAlloc > 0) {
+        _hasNvidia = true;
+        out.push(
+          {
+            queue: q.name,
+            metric: 'nvidia.com/gpu',
+            value: nvAlloc,
+            kind: 'allocated',
+          },
+          {
+            queue: q.name,
+            metric: 'nvidia.com/gpu',
+            value: Math.max(nvCap - nvAlloc, 0),
+            kind: 'free',
+          },
+        );
+      }
     }
-    return out;
+    return { rows: out, hasGpu: _hasGpu, hasNvidia: _hasNvidia };
   }, [data.queues]);
+
+  // Bump height as more facets show up so each one stays legible.
+  const facetCount = 2 + (hasGpu ? 1 : 0) + (hasNvidia ? 1 : 0);
+  const chartHeight = Math.max(280, facetCount * 100);
 
   return (
     <Card
       size="small"
-      title={intl.formatMessage({
-        id: 'pages.compute.overview.queues.title',
-      })}
+      title={intl.formatMessage({ id: 'pages.compute.overview.queues.title' })}
       extra={
         <Text type="secondary" style={{ fontSize: 12 }}>
           {intl.formatMessage(
@@ -98,33 +269,19 @@ function QueueResourceCard({ data }: { data: BundleData }) {
         <EmptyHint id="pages.compute.overview.queues.empty" />
       ) : (
         <Column
-          height={300}
+          height={chartHeight}
           data={rows}
           xField="queue"
           yField="value"
           colorField="kind"
           stack
-          group
-          // axis label rotated so longer queue names don't overlap.
-          axis={{
-            x: { labelAutoRotate: true },
-            y: { title: false },
-          }}
+          axis={{ x: { labelAutoRotate: true }, y: { title: false } }}
           legend={{ color: { position: 'top' } }}
-          // Separate panel per resource metric (cpu vs memory).
           facet={{ type: 'rect', fields: ['metric'] }}
-          // Color map: green for free, blue for allocated.
           scale={{
-            color: {
-              domain: ['allocated', 'free'],
-              range: ['#1677ff', '#d9d9d9'],
-            },
+            color: { domain: ['allocated', 'free'], range: ['#1677ff', '#d9d9d9'] },
           }}
           tooltip={{
-            // Title: which queue + which metric facet we're on.
-            // Items: label is the kind (allocated / free), value is
-            // the parsed number with 2-decimal precision so users
-            // don't see noisy ".999999".
             title: (d: any) => `${d.queue} · ${d.metric}`,
             items: [
               {
@@ -140,7 +297,7 @@ function QueueResourceCard({ data }: { data: BundleData }) {
   );
 }
 
-// ─── Job phase pie ─────────────────────────────────────────────────────
+// ─── Job phase pie ────────────────────────────────────────────────────
 
 const JOB_STATE_COLORS: Record<string, string> = {
   Running: '#52c41a',
@@ -165,13 +322,10 @@ function JobPhaseCard({ data }: { data: BundleData }) {
     }
     return Object.entries(counts).map(([state, count]) => ({ state, count }));
   }, [data.jobs]);
-
   return (
     <Card
       size="small"
-      title={intl.formatMessage({
-        id: 'pages.compute.overview.jobs.title',
-      })}
+      title={intl.formatMessage({ id: 'pages.compute.overview.jobs.title' })}
       extra={
         <Text type="secondary" style={{ fontSize: 12 }}>
           {intl.formatMessage(
@@ -185,16 +339,12 @@ function JobPhaseCard({ data }: { data: BundleData }) {
         <EmptyHint id="pages.compute.overview.jobs.empty" />
       ) : (
         <Pie
-          height={300}
+          height={280}
           data={rows}
           angleField="count"
           colorField="state"
           innerRadius={0.55}
-          label={{
-            text: 'count',
-            position: 'spider',
-            style: { fontSize: 12 },
-          }}
+          label={{ text: 'count', position: 'spider', style: { fontSize: 12 } }}
           scale={{
             color: {
               domain: Object.keys(JOB_STATE_COLORS),
@@ -202,8 +352,6 @@ function JobPhaseCard({ data }: { data: BundleData }) {
             },
           }}
           legend={{ color: { position: 'right' } }}
-          // Default tooltip would render "count: N" — replace with
-          // "<phase>: N <jobs>" so hovering says "Running: 12".
           tooltip={{
             title: (d: any) => d.state,
             items: [{ field: 'count', name: 'jobs' }],
@@ -214,7 +362,7 @@ function JobPhaseCard({ data }: { data: BundleData }) {
   );
 }
 
-// ─── PodGroup phase pie ────────────────────────────────────────────────
+// ─── PodGroup phase pie ───────────────────────────────────────────────
 
 const PG_PHASE_COLORS: Record<string, string> = {
   Running: '#52c41a',
@@ -235,7 +383,6 @@ function PodGroupPhaseCard({ data }: { data: BundleData }) {
     }
     return Object.entries(counts).map(([phase, count]) => ({ phase, count }));
   }, [data.podGroups]);
-
   return (
     <Card
       size="small"
@@ -255,16 +402,12 @@ function PodGroupPhaseCard({ data }: { data: BundleData }) {
         <EmptyHint id="pages.compute.overview.podgroups.empty" />
       ) : (
         <Pie
-          height={300}
+          height={280}
           data={rows}
           angleField="count"
           colorField="phase"
           innerRadius={0.55}
-          label={{
-            text: 'count',
-            position: 'spider',
-            style: { fontSize: 12 },
-          }}
+          label={{ text: 'count', position: 'spider', style: { fontSize: 12 } }}
           scale={{
             color: {
               domain: Object.keys(PG_PHASE_COLORS),
@@ -282,16 +425,237 @@ function PodGroupPhaseCard({ data }: { data: BundleData }) {
   );
 }
 
-// ─── CronJob suspend split ────────────────────────────────────────────
+// ─── JobFlow phase pie ────────────────────────────────────────────────
 
-// CronJob isn't worth a pie at typical sizes (usually 1-3) so render
-// it as two side-by-side stat cards — easier to scan.
+const JOBFLOW_PHASE_COLORS: Record<string, string> = {
+  Succeed: '#52c41a',
+  Running: '#52c41a',
+  Pending: '#faad14',
+  Failed: '#ff4d4f',
+  Terminating: '#fa8c16',
+  '': '#bfbfbf', // Volcano leaves the phase blank when controller hasn't reconciled yet
+};
+
+function JobFlowPhaseCard({ data }: { data: BundleData }) {
+  const intl = useIntl();
+  const rows = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const j of data.jobFlows) {
+      const k = j.phase || 'Unknown';
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
+    return Object.entries(counts).map(([phase, count]) => ({ phase, count }));
+  }, [data.jobFlows]);
+  return (
+    <Card
+      size="small"
+      title={intl.formatMessage({
+        id: 'pages.compute.overview.jobflows.title',
+      })}
+      extra={
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {intl.formatMessage(
+            { id: 'pages.compute.overview.jobflows.subtitle' },
+            { n: data.jobFlows.length },
+          )}
+        </Text>
+      }
+    >
+      {rows.length === 0 ? (
+        <EmptyHint id="pages.compute.overview.jobflows.empty" />
+      ) : (
+        <Pie
+          height={280}
+          data={rows}
+          angleField="count"
+          colorField="phase"
+          innerRadius={0.55}
+          label={{ text: 'count', position: 'spider', style: { fontSize: 12 } }}
+          scale={{
+            color: {
+              domain: Object.keys(JOBFLOW_PHASE_COLORS),
+              range: Object.values(JOBFLOW_PHASE_COLORS),
+            },
+          }}
+          legend={{ color: { position: 'right' } }}
+          tooltip={{
+            title: (d: any) => d.phase || 'Unknown',
+            items: [{ field: 'count', name: 'JobFlows' }],
+          }}
+        />
+      )}
+    </Card>
+  );
+}
+
+// ─── Job × Queue matrix ───────────────────────────────────────────────
+
+function JobByQueueCard({ data }: { data: BundleData }) {
+  const intl = useIntl();
+  // Group by (queue, state) -> count. Surfaces which queues are
+  // hot or accumulating failures. Stacked column with same color
+  // map as Job phase pie so the user can mentally cross-reference.
+  const rows = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    for (const j of data.jobs) {
+      const q = j.queue || 'default';
+      const st = j.state || 'Unknown';
+      if (!map.has(q)) map.set(q, new Map());
+      const sub = map.get(q)!;
+      sub.set(st, (sub.get(st) ?? 0) + 1);
+    }
+    const out: { queue: string; state: string; count: number }[] = [];
+    for (const [q, sub] of map.entries()) {
+      for (const [st, n] of sub.entries()) {
+        out.push({ queue: q, state: st, count: n });
+      }
+    }
+    return out;
+  }, [data.jobs]);
+  return (
+    <Card
+      size="small"
+      title={intl.formatMessage({
+        id: 'pages.compute.overview.jobByQueue.title',
+      })}
+      extra={
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {intl.formatMessage({
+            id: 'pages.compute.overview.jobByQueue.subtitle',
+          })}
+        </Text>
+      }
+    >
+      {rows.length === 0 ? (
+        <EmptyHint id="pages.compute.overview.jobByQueue.empty" />
+      ) : (
+        <Column
+          height={280}
+          data={rows}
+          xField="queue"
+          yField="count"
+          colorField="state"
+          stack
+          axis={{ x: { labelAutoRotate: true } }}
+          legend={{ color: { position: 'top' } }}
+          scale={{
+            color: {
+              domain: Object.keys(JOB_STATE_COLORS),
+              range: Object.values(JOB_STATE_COLORS),
+            },
+          }}
+          tooltip={{
+            title: (d: any) => `${d.queue} · ${d.state}`,
+            items: [{ field: 'count', name: 'jobs' }],
+          }}
+        />
+      )}
+    </Card>
+  );
+}
+
+// ─── Queue hierarchy sunburst ─────────────────────────────────────────
+
+interface SunburstNode {
+  name: string;
+  value?: number;
+  children?: SunburstNode[];
+}
+
+function QueueHierarchyCard({ data }: { data: BundleData }) {
+  const intl = useIntl();
+  // Build the queue parent tree. Use cpu capability (cores) as the
+  // ring weight — clearest signal of capacity carve-up. Queues
+  // without a capability default to 1 so they still appear (sunburst
+  // ignores zero-weight leaves).
+  const tree = useMemo<SunburstNode | null>(() => {
+    if (data.queues.length === 0) return null;
+    const byName = new Map<string, QueueNodeBuild>();
+    for (const q of data.queues) {
+      const cpu = parseQuantity(q.capability?.['cpu']);
+      byName.set(q.name, {
+        name: q.name,
+        parent: q.parent || undefined,
+        value: cpu > 0 ? cpu : 1,
+        children: [],
+      });
+    }
+    const roots: QueueNodeBuild[] = [];
+    for (const node of byName.values()) {
+      if (node.parent && byName.has(node.parent)) {
+        byName.get(node.parent)!.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+    if (roots.length === 0) return null;
+    const toSunburst = (n: QueueNodeBuild): SunburstNode => ({
+      name: n.name,
+      value: n.children.length === 0 ? n.value : undefined,
+      children: n.children.length > 0 ? n.children.map(toSunburst) : undefined,
+    });
+    // Wrap in a synthetic root so multiple top-level queues render
+    // as a single sunburst (single root means user sees the whole
+    // landscape in one chart).
+    return {
+      name: 'queues',
+      children: roots.map(toSunburst),
+    };
+  }, [data.queues]);
+  return (
+    <Card
+      size="small"
+      title={intl.formatMessage({
+        id: 'pages.compute.overview.hierarchy.title',
+      })}
+      extra={
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {intl.formatMessage({
+            id: 'pages.compute.overview.hierarchy.subtitle',
+          })}
+        </Text>
+      }
+    >
+      {!tree ? (
+        <EmptyHint id="pages.compute.overview.hierarchy.empty" />
+      ) : (
+        <Sunburst
+          height={300}
+          data={tree as any}
+          valueField="value"
+          colorField="name"
+          legend={false}
+          label={{ text: 'name', style: { fontSize: 12 } }}
+          tooltip={{
+            title: (d: any) => d.name,
+            items: [
+              {
+                field: 'value',
+                name: 'cpu (cores)',
+                valueFormatter: (v: number) => v?.toFixed(2) ?? '-',
+              },
+            ],
+          }}
+        />
+      )}
+    </Card>
+  );
+}
+
+interface QueueNodeBuild {
+  name: string;
+  parent?: string;
+  value: number;
+  children: QueueNodeBuild[];
+}
+
+// ─── CronJob state ────────────────────────────────────────────────────
+
 function CronJobStateCard({ data }: { data: BundleData }) {
   const intl = useIntl();
   const total = data.cronJobs.length;
   const suspended = data.cronJobs.filter((c) => c.suspend).length;
   const active = total - suspended;
-
   return (
     <Card
       size="small"
@@ -310,7 +674,7 @@ function CronJobStateCard({ data }: { data: BundleData }) {
       {total === 0 ? (
         <EmptyHint id="pages.compute.overview.cronjobs.empty" />
       ) : (
-        <Row gutter={12} style={{ minHeight: 300, alignItems: 'center' }}>
+        <Row gutter={12} style={{ minHeight: 260, alignItems: 'center' }}>
           <Col span={12}>
             <Statistic
               title={intl.formatMessage({
@@ -355,7 +719,6 @@ function HyperNodeTierCard({ data }: { data: BundleData }) {
       .map(([tier, count]) => ({ tier: `tier ${tier}`, count }))
       .sort((a, b) => a.tier.localeCompare(b.tier));
   }, [data.hyperNodes]);
-
   return (
     <Card
       size="small"
@@ -405,24 +768,28 @@ function EmptyHint({ id }: { id: string }) {
   );
 }
 
-// parseQuantity does a best-effort K8s Quantity → number translation
-// for the units the dashboard cares about. cpu cores (handles `m`
-// suffix for millicores) and memory in raw bytes (handles Ki/Mi/Gi/
-// Ti binary prefixes plus K/M/G/T decimal). Anything we can't parse
-// returns 0 — these charts are illustrative, not balance-sheet exact.
+function formatNum(n: number): string {
+  if (n === 0) return '0';
+  if (n < 1) return n.toFixed(2);
+  if (n < 100) return n.toFixed(1);
+  return Math.round(n).toString();
+}
+
+// parseQuantity is the same best-effort K8s Quantity translator used
+// in the original chart file. Handles cpu millicores (`m` suffix),
+// binary prefixes (Ki/Mi/Gi/Ti/Pi), and decimal SI prefixes (K/M/G/
+// T/P). Charts are illustrative, not balance-sheet exact.
 function parseQuantity(raw: string | undefined): number {
   if (!raw) return 0;
   const s = raw.trim();
   if (!s) return 0;
-  // millicores
   if (s.endsWith('m')) {
     const n = Number(s.slice(0, -1));
     return Number.isFinite(n) ? n / 1000 : 0;
   }
-  // Binary prefixes (case-sensitive — K8s convention).
   const binPrefixes: Record<string, number> = {
     Ki: 1024,
-    Mi: 1024 * 1024,
+    Mi: 1024 ** 2,
     Gi: 1024 ** 3,
     Ti: 1024 ** 4,
     Pi: 1024 ** 5,
@@ -433,7 +800,6 @@ function parseQuantity(raw: string | undefined): number {
       return Number.isFinite(n) ? n * mul : 0;
     }
   }
-  // Decimal SI prefixes.
   const decPrefixes: Record<string, number> = {
     K: 1000,
     M: 1000 ** 2,
