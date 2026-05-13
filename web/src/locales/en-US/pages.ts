@@ -246,6 +246,9 @@ export default {
   'pages.compute.overview.gauge.cpu': 'Cluster CPU usage',
   'pages.compute.overview.gauge.memory': 'Cluster memory usage',
   'pages.compute.overview.gauge.gpu': 'Cluster GPU usage',
+  'pages.compute.overview.gauge.unbounded': 'Unbounded',
+  'pages.compute.overview.gauge.allocatedOnly':
+    'No queue declared capability — showing allocated only',
   'pages.compute.overview.scheduler.title': 'Scheduler snapshot',
   'pages.compute.overview.scheduler.actions': 'Actions',
   'pages.compute.overview.scheduler.tier': 'Tier {n}',

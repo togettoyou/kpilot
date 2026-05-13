@@ -9,7 +9,6 @@ import {
   Row,
   Space,
   Spin,
-  Statistic,
   Tag,
   Typography,
 } from 'antd';
@@ -184,32 +183,60 @@ export default function VolcanoOverviewPage() {
 
       {/* KPI row first — quick scan of totals. 8 cards at lg+, fewer per row on smaller widths. */}
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="stretch">
-        {kpis.map((k) => (
-          <Col key={k.key} xs={12} sm={8} md={6} lg={3} xl={3}>
-            <Card
-              size="small"
-              loading={loading && !ready}
-              style={{ height: '100%' }}
-            >
-              <Statistic
-                title={intl.formatMessage({
-                  id: `pages.compute.overview.kpi.${k.key}`,
-                })}
-                value={k.value}
-                suffix={k.suffix}
-                valueStyle={
-                  k.tone === 'warn'
-                    ? { color: 'var(--ant-color-warning)' }
-                    : k.tone === 'error'
-                      ? { color: 'var(--ant-color-error)' }
-                      : k.tone === 'ok'
-                        ? { color: 'var(--ant-color-success)' }
-                        : undefined
-                }
-              />
-            </Card>
-          </Col>
-        ))}
+        {kpis.map((k) => {
+          const toneColor =
+            k.tone === 'warn'
+              ? 'var(--ant-color-warning)'
+              : k.tone === 'error'
+                ? 'var(--ant-color-error)'
+                : k.tone === 'ok'
+                  ? 'var(--ant-color-success)'
+                  : undefined;
+          return (
+            <Col key={k.key} xs={12} sm={8} md={6} lg={3} xl={3}>
+              <Card
+                size="small"
+                loading={loading && !ready}
+                style={{ height: '100%' }}
+                styles={{ body: { padding: '12px 16px' } }}
+              >
+                {/* Custom layout instead of antd Statistic so number /
+                    string / duration values all flow through the same
+                    rendering path (Statistic uses a CountAnimation for
+                    numeric values that subtly shifts the baseline vs
+                    plain strings; this kept the 8 KPI value lines from
+                    aligning across the row). */}
+                <div
+                  style={{
+                    fontSize: 14,
+                    color: 'var(--ant-color-text-secondary)',
+                    lineHeight: 1.4,
+                    minHeight: 22,
+                  }}
+                >
+                  {intl.formatMessage({
+                    id: `pages.compute.overview.kpi.${k.key}`,
+                  })}
+                </div>
+                <div
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 500,
+                    lineHeight: 1.4,
+                    color: toneColor,
+                  }}
+                >
+                  {String(k.value)}
+                  {k.suffix && (
+                    <span style={{ fontSize: 14, marginInlineStart: 4 }}>
+                      {k.suffix}
+                    </span>
+                  )}
+                </div>
+              </Card>
+            </Col>
+          );
+        })}
       </Row>
 
       {/* Scheduler config summary — actions + tier plugins as compact chips.

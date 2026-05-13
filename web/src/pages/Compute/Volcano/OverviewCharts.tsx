@@ -1,6 +1,6 @@
 import { Column, Gauge, Pie, Sunburst } from '@ant-design/plots';
 import { useIntl } from '@umijs/max';
-import { Card, Col, Empty, Row, Statistic, Typography } from 'antd';
+import { Card, Col, Empty, Row, Statistic, Tag, Typography } from 'antd';
 import React, { useMemo } from 'react';
 
 import type { BundleData } from './Overview';
@@ -92,10 +92,14 @@ function CapacityGaugeCard({
   unit: string;
 }) {
   const intl = useIntl();
-  const pct = total > 0 ? Math.min(allocated / total, 1) : 0;
-  // antd-plots Gauge expects { target, total } in `data`. Color zones
-  // change as utilization climbs: green up to 60%, gold 60-85%, red
-  // above 85% — sane defaults that match what most ops dashboards do.
+  // Volcano queues can omit spec.capability — the queue is then
+  // "unlimited" (capped only by physical cluster, which the overview
+  // doesn't fetch). A gauge of "allocated / 0" is meaningless, so
+  // when total == 0 we drop the ring and show the allocated number
+  // alone with an "未限制 / unbounded" hint. Card height stays the
+  // same as the ring case so the 3-column row doesn't jitter.
+  const unbounded = total <= 0;
+  const pct = unbounded ? 0 : Math.min(allocated / total, 1);
   const color =
     pct >= 0.85 ? '#ff4d4f' : pct >= 0.6 ? '#faad14' : '#52c41a';
   return (
@@ -103,27 +107,54 @@ function CapacityGaugeCard({
       size="small"
       style={{ height: '100%' }}
       title={intl.formatMessage({ id: titleId })}
-      styles={{ body: { padding: '4px 8px 0' } }}
+      styles={{ body: { padding: '4px 8px 8px' } }}
     >
-      <Gauge
-        height={170}
-        data={{ target: allocated, total: total || 1, name: titleId }}
-        scale={{ color: { range: ['#f0f0f0', color] } }}
-        style={{ textContent: () => `${(pct * 100).toFixed(1)}%` }}
-        legend={false}
-      />
-      <div
-        style={{
-          textAlign: 'center',
-          fontSize: 12,
-          color: 'var(--ant-color-text-secondary)',
-          paddingBottom: 8,
-        }}
-      >
-        {total > 0
-          ? `${formatNum(allocated)} / ${formatNum(total)}${unit ? ' ' + unit : ''}`
-          : '—'}
-      </div>
+      {unbounded ? (
+        <div
+          style={{
+            height: 170,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+          }}
+        >
+          <Tag color="default" style={{ marginInlineEnd: 0 }}>
+            {intl.formatMessage({
+              id: 'pages.compute.overview.gauge.unbounded',
+            })}
+          </Tag>
+          <div style={{ fontSize: 28, fontWeight: 600 }}>
+            {formatNum(allocated)}
+            {unit ? <span style={{ fontSize: 14, marginInlineStart: 4 }}>{unit}</span> : null}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}>
+            {intl.formatMessage({
+              id: 'pages.compute.overview.gauge.allocatedOnly',
+            })}
+          </div>
+        </div>
+      ) : (
+        <>
+          <Gauge
+            height={170}
+            data={{ target: allocated, total, name: titleId }}
+            scale={{ color: { range: ['#f0f0f0', color] } }}
+            style={{ textContent: () => `${(pct * 100).toFixed(1)}%` }}
+            legend={false}
+          />
+          <div
+            style={{
+              textAlign: 'center',
+              fontSize: 12,
+              color: 'var(--ant-color-text-secondary)',
+            }}
+          >
+            {`${formatNum(allocated)} / ${formatNum(total)}${unit ? ' ' + unit : ''}`}
+          </div>
+        </>
+      )}
     </Card>
   );
 }

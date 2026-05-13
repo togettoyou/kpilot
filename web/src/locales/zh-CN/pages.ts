@@ -248,6 +248,9 @@ export default {
   'pages.compute.overview.gauge.cpu': '集群 CPU 使用率',
   'pages.compute.overview.gauge.memory': '集群内存使用率',
   'pages.compute.overview.gauge.gpu': '集群 GPU 使用率',
+  'pages.compute.overview.gauge.unbounded': '未限制',
+  'pages.compute.overview.gauge.allocatedOnly':
+    '所有队列都未声明 capability，仅显示已分配量',
   'pages.compute.overview.scheduler.title': '调度策略快照',
   'pages.compute.overview.scheduler.actions': 'Actions',
   'pages.compute.overview.scheduler.tier': 'Tier {n}',
