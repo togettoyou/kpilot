@@ -17,25 +17,25 @@ import React, { lazy, Suspense, useMemo } from 'react';
 
 import { listClusterPlugins } from '@/services/kpilot/plugin';
 import {
+  type CronJobRow,
+  type HyperNodeRow,
+  type JobFlowRow,
+  type JobRow,
   listVolcanoCronJobs,
   listVolcanoHyperNodes,
   listVolcanoJobFlows,
   listVolcanoJobs,
   listVolcanoPodGroups,
   listVolcanoQueues,
-  type CronJobRow,
-  type HyperNodeRow,
-  type JobFlowRow,
-  type JobRow,
   type PodGroupRow,
   type QueueRow,
 } from '@/services/kpilot/volcano-list';
 import { getWorkload } from '@/services/kpilot/workload';
 import {
-  NotInstalled,
-  RefreshControl,
   formatAge,
   isResourceNotAvailable,
+  NotInstalled,
+  RefreshControl,
   useAutoRefresh,
 } from './shared/Layout';
 
@@ -335,14 +335,16 @@ function buildKpis(data: BundleData | undefined): Kpi[] {
       { key: 'pods.running', value: 0 },
       { key: 'pods.pending', value: 0 },
       { key: 'jobs.failed', value: 0 },
+      { key: 'cronjobs', value: 0 },
       { key: 'hypernodes', value: 0 },
       { key: 'wait.max', value: '-' },
-      { key: 'wait.avg', value: '-' },
     ];
   }
   const runningPods = data.jobs.reduce((s, j) => s + (j.running ?? 0), 0);
   const pendingPods = data.jobs.reduce((s, j) => s + (j.pending ?? 0), 0);
   const failedJobs = data.jobs.filter((j) => isFailureState(j.state)).length;
+  const suspendedCron = data.cronJobs.filter((c) => c.suspend).length;
+  const activeCron = data.cronJobs.length - suspendedCron;
   // Pending / Inqueue waits: how long has each PodGroup been
   // queued. Surfaces stuck workloads (capacity exhaustion, missing
   // resources, predicate failures) at a glance.
@@ -354,10 +356,6 @@ function buildKpis(data: BundleData | undefined): Kpi[] {
     if (Number.isFinite(t)) waitingMs.push(now - t);
   }
   const maxWait = waitingMs.length > 0 ? Math.max(...waitingMs) : 0;
-  const avgWait =
-    waitingMs.length > 0
-      ? waitingMs.reduce((s, n) => s + n, 0) / waitingMs.length
-      : 0;
   return [
     { key: 'queues', value: data.queues.length },
     { key: 'jobs', value: data.jobs.length },
@@ -372,6 +370,21 @@ function buildKpis(data: BundleData | undefined): Kpi[] {
       value: failedJobs,
       tone: failedJobs > 0 ? 'error' : undefined,
     },
+    {
+      // CronJob got promoted to a KPI tile. It used to live as its
+      // own 2-column Statistic card down in the chart grid, which
+      // wasted half a row for a single integer. Showing "active /
+      // suspended" as a suffix puts the same info on one line.
+      key: 'cronjobs',
+      value: data.cronJobs.length === 0 ? 0 : activeCron,
+      suffix:
+        data.cronJobs.length === 0
+          ? undefined
+          : suspendedCron > 0
+            ? `· ${suspendedCron} susp`
+            : undefined,
+      tone: suspendedCron > 0 ? 'warn' : undefined,
+    },
     { key: 'hypernodes', value: data.hyperNodes.length },
     {
       key: 'wait.max',
@@ -382,10 +395,6 @@ function buildKpis(data: BundleData | undefined): Kpi[] {
           : maxWait > 60 * 1000
             ? 'warn'
             : undefined,
-    },
-    {
-      key: 'wait.avg',
-      value: waitingMs.length > 0 ? formatDuration(avgWait) : '-',
     },
   ];
 }
@@ -506,17 +515,26 @@ function JobListCard({
             <List.Item
               style={{ padding: '6px 0' }}
               actions={[
-                <Text
-                  key="age"
-                  type="secondary"
-                  style={{ fontSize: 12 }}
-                >
+                <Text key="age" type="secondary" style={{ fontSize: 12 }}>
                   {formatAge(job.creationTimestamp)}
                 </Text>,
               ]}
             >
               <Space size={8} wrap>
-                <Tag color={STATE_COLORS[job.state] ?? 'default'}>
+                {/* Phase tag deep-links into the Jobs page with a
+                    pre-applied state filter so failure triage is one
+                    click — no second filter step. */}
+                <Tag
+                  color={STATE_COLORS[job.state] ?? 'default'}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() =>
+                    history.push(
+                      `/compute/${clusterId}/jobs?state=${encodeURIComponent(
+                        job.state || '',
+                      )}`,
+                    )
+                  }
+                >
                   {job.state || 'Unknown'}
                 </Tag>
                 <Text
@@ -539,11 +557,7 @@ function JobListCard({
   );
 }
 
-function SchedulerSummaryCard({
-  summary,
-}: {
-  summary: SchedulerConfSummary;
-}) {
+function SchedulerSummaryCard({ summary }: { summary: SchedulerConfSummary }) {
   const intl = useIntl();
   return (
     <Card

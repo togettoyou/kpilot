@@ -1,25 +1,36 @@
-import { PlusOutlined } from '@ant-design/icons';
+import { CloseOutlined, PlusOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
-import { useIntl, useModel, useParams, useRequest } from '@umijs/max';
-import { App, Button, Dropdown, Popconfirm, Space, Tag, Typography } from 'antd';
-import React, { useState } from 'react';
-
 import {
-  listVolcanoJobs,
-  type JobRow,
-} from '@/services/kpilot/volcano-list';
-import { sendCommand, type VolcanoAction } from '@/services/kpilot/volcano';
-import { deleteWorkload } from '@/services/kpilot/workload';
+  history,
+  useIntl,
+  useLocation,
+  useModel,
+  useParams,
+  useRequest,
+} from '@umijs/max';
+import {
+  App,
+  Button,
+  Dropdown,
+  Popconfirm,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
+import React, { useMemo, useState } from 'react';
 import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
+import { sendCommand, type VolcanoAction } from '@/services/kpilot/volcano';
+import { type JobRow, listVolcanoJobs } from '@/services/kpilot/volcano-list';
+import { deleteWorkload } from '@/services/kpilot/workload';
 import { JobFormDrawer } from './JobForm';
 import {
+  formatAge,
+  isResourceNotAvailable,
   NotInstalled,
   RefreshControl,
   ResourceIntro,
   TruncatedBanner,
-  formatAge,
-  isResourceNotAvailable,
   useAutoRefresh,
 } from './shared/Layout';
 
@@ -64,13 +75,29 @@ export default function VolcanoJobsPage() {
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
 
+  // Deep-link from the Volcano overview (failed-jobs list / phase
+  // tag click) pre-filters the table by state. We do the filter in
+  // memory rather than wiring it into ProTable's filterDropdown so
+  // the URL is the single source of truth — click the X to clear.
+  const location = useLocation();
+  const stateFilter = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('state') ?? '';
+  }, [location.search]);
+
   if (!clusterId) return null;
   if (error && isResourceNotAvailable(error)) {
     return <NotInstalled clusterId={clusterId} />;
   }
 
-  const items = data?.items ?? [];
+  const rawItems = data?.items ?? [];
+  const items = stateFilter
+    ? rawItems.filter((j) => j.state === stateFilter)
+    : rawItems;
   const truncated = !!data?.continue;
+
+  const clearStateFilter = () =>
+    history.push({ pathname: location.pathname, search: '' });
 
   const doDelete = async (record: JobRow) => {
     try {
@@ -145,9 +172,7 @@ export default function VolcanoJobsPage() {
         <Space size={4} wrap>
           {r.running > 0 && <Tag color="green">Running {r.running}</Tag>}
           {r.pending > 0 && <Tag color="gold">Pending {r.pending}</Tag>}
-          {r.succeeded > 0 && (
-            <Tag color="blue">Succeeded {r.succeeded}</Tag>
-          )}
+          {r.succeeded > 0 && <Tag color="blue">Succeeded {r.succeeded}</Tag>}
           {r.failed > 0 && <Tag color="red">Failed {r.failed}</Tag>}
           {r.terminating > 0 && (
             <Tag color="orange">Terminating {r.terminating}</Tag>
@@ -232,6 +257,20 @@ export default function VolcanoJobsPage() {
       {truncated && (
         <TruncatedBanner shown={items.length} count={items.length} />
       )}
+      {stateFilter && (
+        <div style={{ marginBottom: 8 }}>
+          <Tag
+            closeIcon={<CloseOutlined />}
+            onClose={clearStateFilter}
+            color="processing"
+          >
+            {intl.formatMessage(
+              { id: 'pages.compute.job.stateFilter' },
+              { state: stateFilter },
+            )}
+          </Tag>
+        </div>
+      )}
       <ProTable<JobRow>
         rowKey="uid"
         columns={columns}
@@ -244,9 +283,7 @@ export default function VolcanoJobsPage() {
         headerTitle={
           <Space>
             <Typography.Text strong>Job</Typography.Text>
-            <Typography.Text type="secondary">
-              ({items.length})
-            </Typography.Text>
+            <Typography.Text type="secondary">({items.length})</Typography.Text>
           </Space>
         }
         toolBarRender={() => [

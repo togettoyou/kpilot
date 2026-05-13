@@ -1,6 +1,17 @@
-import { Column, Gauge, Pie, Sunburst } from '@ant-design/plots';
+import { Column, Gauge } from '@ant-design/plots';
 import { useIntl } from '@umijs/max';
-import { Card, Col, Empty, Row, Statistic, Tag, Typography } from 'antd';
+import {
+  Card,
+  Col,
+  Empty,
+  Row,
+  Space,
+  Tag,
+  Tooltip,
+  Tree,
+  Typography,
+} from 'antd';
+import type { DataNode } from 'antd/es/tree';
 import React, { useMemo } from 'react';
 
 import type { BundleData } from './Overview';
@@ -14,6 +25,9 @@ const { Text } = Typography;
 
 export default function OverviewCharts({ data }: { data: BundleData }) {
   const cluster = useMemo(() => clusterCapacity(data), [data]);
+  const hasJobFlow = data.jobFlows.length > 0;
+  const hasHyperNode = data.hyperNodes.length > 0;
+
   return (
     <>
       {/* Cluster capacity: 3 ring gauges side-by-side. GPU ring only
@@ -52,14 +66,14 @@ export default function OverviewCharts({ data }: { data: BundleData }) {
         <Col xs={24}>
           <QueueResourceCard data={data} />
         </Col>
-        <Col xs={24} md={12} lg={8}>
-          <JobPhaseCard data={data} />
-        </Col>
-        <Col xs={24} md={12} lg={8}>
-          <PodGroupPhaseCard data={data} />
-        </Col>
-        <Col xs={24} md={24} lg={8}>
-          <JobFlowPhaseCard data={data} />
+        {/* Consolidated phase distribution: Job + PodGroup +
+            (optionally) JobFlow rendered as horizontal stacked bars
+            in one card. Replaces the 3 separate pie charts so phases
+            are compared by length (which the eye reads well) instead
+            of angle (which it doesn't), and so the 3-card row's worth
+            of empty space disappears on small clusters. */}
+        <Col xs={24}>
+          <PhaseDistributionCard data={data} />
         </Col>
         <Col xs={24}>
           <JobByQueueCard data={data} />
@@ -68,12 +82,27 @@ export default function OverviewCharts({ data }: { data: BundleData }) {
           <QueueHierarchyCard data={data} />
         </Col>
         <Col xs={24} lg={12}>
-          <CronJobStateCard data={data} />
+          <PendingByQueueCard data={data} />
         </Col>
-        <Col xs={24}>
-          <HyperNodeTierCard data={data} />
-        </Col>
+        {hasHyperNode && (
+          <Col xs={24}>
+            <HyperNodeTierCard data={data} />
+          </Col>
+        )}
       </Row>
+
+      {/* Resources this cluster doesn't use yet are folded into a
+          single compact "not in use" row instead of each rendering
+          its own 300 px Empty card. Saves vertical space and keeps
+          the dashboard's signal density high. */}
+      {(!hasJobFlow || !hasHyperNode) && (
+        <UnusedResourcesRow
+          missing={[
+            !hasJobFlow ? 'jobflows' : null,
+            !hasHyperNode ? 'hypernodes' : null,
+          ].filter((x): x is string => !!x)}
+        />
+      )}
     </>
   );
 }
@@ -100,8 +129,7 @@ function CapacityGaugeCard({
   // same as the ring case so the 3-column row doesn't jitter.
   const unbounded = total <= 0;
   const pct = unbounded ? 0 : Math.min(allocated / total, 1);
-  const color =
-    pct >= 0.85 ? '#ff4d4f' : pct >= 0.6 ? '#faad14' : '#52c41a';
+  const color = pct >= 0.85 ? '#ff4d4f' : pct >= 0.6 ? '#faad14' : '#52c41a';
   return (
     <Card
       size="small"
@@ -127,9 +155,13 @@ function CapacityGaugeCard({
           </Tag>
           <div style={{ fontSize: 28, fontWeight: 600 }}>
             {formatNum(allocated)}
-            {unit ? <span style={{ fontSize: 14, marginInlineStart: 4 }}>{unit}</span> : null}
+            {unit ? (
+              <span style={{ fontSize: 14, marginInlineStart: 4 }}>{unit}</span>
+            ) : null}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}>
+          <div
+            style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}
+          >
             {intl.formatMessage({
               id: 'pages.compute.overview.gauge.allocatedOnly',
             })}
@@ -216,14 +248,24 @@ function QueueResourceCard({ data }: { data: BundleData }) {
   const { rows, hasGpu, hasNvidia } = useMemo(() => {
     let _hasGpu = false;
     let _hasNvidia = false;
-    const out: { queue: string; metric: string; value: number; kind: string }[] = [];
+    const out: {
+      queue: string;
+      metric: string;
+      value: number;
+      kind: string;
+    }[] = [];
     for (const q of data.queues) {
       const cpuCap = parseQuantity(q.capability?.['cpu']);
       const cpuAlloc = parseQuantity(q.allocated?.['cpu']);
       const memCap = parseQuantity(q.capability?.['memory']);
       const memAlloc = parseQuantity(q.allocated?.['memory']);
       out.push(
-        { queue: q.name, metric: 'cpu (cores)', value: cpuAlloc, kind: 'allocated' },
+        {
+          queue: q.name,
+          metric: 'cpu (cores)',
+          value: cpuAlloc,
+          kind: 'allocated',
+        },
         {
           queue: q.name,
           metric: 'cpu (cores)',
@@ -248,7 +290,12 @@ function QueueResourceCard({ data }: { data: BundleData }) {
       if (vgpuCap > 0 || vgpuAlloc > 0) {
         _hasGpu = true;
         out.push(
-          { queue: q.name, metric: 'vgpu', value: vgpuAlloc, kind: 'allocated' },
+          {
+            queue: q.name,
+            metric: 'vgpu',
+            value: vgpuAlloc,
+            kind: 'allocated',
+          },
           {
             queue: q.name,
             metric: 'vgpu',
@@ -312,7 +359,10 @@ function QueueResourceCard({ data }: { data: BundleData }) {
           legend={{ color: { position: 'top' } }}
           facet={{ type: 'rect', fields: ['metric'] }}
           scale={{
-            color: { domain: ['allocated', 'free'], range: ['#1677ff', '#d9d9d9'] },
+            color: {
+              domain: ['allocated', 'free'],
+              range: ['#1677ff', '#d9d9d9'],
+            },
           }}
           tooltip={{
             title: (d: any) => `${d.queue} · ${d.metric}`,
@@ -330,227 +380,235 @@ function QueueResourceCard({ data }: { data: BundleData }) {
   );
 }
 
-// ─── Job phase pie ────────────────────────────────────────────────────
+// ─── Phase distribution (horizontal stacked bars) ─────────────────────
 
-const JOB_STATE_COLORS: Record<string, string> = {
+// Single canonical phase → color map. Shared by every phase
+// visualization on the dashboard (Job, PodGroup, JobFlow, Queue × Job
+// matrix) so a state always reads the same colour everywhere — e.g.
+// Failed is red whether it's a Job or a PodGroup.
+const PHASE_COLORS: Record<string, string> = {
   Running: '#52c41a',
+  Succeed: '#52c41a', // JobFlow uses "Succeed" instead of Completed
   Completed: '#1677ff',
   Completing: '#1677ff',
   Pending: '#faad14',
+  Inqueue: '#13c2c2',
   Failed: '#ff4d4f',
   Terminated: '#ff4d4f',
   Aborted: '#ff4d4f',
   Restarting: '#fa8c16',
   Terminating: '#fa8c16',
   Aborting: '#fa8c16',
+  Unknown: '#bfbfbf',
 };
 
-function JobPhaseCard({ data }: { data: BundleData }) {
+function phaseColor(phase: string): string {
+  return PHASE_COLORS[phase] ?? '#bfbfbf';
+}
+
+interface PhaseRow {
+  phase: string;
+  count: number;
+}
+
+function PhaseDistributionCard({ data }: { data: BundleData }) {
   const intl = useIntl();
-  const rows = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const j of data.jobs) {
-      const k = j.state || 'Unknown';
-      counts[k] = (counts[k] ?? 0) + 1;
-    }
-    return Object.entries(counts).map(([state, count]) => ({ state, count }));
-  }, [data.jobs]);
+  const jobRows = useMemo(
+    () => tally(data.jobs.map((j) => j.state || 'Unknown')),
+    [data.jobs],
+  );
+  const pgRows = useMemo(
+    () => tally(data.podGroups.map((p) => p.phase || 'Unknown')),
+    [data.podGroups],
+  );
+  const jfRows = useMemo(
+    () => tally(data.jobFlows.map((j) => j.phase || 'Unknown')),
+    [data.jobFlows],
+  );
+
+  // Hide JobFlow row when the cluster doesn't use them — most don't.
+  const hasJobFlow = data.jobFlows.length > 0;
+  const allEmpty = jobRows.length === 0 && pgRows.length === 0 && !hasJobFlow;
+
   return (
     <Card
       size="small"
       style={{ height: '100%' }}
-      title={intl.formatMessage({ id: 'pages.compute.overview.jobs.title' })}
+      title={intl.formatMessage({ id: 'pages.compute.overview.phases.title' })}
       extra={
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {intl.formatMessage(
-            { id: 'pages.compute.overview.jobs.subtitle' },
-            { n: data.jobs.length },
-          )}
+          {intl.formatMessage({ id: 'pages.compute.overview.phases.subtitle' })}
         </Text>
       }
     >
-      {rows.length === 0 ? (
+      {allEmpty ? (
         <EmptyHint id="pages.compute.overview.jobs.empty" />
       ) : (
-        <Pie
-          height={280}
-          data={rows}
-          angleField="count"
-          colorField="state"
-          innerRadius={0.55}
-          label={{
-            text: 'count',
-            // Spider labels run outside the slice with leader lines,
-            // which collide with the right-side legend at our card
-            // widths and end up clipped. Render inside the slice in
-            // bold white instead — readable on every slice color,
-            // and the slice color + legend together identify which
-            // count goes with which state.
-            position: 'inside',
-            style: { fontSize: 12, fill: '#fff', fontWeight: 600 },
-          }}
-          scale={{
-            color: {
-              domain: Object.keys(JOB_STATE_COLORS),
-              range: Object.values(JOB_STATE_COLORS),
-            },
-          }}
-          legend={{ color: { position: 'right' } }}
-          tooltip={{
-            title: (d: any) => d.state,
-            items: [{ field: 'count', name: 'jobs' }],
-          }}
-        />
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <StackedPhaseBar
+            labelId="pages.compute.overview.phases.kind.job"
+            rows={jobRows}
+          />
+          <StackedPhaseBar
+            labelId="pages.compute.overview.phases.kind.podgroup"
+            rows={pgRows}
+          />
+          {hasJobFlow && (
+            <StackedPhaseBar
+              labelId="pages.compute.overview.phases.kind.jobflow"
+              rows={jfRows}
+            />
+          )}
+        </Space>
       )}
     </Card>
   );
 }
 
-// ─── PodGroup phase pie ───────────────────────────────────────────────
-
-const PG_PHASE_COLORS: Record<string, string> = {
-  Running: '#52c41a',
-  Completed: '#1677ff',
-  Pending: '#faad14',
-  Inqueue: '#13c2c2',
-  Failed: '#ff4d4f',
-  Unknown: '#fa8c16',
-};
-
-function PodGroupPhaseCard({ data }: { data: BundleData }) {
-  const intl = useIntl();
-  const rows = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const p of data.podGroups) {
-      const k = p.phase || 'Unknown';
-      counts[k] = (counts[k] ?? 0) + 1;
-    }
-    return Object.entries(counts).map(([phase, count]) => ({ phase, count }));
-  }, [data.podGroups]);
-  return (
-    <Card
-      size="small"
-      style={{ height: '100%' }}
-      title={intl.formatMessage({
-        id: 'pages.compute.overview.podgroups.title',
-      })}
-      extra={
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {intl.formatMessage(
-            { id: 'pages.compute.overview.podgroups.subtitle' },
-            { n: data.podGroups.length },
-          )}
-        </Text>
-      }
-    >
-      {rows.length === 0 ? (
-        <EmptyHint id="pages.compute.overview.podgroups.empty" />
-      ) : (
-        <Pie
-          height={280}
-          data={rows}
-          angleField="count"
-          colorField="phase"
-          innerRadius={0.55}
-          label={{
-            text: 'count',
-            // Spider labels run outside the slice with leader lines,
-            // which collide with the right-side legend at our card
-            // widths and end up clipped. Render inside the slice in
-            // bold white instead — readable on every slice color,
-            // and the slice color + legend together identify which
-            // count goes with which state.
-            position: 'inside',
-            style: { fontSize: 12, fill: '#fff', fontWeight: 600 },
-          }}
-          scale={{
-            color: {
-              domain: Object.keys(PG_PHASE_COLORS),
-              range: Object.values(PG_PHASE_COLORS),
-            },
-          }}
-          legend={{ color: { position: 'right' } }}
-          tooltip={{
-            title: (d: any) => d.phase,
-            items: [{ field: 'count', name: 'PodGroups' }],
-          }}
-        />
-      )}
-    </Card>
-  );
+function tally(items: string[]): PhaseRow[] {
+  const counts: Record<string, number> = {};
+  for (const k of items) counts[k] = (counts[k] ?? 0) + 1;
+  // Sort by canonical phase order so the bar always reads
+  // pending → running → completed → failure left to right.
+  return Object.entries(counts)
+    .map(([phase, count]) => ({ phase, count }))
+    .sort((a, b) => phaseOrder(a.phase) - phaseOrder(b.phase));
 }
 
-// ─── JobFlow phase pie ────────────────────────────────────────────────
+function phaseOrder(p: string): number {
+  const order = [
+    'Pending',
+    'Inqueue',
+    'Restarting',
+    'Running',
+    'Completing',
+    'Completed',
+    'Succeed',
+    'Terminating',
+    'Terminated',
+    'Aborting',
+    'Aborted',
+    'Failed',
+    'Unknown',
+  ];
+  const i = order.indexOf(p);
+  return i < 0 ? 99 : i;
+}
 
-const JOBFLOW_PHASE_COLORS: Record<string, string> = {
-  Succeed: '#52c41a',
-  Running: '#52c41a',
-  Pending: '#faad14',
-  Failed: '#ff4d4f',
-  Terminating: '#fa8c16',
-  '': '#bfbfbf', // Volcano leaves the phase blank when controller hasn't reconciled yet
-};
-
-function JobFlowPhaseCard({ data }: { data: BundleData }) {
+// StackedPhaseBar is a hand-rolled horizontal stacked bar. We
+// intentionally avoid @ant-design/plots's Pie/Bar for this row —
+// G2's label engine kept fighting us (spider labels clipped, inside
+// labels need tuning per slice size), and a flex layout gives us
+// perfect tooltip control + count placement for free.
+function StackedPhaseBar({
+  labelId,
+  rows,
+}: {
+  labelId: string;
+  rows: PhaseRow[];
+}) {
   const intl = useIntl();
-  const rows = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const j of data.jobFlows) {
-      const k = j.phase || 'Unknown';
-      counts[k] = (counts[k] ?? 0) + 1;
-    }
-    return Object.entries(counts).map(([phase, count]) => ({ phase, count }));
-  }, [data.jobFlows]);
+  const total = rows.reduce((s, r) => s + r.count, 0);
   return (
-    <Card
-      size="small"
-      style={{ height: '100%' }}
-      title={intl.formatMessage({
-        id: 'pages.compute.overview.jobflows.title',
-      })}
-      extra={
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {intl.formatMessage(
-            { id: 'pages.compute.overview.jobflows.subtitle' },
-            { n: data.jobFlows.length },
-          )}
-        </Text>
-      }
-    >
-      {rows.length === 0 ? (
-        <EmptyHint id="pages.compute.overview.jobflows.empty" />
-      ) : (
-        <Pie
-          height={280}
-          data={rows}
-          angleField="count"
-          colorField="phase"
-          innerRadius={0.55}
-          label={{
-            text: 'count',
-            // Spider labels run outside the slice with leader lines,
-            // which collide with the right-side legend at our card
-            // widths and end up clipped. Render inside the slice in
-            // bold white instead — readable on every slice color,
-            // and the slice color + legend together identify which
-            // count goes with which state.
-            position: 'inside',
-            style: { fontSize: 12, fill: '#fff', fontWeight: 600 },
-          }}
-          scale={{
-            color: {
-              domain: Object.keys(JOBFLOW_PHASE_COLORS),
-              range: Object.values(JOBFLOW_PHASE_COLORS),
-            },
-          }}
-          legend={{ color: { position: 'right' } }}
-          tooltip={{
-            title: (d: any) => d.phase || 'Unknown',
-            items: [{ field: 'count', name: 'JobFlows' }],
-          }}
-        />
-      )}
-    </Card>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div
+        style={{
+          width: 110,
+          fontSize: 13,
+          color: 'var(--ant-color-text-secondary)',
+          flexShrink: 0,
+        }}
+      >
+        {intl.formatMessage({ id: labelId })}
+      </div>
+      <div
+        style={{
+          flex: 1,
+          height: 28,
+          borderRadius: 4,
+          overflow: 'hidden',
+          background: 'var(--ant-color-fill-tertiary)',
+          display: 'flex',
+        }}
+      >
+        {total === 0
+          ? null
+          : rows.map((r) => (
+              <Tooltip key={r.phase} title={`${r.phase}: ${r.count}`}>
+                <div
+                  style={{
+                    flex: r.count,
+                    background: phaseColor(r.phase),
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    // White text on coloured background needs a tiny
+                    // negative letter-spacing on Chinese to fit count
+                    // text within narrow segments — but the simpler
+                    // approach is just to hide labels that don't fit.
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* Show count inside the segment if it's wide enough
+                    (≥ 6% of total width); otherwise rely on hover. */}
+                  {r.count / total >= 0.06 ? r.count : null}
+                </div>
+              </Tooltip>
+            ))}
+      </div>
+      <div
+        style={{
+          width: 60,
+          textAlign: 'right',
+          fontSize: 12,
+          color: 'var(--ant-color-text-tertiary)',
+          flexShrink: 0,
+        }}
+      >
+        Σ {total}
+      </div>
+      <div
+        style={{
+          flexBasis: '100%',
+          // Legend chip row sits directly under each bar so the
+          // colour → phase mapping is unambiguous without per-row
+          // duplication.
+          marginTop: -6,
+          marginLeft: 122,
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 6,
+        }}
+      >
+        {rows.map((r) => (
+          <span
+            key={r.phase}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 11,
+              color: 'var(--ant-color-text-secondary)',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                width: 8,
+                height: 8,
+                borderRadius: 2,
+                background: phaseColor(r.phase),
+              }}
+            />
+            {r.phase} ({r.count})
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -559,8 +617,9 @@ function JobFlowPhaseCard({ data }: { data: BundleData }) {
 function JobByQueueCard({ data }: { data: BundleData }) {
   const intl = useIntl();
   // Group by (queue, state) -> count. Surfaces which queues are
-  // hot or accumulating failures. Stacked column with same color
-  // map as Job phase pie so the user can mentally cross-reference.
+  // hot or accumulating failures. Stacked column with the unified
+  // phase color map so it reads the same as the phase distribution
+  // bars above.
   const rows = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
     for (const j of data.jobs) {
@@ -607,8 +666,8 @@ function JobByQueueCard({ data }: { data: BundleData }) {
           legend={{ color: { position: 'top' } }}
           scale={{
             color: {
-              domain: Object.keys(JOB_STATE_COLORS),
-              range: Object.values(JOB_STATE_COLORS),
+              domain: Object.keys(PHASE_COLORS),
+              range: Object.values(PHASE_COLORS),
             },
           }}
           tooltip={{
@@ -621,53 +680,57 @@ function JobByQueueCard({ data }: { data: BundleData }) {
   );
 }
 
-// ─── Queue hierarchy sunburst ─────────────────────────────────────────
+// ─── Queue hierarchy (antd Tree) ──────────────────────────────────────
 
-interface SunburstNode {
+interface QueueNodeBuild {
   name: string;
-  value?: number;
-  children?: SunburstNode[];
+  parent?: string;
+  state?: string;
+  cpuAlloc: number;
+  cpuCap: number;
+  children: QueueNodeBuild[];
 }
 
 function QueueHierarchyCard({ data }: { data: BundleData }) {
   const intl = useIntl();
-  // Build the queue parent tree. Use cpu capability (cores) as the
-  // ring weight — clearest signal of capacity carve-up. Queues
-  // without a capability default to 1 so they still appear (sunburst
-  // ignores zero-weight leaves).
-  const tree = useMemo<SunburstNode | null>(() => {
-    if (data.queues.length === 0) return null;
+  // Render queues as an indented antd Tree instead of a sunburst —
+  // hierarchies are shallow (1-2 levels) and a tree gives us per-row
+  // affordances (state chip, cpu allocated/cap) that a polar chart
+  // can't.
+  const { treeData, hasHierarchy } = useMemo<{
+    treeData: DataNode[];
+    hasHierarchy: boolean;
+  }>(() => {
+    if (data.queues.length === 0) {
+      return { treeData: [], hasHierarchy: false };
+    }
     const byName = new Map<string, QueueNodeBuild>();
     for (const q of data.queues) {
-      const cpu = parseQuantity(q.capability?.['cpu']);
       byName.set(q.name, {
         name: q.name,
         parent: q.parent || undefined,
-        value: cpu > 0 ? cpu : 1,
+        state: q.state,
+        cpuAlloc: parseQuantity(q.allocated?.['cpu']),
+        cpuCap: parseQuantity(q.capability?.['cpu']),
         children: [],
       });
     }
     const roots: QueueNodeBuild[] = [];
+    let nested = false;
     for (const node of byName.values()) {
       if (node.parent && byName.has(node.parent)) {
         byName.get(node.parent)!.children.push(node);
+        nested = true;
       } else {
         roots.push(node);
       }
     }
-    if (roots.length === 0) return null;
-    const toSunburst = (n: QueueNodeBuild): SunburstNode => ({
-      name: n.name,
-      value: n.children.length === 0 ? n.value : undefined,
-      children: n.children.length > 0 ? n.children.map(toSunburst) : undefined,
+    const toNode = (n: QueueNodeBuild): DataNode => ({
+      key: n.name,
+      title: <QueueTreeLabel node={n} />,
+      children: n.children.length > 0 ? n.children.map(toNode) : undefined,
     });
-    // Wrap in a synthetic root so multiple top-level queues render
-    // as a single sunburst (single root means user sees the whole
-    // landscape in one chart).
-    return {
-      name: 'queues',
-      children: roots.map(toSunburst),
-    };
+    return { treeData: roots.map(toNode), hasHierarchy: nested };
   }, [data.queues]);
   return (
     <Card
@@ -678,97 +741,187 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
       })}
       extra={
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {intl.formatMessage({
-            id: 'pages.compute.overview.hierarchy.subtitle',
-          })}
+          {hasHierarchy
+            ? intl.formatMessage({
+                id: 'pages.compute.overview.hierarchy.subtitle',
+              })
+            : intl.formatMessage({
+                id: 'pages.compute.overview.hierarchy.flat',
+              })}
         </Text>
       }
+      styles={{
+        body: { padding: '12px 16px', maxHeight: 320, overflow: 'auto' },
+      }}
     >
-      {!tree ? (
+      {treeData.length === 0 ? (
         <EmptyHint id="pages.compute.overview.hierarchy.empty" />
       ) : (
-        <Sunburst
-          height={300}
-          data={tree as any}
-          valueField="value"
-          colorField="name"
-          legend={false}
-          label={{ text: 'name', style: { fontSize: 12 } }}
-          tooltip={{
-            title: (d: any) => d.name,
-            items: [
-              {
-                field: 'value',
-                name: 'cpu (cores)',
-                valueFormatter: (v: number) => v?.toFixed(2) ?? '-',
-              },
-            ],
-          }}
+        <Tree
+          treeData={treeData}
+          defaultExpandAll
+          showLine={hasHierarchy}
+          blockNode
+          selectable={false}
         />
       )}
     </Card>
   );
 }
 
-interface QueueNodeBuild {
-  name: string;
-  parent?: string;
-  value: number;
-  children: QueueNodeBuild[];
+function QueueTreeLabel({ node }: { node: QueueNodeBuild }) {
+  const intl = useIntl();
+  const ratio = node.cpuCap > 0 ? Math.min(node.cpuAlloc / node.cpuCap, 1) : 0;
+  const ratioColor =
+    ratio >= 0.85
+      ? 'var(--ant-color-error)'
+      : ratio >= 0.6
+        ? 'var(--ant-color-warning)'
+        : 'var(--ant-color-text-tertiary)';
+  return (
+    <Space size={8} wrap style={{ width: '100%' }}>
+      <Text strong style={{ fontSize: 13 }}>
+        {node.name}
+      </Text>
+      {node.state && (
+        <Tag
+          color={node.state === 'Open' ? 'green' : 'default'}
+          style={{ marginInlineEnd: 0 }}
+        >
+          {node.state}
+        </Tag>
+      )}
+      {node.cpuCap > 0 ? (
+        <Text style={{ fontSize: 12, color: ratioColor }}>
+          cpu {formatNum(node.cpuAlloc)} / {formatNum(node.cpuCap)} ·{' '}
+          {(ratio * 100).toFixed(0)}%
+        </Text>
+      ) : (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {intl.formatMessage({
+            id: 'pages.compute.overview.gauge.unbounded',
+          })}{' '}
+          · cpu {formatNum(node.cpuAlloc)}
+        </Text>
+      )}
+    </Space>
+  );
 }
 
-// ─── CronJob state ────────────────────────────────────────────────────
+// ─── Pending Pods by Queue ────────────────────────────────────────────
 
-function CronJobStateCard({ data }: { data: BundleData }) {
+function PendingByQueueCard({ data }: { data: BundleData }) {
   const intl = useIntl();
-  const total = data.cronJobs.length;
-  const suspended = data.cronJobs.filter((c) => c.suspend).length;
-  const active = total - suspended;
+  // Sum jobs[].pending grouped by queue. Surfaces *which* queue is
+  // backlogged — the cluster-level Pending KPI tells you something is
+  // wrong, this tells you where to look.
+  const rows = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const j of data.jobs) {
+      if ((j.pending ?? 0) > 0) {
+        const q = j.queue || 'default';
+        m.set(q, (m.get(q) ?? 0) + (j.pending ?? 0));
+      }
+    }
+    return Array.from(m.entries())
+      .map(([queue, pending]) => ({ queue, pending }))
+      .sort((a, b) => b.pending - a.pending)
+      .slice(0, 10);
+  }, [data.jobs]);
+
+  const max = rows.reduce((s, r) => Math.max(s, r.pending), 0);
+
   return (
     <Card
       size="small"
       style={{ height: '100%' }}
       title={intl.formatMessage({
-        id: 'pages.compute.overview.cronjobs.title',
+        id: 'pages.compute.overview.pendingByQueue.title',
       })}
       extra={
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {intl.formatMessage(
-            { id: 'pages.compute.overview.cronjobs.subtitle' },
-            { n: total },
-          )}
+          {intl.formatMessage({
+            id: 'pages.compute.overview.pendingByQueue.subtitle',
+          })}
         </Text>
       }
+      styles={{
+        body: { padding: '12px 16px', maxHeight: 320, overflow: 'auto' },
+      }}
     >
-      {total === 0 ? (
-        <EmptyHint id="pages.compute.overview.cronjobs.empty" />
+      {rows.length === 0 ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: 200,
+          }}
+        >
+          <Text type="secondary">
+            {intl.formatMessage({
+              id: 'pages.compute.overview.pendingByQueue.empty',
+            })}
+          </Text>
+        </div>
       ) : (
-        <Row gutter={12} style={{ minHeight: 260, alignItems: 'center' }}>
-          <Col span={12}>
-            <Statistic
-              title={intl.formatMessage({
-                id: 'pages.compute.overview.cronjobs.active',
-              })}
-              value={active}
-              valueStyle={{ color: 'var(--ant-color-success)', fontSize: 32 }}
-            />
-          </Col>
-          <Col span={12}>
-            <Statistic
-              title={intl.formatMessage({
-                id: 'pages.compute.overview.cronjobs.suspended',
-              })}
-              value={suspended}
-              valueStyle={{
-                color:
-                  suspended > 0
-                    ? 'var(--ant-color-warning)'
-                    : 'var(--ant-color-text-tertiary)',
-                fontSize: 32,
-              }}
-            />
-          </Col>
-        </Row>
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          {rows.map((r) => {
+            const pct = max > 0 ? r.pending / max : 0;
+            return (
+              <div
+                key={r.queue}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                }}
+              >
+                <div
+                  style={{
+                    width: 120,
+                    fontSize: 13,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    flexShrink: 0,
+                  }}
+                  title={r.queue}
+                >
+                  {r.queue}
+                </div>
+                <div
+                  style={{
+                    flex: 1,
+                    height: 18,
+                    background: 'var(--ant-color-fill-tertiary)',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${pct * 100}%`,
+                      height: '100%',
+                      background: phaseColor('Pending'),
+                    }}
+                  />
+                </div>
+                <div
+                  style={{
+                    width: 40,
+                    textAlign: 'right',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    flexShrink: 0,
+                  }}
+                >
+                  {r.pending}
+                </div>
+              </div>
+            );
+          })}
+        </Space>
       )}
     </Card>
   );
@@ -804,22 +957,47 @@ function HyperNodeTierCard({ data }: { data: BundleData }) {
         </Text>
       }
     >
-      {rows.length === 0 ? (
-        <EmptyHint id="pages.compute.overview.hypernodes.empty" />
-      ) : (
-        <Column
-          height={220}
-          data={rows}
-          xField="tier"
-          yField="count"
-          label={{ position: 'top' }}
-          style={{ fill: '#1677ff' }}
-          tooltip={{
-            title: (d: any) => d.tier,
-            items: [{ field: 'count', name: 'HyperNodes' }],
-          }}
-        />
-      )}
+      <Column
+        height={220}
+        data={rows}
+        xField="tier"
+        yField="count"
+        label={{ position: 'top' }}
+        style={{ fill: '#1677ff' }}
+        tooltip={{
+          title: (d: any) => d.tier,
+          items: [{ field: 'count', name: 'HyperNodes' }],
+        }}
+      />
+    </Card>
+  );
+}
+
+// ─── Unused-resource collapsed banner ─────────────────────────────────
+
+function UnusedResourcesRow({ missing }: { missing: string[] }) {
+  const intl = useIntl();
+  if (missing.length === 0) return null;
+  return (
+    <Card
+      size="small"
+      style={{ marginTop: 12 }}
+      styles={{ body: { padding: '10px 14px' } }}
+    >
+      <Space wrap size={[8, 8]}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {intl.formatMessage({
+            id: 'pages.compute.overview.unused.title',
+          })}
+        </Text>
+        {missing.map((m) => (
+          <Tag key={m} style={{ marginInlineEnd: 0 }}>
+            {intl.formatMessage({
+              id: `pages.compute.overview.unused.${m}`,
+            })}
+          </Tag>
+        ))}
+      </Space>
     </Card>
   );
 }
@@ -828,7 +1006,12 @@ function EmptyHint({ id }: { id: string }) {
   const intl = useIntl();
   return (
     <div
-      style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{
+        height: 240,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
     >
       <Empty
         image={Empty.PRESENTED_IMAGE_SIMPLE}
