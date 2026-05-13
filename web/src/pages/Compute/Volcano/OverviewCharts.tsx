@@ -842,6 +842,8 @@ interface QueueNodeBuild {
   state?: string;
   cpuAlloc: number;
   cpuCap: number;
+  memAlloc: number; // GiB
+  memCap: number; // GiB
   children: QueueNodeBuild[];
 }
 
@@ -866,6 +868,8 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
         state: q.state,
         cpuAlloc: parseQuantity(q.allocated?.['cpu']),
         cpuCap: parseQuantity(q.capability?.['cpu']),
+        memAlloc: parseQuantity(q.allocated?.['memory']) / 1024 ** 3,
+        memCap: parseQuantity(q.capability?.['memory']) / 1024 ** 3,
         children: [],
       });
     }
@@ -924,14 +928,6 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
 }
 
 function QueueTreeLabel({ node }: { node: QueueNodeBuild }) {
-  const intl = useIntl();
-  const ratio = node.cpuCap > 0 ? Math.min(node.cpuAlloc / node.cpuCap, 1) : 0;
-  const ratioColor =
-    ratio >= 0.85
-      ? 'var(--ant-color-error)'
-      : ratio >= 0.6
-        ? 'var(--ant-color-warning)'
-        : 'var(--ant-color-text-tertiary)';
   return (
     <Space size={8} wrap style={{ width: '100%' }}>
       <Text strong style={{ fontSize: 13 }}>
@@ -945,20 +941,52 @@ function QueueTreeLabel({ node }: { node: QueueNodeBuild }) {
           {node.state}
         </Tag>
       )}
-      {node.cpuCap > 0 ? (
-        <Text style={{ fontSize: 12, color: ratioColor }}>
-          cpu {formatNum(node.cpuAlloc)} / {formatNum(node.cpuCap)} ·{' '}
-          {(ratio * 100).toFixed(0)}%
-        </Text>
-      ) : (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {intl.formatMessage({
-            id: 'pages.compute.overview.gauge.unbounded',
-          })}{' '}
-          · cpu {formatNum(node.cpuAlloc)}
-        </Text>
-      )}
+      <ResourceChip
+        name="cpu"
+        allocated={node.cpuAlloc}
+        total={node.cpuCap}
+        unit=""
+      />
+      <ResourceChip
+        name="mem"
+        allocated={node.memAlloc}
+        total={node.memCap}
+        unit="Gi"
+      />
     </Space>
+  );
+}
+
+// ResourceChip — one inline "cpu 1/4 · 25%" pill. Bounded gets a
+// utilization-colored ratio; unbounded gets a `/∞` denominator so
+// it never reads as "limit equals allocated". Hidden when the queue
+// hasn't reported either allocated or capability for the resource.
+function ResourceChip({
+  name,
+  allocated,
+  total,
+  unit,
+}: {
+  name: string;
+  allocated: number;
+  total: number;
+  unit: string;
+}) {
+  if (total <= 0 && allocated <= 0) return null;
+  const unbounded = total <= 0;
+  const ratio = unbounded ? 0 : Math.min(allocated / total, 1);
+  const color =
+    ratio >= 0.85
+      ? 'var(--ant-color-error)'
+      : ratio >= 0.6
+        ? 'var(--ant-color-warning)'
+        : 'var(--ant-color-text-tertiary)';
+  return (
+    <Text style={{ fontSize: 12, color, fontVariantNumeric: 'tabular-nums' }}>
+      {name} {formatNum(allocated)}/{unbounded ? '∞' : formatNum(total)}
+      {unit ? unit : ''}
+      {!unbounded && ` · ${(ratio * 100).toFixed(0)}%`}
+    </Text>
   );
 }
 
