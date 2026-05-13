@@ -1,4 +1,5 @@
-import { Column, Gauge } from '@ant-design/plots';
+import { ExclamationCircleFilled } from '@ant-design/icons';
+import { Column } from '@ant-design/plots';
 import { useIntl } from '@umijs/max';
 import {
   Card,
@@ -30,37 +31,13 @@ export default function OverviewCharts({ data }: { data: BundleData }) {
 
   return (
     <>
-      {/* Cluster capacity: 3 ring gauges side-by-side. GPU ring only
-          renders when at least one queue has volcano.sh/vgpu-number
-          or nvidia.com/gpu data. */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="stretch">
-        <Col xs={24} sm={12} md={cluster.hasGpu ? 8 : 12}>
-          <CapacityGaugeCard
-            titleId="pages.compute.overview.gauge.cpu"
-            allocated={cluster.cpu.allocated}
-            total={cluster.cpu.total}
-            unit="cores"
-          />
-        </Col>
-        <Col xs={24} sm={12} md={cluster.hasGpu ? 8 : 12}>
-          <CapacityGaugeCard
-            titleId="pages.compute.overview.gauge.memory"
-            allocated={cluster.memory.allocated}
-            total={cluster.memory.total}
-            unit="GiB"
-          />
-        </Col>
-        {cluster.hasGpu && (
-          <Col xs={24} sm={12} md={8}>
-            <CapacityGaugeCard
-              titleId="pages.compute.overview.gauge.gpu"
-              allocated={cluster.gpu.allocated}
-              total={cluster.gpu.total}
-              unit=""
-            />
-          </Col>
-        )}
-      </Row>
+      {/* Cluster capacity: three horizontal usage bars in one card.
+          Replaced the previous ring-gauge trio — ring gauges aren't
+          great at conveying utilization at a glance (you read the
+          number, not the angle), and the new layout matches the
+          Pending-by-Queue card below for visual rhythm. GPU row only
+          renders when at least one queue declared GPU resources. */}
+      <ClusterCapacityCard cluster={cluster} />
 
       <Row gutter={[12, 12]} align="stretch">
         <Col xs={24}>
@@ -107,15 +84,52 @@ export default function OverviewCharts({ data }: { data: BundleData }) {
   );
 }
 
-// ─── Cluster capacity gauges ──────────────────────────────────────────
+// ─── Cluster capacity (horizontal utilization bars) ───────────────────
 
-function CapacityGaugeCard({
-  titleId,
+function ClusterCapacityCard({ cluster }: { cluster: ClusterCapacity }) {
+  const intl = useIntl();
+  return (
+    <Card
+      size="small"
+      style={{ marginBottom: 12 }}
+      title={intl.formatMessage({
+        id: 'pages.compute.overview.capacity.title',
+      })}
+      styles={{ body: { padding: '14px 16px' } }}
+    >
+      <Space direction="vertical" size={14} style={{ width: '100%' }}>
+        <CapacityRow
+          labelId="pages.compute.overview.gauge.cpu"
+          allocated={cluster.cpu.allocated}
+          total={cluster.cpu.total}
+          unit="cores"
+        />
+        <CapacityRow
+          labelId="pages.compute.overview.gauge.memory"
+          allocated={cluster.memory.allocated}
+          total={cluster.memory.total}
+          unit="GiB"
+        />
+        {cluster.hasGpu && (
+          <CapacityRow
+            labelId="pages.compute.overview.gauge.gpu"
+            allocated={cluster.gpu.allocated}
+            total={cluster.gpu.total}
+            unit=""
+          />
+        )}
+      </Space>
+    </Card>
+  );
+}
+
+function CapacityRow({
+  labelId,
   allocated,
   total,
   unit,
 }: {
-  titleId: string;
+  labelId: string;
   allocated: number;
   total: number;
   unit: string;
@@ -123,71 +137,99 @@ function CapacityGaugeCard({
   const intl = useIntl();
   // Volcano queues can omit spec.capability — the queue is then
   // "unlimited" (capped only by physical cluster, which the overview
-  // doesn't fetch). A gauge of "allocated / 0" is meaningless, so
-  // when total == 0 we drop the ring and show the allocated number
-  // alone with an "未限制 / unbounded" hint. Card height stays the
-  // same as the ring case so the 3-column row doesn't jitter.
+  // doesn't fetch). With no denominator a utilization bar would just
+  // be a flat zero, so the unbounded branch renders an empty track +
+  // an "unbounded · N <unit> allocated" hint on the right instead.
   const unbounded = total <= 0;
   const pct = unbounded ? 0 : Math.min(allocated / total, 1);
-  const color = pct >= 0.85 ? '#ff4d4f' : pct >= 0.6 ? '#faad14' : '#52c41a';
+  const color =
+    pct >= 0.85 ? '#ff4d4f' : pct >= 0.6 ? '#faad14' : '#52c41a';
+  const overloaded = pct >= 0.85;
   return (
-    <Card
-      size="small"
-      style={{ height: '100%' }}
-      title={intl.formatMessage({ id: titleId })}
-      styles={{ body: { padding: '4px 8px 8px' } }}
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        width: '100%',
+      }}
     >
-      {unbounded ? (
-        <div
-          style={{
-            height: 170,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-          }}
-        >
-          <Tag color="default" style={{ marginInlineEnd: 0 }}>
-            {intl.formatMessage({
-              id: 'pages.compute.overview.gauge.unbounded',
-            })}
-          </Tag>
-          <div style={{ fontSize: 28, fontWeight: 600 }}>
-            {formatNum(allocated)}
-            {unit ? (
-              <span style={{ fontSize: 14, marginInlineStart: 4 }}>{unit}</span>
-            ) : null}
-          </div>
-          <div
-            style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}
-          >
-            {intl.formatMessage({
-              id: 'pages.compute.overview.gauge.allocatedOnly',
-            })}
-          </div>
-        </div>
-      ) : (
-        <>
-          <Gauge
-            height={170}
-            data={{ target: allocated, total, name: titleId }}
-            scale={{ color: { range: ['#f0f0f0', color] } }}
-            style={{ textContent: () => `${(pct * 100).toFixed(1)}%` }}
-            legend={false}
-          />
+      <div
+        style={{
+          width: 80,
+          fontSize: 13,
+          color: 'var(--ant-color-text-secondary)',
+          flexShrink: 0,
+        }}
+      >
+        {intl.formatMessage({ id: labelId })}
+      </div>
+      <div
+        style={{
+          flex: 1,
+          height: 18,
+          background: 'var(--ant-color-fill-tertiary)',
+          borderRadius: 3,
+          overflow: 'hidden',
+          position: 'relative',
+        }}
+      >
+        {!unbounded && (
           <div
             style={{
-              textAlign: 'center',
-              fontSize: 12,
-              color: 'var(--ant-color-text-secondary)',
+              width: `${pct * 100}%`,
+              height: '100%',
+              background: color,
+              transition: 'width 0.3s ease-out',
             }}
-          >
-            {`${formatNum(allocated)} / ${formatNum(total)}${unit ? ' ' + unit : ''}`}
-          </div>
-        </>
-      )}
-    </Card>
+          />
+        )}
+      </div>
+      <div
+        style={{
+          minWidth: 200,
+          textAlign: 'right',
+          fontSize: 13,
+          fontVariantNumeric: 'tabular-nums',
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 6,
+        }}
+      >
+        {unbounded ? (
+          <>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {intl.formatMessage({
+                id: 'pages.compute.overview.gauge.unbounded',
+              })}{' '}
+              · {formatNum(allocated)}
+              {unit ? ` ${unit}` : ''}
+            </Text>
+          </>
+        ) : (
+          <>
+            <span style={{ color: 'var(--ant-color-text-secondary)' }}>
+              {formatNum(allocated)} / {formatNum(total)}
+              {unit ? ` ${unit}` : ''}
+            </span>
+            <span style={{ color, fontWeight: 600 }}>
+              {(pct * 100).toFixed(1)}%
+            </span>
+            {overloaded && (
+              <Tooltip
+                title={intl.formatMessage({
+                  id: 'pages.compute.overview.capacity.overloaded',
+                })}
+              >
+                <ExclamationCircleFilled style={{ color: '#ff4d4f' }} />
+              </Tooltip>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

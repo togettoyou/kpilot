@@ -230,12 +230,13 @@ export default {
   'pages.compute.overview.hypernodes.title': 'HyperNode tier distribution',
   'pages.compute.overview.hypernodes.subtitle': '{n} HyperNode(s)',
   'pages.compute.overview.kpi.wait.max': 'Max wait',
-  'pages.compute.overview.gauge.cpu': 'Cluster CPU usage',
-  'pages.compute.overview.gauge.memory': 'Cluster memory usage',
-  'pages.compute.overview.gauge.gpu': 'Cluster GPU usage',
+  'pages.compute.overview.capacity.title': 'Cluster resource utilization',
+  'pages.compute.overview.capacity.overloaded':
+    'Utilization is over 85% — scheduling pressure',
+  'pages.compute.overview.gauge.cpu': 'CPU',
+  'pages.compute.overview.gauge.memory': 'Memory',
+  'pages.compute.overview.gauge.gpu': 'GPU',
   'pages.compute.overview.gauge.unbounded': 'Unbounded',
-  'pages.compute.overview.gauge.allocatedOnly':
-    'No queue declared capability — showing allocated only',
   'pages.compute.overview.scheduler.title': 'Scheduler snapshot',
   'pages.compute.overview.scheduler.actions': 'Actions',
   'pages.compute.overview.scheduler.tier': 'Tier {n}',
