@@ -378,7 +378,17 @@ function JobPhaseCard({ data }: { data: BundleData }) {
           angleField="count"
           colorField="state"
           innerRadius={0.55}
-          label={{ text: 'count', position: 'spider', style: { fontSize: 12 } }}
+          label={{
+            text: 'count',
+            // Spider labels run outside the slice with leader lines,
+            // which collide with the right-side legend at our card
+            // widths and end up clipped. Render inside the slice in
+            // bold white instead — readable on every slice color,
+            // and the slice color + legend together identify which
+            // count goes with which state.
+            position: 'inside',
+            style: { fontSize: 12, fill: '#fff', fontWeight: 600 },
+          }}
           scale={{
             color: {
               domain: Object.keys(JOB_STATE_COLORS),
@@ -442,7 +452,17 @@ function PodGroupPhaseCard({ data }: { data: BundleData }) {
           angleField="count"
           colorField="phase"
           innerRadius={0.55}
-          label={{ text: 'count', position: 'spider', style: { fontSize: 12 } }}
+          label={{
+            text: 'count',
+            // Spider labels run outside the slice with leader lines,
+            // which collide with the right-side legend at our card
+            // widths and end up clipped. Render inside the slice in
+            // bold white instead — readable on every slice color,
+            // and the slice color + legend together identify which
+            // count goes with which state.
+            position: 'inside',
+            style: { fontSize: 12, fill: '#fff', fontWeight: 600 },
+          }}
           scale={{
             color: {
               domain: Object.keys(PG_PHASE_COLORS),
@@ -506,7 +526,17 @@ function JobFlowPhaseCard({ data }: { data: BundleData }) {
           angleField="count"
           colorField="phase"
           innerRadius={0.55}
-          label={{ text: 'count', position: 'spider', style: { fontSize: 12 } }}
+          label={{
+            text: 'count',
+            // Spider labels run outside the slice with leader lines,
+            // which collide with the right-side legend at our card
+            // widths and end up clipped. Render inside the slice in
+            // bold white instead — readable on every slice color,
+            // and the slice color + legend together identify which
+            // count goes with which state.
+            position: 'inside',
+            style: { fontSize: 12, fill: '#fff', fontWeight: 600 },
+          }}
           scale={{
             color: {
               domain: Object.keys(JOBFLOW_PHASE_COLORS),
