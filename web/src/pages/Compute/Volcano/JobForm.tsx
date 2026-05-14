@@ -171,6 +171,15 @@ export function JobFormDrawer({
     schedulerName?: string;
   } | null>(null);
 
+  // Snapshot of the FormValues at edit-load time so we can diff on
+  // submit and tell the user *which* immutable fields they touched.
+  // Volcano's validating webhook ("validatejob.volcano.sh") rejects
+  // any Job update that changes anything other than minAvailable,
+  // tasks[*].replicas, or priorityClassName — silently saving and
+  // hitting that webhook produces an unhelpful error string. We
+  // pre-check here so the user gets actionable inline feedback.
+  const editOriginalFVRef = useRef<FormValues | null>(null);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -179,6 +188,7 @@ export function JobFormDrawer({
     setYamlText('');
     setYamlError(null);
     editOriginalRef.current = null;
+    editOriginalFVRef.current = null;
     if (!editing) {
       form.setFieldsValue({
         namespace: ns.get(clusterId).selected || 'default',
@@ -197,9 +207,12 @@ export function JobFormDrawer({
     getWorkload(clusterId, '_cr', editing.name, editing.namespace, JOB_CR)
       .then((obj: any) => {
         if (cancelled) return;
-        form.setFieldsValue(
-          formValuesFromManifest(obj, editing.name, editing.namespace),
-        );
+        const fv = formValuesFromManifest(obj, editing.name, editing.namespace);
+        form.setFieldsValue(fv);
+        // Snapshot the pristine FormValues so the immutable-fields
+        // diff at submit time can compare against what the server
+        // actually has, not against the user's draft.
+        editOriginalFVRef.current = JSON.parse(JSON.stringify(fv));
         // Stash the spec bits the form doesn't surface so submit can
         // re-emit them: plugin args (`spec.plugins[name] = [...]`) and
         // each task's `policies` array. Without this, edit-save silently
@@ -368,6 +381,23 @@ export function JobFormDrawer({
       } catch {
         return;
       }
+      // Edit-mode pre-flight: Volcano's validatejob webhook rejects
+      // any update touching fields outside minAvailable / task
+      // replicas / priorityClassName. Catch that here so the user
+      // sees a clear "you changed image/policy/…" message instead
+      // of the webhook's terse rejection after a round-trip.
+      if (isEdit && editOriginalFVRef.current) {
+        const violations = diffImmutable(editOriginalFVRef.current, v);
+        if (violations.length > 0) {
+          message.error(
+            intl.formatMessage(
+              { id: 'pages.compute.jobForm.immutable.violation' },
+              { fields: violations.join(', ') },
+            ),
+          );
+          return;
+        }
+      }
       manifest = applyPreserved(buildJobManifest(fvToInput(v)));
     } else {
       try {
@@ -457,6 +487,24 @@ export function JobFormDrawer({
           style={{ marginBottom: 12 }}
           message={intl.formatMessage({ id: 'pages.compute.form.yamlError' })}
           description={yamlError}
+        />
+      )}
+      {/* Volcano Jobs are mostly immutable post-create — calling
+          this out up front spares the user from clicking Update,
+          waiting for the round-trip, and getting the webhook's
+          generic "fields other than minAvailable / replicas /
+          PriorityClassName may not change" rejection. */}
+      {isEdit && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={intl.formatMessage({
+            id: 'pages.compute.jobForm.immutable.banner.title',
+          })}
+          description={intl.formatMessage({
+            id: 'pages.compute.jobForm.immutable.banner.desc',
+          })}
         />
       )}
       <Spin spinning={loading}>
@@ -969,6 +1017,60 @@ export function JobFormDrawer({
       </Spin>
     </Drawer>
   );
+}
+
+// diffImmutable — returns a human-readable list of FormValues
+// fields that changed between `orig` and `curr`, ignoring the
+// three Volcano allows on update (job-level minAvailable, each
+// task's replicas, priorityClassName). Used by the edit-mode
+// pre-flight in handleSubmit so the user is told *which* field
+// is immutable instead of relying on the webhook's terse error.
+//
+// The comparison is structural (JSON-equality on each non-allowed
+// top-level key + per-task non-allowed key) — sufficient because
+// formValuesFromManifest emits a deterministic shape.
+function diffImmutable(orig: FormValues, curr: FormValues): string[] {
+  const out: string[] = [];
+  const eq = (a: unknown, b: unknown) =>
+    JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const jobKeys: (keyof FormValues)[] = [
+    'name',
+    'namespace',
+    'queue',
+    'minSuccess',
+    'maxRetry',
+    'ttlSecondsAfterFinished',
+    'runningEstimate',
+    'plugins',
+    'ntMode',
+    'ntHighestTierAllowed',
+  ];
+  for (const k of jobKeys) {
+    if (!eq(orig[k], curr[k])) out.push(String(k));
+  }
+  // Tasks: name + replicas-aside fields per task must match. Match
+  // tasks by name; if the list itself was added/removed/reordered,
+  // that counts as a structure change.
+  const oTasks = orig.tasks ?? [];
+  const cTasks = curr.tasks ?? [];
+  if (oTasks.length !== cTasks.length) {
+    out.push('tasks (count)');
+  } else {
+    for (let i = 0; i < oTasks.length; i++) {
+      const o = oTasks[i] as unknown as Record<string, unknown>;
+      const c = cTasks[i] as unknown as Record<string, unknown>;
+      // Allowed mutable per-task field is replicas only — diff
+      // everything else.
+      const keys = new Set([...Object.keys(o), ...Object.keys(c)]);
+      keys.delete('replicas');
+      for (const k of keys) {
+        if (!eq(o[k], c[k])) {
+          out.push(`tasks[${i}].${k}`);
+        }
+      }
+    }
+  }
+  return out;
 }
 
 // splitWS — single string → arg array. Empty → undefined.

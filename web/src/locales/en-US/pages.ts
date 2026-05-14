@@ -85,6 +85,12 @@ export default {
   'pages.compute.vgpu.empty.desc':
     'Submit a test Volcano Job to verify the scheduling path.',
   'pages.compute.vgpu.empty.action': 'Go to jobs →',
+  'pages.compute.jobForm.immutable.banner.title':
+    'Most Volcano Job fields are immutable after creation',
+  'pages.compute.jobForm.immutable.banner.desc':
+    'Only minAvailable, each task\'s replicas, and priorityClassName can be updated. To change the image, command, env, resources, imagePullPolicy, or any other field, delete this Job and create a new one.',
+  'pages.compute.jobForm.immutable.violation':
+    'These fields are immutable on a Volcano Job: {fields}. Delete the Job and recreate it.',
   'pages.compute.vgpu.card.col.cores.tip':
     'compute share — percentage (0-100) allocated to the vGPU. HAMi enforces memory strictly; cores is advisory: the scheduler uses it for scoring but does not hard-enforce SM time-slice partitioning.',
   'pages.compute.vgpu.kpi.cards': 'Cards',

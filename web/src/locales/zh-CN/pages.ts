@@ -87,6 +87,12 @@ export default {
   'pages.compute.vgpu.empty.title': '集群有 GPU，但没有 Pod 在使用 vGPU。',
   'pages.compute.vgpu.empty.desc': '提交一个测试 Volcano Job 验证调度链路。',
   'pages.compute.vgpu.empty.action': '前往作业页 →',
+  'pages.compute.jobForm.immutable.banner.title':
+    'Volcano Job 创建后大部分字段不可改',
+  'pages.compute.jobForm.immutable.banner.desc':
+    '只能修改 minAvailable（最小可调度数）、各任务的 replicas（副本数）和 priorityClassName。要改镜像 / 命令 / 环境变量 / 资源请求 / imagePullPolicy 等字段，请删掉这个 Job 再重新创建。',
+  'pages.compute.jobForm.immutable.violation':
+    '以下字段在 Volcano Job 创建后不可修改：{fields}。请删除该 Job 后重新创建。',
   'pages.compute.vgpu.card.col.cores.tip':
     'compute share —— 给 vGPU 的算力配比（百分比，0-100）。HAMi 默认只对显存做强隔离，cores 是 advisory（建议值），用于调度器打分和监控，并不强制 SM 时间片占用。',
   'pages.compute.vgpu.node.title': '节点',
