@@ -77,6 +77,19 @@ export default function VGPUPage() {
     name: string;
   } | null>(null);
 
+  // All hooks MUST run on every render — the two derived counters
+  // were once positioned below the NotInstalled early return, which
+  // worked on the first render but threw "Rendered fewer hooks than
+  // expected" the moment a request error flipped the branch. React
+  // tracks hook order, not identity, so any conditional skip on a
+  // hook call is a bug.
+  const snapshot = data;
+  const nodes = snapshot?.nodes ?? [];
+  const unhealthyCards = useMemoUnhealthy(nodes);
+  const totalRunningPods = useMemoRunningPods(nodes);
+  const showEmptyCTA =
+    !loading && !!snapshot && nodes.length > 0 && totalRunningPods === 0;
+
   if (!clusterId) return null;
   if (error && isResourceNotAvailable(error)) {
     return (
@@ -88,12 +101,6 @@ export default function VGPUPage() {
       />
     );
   }
-
-  const snapshot = data;
-  const nodes = snapshot?.nodes ?? [];
-  const unhealthyCards = useMemoUnhealthy(nodes);
-  const totalRunningPods = useMemoRunningPods(nodes);
-  const showEmptyCTA = !loading && !!snapshot && nodes.length > 0 && totalRunningPods === 0;
 
   return (
     <div className="p-6">
