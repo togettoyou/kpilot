@@ -449,7 +449,12 @@ custom:
 	},
 	{
 		Name:        "volcano-vgpu-device-plugin",
-		DisplayName: "Volcano vGPU device-plugin",
+		// Kept short ("Volcano vGPU") to match the brand-style display
+		// names other built-ins use (Volcano / Grafana / VictoriaMetrics)
+		// and to fit antd's single-line ellipsis on the card header.
+		// The chart_name subtitle still shows the full
+		// "volcano-vgpu-device-plugin" so users know what's installing.
+		DisplayName: "Volcano vGPU",
 		Description: "Registers physical NVIDIA GPUs as `volcano.sh/vgpu-*` resources (number / memory / cores) via a HAMi-core fork; Volcano's deviceshare plugin slices them per Pod requests. Required for the vGPU page and any fractional-GPU pod. Pair with `deviceshare.VGPUEnable: true` in scheduler config. Caveats: privileged DaemonSet (PodSecurity=restricted blocks it; default kpilot-scheduling ns is fine); GPU-Operator clusters need an extra `nvidia.com/gpu` toleration in the Enable drawer.",
 		Category:    PluginCategoryScheduling,
 		IsBuiltin:   true,
