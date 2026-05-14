@@ -48,8 +48,6 @@ import {
   CLUSTER_SCOPED_TYPES,
   deleteWorkload,
   getWorkload,
-  isProtectedCRDName,
-  isProtectedSystemRow,
   listWorkloads,
 } from '@/services/kpilot/workload';
 import { ApplyYamlDrawer } from './ApplyYamlDrawer';
@@ -344,13 +342,6 @@ export function WorkloadsContent({
     resourceType === '_cr'
       ? cr?.scope === 'Cluster'
       : CLUSTER_SCOPED_TYPES.has(resourceType);
-  // CR-instance protection: kpilot.io group CR instances are reconciler-
-  // managed; users should drive them through the dedicated UI (Plugins
-  // page) not the generic CR viewer. Mirror the backend's protection.
-  const isProtectedCRGroup =
-    resourceType === '_cr' &&
-    !!cr &&
-    (cr.group === 'kpilot.io' || cr.group.endsWith('.kpilot.io'));
 
   // Namespace selection lives in the global `namespace` model so navigating
   // between workload sub-pages preserves it; the picker UI lives in the top
@@ -613,41 +604,11 @@ export function WorkloadsContent({
       width: isPods ? 280 : isCRDPage ? 220 : 150,
       fixed: 'right',
       render: (_, record) => {
-        // Mirror the backend's pkg/server/protect ruleset:
-        //  • kube-system namespace (CoreDNS, kube-proxy, …). kube-public
-        //    and kube-node-lease are intentionally NOT protected; same
-        //    for kpilot-* — those used to be prefix-protected but now
-        //    rely on the Helm-managed-label backend gate, which can't
-        //    be cheaply replicated on the frontend (would require a
-        //    label per row from the list endpoint). User-created
-        //    resources in kpilot-* namespaces correctly show edit
-        //    buttons now; if the user tries to edit a Helm-managed one,
-        //    the backend toasts MANAGED_RESOURCE.
-        //  • CRDs ending in .kpilot.io (deleting/editing them would
-        //    brick the running install — see isProtectedCRDName).
-        //  • system:* ClusterRole / ClusterRoleBinding and system-*
-        //    PriorityClass (control-plane reserved — see
-        //    isProtectedSystemRow).
-        // Default StorageClass also gets server-side protection now
-        // (DEFAULT_STORAGECLASS_PROTECTED toast) but isn't pre-hidden
-        // here for the same reason as Helm-managed.
-        const ns = record.namespace ?? '';
-        const protectedNs = ns === 'kube-system';
-        const protectedCRD =
-          resourceType === 'customresourcedefinitions' &&
-          isProtectedCRDName(record.name);
-        const protectedSystemRow = isProtectedSystemRow(
-          resourceType,
-          record.name,
-        );
-        // CR instance under a kpilot.io group → also read-only.
-        // Computed once at component scope (isProtectedCRGroup) since
-        // it doesn't depend on the row.
-        const isProtected =
-          protectedNs ||
-          protectedCRD ||
-          protectedSystemRow ||
-          isProtectedCRGroup;
+        // No client-side protection — admins control risk themselves.
+        // Every row gets the full action set (describe / edit / delete,
+        // plus pod- and CRD-specific buttons where applicable). If the
+        // user blows away a system resource, the cluster's own RBAC and
+        // the resource's own controller are the safety net.
         const describeBtn = (
           <Button
             key="describe"
@@ -686,10 +647,6 @@ export function WorkloadsContent({
               </Button>,
             ]
           : null;
-        // CRD-only: deep-link to the CR-instances viewer for this kind.
-        // Available regardless of protection — viewing instances of a
-        // protected CRD (like plugins.kpilot.io) is fine; the protection
-        // only blocks edit/delete.
         const crInstancesBtn =
           resourceType === 'customresourcedefinitions' ? (
             <Button
@@ -701,21 +658,6 @@ export function WorkloadsContent({
               {intl.formatMessage({ id: 'pages.workloads.crd.viewInstances' })}
             </Button>
           ) : null;
-        if (isProtected) {
-          return [
-            podActions,
-            crInstancesBtn,
-            describeBtn,
-            <Button
-              key="view"
-              type="link"
-              size="small"
-              onClick={() => openEditor(record, true)}
-            >
-              {intl.formatMessage({ id: 'pages.workloads.view' })}
-            </Button>,
-          ];
-        }
         const editButton = (
           <Button
             key="edit"
@@ -758,7 +700,6 @@ export function WorkloadsContent({
     isPods,
     openEditor,
     handleDelete,
-    isProtectedCRGroup,
     resourceType,
   ]);
 

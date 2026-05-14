@@ -65,36 +65,9 @@
 
 ### 写操作 protection
 
-所有规则集中在 `pkg/server/protect/`，对外只暴露一个入口 `protect.Check(ctx, gw, clusterID, op, gvk, ns, name) *Err`。三个 handler（`ApplyWorkload` PUT、`DeleteWorkload` DELETE、`validateDoc` 批量 YAML）每处一行调用，新加 / 改规则不再翻 handler 文件。
+**没有**。早先版本在 `pkg/server/protect/` 维护过一组 7 类闸门（kube-system 命名空间 / kpilot CRD / Node 删除 / system: 前缀 RBAC / 默认 StorageClass / Helm-managed 资源），后来全部撤掉 —— 风险由管理员自行评估，server 不再代为兜底。前端 Workloads 操作列也无差别渲染 Edit / Delete 按钮。
 
-**为什么不放中间件**：部分规则需要先 GET 资源拿 label / annotation（Helm-managed、默认 StorageClass），中间件做意味着每个写请求多一次 worker 往返，handler 后续逻辑可能还要再 GET 一次；且三个调用点的输入形态完全不同（URL param vs 已 parse 的 unstructured）；validateDoc 还要在多文档 YAML 里逐 doc reject，中间件粒度太粗。把规则抽成 package + 单入口 `Check()`，handler 一行调用，是更精准的内聚方式。
-
-**两类 gate**：
-
-- **静态 gate**（无 IO，cheap）—— 只看 op + GVK + ns + name
-- **动态 gate**（worker GET 一次）—— Helm-managed label、默认 StorageClass annotation；GET 失败时 swallow 错误（让真正的写操作去报真实错误，不重复失败）
-
-`op` 区分 `OpModify`（PUT / SSA Patch / StrategicMerge Patch）vs `OpDelete`，少数 gate 只对其中一种生效。
-
-**关键设计：所有 gate 都基于解析后的 GVK，不依赖 URL `:type` 段** —— `_cr` URL 可以指向任意 GVK，仅靠 `:type` 判断会被绕过（例：`_cr?group=&version=v1&kind=Node` 解析后是 Node，但 `:type=="_cr"`）。
-
-| Gate | 触发条件 | 适用 op | 返回码 |
-|---|---|---|---|
-| 硬编码只读 namespace | namespace == `kube-system` | 两者 | 403 / `NAMESPACE_PROTECTED` |
-| kpilot CRD 定义 | `apiextensions.k8s.io/v1 CRD` + `*.kpilot.io` 名 | 两者 | 403 / `CRD_PROTECTED` |
-| kpilot CR 实例 | group `kpilot.io` 或 `*.kpilot.io` | 两者 | 403 / `CRD_PROTECTED` |
-| Node 删除 | core `Node` | **仅 OpDelete** —— 编辑允许（用户能给 Node 打 label / taint） | 403 / `NODE_PROTECTED` |
-| 系统级 RBAC / PriorityClass | `system:*` ClusterRole / ClusterRoleBinding；`system-*` PriorityClass | 两者 | 403 / `SYSTEM_PROTECTED` |
-| 默认 StorageClass | annotation `storageclass.kubernetes.io/is-default-class=true` | 两者（GET StorageClass） | 403 / `DEFAULT_STORAGECLASS_PROTECTED` |
-| Helm-managed 资源 | label `app.kubernetes.io/managed-by=Helm`（GET 资源） | 两者，但 `userEditableHelmResources` 白名单的 OpModify 放行 | 403 / `MANAGED_RESOURCE` |
-
-**设计要点**：
-
-- **kube-public / kube-node-lease 没有保护**：前者本就世界可读（cluster-info），后者 lease 自动重建，保护是噪声
-- **kpilot-* namespace 不再按前缀拦**：换成 Helm-managed label 检查，覆盖更准（Volcano scheduler Deployment 在 `kpilot-scheduling` 但用户在该 ns 自建的 Secret 现在可以编辑了），漏拦更少（其它命名空间下用户自装的 Helm 插件资源也能拦住）
-- **`userEditableHelmResources` 白名单**：今天只有 `ConfigMap:volcano-scheduler-configmap` 一项 —— 算力调度的 scheduler-config 编辑器需要 SSA 写它。仅对 OpModify 放行，删除依然拒绝（删了 brick 调度器）
-- **Node 编辑放行**：以前 `isNoGenericWriteGVK` 拦了所有 Node 通用写。改成只拦删除后，用户可以 Edit YAML 给节点打调度 label（`gpu-type=A100` 等常用操作），删除依然走 kubectl
-- **默认 StorageClass 保护**：删除后所有新建 PVC 永远 Pending，比删 `cluster-admin` 还常见的 footgun —— 之前没保护，现在 GET 一次看 annotation 决定
+K8s 自身的 RBAC + 各资源 controller 仍然是最后一道防线（删 `cluster-admin` 这类操作要么被 RBAC 拒，要么会被 controller 重建）。
 
 Scoped action 端点的安全模式：
 - 路径：`POST /api/v1/clusters/:id/workloads/<kind>/:name/<action>`

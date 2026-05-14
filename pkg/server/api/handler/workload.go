@@ -17,14 +17,7 @@ import (
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
-	"github.com/togettoyou/kpilot/pkg/server/protect"
 )
-
-// toProtectGVK adapts the local gvkInfo to the protect package's GVK
-// so handlers don't have to rebuild the struct at every call site.
-func toProtectGVK(g gvkInfo) protect.GVK {
-	return protect.GVK{Group: g.group, Version: g.version, Kind: g.kind}
-}
 
 // writeWorkerTimeout caps mutating requests (apply / delete / patch /
 // cordon). 30s matches the worker-side write timeout — both ends give
@@ -41,10 +34,6 @@ const (
 	readWorkerTimeout  = 120 * time.Second
 )
 const maxBodySize = 1 << 20 // 1 MB — sufficient for any K8s manifest
-
-// Write-protection rules now live in pkg/server/protect — see that
-// package for the full ruleset. Handlers below call protect.Check()
-// once instead of running five inline if-blocks each.
 
 type gvkInfo struct {
 	group, version, kind string
@@ -260,18 +249,6 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		// Single protect.Check covers all gates (kube-system,
-		// kpilot.io CRDs/CRs, Node delete, system: prefixes,
-		// Helm-managed resources, default StorageClass). Some gates
-		// need a worker GET — Check tolerates lookup errors.
-		pctx, pcancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
-		if perr := protect.Check(pctx, gw, clusterID, protect.OpModify, toProtectGVK(gvk), namespace, name); perr != nil {
-			pcancel()
-			apiErr(c, perr.Status, perr.Code)
-			return
-		}
-		pcancel()
-
 		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBodySize))
 		if err != nil || len(body) == 0 {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
@@ -439,24 +416,14 @@ func parseYAMLDocs(body []byte) ([]*unstructured.Unstructured, error) {
 	return out, nil
 }
 
-// validateDoc populates ApplyYamlResult.{Index,Kind,Namespace,Name} from
-// the unstructured object and runs the basic shape guards plus the
-// shared protect.Check gates. The op argument is propagated from the
-// caller (applyOneDoc passes OpModify, deleteOneDoc OpDelete) so a
-// resource on the volcano-scheduler-configmap allowlist can pass an
-// Apply YAML doc through but still get rejected on bulk Delete.
-//
-// Returns (result, ok) — when ok is false the result already carries
-// the reason in .Error and the caller should append it directly.
-// Lookup-based gates may make a worker GET round-trip per doc; for
-// typical YAML batches (5-20 docs) the latency is negligible.
+// validateDoc populates ApplyYamlResult.{Index,Kind,Namespace,Name}
+// from the unstructured object and runs the basic shape guards
+// (apiVersion / kind / metadata.name present). Returns (result, ok)
+// — when ok is false the caller appends the result directly with
+// its .Error field filled in.
 func validateDoc(
-	ctx context.Context,
-	gw *gateway.GatewayServer,
-	clusterID string,
 	idx int,
 	obj *unstructured.Unstructured,
-	op protect.Op,
 ) (ApplyYamlResult, bool) {
 	gvk := obj.GroupVersionKind()
 	r := ApplyYamlResult{
@@ -473,49 +440,11 @@ func validateDoc(
 		r.Error = "missing metadata.name"
 		return r, false
 	}
-	if perr := protect.Check(ctx, gw, clusterID, op, protect.GVK{
-		Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind,
-	}, r.Namespace, r.Name); perr != nil {
-		// Render a per-doc reason. Use the message from protect when
-		// supplied (managed-resource gate carries one); otherwise
-		// translate the code into a short human string for the
-		// per-doc result row.
-		if perr.Message != "" {
-			r.Error = perr.Message
-		} else {
-			r.Error = describeProtectErr(perr.Code, gvk.Group, gvk.Kind, r.Name, r.Namespace)
-		}
-		return r, false
-	}
 	return r, true
 }
 
-// describeProtectErr renders a per-doc rejection reason for the bulk
-// YAML response when protect.Check didn't supply its own message.
-// The static gates all return code-only Errs; this function fills in
-// the kind / name / namespace context the per-doc UI needs.
-func describeProtectErr(code, group, kind, name, namespace string) string {
-	switch code {
-	case protect.CodeNamespaceProtected:
-		return "namespace " + namespace + " is read-only"
-	case protect.CodeCRDProtected:
-		if kind == "CustomResourceDefinition" {
-			return "CRD " + name + " is owned by kpilot and read-only"
-		}
-		return kind + "." + group + " is owned by kpilot and read-only"
-	case protect.CodeNodeProtected:
-		return "Node is read-only via Apply YAML; use the cordon button"
-	case protect.CodeSystemProtected:
-		return kind + " " + name + " is a system-reserved resource and is read-only"
-	case protect.CodeDefaultStorageClassProtected:
-		return "StorageClass " + name + " is the default and is read-only"
-	default:
-		return code
-	}
-}
-
 func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID string, idx int, obj *unstructured.Unstructured) ApplyYamlResult {
-	r, ok := validateDoc(ctx, gw, clusterID, idx, obj, protect.OpModify)
+	r, ok := validateDoc(idx, obj)
 	if !ok {
 		return r
 	}
@@ -556,7 +485,7 @@ func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID strin
 // not sent — `kubectl delete -f` only needs the doc's identity (GVK +
 // namespace + name), not its spec/status.
 func deleteOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID string, idx int, obj *unstructured.Unstructured) ApplyYamlResult {
-	r, ok := validateDoc(ctx, gw, clusterID, idx, obj, protect.OpDelete)
+	r, ok := validateDoc(idx, obj)
 	if !ok {
 		return r
 	}
@@ -638,18 +567,6 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
-
-		// Single protect.Check covers all gates. Note OpDelete: Node
-		// is in the rejection set here even though it's allowed for
-		// edit, and the volcano-scheduler-configmap allowlist does
-		// NOT apply (delete bricks the scheduler).
-		pctx, pcancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
-		if perr := protect.Check(pctx, gw, clusterID, protect.OpDelete, toProtectGVK(gvk), namespace, name); perr != nil {
-			pcancel()
-			apiErr(c, perr.Status, perr.Code)
-			return
-		}
-		pcancel()
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
 		defer cancel()

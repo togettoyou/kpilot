@@ -43,32 +43,6 @@ export const CLUSTER_SCOPED_TYPES = new Set<WorkloadResourceType>([
   'nodes',
 ]);
 
-// CRD names matching this regex (everything ending in .kpilot.io) are
-// protected from edit/delete via the workload UI — the server enforces
-// the same rule and returns 403/CRD_PROTECTED, but doing the gate on
-// the frontend too means hiding the destructive buttons instead of
-// surfacing a "operation forbidden" toast.
-export function isProtectedCRDName(name: string): boolean {
-  return name.endsWith('.kpilot.io');
-}
-
-// Mirrors the backend's isProtectedSystemNameGVK gate: cluster-scoped
-// RBAC + PriorityClass entries with the K8s reserved name prefixes.
-// Hide edit/delete buttons on these rows so the user doesn't see them
-// at all — backend would 403 anyway with SYSTEM_PROTECTED.
-export function isProtectedSystemRow(
-  resourceType: WorkloadResourceType | '_cr',
-  name: string,
-): boolean {
-  if (resourceType === 'clusterroles' || resourceType === 'clusterrolebindings') {
-    return name.startsWith('system:');
-  }
-  if (resourceType === 'priorityclasses') {
-    return name.startsWith('system-');
-  }
-  return false;
-}
-
 export interface WorkloadItem {
   name: string;
   namespace: string;
