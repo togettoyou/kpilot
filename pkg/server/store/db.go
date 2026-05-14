@@ -36,10 +36,18 @@ func Init(dsn string) error {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 
+	// Publish DB BEFORE seeding so seed helpers that touch the
+	// package-level var (UpsertPluginBlob for local-chart builtins,
+	// any future seed routines that reuse store/* getters) don't
+	// trip the nil-pointer deref. Init runs synchronously at boot,
+	// so no consumer can read store.DB before this function
+	// returns — even if it returns an error the process exits and
+	// nothing reads the half-initialized handle.
+	DB = db
+
 	if err := SeedBuiltinPlugins(db); err != nil {
 		return fmt.Errorf("seed builtin plugins: %w", err)
 	}
 
-	DB = db
 	return nil
 }
