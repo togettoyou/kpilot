@@ -72,6 +72,21 @@ export default {
     'Live Volcano vGPU breakdown: every physical card\'s UUID / model / memory + compute utilization, and the Pods currently slicing it. Requires the volcano-vgpu-device-plugin installed cluster-side (Plugins → vGPU), and deviceshare.VGPUEnable turned on in the scheduler config.',
 
   // vGPU page
+  'pages.compute.vgpu.kpi.nodes.healthy': '{n} healthy',
+  'pages.compute.vgpu.kpi.nodes.degraded': '{n} degraded',
+  'pages.compute.vgpu.search.placeholder': 'Search pod name / namespace',
+  'pages.compute.vgpu.search.empty': 'No nodes or pods matching "{q}"',
+  'pages.compute.vgpu.healthBanner.title':
+    '{cards} card(s) on {nodes} node(s) reporting issues',
+  'pages.compute.vgpu.healthBanner.desc':
+    'Expand the affected node row to see which cards are bad, or check node / device-plugin status in cluster management.',
+  'pages.compute.vgpu.empty.title':
+    'Cluster has GPUs but nothing is using vGPU.',
+  'pages.compute.vgpu.empty.desc':
+    'Submit a test Volcano Job to verify the scheduling path.',
+  'pages.compute.vgpu.empty.action': 'Go to jobs →',
+  'pages.compute.vgpu.card.col.cores.tip':
+    'compute share — percentage (0-100) allocated to the vGPU. HAMi enforces memory strictly; cores is advisory: the scheduler uses it for scoring but does not hard-enforce SM time-slice partitioning.',
   'pages.compute.vgpu.kpi.cards': 'Cards',
   'pages.compute.vgpu.kpi.slots': 'vGPU slots',
   'pages.compute.vgpu.kpi.memory': 'Memory',
