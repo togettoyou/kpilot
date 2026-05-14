@@ -450,7 +450,7 @@ custom:
 	{
 		Name:        "volcano-vgpu-device-plugin",
 		DisplayName: "Volcano vGPU device-plugin",
-		Description: "Registers physical NVIDIA GPUs as `volcano.sh/vgpu-*` resources via a HAMi-core fork; Volcano's deviceshare plugin slices them per the Pod's `vgpu-{number,memory,cores}` requests. Required for the /compute/:id/vgpu page to render anything — and for any pod that wants fractional GPU. Pairs with the Volcano plugin's deviceshare.VGPUEnable flag in scheduler config.",
+		Description: "Registers physical NVIDIA GPUs as `volcano.sh/vgpu-*` resources via a HAMi-core fork; Volcano's deviceshare plugin slices them per the Pod's `vgpu-{number,memory,cores}` requests. Required for the /compute/:id/vgpu page to render anything — and for any pod that wants fractional GPU. Pairs with the Volcano plugin's deviceshare.VGPUEnable flag in scheduler config. Caveats: (1) the DaemonSet runs `privileged: true` so install fails in namespaces under PodSecurity=restricted — keep the release in `kpilot-scheduling` (privileged-allowed) or relabel; (2) GPU-Operator clusters may need an extra `nvidia.com/gpu` toleration — add it in the Enable drawer's tolerations override.",
 		Category:    PluginCategoryScheduling,
 		IsBuiltin:   true,
 		// Same scheduling category, just after Volcano itself.

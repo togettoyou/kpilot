@@ -52,9 +52,15 @@ const (
 	ResourceVGPUMemoryPercentage = "volcano.sh/vgpu-memory-percentage"
 	ResourceVGPUCores            = "volcano.sh/vgpu-cores"
 
-	// Node annotations.
-	nodeRegisterAnnotation  = "volcano.sh/node-vgpu-register"
-	nodeHandshakeAnnotation = "volcano.sh/node-vgpu-handshake"
+	// Node annotation written by the device-plugin to advertise its
+	// per-card inventory. Volcano also writes a sibling
+	// `volcano.sh/node-vgpu-handshake` timestamp for liveness — we
+	// don't read it today because per-card NVML Health (decoded from
+	// the register annotation) already covers the typical failure
+	// modes. Wiring up handshake-based "device-plugin pod died but
+	// register is stale" detection is a future P2.x — for now a
+	// dead plugin shows up as ageing data rather than a banner.
+	nodeRegisterAnnotation = "volcano.sh/node-vgpu-register"
 
 	// Pod annotations.
 	podAssignedIDsAnnotation  = "volcano.sh/vgpu-ids-new"
@@ -274,9 +280,15 @@ func decodeNodeRegister(s string) []vgpu.Card {
 // `volcano.sh/vgpu-ids-new`. We don't export this type — callers
 // either get the aggregated vgpu.Card (via Snapshot) or roll their
 // own decode using ResourceVGPU* constants.
+//
+// The annotation field order also carries a "Type" (GPU model name)
+// after UUID — we don't store it because the canonical model name
+// already lives on the parent vgpu.Card (decoded from the node's
+// register annotation, which is authoritative). Keeping a second
+// copy from the pod annotation would invite drift if a future
+// device-plugin version changes the format.
 type decodedDevice struct {
 	uuid      string
-	deviceTyp string // GPU model — kept for parity with Volcano's encoder
 	usedmem   int
 	usedcores int
 }
@@ -310,7 +322,6 @@ func decodePodIDs(s string) [][]decodedDevice {
 			usedcores, _ := strconv.Atoi(items[3])
 			devs = append(devs, decodedDevice{
 				uuid:      items[0],
-				deviceTyp: items[1],
 				usedmem:   usedmem,
 				usedcores: usedcores,
 			})

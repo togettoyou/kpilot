@@ -19,8 +19,16 @@ deviceSplitCount: 10
 
 # Tolerations get appended to the DaemonSet pod template. The defaults
 # match the upstream YAML so the device-plugin lands on every GPU
-# node, including ones marked critical / GPU-tainted. Users can
-# override with their own set; provide [] to clear.
+# node, including ones marked critical / GPU-tainted. Override with
+# your own list; provide [] to clear.
+#
+# NOTE: GPU-Operator clusters typically taint GPU nodes with
+# `nvidia.com/gpu: NoSchedule` (not the volcano.sh/gpu-memory key
+# below). If pods stay Pending after enabling, append:
+#
+#   - key: nvidia.com/gpu
+#     operator: Exists
+#     effect: NoSchedule
 tolerations:
   - key: CriticalAddonsOnly
     operator: Exists
