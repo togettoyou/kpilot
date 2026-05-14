@@ -2,8 +2,11 @@ package store
 
 import (
 	"errors"
+	"fmt"
 
 	"gorm.io/gorm"
+
+	"github.com/togettoyou/kpilot/pkg/server/plugins"
 )
 
 // builtin lists the plugins we ship out of the box. They are seeded on
@@ -444,13 +447,50 @@ custom:
 		// is ours; we don't need to use upstream's "volcano-system".
 		DefaultReleaseNamespace: "kpilot-scheduling",
 	},
+	{
+		Name:        "volcano-vgpu-device-plugin",
+		DisplayName: "Volcano vGPU device-plugin",
+		Description: "Registers physical NVIDIA GPUs as `volcano.sh/vgpu-*` resources via a HAMi-core fork; Volcano's deviceshare plugin slices them per the Pod's `vgpu-{number,memory,cores}` requests. Required for the /compute/:id/vgpu page to render anything — and for any pod that wants fractional GPU. Pairs with the Volcano plugin's deviceshare.VGPUEnable flag in scheduler config.",
+		Category:    PluginCategoryScheduling,
+		IsBuiltin:   true,
+		// Same scheduling category, just after Volcano itself.
+		SortOrder: 20,
+		// Local chart — sources committed under pkg/server/plugins/
+		// charts/volcano-vgpu/, packaged at boot. ChartBlobID is set
+		// dynamically in SeedBuiltinPlugins below.
+		ChartType:      ChartTypeLocal,
+		ChartName:      "volcano-vgpu-device-plugin",
+		DefaultVersion: "0.1.0",
+		// Empty default values — chart's values.yaml carries the
+		// real defaults. Users override per-cluster via the Enable
+		// drawer when they need a different image tag or
+		// deviceSplitCount.
+		DefaultValues: "",
+		// Match the Volcano plugin's release namespace so the
+		// scheduler and the device-plugin share the same place. The
+		// device-plugin is namespace-portable (RBAC is ClusterRole
+		// scoped, hostPath mounts don't care).
+		DefaultReleaseNamespace: "kpilot-scheduling",
+	},
 }
 
 // SeedBuiltinPlugins upserts the builtin entries on startup. Built-ins are
 // keyed by `name` (DNS-compatible, also doubles as the CRD metadata.name);
 // existing rows are updated to match the latest hard-coded definition so
 // fixes ship with the next deploy.
+//
+// Local-chart builtins (ChartType=Local) need their .tgz packaged + blob
+// row upserted BEFORE the Plugin row is written, because the Plugin row
+// references the blob via ChartBlobID. seedLocalChartBlobs handles that
+// in one pass.
 func SeedBuiltinPlugins(db *gorm.DB) error {
+	// Patch up ChartBlobID on local-chart builtins. The blob ID isn't
+	// known until we've packaged + upserted the .tgz, so we can't put
+	// it in the static `builtinPlugins` slice — do it here, before
+	// the upsert loop, by mutating the slice in place.
+	if err := seedLocalChartBlobs(); err != nil {
+		return err
+	}
 	for _, want := range builtinPlugins {
 		var existing Plugin
 		err := db.Where("name = ?", want.Name).First(&existing).Error
@@ -475,6 +515,7 @@ func SeedBuiltinPlugins(db *gorm.DB) error {
 				"chart_type":                want.ChartType,
 				"chart_repo":                want.ChartRepo,
 				"chart_name":                want.ChartName,
+				"chart_blob_id":             want.ChartBlobID,
 				"default_version":           want.DefaultVersion,
 				"default_values":            want.DefaultValues,
 				"default_release_namespace": want.DefaultReleaseNamespace,
@@ -482,6 +523,43 @@ func SeedBuiltinPlugins(db *gorm.DB) error {
 			if err := db.Model(&existing).Updates(updates).Error; err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// seedLocalChartBlobs packages every local-chart builtin and writes
+// the resulting .tgz to the PluginBlob table. The blob ID is then
+// patched onto the matching entry in `builtinPlugins` so the upsert
+// loop above writes a row that references the blob.
+//
+// New local-chart builtins: add another case below + commit the
+// chart sources under pkg/server/plugins/charts/<name>/. The blob
+// upsert is sha256-deduped, so re-packaging the same source produces
+// the same DB row.
+func seedLocalChartBlobs() error {
+	vgpu, err := plugins.PackageVolcanoVGPU()
+	if err != nil {
+		return fmt.Errorf("package volcano-vgpu chart: %w", err)
+	}
+	blob := PluginBlob{
+		Filename:  vgpu.Filename,
+		Content:   vgpu.Bytes,
+		SizeBytes: int64(len(vgpu.Bytes)),
+		SHA256:    vgpu.SHA256,
+	}
+	if err := UpsertPluginBlob(&blob); err != nil {
+		return fmt.Errorf("upsert volcano-vgpu blob: %w", err)
+	}
+	for i := range builtinPlugins {
+		if builtinPlugins[i].Name == "volcano-vgpu-device-plugin" {
+			id := blob.ID
+			builtinPlugins[i].ChartBlobID = &id
+			// Pin DefaultVersion to whatever the chart actually
+			// shipped — the chart's version field is the source of
+			// truth, so mismatches between Chart.yaml and the seed
+			// data can't bite us.
+			builtinPlugins[i].DefaultVersion = vgpu.Version
 		}
 	}
 	return nil

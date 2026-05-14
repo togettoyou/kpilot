@@ -80,6 +80,7 @@ export default {
   // /compute/:id/*.
   'menu.compute.overview': 'Overview',
   'menu.compute.scheduler': 'Scheduler Config',
+  'menu.compute.vgpu': 'vGPU',
   'menu.compute.resources': 'Resources',
   'menu.compute.resources.queues': 'Queue',
   'menu.compute.resources.jobs': 'Job',

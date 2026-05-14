@@ -92,19 +92,20 @@ kpilot/
 │   │   │   ├── handler/     # Gin Handler（auth、cluster、workload、volcano、plugin、proxy、pod (logs/exec)、pod_top、system、ws helper、errors）
 │   │   │   ├── middleware/  # JWT 中间件
 │   │   │   └── router.go    # 路由注册
-│   │   ├── store/           # PostgreSQL CRUD（GORM）
+│   │   ├── store/           # PostgreSQL CRUD（GORM）+ 启动 seed（内置插件 + 本地 chart blob upsert）
 │   │   ├── dashboards/      # 内置 Grafana dashboard JSON（go:embed）+ overlay 合并器
+│   │   ├── plugins/         # 内置 Helm chart 源（charts/<name>/，go:embed）+ 启动时 helm package 出 .tgz 写 PluginBlob
 │   │   ├── config/          # Server 环境变量
 │   │   └── gateway/         # gRPC Server + Worker 连接管理 + ResourceRequest 路由 + 流式会话路由 + BuildEnableCommand
 │   ├── worker/
 │   │   ├── apis/v1alpha1/   # Plugin CRD Go 类型 + DeepCopy
 │   │   ├── plugin/          # Plugin CRD reconciler + Helm SDK + chart cache + manager
-│   │   ├── proxy/           # K8s 资源代理（list/get/apply/update/patch/delete/describe）+ LogsManager + ExecManager + HTTPProxy + WSManager
+│   │   ├── proxy/           # K8s 资源代理（list/get/apply/update/patch/delete/describe）+ LogsManager + ExecManager + HTTPProxy + WSManager + VGPUTracker（解析 Volcano vGPU annotation）
 │   │   ├── config/          # Worker 环境变量
 │   │   └── tunnel/          # gRPC Client（注册、心跳、消息分发）
 │   └── common/
 │       ├── proto/           # protobuf 生成代码（不手动编辑）
-│       └── types/           # 共享类型
+│       └── vgpu/            # vGPU snapshot 共享 JSON 类型（worker 投影 → server 透传 → 前端渲染）
 ├── proto/                   # .proto 源文件
 ├── web/                     # 前端（见下方前端规范）
 ├── deploy/
@@ -364,7 +365,7 @@ const { data, loading } = useRequest(listXxx, {
 | Volcano 转向 P1 | Volcano 核心对接：5 个 CR 浏览器（Queue / Job / CronJob / PodGroup / HyperNode）+ 类型化创建编辑表单（form / YAML 双视图）+ 生命周期操作（bus.volcano.sh Command）+ 调度策略可视化编辑器（actions / tier / plugin 元数据 + 新手提示）；GPU dashboard 与 HAMi 解析器 / snapshot informer 全量删除 | ✅ 完成 |
 | Volcano 转向 P1.5 | 算力调度页性能重写：worker 加 `list-full` action，server 加 5 个专用 list 端点按 kind 投影 slim row，前端 5 个页改写为单 useRequest + ProTable，cell 全部 props-driven。N+1（100 队列 = 101 请求）→ 1 请求 / 刷新；删 CRPage / sharedFetch / WorkloadsContent 扩展点 | ✅ 完成 |
 | 集群 + Volcano review 硬化 | 全栈 review 修复。集群侧：gateway RegisterAck Send race、流式会话 ctx 派生自 tunnel.StreamContext()、Pod 日志 64 MiB 字节封顶、HTTP/WS 反代 URL scheme 白名单、describe panic recover、exec writer onSendErr cancel、proxy 读/写超时拆分（120s / 30s）、UpdateCluster TOCTOU 删除等 ~12 项。Volcano 侧：server workerTimeout 拆 read/write 与 worker 对齐、5 list 端点接 `limit + continue` 透传 + 响应 shape 改 `{items, continue?, remainingItemCount?}` 带截断兜底、worker listFull 剥 managedFields + 加 effective ns 日志、5 页 + 2 form i18n 完整覆盖、QueueForm editOriginalRef 镜像 spec.priority、useStaggeredRefresh 解决 setTimeout-on-unmounted 等 13+3 项 | ✅ 完成 |
-| Volcano 转向 P2 | vGPU 重写：volcano-vgpu-device-plugin 包成 wrapper Helm chart（go:embed）加为内置；新建 `pkg/worker/proxy/vgpu.go` 解析 `volcano.sh/*` annotation；vGPU dashboard 子页（Queue 用量 + 节点 / 卡视图）复活 | 待开始（下一步） |
+| Volcano 转向 P2 | vGPU 实况：worker `pkg/worker/proxy/vgpu.go` 解析 `volcano.sh/node-vgpu-register` + `vgpu-ids-new` annotation，server `/api/v1/clusters/:id/vgpu` 返回集群 → 节点 → 卡 → Pod 树，前端 `/compute/:id/vgpu` 渲染 KPI + 每节点表格（展开行 = 卡列表）；volcano-vgpu-device-plugin 包成 wrapper Helm chart（go:embed + 启动时 helm package）加为内置插件 | ✅ 完成 |
 | Volcano 转向 P3 | DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard（GPU 物理卡监控） | 待规划 |
 | Volcano 转向 P4 | 资源治理：Volcano queue 配额视图 + 设备健康告警 + GPU-Hour 计费报表 | 待规划 |
 | P7a | 模型服务 → 模型仓库 + 内置预设（Qwen / DeepSeek / Llama 等 vLLM 启动模板） | 待开始 |

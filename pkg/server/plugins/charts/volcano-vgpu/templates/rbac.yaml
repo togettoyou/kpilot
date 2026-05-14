@@ -1,0 +1,47 @@
+{{- /*
+ServiceAccount + ClusterRole + ClusterRoleBinding for the device-plugin.
+The plugin patches Node annotations (to register its vGPU inventory)
+and Pod annotations (during binding) — both require cluster-wide write
+access, which is why this is a ClusterRoleBinding rather than namespaced.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volcano-device-plugin
+  labels:
+    {{- include "volcano-vgpu.labels" . | nindent 4 }}
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-volcano-device-plugin
+  labels:
+    {{- include "volcano-vgpu.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes/status"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "update", "patch", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Release.Name }}-volcano-device-plugin
+  labels:
+    {{- include "volcano-vgpu.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: volcano-device-plugin
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Release.Name }}-volcano-device-plugin
+  apiGroup: rbac.authorization.k8s.io

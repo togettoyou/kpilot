@@ -1,0 +1,23 @@
+apiVersion: v2
+name: volcano-vgpu-device-plugin
+description: |
+  Volcano vGPU device plugin (a HAMi-Core fork) — registers physical
+  NVIDIA GPUs with kubelet as `volcano.sh/vgpu-number` (and friends),
+  letting Volcano's scheduler `deviceshare` plugin slice them.
+  Required for KPilot's /compute/:id/vgpu page to render anything.
+type: application
+version: 0.1.0
+# appVersion mirrors the upstream container image tag the chart ships
+# by default (templated via values.yaml).
+appVersion: "v1.12.0"
+keywords:
+  - gpu
+  - vgpu
+  - volcano
+  - nvidia
+home: https://github.com/Project-HAMi/volcano-vgpu-device-plugin
+sources:
+  - https://github.com/Project-HAMi/volcano-vgpu-device-plugin
+maintainers:
+  - name: KPilot
+    email: noreply@kpilot.io

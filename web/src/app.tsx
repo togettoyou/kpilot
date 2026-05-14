@@ -3,6 +3,7 @@ import {
   AppstoreAddOutlined,
   AppstoreOutlined,
   BlockOutlined,
+  BorderInnerOutlined,
   ControlOutlined,
   DashboardOutlined,
   DatabaseOutlined,
@@ -472,6 +473,17 @@ function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
       path: `${base}/scheduler`,
       name: 'scheduler',
       icon: <SettingOutlined />,
+    },
+    {
+      // vGPU cluster snapshot — sits between scheduler config (the
+      // policy side) and the resource browsers (the workload side)
+      // because it shows the live hardware state policies + workloads
+      // act on. Top-level rather than nested under 调度资源 because
+      // it's not a CR — it's an aggregated read across Node/Pod
+      // annotations.
+      path: `${base}/vgpu`,
+      name: 'vgpu',
+      icon: <BorderInnerOutlined />,
     },
     {
       // Group label only — has no path of its own. ProLayout opens

@@ -126,6 +126,13 @@ export default [
         component: './Compute/Volcano/ColocationConfigurations',
       },
       {
+        // Cluster-wide vGPU snapshot — Volcano vGPU device-plugin
+        // installs the node-register annotations the page reads. Page
+        // shows "not installed" empty state when no nodes registered.
+        path: '/compute/:id/vgpu',
+        component: './Compute/Volcano/VGPU',
+      },
+      {
         // Read-only view of volcano-scheduler-configmap → the
         // currently configured actions + plugin tiers. Editing
         // happens through the volcano plugin's helm values, not

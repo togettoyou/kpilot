@@ -105,6 +105,12 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.GET("/:id/volcano/nodeshards", handler.ListVolcanoNodeShards(gw))
 		clusters.GET("/:id/volcano/colocationconfigurations", handler.ListVolcanoColocationConfigurations(gw))
 
+		// Cluster vGPU snapshot — synthetic endpoint that projects
+		// Volcano vGPU annotations across all Nodes + Pods into a
+		// single tree. 404 + RESOURCE_NOT_AVAILABLE when no nodes
+		// registered, same pattern as the Volcano CR list endpoints.
+		clusters.GET("/:id/vgpu", handler.GetVGPUSnapshot(gw))
+
 		// Per-cluster plugin state (read-only registry view + enable/disable)
 		clusters.GET("/:id/plugins", handler.ListClusterPlugins)
 		clusters.POST("/:id/plugins/:name/enable", handler.EnablePlugin(gw))

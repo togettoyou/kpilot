@@ -68,6 +68,29 @@ export default {
     '把节点集合"划分"给特定 Volcano 调度器实例。多 Volcano 调度器共存时用来切分管辖范围；单调度器集群（多数情况）用不上。需要 Volcano 1.10+。',
   'pages.compute.intro.colocationconfiguration':
     '在离线混部的内存 QoS 策略。给 matchLabels 选中的 Pod 配 memory.high / memory.low / memory.min cgroup 比例。需要 volcano-agent + 内核 cgroup memory 支持。',
+  'pages.compute.intro.vgpu':
+    'Volcano vGPU 切分实况：每张物理卡的 UUID / 型号 / 显存 / 算力使用率，以及当前占用它的 Pod。需要在集群侧启用 volcano-vgpu-device-plugin（插件管理 → vGPU），并在 scheduler 配置里打开 deviceshare.VGPUEnable。',
+
+  // vGPU page
+  'pages.compute.vgpu.kpi.cards': '物理卡',
+  'pages.compute.vgpu.kpi.slots': '虚拟切片 (vGPU)',
+  'pages.compute.vgpu.kpi.memory': '显存',
+  'pages.compute.vgpu.kpi.nodes': 'GPU 节点',
+  'pages.compute.vgpu.node.title': '节点',
+  'pages.compute.vgpu.node.col.name': '节点',
+  'pages.compute.vgpu.node.col.health': '健康',
+  'pages.compute.vgpu.node.col.cards': '卡数',
+  'pages.compute.vgpu.node.col.slots': '切片使用',
+  'pages.compute.vgpu.node.col.memory': '显存使用',
+  'pages.compute.vgpu.node.col.types': 'GPU 型号',
+  'pages.compute.vgpu.card.col.type': '型号',
+  'pages.compute.vgpu.card.col.health': '健康',
+  'pages.compute.vgpu.card.col.sharing': '切分模式',
+  'pages.compute.vgpu.card.col.slots': '切片',
+  'pages.compute.vgpu.card.col.memory': '显存',
+  'pages.compute.vgpu.card.col.cores': '算力',
+  'pages.compute.vgpu.card.col.pods': '占用 Pod',
+  'pages.compute.vgpu.card.pods.idle': '空闲',
 
   'pages.compute.queueForm.weight': '权重 (Weight)',
   'pages.compute.queueForm.weight.extra': '调度时按权重比例分配资源；越大越优先',

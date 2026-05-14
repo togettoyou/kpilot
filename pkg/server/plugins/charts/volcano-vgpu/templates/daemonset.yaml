@@ -1,0 +1,164 @@
+{{- /*
+DaemonSet running on every GPU node:
+  - volcano-device-plugin container: registers vGPU resources with
+    kubelet (advertises volcano.sh/vgpu-{number,memory,cores}).
+  - monitor sidecar: NVML poll loop that updates per-card health on
+    the node annotation `volcano.sh/node-vgpu-register`.
+
+Host-path mounts:
+  - /var/lib/kubelet/device-plugins — kubelet's device-plugin socket dir
+  - /usr/local/vgpu (hostLibPath) — wrapper library written by postStart
+  - /run/{docker,containerd} — container runtime sockets (monitor reads
+    cgroup state from them)
+  - /tmp — IPC between the two containers (HOOK_PATH coordination)
+
+Tolerations + nodeSelector come from values.yaml so users can target
+specific node pools.
+*/ -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: volcano-device-plugin
+  labels:
+    {{- include "volcano-vgpu.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      name: volcano-device-plugin
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      # Deprecated critical-pod hint preserved for older kubelet builds;
+      # priorityClassName below is the modern equivalent. No harm in
+      # keeping both — kubelet ignores the annotation when unsupported.
+      annotations:
+        scheduler.alpha.kubernetes.io/critical-pod: ""
+      labels:
+        name: volcano-device-plugin
+        {{- include "volcano-vgpu.labels" . | nindent 8 }}
+    spec:
+      tolerations:
+{{ toYaml .Values.tolerations | indent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      priorityClassName: "system-node-critical"
+      serviceAccountName: volcano-device-plugin
+      containers:
+        - name: volcano-device-plugin
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--device-split-count={{ .Values.deviceSplitCount }}"
+          lifecycle:
+            postStart:
+              exec:
+                # The plugin ships an NVML wrapper at /k8s-vgpu/lib/nvidia/*
+                # which workloads `LD_PRELOAD` to enforce the per-pod
+                # memory cap. Copy it onto the host before kubelet
+                # starts directing pods at this node.
+                command:
+                  - /bin/sh
+                  - -c
+                  - cp -f /k8s-vgpu/lib/nvidia/* {{ .Values.hostLibPath }}/
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: HOOK_PATH
+              value: {{ .Values.hostLibPath | quote }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_MIG_MONITOR_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "utility"
+          securityContext:
+            # Privileged required for NVML; SYS_ADMIN for the cgroup
+            # writes the wrapper performs. Upstream YAML uses the same
+            # combination — we don't tighten it because the plugin
+            # genuinely needs both.
+            privileged: true
+            allowPrivilegeEscalation: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["SYS_ADMIN"]
+          volumeMounts:
+            - name: deviceconfig
+              mountPath: /config
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: lib
+              mountPath: /usr/local/vgpu
+            - name: hosttmp
+              mountPath: /tmp
+        - name: monitor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.monitorTag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - volcano-vgpu-monitor
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_MIG_MONITOR_DEVICES
+              value: "all"
+            - name: HOOK_PATH
+              value: "/tmp/vgpu"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["SYS_ADMIN"]
+          volumeMounts:
+            - name: dockers
+              mountPath: /run/docker
+            - name: containerds
+              mountPath: /run/containerd
+            - name: sysinfo
+              mountPath: /sysinfo
+            - name: hostvar
+              mountPath: /hostvar
+            - name: hosttmp
+              mountPath: /tmp
+      volumes:
+        - name: deviceconfig
+          configMap:
+            name: volcano-vgpu-node-config
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+            type: Directory
+        - name: lib
+          hostPath:
+            path: {{ .Values.hostLibPath }}
+            type: DirectoryOrCreate
+        - name: hosttmp
+          hostPath:
+            path: /tmp
+            type: DirectoryOrCreate
+        - name: dockers
+          hostPath:
+            path: /run/docker
+            type: DirectoryOrCreate
+        - name: containerds
+          hostPath:
+            path: /run/containerd
+            type: DirectoryOrCreate
+        - name: sysinfo
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: hostvar
+          hostPath:
+            path: /var
+            type: Directory

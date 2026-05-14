@@ -68,6 +68,29 @@ export default {
     'Carves a subset of nodes for a specific Volcano scheduler instance. Only relevant when running multiple Volcano schedulers; single-scheduler clusters (most cases) do not need this. Requires Volcano 1.10+.',
   'pages.compute.intro.colocationconfiguration':
     'Memory-QoS overlay for online/offline colocation. Configures memory.high / memory.low / memory.min cgroup ratios for the matchLabels-selected pods. Requires volcano-agent + kernel cgroup memory support.',
+  'pages.compute.intro.vgpu':
+    'Live Volcano vGPU breakdown: every physical card\'s UUID / model / memory + compute utilization, and the Pods currently slicing it. Requires the volcano-vgpu-device-plugin installed cluster-side (Plugins → vGPU), and deviceshare.VGPUEnable turned on in the scheduler config.',
+
+  // vGPU page
+  'pages.compute.vgpu.kpi.cards': 'Cards',
+  'pages.compute.vgpu.kpi.slots': 'vGPU slots',
+  'pages.compute.vgpu.kpi.memory': 'Memory',
+  'pages.compute.vgpu.kpi.nodes': 'GPU nodes',
+  'pages.compute.vgpu.node.title': 'Nodes',
+  'pages.compute.vgpu.node.col.name': 'Node',
+  'pages.compute.vgpu.node.col.health': 'Health',
+  'pages.compute.vgpu.node.col.cards': 'Cards',
+  'pages.compute.vgpu.node.col.slots': 'Slots',
+  'pages.compute.vgpu.node.col.memory': 'Memory',
+  'pages.compute.vgpu.node.col.types': 'GPU types',
+  'pages.compute.vgpu.card.col.type': 'Model',
+  'pages.compute.vgpu.card.col.health': 'Health',
+  'pages.compute.vgpu.card.col.sharing': 'Sharing',
+  'pages.compute.vgpu.card.col.slots': 'Slots',
+  'pages.compute.vgpu.card.col.memory': 'Memory',
+  'pages.compute.vgpu.card.col.cores': 'Cores',
+  'pages.compute.vgpu.card.col.pods': 'Pods',
+  'pages.compute.vgpu.card.pods.idle': 'idle',
 
   'pages.compute.queueForm.weight': 'Weight',
   'pages.compute.queueForm.weight.extra': 'Resources are split between queues proportional to weight; higher = preferred',

@@ -55,6 +55,12 @@ type Proxy struct {
 	dyn        dynamic.Interface
 	mapper     apimeta.RESTMapper
 	sendFn     func(requestID string, resp *proto.ResourceResponse)
+	// vgpu projects Volcano vGPU annotations into a slim snapshot.
+	// Nil when the worker can't reach the typed clientset (unlikely
+	// in practice — same cfg already drives `dyn`). vGPU requests
+	// fail loud with "vgpu tracker unavailable" rather than half-
+	// silently returning empty data.
+	vgpu *VGPUTracker
 }
 
 // resourceClient picks namespace-scoped vs cluster-scoped REST access
@@ -99,12 +105,22 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("http client: %w", err)
 	}
+	// VGPUTracker builds a typed clientset off the same cfg. Failure
+	// here is treated as fatal because the tracker only depends on
+	// kubernetes.NewForConfig — if that fails, every other read path
+	// in this proxy would fail too. Surfacing it now is cheaper than
+	// confusing "vgpu request failed" debugging later.
+	vgpuTracker, err := NewVGPUTracker(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("vgpu tracker: %w", err)
+	}
 	return &Proxy{
 		cfg:        cfg,
 		httpClient: httpClient,
 		dyn:        dyn,
 		mapper:     mapper,
 		sendFn:     sendFn,
+		vgpu:       vgpuTracker,
 	}, nil
 }
 
@@ -123,6 +139,14 @@ func (p *Proxy) Handle(requestID string, req *proto.ResourceRequest) {
 }
 
 func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.ResourceResponse {
+	// Cluster-level synthetic queries don't carry a GVK — handle them
+	// before RESTMapping so empty Group/Version/Kind doesn't trip the
+	// mapper. Today: vgpu-snapshot. Future: anything else that
+	// aggregates across multiple GVKs goes here.
+	if req.Action == "vgpu-snapshot" {
+		return p.vgpuSnapshot(ctx)
+	}
+
 	gvk := schema.GroupVersionKind{
 		Group:   req.Group,
 		Version: req.Version,

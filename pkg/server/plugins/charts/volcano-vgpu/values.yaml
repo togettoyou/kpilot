@@ -1,0 +1,39 @@
+# Default values for volcano-vgpu-device-plugin chart.
+# Override via the KPilot Enable drawer (ClusterPlugin.values_override).
+
+# image holds the device-plugin container settings. tag pins the
+# Project-HAMi build of volcano-vgpu-device-plugin. The "monitor"
+# sidecar uses the same image at a slightly older pinned tag in the
+# upstream YAML — we surface both knobs so the user can pin together.
+image:
+  repository: docker.io/projecthami/volcano-vgpu-device-plugin
+  tag: v1.12.0
+  monitorTag: v1.11.0
+  pullPolicy: IfNotPresent
+
+# deviceSplitCount controls how many virtual slices the plugin
+# advertises per physical card. Volcano's deviceshare plugin allocates
+# in units of these slices when users claim `volcano.sh/vgpu-number`.
+# 10 is the upstream default and matches every Volcano doc example.
+deviceSplitCount: 10
+
+# Tolerations get appended to the DaemonSet pod template. The defaults
+# match the upstream YAML so the device-plugin lands on every GPU
+# node, including ones marked critical / GPU-tainted. Users can
+# override with their own set; provide [] to clear.
+tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+  - key: volcano.sh/gpu-memory
+    operator: Exists
+    effect: NoSchedule
+
+# nodeSelector restricts which nodes get the DaemonSet pod. Default
+# empty → every node. For mixed CPU/GPU clusters, set to something
+# like { "nvidia.com/gpu.present": "true" } to skip non-GPU nodes.
+nodeSelector: {}
+
+# Path on the host where the device-plugin drops its NVML wrapper
+# library. Used by the postStart hook + mounted into containers that
+# request `volcano.sh/vgpu-*` resources so they pick up the wrapper.
+hostLibPath: /usr/local/vgpu
