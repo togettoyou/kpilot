@@ -1077,7 +1077,13 @@ export const PLUGIN_NAMES = Object.keys(PLUGINS_META);
 // editor below the typed fields so user-added fields survive
 // round-trip.
 export function knownPluginKeys(pluginName: string): Set<string> {
-  const set = new Set<string>(['name']);
+  // `arguments` is the nested map of plugin-specific args (rendered
+  // by ArgsFormSection one level deeper) — it's a known top-level
+  // key, even though the values inside come from meta.args. Without
+  // it, every plugin block with an `arguments:` map would surface
+  // an "unknown field" extras section even though the args inside
+  // are fully recognised.
+  const set = new Set<string>(['name', 'arguments']);
   for (const e of ENABLE_FIELDS) set.add(e.key);
   const meta = PLUGINS_META[pluginName];
   if (meta?.args) for (const a of meta.args) set.add(a.key);
