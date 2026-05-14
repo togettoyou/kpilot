@@ -568,10 +568,6 @@ function NodeTable({
       title: intl.formatMessage({ id: 'pages.compute.vgpu.node.col.memory' }),
       key: 'memory',
       width: 260,
-      // Default sort = memory util desc so the most-loaded node is
-      // at the top on first render. Memory beats slots as the
-      // primary pressure signal in real clusters.
-      defaultSortOrder: 'descend',
       sorter: (a, b) =>
         ratio(a.usedMemory, a.totalMemory) -
         ratio(b.usedMemory, b.totalMemory),
