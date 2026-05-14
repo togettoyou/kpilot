@@ -115,7 +115,7 @@ function ClusterCapacityCard({ cluster }: { cluster: ClusterCapacity }) {
             labelId="pages.compute.overview.gauge.gpu"
             allocated={cluster.gpu.allocated}
             total={cluster.gpu.total}
-            unit=""
+            unit={cluster.gpuUnit === 'GiB' ? 'GiB' : ''}
           />
         )}
       </Space>
@@ -243,6 +243,11 @@ interface ClusterCapacity {
   cpu: { allocated: number; total: number };
   memory: { allocated: number; total: number }; // in GiB
   gpu: { allocated: number; total: number };
+  // 'GiB' when at least one queue declares `volcano.sh/vgpu-memory`
+  // (HAMi vGPU mode — memory is the meaningful capacity signal);
+  // 'count' otherwise (integer cards via `nvidia.com/gpu` or slot
+  // counts via `vgpu-number`).
+  gpuUnit: 'GiB' | 'count';
   hasGpu: boolean;
 }
 
@@ -254,6 +259,18 @@ function clusterCapacity(data: BundleData): ClusterCapacity {
   // queues whose `parent` is empty or refers to a queue that isn't
   // in our list. The root's rollup already covers everything below.
   const names = new Set(data.queues.map((q) => q.name));
+
+  // Detect vGPU memory mode first. If any queue advertises a vgpu
+  // memory cap or allocation, switch the GPU axis to MiB → GiB —
+  // for vGPU clusters, memory is what operators actually request
+  // and what runs out first. Slot counts are a coarse split-factor
+  // that doesn't track real allocation pressure.
+  const hasVgpuMemory = data.queues.some(
+    (q) =>
+      q.capability?.['volcano.sh/vgpu-memory'] ||
+      q.allocated?.['volcano.sh/vgpu-memory'],
+  );
+
   let cpuT = 0,
     cpuA = 0,
     memT = 0,
@@ -267,18 +284,26 @@ function clusterCapacity(data: BundleData): ClusterCapacity {
     cpuA += parseQuantity(q.allocated?.['cpu']);
     memT += parseQuantity(q.capability?.['memory']);
     memA += parseQuantity(q.allocated?.['memory']);
-    const gT =
-      parseQuantity(q.capability?.['volcano.sh/vgpu-number']) +
-      parseQuantity(q.capability?.['nvidia.com/gpu']);
-    const gA =
-      parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
-      parseQuantity(q.allocated?.['nvidia.com/gpu']);
-    gpuT += gT;
-    gpuA += gA;
+    if (hasVgpuMemory) {
+      // Volcano stores vgpu-memory as a unit-less integer in MiB;
+      // /1024 to keep the GPU row's numbers in GiB like the memory
+      // row above.
+      gpuT += parseQuantity(q.capability?.['volcano.sh/vgpu-memory']) / 1024;
+      gpuA += parseQuantity(q.allocated?.['volcano.sh/vgpu-memory']) / 1024;
+    } else {
+      gpuT +=
+        parseQuantity(q.capability?.['volcano.sh/vgpu-number']) +
+        parseQuantity(q.capability?.['nvidia.com/gpu']);
+      gpuA +=
+        parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
+        parseQuantity(q.allocated?.['nvidia.com/gpu']);
+    }
     if (
       q.capability?.['volcano.sh/vgpu-number'] ||
+      q.capability?.['volcano.sh/vgpu-memory'] ||
       q.capability?.['nvidia.com/gpu'] ||
       q.allocated?.['volcano.sh/vgpu-number'] ||
+      q.allocated?.['volcano.sh/vgpu-memory'] ||
       q.allocated?.['nvidia.com/gpu']
     ) {
       hasGpu = true;
@@ -290,6 +315,7 @@ function clusterCapacity(data: BundleData): ClusterCapacity {
     // numbers stay readable.
     memory: { allocated: memA / 1024 ** 3, total: memT / 1024 ** 3 },
     gpu: { allocated: gpuA, total: gpuT },
+    gpuUnit: hasVgpuMemory ? 'GiB' : 'count',
     hasGpu,
   };
 }
@@ -320,6 +346,19 @@ function QueueResourceCard({ data }: { data: BundleData }) {
   // bars on three different y scales). The table form gives every
   // queue one row and every resource its own mini utilization bar,
   // so "which queue × which resource is hot" is a single eye scan.
+  // Same vGPU-memory-preferred mode detection as the cluster
+  // capacity card: if any queue declared vgpu-memory we render GPU
+  // as memory (GiB) rather than slot/card counts.
+  const hasVgpuMemory = useMemo(
+    () =>
+      data.queues.some(
+        (q) =>
+          q.capability?.['volcano.sh/vgpu-memory'] ||
+          q.allocated?.['volcano.sh/vgpu-memory'],
+      ),
+    [data.queues],
+  );
+
   const { rows, hasGpu } = useMemo(() => {
     let _hasGpu = false;
     const out: QueueResourceRow[] = [];
@@ -328,13 +367,25 @@ function QueueResourceCard({ data }: { data: BundleData }) {
       const cpuCap = parseQuantity(q.capability?.['cpu']);
       const memAlloc = parseQuantity(q.allocated?.['memory']) / 1024 ** 3;
       const memCap = parseQuantity(q.capability?.['memory']) / 1024 ** 3;
-      // GPU = vgpu + nvidia.com/gpu (Volcano supports either).
-      const gpuAlloc =
-        parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
-        parseQuantity(q.allocated?.['nvidia.com/gpu']);
-      const gpuCap =
-        parseQuantity(q.capability?.['volcano.sh/vgpu-number']) +
-        parseQuantity(q.capability?.['nvidia.com/gpu']);
+      // GPU axis: memory (GiB) when vGPU-memory mode is active,
+      // otherwise slot/card counts. Same detection as
+      // clusterCapacity() so the cluster card and the per-queue
+      // table tell the same story.
+      let gpuAlloc: number;
+      let gpuCap: number;
+      if (hasVgpuMemory) {
+        gpuAlloc =
+          parseQuantity(q.allocated?.['volcano.sh/vgpu-memory']) / 1024;
+        gpuCap =
+          parseQuantity(q.capability?.['volcano.sh/vgpu-memory']) / 1024;
+      } else {
+        gpuAlloc =
+          parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
+          parseQuantity(q.allocated?.['nvidia.com/gpu']);
+        gpuCap =
+          parseQuantity(q.capability?.['volcano.sh/vgpu-number']) +
+          parseQuantity(q.capability?.['nvidia.com/gpu']);
+      }
       if (gpuAlloc > 0 || gpuCap > 0) _hasGpu = true;
       const u = (a: number, t: number) => (t > 0 ? a / t : 0);
       const maxUtil = Math.max(
@@ -377,7 +428,7 @@ function QueueResourceCard({ data }: { data: BundleData }) {
       return b.maxUtil - a.maxUtil || a.name.localeCompare(b.name);
     });
     return { rows: out, hasGpu: _hasGpu };
-  }, [data.queues]);
+  }, [data.queues, hasVgpuMemory]);
 
   // Grid columns: queue (160px) + N resource columns (1fr each).
   const cols = hasGpu ? '160px 1fr 1fr 1fr' : '160px 1fr 1fr';
@@ -460,7 +511,11 @@ function QueueResourceCard({ data }: { data: BundleData }) {
                 unit="GiB"
               />
               {hasGpu && (
-                <UtilCell allocated={r.gpu.allocated} total={r.gpu.total} unit="" />
+                <UtilCell
+                  allocated={r.gpu.allocated}
+                  total={r.gpu.total}
+                  unit={hasVgpuMemory ? 'GiB' : ''}
+                />
               )}
             </div>
           ))}

@@ -438,6 +438,32 @@ custom:
   scheduler_replicas: 1
   controller_replicas: 1
   admission_replicas: 1
+  # deviceshare baked in by default so the vGPU plugin works
+  # immediately after Enable, without forcing users to hand-edit
+  # volcano-scheduler-configmap. Mirrors the upstream baseline
+  # (priority/gang/conformance/overcommit/drf/predicates/proportion/
+  # nodeorder/binpack) and slots deviceshare into tier 2 between
+  # predicates and proportion, where Volcano's vGPU docs put it.
+  scheduler_config_override: |
+    actions: "enqueue, allocate, backfill"
+    tiers:
+    - plugins:
+      - name: priority
+      - name: gang
+        enablePreemptable: false
+      - name: conformance
+    - plugins:
+      - name: overcommit
+      - name: drf
+        enablePreemptable: false
+      - name: predicates
+      - name: deviceshare
+        arguments:
+          deviceshare.VGPUEnable: true
+          deviceshare.SchedulePolicy: binpack
+      - name: proportion
+      - name: nodeorder
+      - name: binpack
 `,
 		// kpilot-scheduling joins the kpilot-* namespace family so the
 		// Workload page treats Volcano's pods as read-only — users can
