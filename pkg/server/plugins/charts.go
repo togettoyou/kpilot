@@ -42,10 +42,15 @@ import (
 )
 
 // volcanoVGPUFS embeds the chart sources committed under
-// charts/volcano-vgpu/. Filename pattern matches Helm's expected
-// layout so loader.LoadDir works without massaging.
+// charts/volcano-vgpu/. The `all:` prefix on the templates directory
+// is load-bearing — go:embed's default rule skips entries beginning
+// with `_` or `.`, which would drop Helm's _helpers.tpl partial and
+// silently produce a chart whose templates reference an undefined
+// {{ include "volcano-vgpu.labels" }}. Helm install then fails with
+// "no template ... associated with template gotpl" once the worker
+// tries to render. all: keeps every file under templates/.
 //
-//go:embed charts/volcano-vgpu/Chart.yaml charts/volcano-vgpu/values.yaml charts/volcano-vgpu/templates
+//go:embed charts/volcano-vgpu/Chart.yaml charts/volcano-vgpu/values.yaml all:charts/volcano-vgpu/templates
 var volcanoVGPUFS embed.FS
 
 // VolcanoVGPUChartName must match Chart.yaml's `name:` field — Helm
