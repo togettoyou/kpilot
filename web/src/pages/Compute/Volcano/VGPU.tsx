@@ -58,9 +58,20 @@ export default function VGPUPage() {
 
   if (!clusterId) return null;
   // RESOURCE_NOT_AVAILABLE covers both "device-plugin not installed"
-  // and "no nodes registered yet" — same NotInstalled empty state.
+  // and "no nodes registered yet". The shared NotInstalled component
+  // defaults to "Volcano not installed" copy (right for the 10 CR
+  // pages), but here the missing piece is volcano-vgpu-device-plugin
+  // specifically — override the title / subtitle so the button + copy
+  // point users at the right plugin.
   if (error && isResourceNotAvailable(error)) {
-    return <NotInstalled clusterId={clusterId} />;
+    return (
+      <NotInstalled
+        clusterId={clusterId}
+        titleId="pages.compute.vgpu.notInstalled.title"
+        subTitleId="pages.compute.vgpu.notInstalled.subTitle"
+        actionId="pages.compute.vgpu.notInstalled.action"
+      />
+    );
   }
 
   const snapshot = data;

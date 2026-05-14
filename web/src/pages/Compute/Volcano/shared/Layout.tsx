@@ -12,33 +12,41 @@ import React, { useEffect } from 'react';
 
 interface NotInstalledProps {
   clusterId: string;
+  // Optional i18n key overrides for pages where the missing piece
+  // isn't Volcano itself (e.g. /vgpu — the page renders fine if
+  // Volcano is installed but the device-plugin isn't). When unset
+  // the copy defaults to "Volcano not installed", matching the
+  // 10 CR pages that share this component.
+  titleId?: string;
+  subTitleId?: string;
+  actionId?: string;
 }
 
 // NotInstalled is shown when the dedicated list endpoint returns 404 /
-// RESOURCE_NOT_AVAILABLE — that's how the server signals "this CRD
-// isn't on the cluster", which for any Volcano page means "Volcano
-// plugin isn't enabled". We point users straight at the per-cluster
-// plugin page so they can flip it on.
-export function NotInstalled({ clusterId }: NotInstalledProps) {
+// RESOURCE_NOT_AVAILABLE. For the CRD-browser pages "404" means the
+// CRD isn't on the cluster → Volcano plugin not enabled. For the
+// vGPU page it means no Node carries the device-plugin's register
+// annotation → device-plugin not enabled. Same UI shell + same
+// "go to plugins" button — just override the copy via props.
+export function NotInstalled({
+  clusterId,
+  titleId = 'pages.compute.volcano.notInstalled.title',
+  subTitleId = 'pages.compute.volcano.notInstalled.subTitle',
+  actionId = 'pages.compute.volcano.notInstalled.action',
+}: NotInstalledProps) {
   const intl = useIntl();
   return (
     <div className="p-6">
       <Result
         status="info"
-        title={intl.formatMessage({
-          id: 'pages.compute.volcano.notInstalled.title',
-        })}
-        subTitle={intl.formatMessage({
-          id: 'pages.compute.volcano.notInstalled.subTitle',
-        })}
+        title={intl.formatMessage({ id: titleId })}
+        subTitle={intl.formatMessage({ id: subTitleId })}
         extra={
           <Button
             type="primary"
             onClick={() => history.push(`/clusters/${clusterId}/plugins`)}
           >
-            {intl.formatMessage({
-              id: 'pages.compute.volcano.notInstalled.action',
-            })}
+            {intl.formatMessage({ id: actionId })}
           </Button>
         }
       />

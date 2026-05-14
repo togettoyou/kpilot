@@ -91,6 +91,10 @@ export default {
   'pages.compute.vgpu.card.col.cores': '算力',
   'pages.compute.vgpu.card.col.pods': '占用 Pod',
   'pages.compute.vgpu.card.pods.idle': '空闲',
+  'pages.compute.vgpu.notInstalled.title': '集群未安装 vGPU 设备插件',
+  'pages.compute.vgpu.notInstalled.subTitle':
+    '需要在集群侧启用 volcano-vgpu-device-plugin 才能看到 GPU 切分数据。前往插件管理一键启用，DaemonSet 就绪后该页会自动填充。',
+  'pages.compute.vgpu.notInstalled.action': '前往插件管理',
 
   'pages.compute.queueForm.weight': '权重 (Weight)',
   'pages.compute.queueForm.weight.extra': '调度时按权重比例分配资源；越大越优先',

@@ -91,6 +91,10 @@ export default {
   'pages.compute.vgpu.card.col.cores': 'Cores',
   'pages.compute.vgpu.card.col.pods': 'Pods',
   'pages.compute.vgpu.card.pods.idle': 'idle',
+  'pages.compute.vgpu.notInstalled.title': 'vGPU device-plugin not installed',
+  'pages.compute.vgpu.notInstalled.subTitle':
+    'Enable volcano-vgpu-device-plugin on this cluster to see GPU slicing data. Once the DaemonSet is ready this page populates automatically.',
+  'pages.compute.vgpu.notInstalled.action': 'Go to plugins',
 
   'pages.compute.queueForm.weight': 'Weight',
   'pages.compute.queueForm.weight.extra': 'Resources are split between queues proportional to weight; higher = preferred',
