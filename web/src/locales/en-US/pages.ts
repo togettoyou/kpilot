@@ -216,7 +216,16 @@ export default {
     'Extended resources (GPU / ephemeral-storage / hugepages-* / custom) — written to limits per K8s convention',
   'pages.compute.jobForm.task.resources.extras.add': 'Add resource',
   'pages.compute.queueForm.extras.label':
-    'Other resources (GPU / ephemeral-storage / volcano.sh/vgpu-* / custom extended)',
+    'Other resources (nvidia.com/gpu / ephemeral-storage / custom extended)',
+  'pages.compute.queueForm.gpu.number': 'vGPU slots',
+  'pages.compute.queueForm.gpu.number.tip':
+    'Queue-wide vGPU slot quota (volcano.sh/vgpu-number). Sum of all running pods\' vgpu-number cannot exceed this. Empty = no limit.',
+  'pages.compute.queueForm.gpu.memory': 'vGPU memory',
+  'pages.compute.queueForm.gpu.memory.tip':
+    'Queue-wide vGPU memory quota in MiB (volcano.sh/vgpu-memory). Sum of all running pods\' vgpu-memory cannot exceed this. Empty = no limit.',
+  'pages.compute.queueForm.gpu.cores': 'vGPU cores',
+  'pages.compute.queueForm.gpu.cores.tip':
+    'Queue-wide vGPU compute share quota (volcano.sh/vgpu-cores, summed %). Empty = no limit. Advisory: HAMi does not hard-enforce SM time-slicing by default.',
   'pages.compute.jobForm.task.image': 'Image',
   'pages.compute.jobForm.task.imagePullPolicy': 'Pull policy',
   'pages.compute.jobForm.task.imagePullPolicy.placeholder': 'Auto',

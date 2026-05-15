@@ -217,7 +217,16 @@ export default {
     '扩展资源 (GPU / ephemeral-storage / hugepages-* / 其他扩展资源)，按 K8s 约定写入 limits',
   'pages.compute.jobForm.task.resources.extras.add': '添加资源',
   'pages.compute.queueForm.extras.label':
-    '其他资源（GPU / ephemeral-storage / volcano.sh/vgpu-* / 自定义扩展资源）',
+    '其他资源（nvidia.com/gpu / ephemeral-storage / 自定义扩展资源）',
+  'pages.compute.queueForm.gpu.number': 'GPU 切片数',
+  'pages.compute.queueForm.gpu.number.tip':
+    '队列允许的 vGPU 切片总配额（volcano.sh/vgpu-number）。Pod 申请的 vgpu-number 之和不能超过这个值。留空 = 不限制。',
+  'pages.compute.queueForm.gpu.memory': 'GPU 显存',
+  'pages.compute.queueForm.gpu.memory.tip':
+    '队列允许的 vGPU 显存总配额（volcano.sh/vgpu-memory，单位 MiB）。所有正在运行 pod 申请的 vgpu-memory 之和不能超过这个值。留空 = 不限制。',
+  'pages.compute.queueForm.gpu.cores': 'GPU 算力',
+  'pages.compute.queueForm.gpu.cores.tip':
+    '队列允许的 vGPU 算力总配额（volcano.sh/vgpu-cores，百分比累加）。留空 = 不限制。advisory：HAMi 默认不强制隔离 SM 时间片。',
   'pages.compute.jobForm.task.image': '镜像',
   'pages.compute.jobForm.task.imagePullPolicy': '拉取策略',
   'pages.compute.jobForm.task.imagePullPolicy.placeholder': '自动',

@@ -49,6 +49,14 @@ interface ResourceRow {
 interface ResourceListFV {
   cpu?: string;
   memory?: string;
+  // vGPU first-class fields (volcano.sh/vgpu-{number,memory,cores}).
+  // At queue level these are totals (sum-of-all-pods), not per-slot —
+  // e.g. capability.vgpu-memory=20000 means "this queue can hold up
+  // to 20000 MiB of vGPU memory across all running pods". Native
+  // inputs so users don't have to remember the long keys.
+  vgpuNumber?: number;
+  vgpuMemory?: number;
+  vgpuCores?: number;
   extras?: ResourceRow[];
 }
 
@@ -573,6 +581,63 @@ function ResourceListSection({
           <Input placeholder="8Gi" style={{ width: 160 }} maxLength={32} />
         </Form.Item>
       </Space>
+      {/* GPU 三件套 — 同 JobForm 的 task 行，但这里是队列总配额而不是
+          per-slot。整组留空 = 不限制 GPU。 */}
+      <Space style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+        <Form.Item
+          name={[name, 'vgpuNumber']}
+          label={intl.formatMessage({
+            id: 'pages.compute.queueForm.gpu.number',
+          })}
+          tooltip={intl.formatMessage({
+            id: 'pages.compute.queueForm.gpu.number.tip',
+          })}
+          style={{ marginBottom: 0 }}
+        >
+          <InputNumber
+            min={0}
+            precision={0}
+            placeholder="10"
+            style={{ width: 120 }}
+          />
+        </Form.Item>
+        <Form.Item
+          name={[name, 'vgpuMemory']}
+          label={intl.formatMessage({
+            id: 'pages.compute.queueForm.gpu.memory',
+          })}
+          tooltip={intl.formatMessage({
+            id: 'pages.compute.queueForm.gpu.memory.tip',
+          })}
+          style={{ marginBottom: 0, marginInlineStart: 12 }}
+        >
+          <InputNumber
+            min={0}
+            precision={0}
+            placeholder="20000"
+            addonAfter="MiB"
+            style={{ width: 160 }}
+          />
+        </Form.Item>
+        <Form.Item
+          name={[name, 'vgpuCores']}
+          label={intl.formatMessage({
+            id: 'pages.compute.queueForm.gpu.cores',
+          })}
+          tooltip={intl.formatMessage({
+            id: 'pages.compute.queueForm.gpu.cores.tip',
+          })}
+          style={{ marginBottom: 0, marginInlineStart: 12 }}
+        >
+          <InputNumber
+            min={0}
+            precision={0}
+            placeholder="100"
+            addonAfter="%"
+            style={{ width: 140 }}
+          />
+        </Form.Item>
+      </Space>
       <div
         style={{
           marginTop: 8,
@@ -600,7 +665,7 @@ function ResourceListSection({
                   style={{ marginBottom: 0 }}
                 >
                   <Input
-                    placeholder="nvidia.com/gpu / volcano.sh/vgpu-number"
+                    placeholder="nvidia.com/gpu / ephemeral-storage / ..."
                     style={{ width: 280 }}
                   />
                 </Form.Item>
@@ -640,28 +705,51 @@ function resourceListFVToRecord(
   const memory = v?.memory?.trim();
   if (cpu) out['cpu'] = cpu;
   if (memory) out['memory'] = memory;
+  // vGPU native fields → same record. Each independently optional;
+  // a zero is treated as "user didn't intend to cap" and dropped.
+  if (typeof v?.vgpuNumber === 'number' && v.vgpuNumber > 0) {
+    out['volcano.sh/vgpu-number'] = String(v.vgpuNumber);
+  }
+  if (typeof v?.vgpuMemory === 'number' && v.vgpuMemory > 0) {
+    out['volcano.sh/vgpu-memory'] = String(v.vgpuMemory);
+  }
+  if (typeof v?.vgpuCores === 'number' && v.vgpuCores > 0) {
+    out['volcano.sh/vgpu-cores'] = String(v.vgpuCores);
+  }
+  const HANDLED = new Set([
+    'cpu',
+    'memory',
+    'volcano.sh/vgpu-number',
+    'volcano.sh/vgpu-memory',
+    'volcano.sh/vgpu-cores',
+  ]);
   for (const row of v?.extras ?? []) {
     const k = row?.key?.trim();
     const val = row?.value?.trim();
-    // Ignore extras that collide with cpu/memory (user would have
-    // also filled those above) — fixed inputs win, no surprise from
-    // ordering.
-    if (k && val && k !== 'cpu' && k !== 'memory') out[k] = val;
+    // Native fields win over a duplicate-key extras row.
+    if (k && val && !HANDLED.has(k)) out[k] = val;
   }
   return out;
 }
 
-// recordToResourceListFV is the reverse: pull cpu/memory out of the
-// record (if present) and route the rest into extras rows.
+// recordToResourceListFV is the reverse: pull native fields out of
+// the record (if present) and route the rest into extras rows.
 function recordToResourceListFV(
   rec?: Record<string, unknown>,
 ): ResourceListFV {
   const out: ResourceListFV = { extras: [] };
   if (!rec) return out;
+  const num = (s: string): number | undefined => {
+    const n = parseInt(s, 10);
+    return Number.isFinite(n) ? n : undefined;
+  };
   for (const [k, v] of Object.entries(rec)) {
     const s = typeof v === 'string' ? v : String(v);
     if (k === 'cpu') out.cpu = s;
     else if (k === 'memory') out.memory = s;
+    else if (k === 'volcano.sh/vgpu-number') out.vgpuNumber = num(s);
+    else if (k === 'volcano.sh/vgpu-memory') out.vgpuMemory = num(s);
+    else if (k === 'volcano.sh/vgpu-cores') out.vgpuCores = num(s);
     else (out.extras ??= []).push({ key: k, value: s });
   }
   return out;
