@@ -782,12 +782,6 @@ export default {
   'pages.clusters.card.updatedAt': 'Updated {date}',
   'pages.clusters.action.edit': 'Edit',
   'pages.clusters.action.delete': 'Delete',
-  'pages.clusters.col.name': 'Name',
-  'pages.clusters.col.status': 'Status',
-  'pages.clusters.col.description': 'Description',
-  'pages.clusters.col.createdAt': 'Created',
-  'pages.clusters.col.updatedAt': 'Updated',
-  'pages.clusters.col.action': 'Action',
   'pages.clusters.status.online': 'Online',
   'pages.clusters.status.offline': 'Offline',
   'pages.clusters.edit.title': 'Edit Cluster',
@@ -804,7 +798,6 @@ export default {
   'pages.clusters.delete.finalContent': 'This action cannot be undone.',
   'pages.clusters.delete.finalOk': 'Delete permanently',
   'pages.clusters.delete.success': 'Cluster deleted',
-  'pages.clusters.create.error': 'Failed to create cluster',
   'pages.clusters.modal.add': 'Add Cluster',
   'pages.clusters.modal.name': 'Cluster Name',
   'pages.clusters.modal.namePlaceholder': 'e.g. prod-cluster-01',
@@ -949,7 +942,6 @@ export default {
   'pages.workloads.col.volumeMode': 'Volume Mode',
   'pages.workloads.col.volumeAttributesClass': 'Volume Attributes Class',
 
-  'pages.cluster.back': 'Clusters',
 
   // global namespace picker (top bar)
   'namespacePicker.label': 'Namespace',

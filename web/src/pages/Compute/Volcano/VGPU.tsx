@@ -502,13 +502,30 @@ function NodeTable({
     });
   }, [nodes, trimmed]);
 
-  const expandedRowKeys = useMemo<string[] | undefined>(() => {
-    if (!trimmed) return undefined; // user-controlled
-    // Auto-expand nodes that match via pods — the whole point of
-    // searching is to find that pod. Name-only matches still get
-    // expanded too so the user sees what's there.
-    return filteredNodes.map((n) => n.name);
-  }, [filteredNodes, trimmed]);
+  // Manual expansions persist across search clears — operators
+  // expanded a particular node deliberately, the search filter
+  // shouldn't lose that signal.
+  const [manualExpanded, setManualExpanded] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const expandedRowKeys = useMemo<string[]>(() => {
+    if (!trimmed) return [...manualExpanded];
+    // Search active: union of user-expanded and search-matching
+    // nodes so the operator never loses a row they deliberately
+    // opened earlier.
+    const out = new Set<string>(manualExpanded);
+    for (const n of filteredNodes) out.add(n.name);
+    return [...out];
+  }, [filteredNodes, trimmed, manualExpanded]);
+
+  const onExpandChange = (expanded: boolean, record: VGPUNode) => {
+    setManualExpanded((prev) => {
+      const next = new Set(prev);
+      if (expanded) next.add(record.name);
+      else next.delete(record.name);
+      return next;
+    });
+  };
 
   // Single-model collapse: when every card in the cluster has the
   // same type (common case), drop the dedicated "types" column and
@@ -622,10 +639,8 @@ function NodeTable({
           <CardTable cards={record.cards} onPodClick={onPodClick} />
         ),
         rowExpandable: (record) => record.cards.length > 0,
-        // When a search is active, expanded rows are computed; let
-        // the user collapse them manually if they want by leaving
-        // the prop undefined when search is empty.
         expandedRowKeys,
+        onExpand: onExpandChange,
       }}
       headerTitle={
         <Space size={12} wrap>

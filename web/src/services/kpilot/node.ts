@@ -53,8 +53,10 @@ export function getNode(clusterId: string, name: string) {
 // send, which is too much authority for a "cordon" button.
 //
 // The corresponding generic /workloads/nodes/:name PUT and DELETE
-// are server-side blocked (NODE_PROTECTED) so this endpoint is the
-// only mutation path through the UI.
+// are still wired through Workloads (admins control risk per the
+// post-removal protect policy); this scoped endpoint stays the
+// "safer" mutation path because the body schema is narrow — clients
+// can't smuggle other fields under the cordon button.
 export function cordonNode(
   clusterId: string,
   name: string,

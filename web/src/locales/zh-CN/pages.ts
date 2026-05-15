@@ -757,12 +757,6 @@ export default {
   'pages.clusters.card.updatedAt': '更新于 {date}',
   'pages.clusters.action.edit': '编辑',
   'pages.clusters.action.delete': '删除',
-  'pages.clusters.col.name': '名称',
-  'pages.clusters.col.status': '状态',
-  'pages.clusters.col.description': '描述',
-  'pages.clusters.col.createdAt': '创建时间',
-  'pages.clusters.col.updatedAt': '更新时间',
-  'pages.clusters.col.action': '操作',
   'pages.clusters.status.online': '在线',
   'pages.clusters.status.offline': '离线',
   'pages.clusters.edit.title': '编辑集群',
@@ -779,7 +773,6 @@ export default {
   'pages.clusters.delete.finalContent': '此操作不可撤销。',
   'pages.clusters.delete.finalOk': '永久删除',
   'pages.clusters.delete.success': '集群已删除',
-  'pages.clusters.create.error': '创建集群失败',
   'pages.clusters.modal.add': '添加集群',
   'pages.clusters.modal.name': '集群名称',
   'pages.clusters.modal.namePlaceholder': '例如：prod-cluster-01',
@@ -920,7 +913,6 @@ export default {
   'pages.workloads.col.volumeMode': '卷模式',
   'pages.workloads.col.volumeAttributesClass': '卷属性类',
 
-  'pages.cluster.back': '集群列表',
 
   // global namespace picker (top bar)
   'namespacePicker.label': '命名空间',
