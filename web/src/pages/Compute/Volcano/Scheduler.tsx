@@ -345,8 +345,19 @@ export default function VolcanoSchedulerPage() {
   };
 
   if ((status.loading && !status.data) || (cm.loading && !cm.data)) {
+    // Center the spinner in the page rather than parking it in the
+    // top-left corner. minHeight: 60vh covers the visual area below
+    // the layout header; flex centering puts the indicator where
+    // the user's eye actually lands.
     return (
-      <div style={{ padding: 24 }}>
+      <div
+        style={{
+          minHeight: '60vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <Spin size="large" />
       </div>
     );
