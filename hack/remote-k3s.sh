@@ -1,26 +1,33 @@
 #!/usr/bin/env bash
-# aliyun-gpu — bring up / tear down a remote GPU box for kpilot worker testing.
+# remote-k3s — bring up / tear down a remote k3s box and merge its kubeconfig
+# locally so the KPilot Worker can run against it for debugging.
 #
-# Name is historical — works against any ssh-reachable host (aliyun, seetacloud,
-# bare-metal, ...). Custom ssh port supported via positional arg.
+# Works against any ssh-reachable host (bare metal, cloud VM, on-prem box).
+# Custom ssh port supported via positional arg.
 #
-#   aliyun-gpu up <host> [port]   install k3s, pull kubeconfig, start SSH tunnel, merge context
-#   aliyun-gpu down               kill the tunnel + remove local context (server untouched)
-#   aliyun-gpu reset              down + delete kubeconfig file and backups
-#   aliyun-gpu status             show tunnel pid + cluster reachability
+#   remote-k3s up <host> [port]   install k3s, pull kubeconfig, start SSH tunnel, merge context
+#   remote-k3s down               kill the tunnel + remove local context (server untouched)
+#   remote-k3s reset              down + delete kubeconfig file and backups
+#   remote-k3s status             show tunnel pid + cluster reachability
 #
-# Password: set $ALIYUN_GPU_PASSWORD (or you'll be prompted). Once the pubkey is
-# pushed, subsequent runs against the same host don't need it.
+# GPU is auto-detected: if `nvidia-smi` is on the remote PATH we set
+# default-runtime=nvidia + apply the nvidia RuntimeClass; otherwise we
+# install a vanilla CPU-only k3s. Either path produces a usable cluster
+# for general Worker debugging — vGPU-specific testing just needs the
+# GPU path to take.
 #
-# Platforms: macOS / Linux / Git Bash / WSL. Avoids macOS-only `sed -i ''` and
-# the `lsof` port-scan trick (the tunnel's pid is tracked via a file written by
-# us, so no platform-specific tool to discover the listener).
+# Password: set $REMOTE_K3S_PASSWORD (or you'll be prompted). Once the
+# pubkey is pushed, subsequent runs against the same host don't need it.
+#
+# Platforms: macOS / Linux / Git Bash / WSL. Avoids macOS-only `sed -i ''`
+# and the `lsof` port-scan trick (the tunnel's pid is tracked via a file
+# written by us, so no platform-specific tool to discover the listener).
 
 set -euo pipefail
 
-CONTEXT="aliyun-gpu"
-KUBE_FILE="$HOME/.kube/aliyun-gpu.yaml"
-PID_FILE="$HOME/.kube/aliyun-gpu.tunnel.pid"
+CONTEXT="remote-k3s"
+KUBE_FILE="$HOME/.kube/remote-k3s.yaml"
+PID_FILE="$HOME/.kube/remote-k3s.tunnel.pid"
 LOCAL_PORT=6443
 SSH_USER="root"
 SSH_KEY="$HOME/.ssh/id_ed25519"
@@ -35,7 +42,7 @@ yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 step()   { printf '\033[1;36m▸\033[0m %s\n' "$*"; }
 
 usage() {
-  sed -n '/^#!/d;/^# aliyun-gpu/,/^[^#]/p' "$0" | sed '/^[^#]/d;s/^# \{0,1\}//'
+  sed -n '/^#!/d;/^# remote-k3s/,/^[^#]/p' "$0" | sed '/^[^#]/d;s/^# \{0,1\}//'
   exit "${1:-1}"
 }
 
@@ -107,9 +114,9 @@ push_key() {
        -p "$SSH_PORT" "$SSH_USER@$host" 'true' 2>/dev/null; then
     return 0
   fi
-  : "${ALIYUN_GPU_PASSWORD:=}"
-  if [[ -z "$ALIYUN_GPU_PASSWORD" ]]; then
-    read -rsp "password for $SSH_USER@$host:$SSH_PORT: " ALIYUN_GPU_PASSWORD
+  : "${REMOTE_K3S_PASSWORD:=}"
+  if [[ -z "$REMOTE_K3S_PASSWORD" ]]; then
+    read -rsp "password for $SSH_USER@$host:$SSH_PORT: " REMOTE_K3S_PASSWORD
     echo
   fi
   step "pushing pubkey via expect"
@@ -126,7 +133,7 @@ set timeout 30
 log_user 0
 spawn ssh-copy-id -o StrictHostKeyChecking=no -o Port=$SSH_PORT -i ${SSH_KEY}.pub $SSH_USER@$host
 expect {
-  -re "password:|Password:" { send "$ALIYUN_GPU_PASSWORD\r"; exp_continue }
+  -re "password:|Password:" { send "$REMOTE_K3S_PASSWORD\r"; exp_continue }
   "Permission denied" { exit 1 }
   eof
 }
@@ -146,6 +153,19 @@ remote_scp_from() {
       "$SSH_USER@$host:$src" "$dst"
 }
 
+# detect_gpu returns 0 if the remote has a working nvidia-smi + the
+# NVIDIA Container Toolkit; 1 otherwise. Soft-fails: a missing GPU isn't
+# an error, it just steers us to a vanilla k3s install. Same for a GPU
+# present but no container-toolkit — useful to warn so the user can fix
+# it before expecting vGPU pods to schedule.
+detect_gpu() {
+  local host=$1
+  remote_ssh "$host" '
+    command -v nvidia-smi >/dev/null && nvidia-smi -L 2>/dev/null | grep -q . || exit 1
+    command -v nvidia-container-runtime >/dev/null || exit 2
+  '
+}
+
 cmd_up() {
   local host=${1:-}
   [[ -z "$host" ]] && { red "missing <host>"; usage; }
@@ -157,54 +177,72 @@ cmd_up() {
   push_key "$host"
   remote_ssh "$host" 'true' || { red "SSH still failing"; exit 1; }
 
-  step "checking remote: OS, GPU, NVIDIA runtime"
-  remote_ssh "$host" 'set -e
-    . /etc/os-release; echo "OS=$PRETTY_NAME"
-    nvidia-smi -L | head -1
-    command -v nvidia-container-runtime >/dev/null \
-      || { echo "ERROR: nvidia-container-runtime not on PATH"; exit 1; }
-    echo "runtime=$(nvidia-ctk --version | head -1)"
-  '
+  step "checking remote: OS + GPU"
+  remote_ssh "$host" 'set -e; . /etc/os-release; echo "OS=$PRETTY_NAME"'
+
+  local has_gpu=0
+  if detect_gpu "$host"; then
+    has_gpu=1
+    step "GPU + NVIDIA runtime detected"
+    remote_ssh "$host" '
+      nvidia-smi -L | head -1
+      echo "runtime=$(nvidia-ctk --version 2>/dev/null | head -1)"
+    ' || true
+  else
+    local rc=$?
+    if [[ "$rc" == "2" ]]; then
+      yellow "GPU present but nvidia-container-runtime missing — installing CPU-only k3s"
+      yellow "(install NVIDIA Container Toolkit on the host first if you want vGPU)"
+    else
+      yellow "no GPU on remote — installing CPU-only k3s"
+    fi
+  fi
 
   step "installing k3s (skip if already present)"
-  # default-runtime=nvidia is required: without it, k3s containerd
-  # uses runc as default and the volcano-vgpu-device-plugin pod can't
-  # see /usr/lib/x86_64-linux-gnu/libnvidia-ml.so → NVML
-  # ERROR_LIBRARY_NOT_FOUND. The vGPU plugin doesn't set
-  # runtimeClassName on itself, so flipping the cluster-wide default
-  # is the only fix.
-  remote_ssh "$host" '
+  # When GPU is available we set default-runtime=nvidia. Without that
+  # k3s containerd uses runc and the volcano-vgpu-device-plugin pod
+  # can't see /usr/lib/x86_64-linux-gnu/libnvidia-ml.so → NVML
+  # ERROR_LIBRARY_NOT_FOUND. The plugin doesn't set its own
+  # runtimeClassName, so flipping the cluster-wide default is the only
+  # fix. CPU-only path skips that config entirely so a generic worker
+  # debug setup doesn't need anything GPU-specific on the host.
+  remote_ssh "$host" "
+    HAS_GPU=$has_gpu
     mkdir -p /etc/rancher/k3s
-    cat > /etc/rancher/k3s/config.yaml <<EOF
+    if [ \"\$HAS_GPU\" = 1 ]; then
+      cat > /etc/rancher/k3s/config.yaml <<EOF
 default-runtime: nvidia
 EOF
+    else
+      rm -f /etc/rancher/k3s/config.yaml
+    fi
     if systemctl is-active --quiet k3s; then
-      echo "k3s already active: $(k3s --version | head -1)"
-      # Re-apply the config in case this is an upgrade path where the
-      # box had k3s but no default-runtime set.
-      if ! grep -q "default_runtime_name = \"nvidia\"" \
+      echo \"k3s already active: \$(k3s --version | head -1)\"
+      if [ \"\$HAS_GPU\" = 1 ] && ! grep -q 'default_runtime_name = \"nvidia\"' \
         /var/lib/rancher/k3s/agent/etc/containerd/config.toml 2>/dev/null; then
         systemctl restart k3s
       fi
     else
       curl -sfL https://get.k3s.io | \
-        INSTALL_K3S_EXEC="--write-kubeconfig-mode 644 --disable traefik --tls-san '"$host"'" \
+        INSTALL_K3S_EXEC=\"--write-kubeconfig-mode 644 --disable traefik --tls-san $host\" \
         sh -
     fi
     kubectl wait --for=condition=Ready node --all --timeout=60s >/dev/null
-  '
+  "
 
-  step "ensuring nvidia RuntimeClass exists"
-  remote_ssh "$host" '
-    kubectl get runtimeclass nvidia >/dev/null 2>&1 || \
-    kubectl create -f - <<EOF
+  if [[ "$has_gpu" == 1 ]]; then
+    step "ensuring nvidia RuntimeClass exists"
+    remote_ssh "$host" '
+      kubectl get runtimeclass nvidia >/dev/null 2>&1 || \
+      kubectl create -f - <<EOF
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
   name: nvidia
 handler: nvidia
 EOF
-  '
+    '
+  fi
 
   step "pulling kubeconfig to $KUBE_FILE"
   remote_scp_from "$host" /etc/rancher/k3s/k3s.yaml "$KUBE_FILE"
@@ -220,7 +258,7 @@ EOF
   local merged
   merged=$(mktemp)
   cp "$HOME/.kube/config" "$HOME/.kube/config.bak.$(date +%s)"
-  # Drop any old aliyun-gpu entries first so a re-up doesn't accumulate stale clusters.
+  # Drop any old remote-k3s entries first so a re-up doesn't accumulate stale clusters.
   KUBECONFIG="$HOME/.kube/config" kubectl config delete-context "$CONTEXT" 2>/dev/null || true
   KUBECONFIG="$HOME/.kube/config" kubectl config delete-cluster default 2>/dev/null || true
   KUBECONFIG="$HOME/.kube/config" kubectl config delete-user default 2>/dev/null || true
@@ -235,7 +273,7 @@ EOF
   green ""
   green "✓ ready — context '$CONTEXT' is active"
   green "  worker:   KUBECONFIG=$KUBE_FILE ./worker …"
-  green "  teardown: aliyun-gpu down"
+  green "  teardown: remote-k3s down"
 }
 
 cmd_down() {
