@@ -36,24 +36,42 @@ status:
 
 **已内置插件**（按 category 维度组织）：
 
-| 插件               | 分类       | Chart 来源 | 用途                                                |
-|------------------|----------|----------|---------------------------------------------------|
-| Metrics Server   | monitoring | repo     | K8s Metrics API（`metrics.k8s.io`），驱动 `kubectl top` / HPA / VPA |
-| VictoriaMetrics  | monitoring | repo     | 单节点 TSDB，自带 Web UI + scrape 配置                   |
-| Node Exporter    | monitoring | repo     | 节点级硬件 + OS 指标（搭 VM 用）                            |
-| kube-state-metrics | monitoring | repo   | K8s 对象状态指标（Deployment 副本、Pod phase、Node condition）|
-| Grafana          | monitoring | **oci**  | 可视化前端，反代嵌入 + 内置 dashboard + auth.proxy            |
-| VictoriaLogs     | logging    | repo     | 日志存储 + 自带 Vector DaemonSet 采集                    |
-| Volcano          | scheduling | repo     | Batch 调度器，gang scheduling + Queue + drf 公平共享     |
+| 插件                          | 分类         | Chart 来源 | 用途                                                                  |
+|-----------------------------|------------|----------|---------------------------------------------------------------------|
+| Metrics Server              | monitoring | repo     | K8s Metrics API（`metrics.k8s.io`），驱动 `kubectl top` / HPA / VPA |
+| VictoriaMetrics             | monitoring | repo     | 单节点 TSDB，自带 Web UI + scrape 配置                                |
+| Node Exporter               | monitoring | repo     | 节点级硬件 + OS 指标（搭 VM 用）                                       |
+| kube-state-metrics          | monitoring | repo     | K8s 对象状态指标（Deployment 副本、Pod phase、Node condition）         |
+| Grafana                     | monitoring | **oci**  | 可视化前端，反代嵌入 + 内置 dashboard + auth.proxy                     |
+| VictoriaLogs                | logging    | repo     | 日志存储 + 自带 Vector DaemonSet 采集                                |
+| Volcano                     | scheduling | repo     | Batch 调度器，gang scheduling + Queue + drf 公平共享                  |
+| volcano-vgpu-device-plugin  | scheduling | **local**| Volcano scheduler deviceshare 的后端 device-plugin（HAMi-core fork）：把物理 GPU 注册为 `volcano.sh/vgpu-{number,memory,cores}` 资源；驱动 `/compute/:id/vgpu` 实况页 |
 
-**计划新增**（Volcano 转向 P2/P3）：
+**计划新增**：
 
-| 插件                          | 分类         | 阶段              | 用途                                                                                                |
-|-----------------------------|------------|-----------------|---------------------------------------------------------------------------------------------------|
-| volcano-vgpu-device-plugin  | gpu        | Volcano 转向 P2 | Volcano scheduler deviceshare 后端，提供 vGPU 切分 + 硬隔离（HAMi-core）。**上游不发 Helm chart**，需自建 wrapper chart 用 go:embed 内嵌 |
-| DCGM Exporter               | monitoring | Volcano 转向 P3 | NVIDIA GPU 物理指标采集（利用率 / 温度 / 功耗 / 显存）                                                                  |
+| 插件             | 分类         | 阶段             | 用途                                          |
+|----------------|------------|----------------|---------------------------------------------|
+| DCGM Exporter  | monitoring | Volcano 转向 P3 | NVIDIA GPU 物理指标采集（利用率 / 温度 / 功耗 / 显存）|
 
 **已弃用**：HAMi（独立部署）—— 与 Volcano 调度器的 deviceshare 路径互斥，已从内置注册表移除。其 vGPU 能力由 volcano-vgpu-device-plugin 替代。
+
+### 内置 local chart 模式（volcano-vgpu-device-plugin）
+
+`volcano-vgpu-device-plugin` 是 KPilot 第一个 `ChartType=Local` 的内置插件——上游只发 raw YAML 不发 Helm chart，所以 chart 源码（Chart.yaml / values.yaml / templates/\*）committed 在 `pkg/server/plugins/charts/<name>/` 下，由 server 在启动时即时打包：
+
+1. `pkg/server/plugins/charts.go` 用 `go:embed` 把 chart 目录打包进 server binary。templates/ 用 `all:` 前缀避免 `_helpers.tpl` 被 embed 默认规则跳过
+2. 启动时调用 `PackageVolcanoVGPU()`：把 embed.FS mirror 到临时目录，`loader.LoadDir` → `chartutil.Save` → 读 `<name>-<version>.tgz` bytes，sha256
+3. `store.UpsertPluginBlob` 按 sha256 dedupe 写入 `plugin_blobs` 表；同 sha256 的 blob 不重复插入
+4. `seed.go::seedLocalChartBlobs` 把 blob ID 回填到 builtinPlugins 表对应行的 `ChartBlobID` —— 这一步发生在 `SeedBuiltinPlugins` upsert Plugin 行之前
+5. 启用时走与用户上传 .tgz 完全相同的 worker 路径
+
+`DB = db` 必须在 `SeedBuiltinPlugins` 之前赋值（`6bd6181`），否则 seed 内的 `UpsertPluginBlob` 用包级 `store.DB` 触发 nil deref。
+
+新增 local 内置：
+
+1. 在 `pkg/server/plugins/charts/<name>/` 加 chart 源码
+2. `pkg/server/plugins/charts.go` 加 `embed.FS` + `PackageXxx()` 函数
+3. `seed.go` 加 builtin row + 在 `seedLocalChartBlobs()` 加打包调用 + ChartBlobID 回填
 
 ## 全局注册表 CRUD（`/plugins`）
 
