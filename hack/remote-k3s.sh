@@ -128,14 +128,98 @@ sed_replace_inplace() {
   sed "$pattern" "$file" > "$tmp" && mv "$tmp" "$file"
 }
 
+# try_keyless returns 0 when ssh as $1@host already works without
+# a password (pubkey already installed). Probe is wrapped with
+# `-o ControlPath=none` so a failed auth doesn't leave a stale
+# multiplex master socket behind.
+try_keyless() {
+  local user=$1 host=$2
+  ssh "${SSH_OPTS[@]}" -o ControlPath=none -o BatchMode=yes \
+      -o ConnectTimeout=5 -p "$SSH_PORT" "$user@$host" 'true' 2>/dev/null
+}
+
+# try_ssh_copy_id sends our pubkey to $1@host using $REMOTE_K3S_PASSWORD
+# via expect. Returns 0 on success, 1 on "Permission denied" (the
+# remote rejected the password OR password auth is disabled for that
+# user), 2 on other expect failures (timeout, expect missing, etc.).
+try_ssh_copy_id() {
+  local user=$1 host=$2
+  if ! command -v expect >/dev/null 2>&1; then
+    red "expect not installed; install it (apt: expect / brew: expect / pacman: expect) or"
+    red "push the key manually with:"
+    red "  ssh-copy-id -o Port=$SSH_PORT -i ${SSH_KEY}.pub $user@$host"
+    return 2
+  fi
+  # ssh-copy-id's `-p PORT` arg isn't portable across implementations;
+  # the `-o Port=` form goes through to the underlying ssh and works
+  # everywhere.
+  expect <<EOF
+set timeout 30
+log_user 0
+spawn ssh-copy-id -o StrictHostKeyChecking=no -o Port=$SSH_PORT -i ${SSH_KEY}.pub $user@$host
+expect {
+  -re "password:|Password:" { send "$REMOTE_K3S_PASSWORD\r"; exp_continue }
+  "Permission denied" { exit 1 }
+  eof
+}
+EOF
+}
+
+# bootstrap_root_via_admin handles the cloud-image case where root
+# password SSH is disabled (Tencent Cloud / common Ubuntu cloud
+# images) but a sudo-capable admin user shares the same password.
+# Connects as $admin_user, drops our pubkey into root's
+# authorized_keys via sudo, then leaves cleanup to the caller.
+# Returns 0 on success, 1 on auth failure, 2 on other failure.
+bootstrap_root_via_admin() {
+  local host=$1 admin_user=$2
+  if ! command -v expect >/dev/null 2>&1; then return 2; fi
+  # Pass the pubkey + remote command + ssh target via env vars to
+  # avoid quoting the multi-line script into the expect heredoc. The
+  # quoted-heredoc keeps shell out of expect's parser entirely.
+  REMOTE_K3S_PASSWORD="$REMOTE_K3S_PASSWORD" \
+  SSH_PORT="$SSH_PORT" \
+  RK3S_HOST="$host" \
+  RK3S_USER="$admin_user" \
+  RK3S_PUB="$(cat "${SSH_KEY}.pub")" \
+  expect <<'EOF'
+set timeout 60
+log_user 0
+set pub $env(RK3S_PUB)
+# Inline remote script — appends our pubkey to the admin user's
+# authorized_keys (so subsequent runs can keyless-bootstrap as
+# this user too), then mirrors it into /root/.ssh via sudo.
+# Cloud-image sshd_config commonly has PermitRootLogin
+# prohibit-password, which accepts pubkey but not password — so
+# pubkey is all we need.
+set cmd "set -e; \
+mkdir -p ~/.ssh && chmod 700 ~/.ssh; \
+grep -qF '$pub' ~/.ssh/authorized_keys 2>/dev/null || echo '$pub' >> ~/.ssh/authorized_keys; \
+chmod 600 ~/.ssh/authorized_keys; \
+sudo mkdir -p /root/.ssh; \
+sudo cp ~/.ssh/authorized_keys /root/.ssh/authorized_keys; \
+sudo chmod 700 /root/.ssh; \
+sudo chmod 600 /root/.ssh/authorized_keys; \
+sudo chown -R root:root /root/.ssh; \
+echo BOOTSTRAP_DONE"
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  -o ControlPath=none -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
+  -o ConnectTimeout=15 \
+  -p $env(SSH_PORT) "$env(RK3S_USER)@$env(RK3S_HOST)" "$cmd"
+expect {
+  -re "password:|Password:" { send "$env(REMOTE_K3S_PASSWORD)\r"; exp_continue }
+  "Permission denied" { exit 1 }
+  "BOOTSTRAP_DONE" { exit 0 }
+  eof { exit 2 }
+}
+EOF
+}
+
 push_key() {
   local host=$1
-  # First try keyless — if it already works, skip the password dance.
-  # Bypass multiplex on the probe (-o ControlPath=none): we don't want
-  # a half-formed master socket lingering when the BatchMode probe
-  # fails for auth reasons.
-  if ssh "${SSH_OPTS[@]}" -o ControlPath=none -o BatchMode=yes \
-       -o ConnectTimeout=5 -p "$SSH_PORT" "$SSH_USER@$host" 'true' 2>/dev/null; then
+  # 1. Already-keyless? Skip the password dance entirely.
+  if try_keyless "$SSH_USER" "$host"; then
     return 0
   fi
   : "${REMOTE_K3S_PASSWORD:=}"
@@ -144,24 +228,30 @@ push_key() {
     echo
   fi
   step "pushing pubkey via expect"
-  if ! command -v expect >/dev/null 2>&1; then
-    red "expect not installed; install it (apt: expect / brew: expect / pacman: expect) or"
-    red "push the key manually with:"
-    red "  ssh-copy-id -o Port=$SSH_PORT -i ${SSH_KEY}.pub $SSH_USER@$host"
-    exit 1
+  # 2. Standard ssh-copy-id to $SSH_USER (default: root). Works on
+  #    most VPS images where root password SSH is enabled.
+  if try_ssh_copy_id "$SSH_USER" "$host"; then
+    return 0
   fi
-  # ssh-copy-id's `-p PORT` arg isn't portable across implementations; the
-  # `-o Port=` form goes through to the underlying ssh and works everywhere.
-  expect <<EOF
-set timeout 30
-log_user 0
-spawn ssh-copy-id -o StrictHostKeyChecking=no -o Port=$SSH_PORT -i ${SSH_KEY}.pub $SSH_USER@$host
-expect {
-  -re "password:|Password:" { send "$REMOTE_K3S_PASSWORD\r"; exp_continue }
-  "Permission denied" { exit 1 }
-  eof
-}
-EOF
+  # 3. Tencent Cloud / similar lock root password SSH off in the
+  #    default Ubuntu image but expose a sudo-capable admin user
+  #    that uses the same password. If $SSH_USER is root and we got
+  #    rejected, try ubuntu+sudo to bootstrap. Same trick covers
+  #    centos/ec2-user/admin in their respective images — extend the
+  #    list when a new platform demands it.
+  if [[ "$SSH_USER" == "root" ]]; then
+    for admin in ubuntu centos ec2-user admin; do
+      yellow "root password SSH rejected; trying $admin+sudo bootstrap"
+      if bootstrap_root_via_admin "$host" "$admin"; then
+        if try_keyless "$SSH_USER" "$host"; then
+          green "root pubkey installed via $admin+sudo"
+          return 0
+        fi
+      fi
+    done
+  fi
+  red "could not push pubkey to $SSH_USER@$host — check password and that root SSH (key or password) is permitted"
+  return 1
 }
 
 remote_ssh() {
