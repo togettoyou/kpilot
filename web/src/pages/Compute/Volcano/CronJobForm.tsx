@@ -57,6 +57,12 @@ interface TaskFV {
   args?: string;
   cpu?: string;
   memory?: string;
+  // vGPU first-class fields — mirror JobForm. See the matching block
+  // in JobForm.tsx TaskFV for the rationale; CronJob just wraps Jobs
+  // so the same field set applies.
+  vgpuNumber?: number;
+  vgpuMemory?: number;
+  vgpuCores?: number;
   // Free-form extras row matches JobForm; emitted to limits only.
   resourceExtras?: TaskResourceRow[];
   restartPolicy: 'OnFailure' | 'Never' | 'Always';
@@ -806,6 +812,63 @@ export function CronJobFormDrawer({
                       <Input placeholder="4Gi" maxLength={32} />
                     </Form.Item>
                   </Space.Compact>
+                  {/* GPU 三件套 — 同 JobForm，留空整组就不申请 GPU。 */}
+                  <Space.Compact block style={{ marginTop: 4 }}>
+                    <Form.Item
+                      name={[field.name, 'vgpuNumber']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.number',
+                      })}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.number.tip',
+                      })}
+                      style={{ flex: 1 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        precision={0}
+                        placeholder="1"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'vgpuMemory']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.memory',
+                      })}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.memory.tip',
+                      })}
+                      style={{ flex: 1, marginInlineStart: 12 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        precision={0}
+                        placeholder="3000"
+                        addonAfter="MiB"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'vgpuCores']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.cores',
+                      })}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.cores.tip',
+                      })}
+                      style={{ flex: 1, marginInlineStart: 12 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        max={100}
+                        precision={0}
+                        placeholder="50"
+                        addonAfter="%"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                  </Space.Compact>
                   <div
                     style={{
                       fontSize: 12,
@@ -832,7 +895,7 @@ export function CronJobFormDrawer({
                               style={{ marginBottom: 0 }}
                             >
                               <Input
-                                placeholder="nvidia.com/gpu / volcano.sh/vgpu-number"
+                                placeholder="nvidia.com/gpu / ephemeral-storage / ..."
                                 style={{ width: 280 }}
                               />
                             </Form.Item>
@@ -931,10 +994,27 @@ function fvToInput(v: FormValues): CronJobInput {
           requests['memory'] = memory;
           limits['memory'] = memory;
         }
+        // vGPU native fields → limits (see JobForm for the rationale).
+        if (typeof t.vgpuNumber === 'number' && t.vgpuNumber > 0) {
+          limits['volcano.sh/vgpu-number'] = String(t.vgpuNumber);
+        }
+        if (typeof t.vgpuMemory === 'number' && t.vgpuMemory > 0) {
+          limits['volcano.sh/vgpu-memory'] = String(t.vgpuMemory);
+        }
+        if (typeof t.vgpuCores === 'number' && t.vgpuCores > 0) {
+          limits['volcano.sh/vgpu-cores'] = String(t.vgpuCores);
+        }
+        const HANDLED = new Set([
+          'cpu',
+          'memory',
+          'volcano.sh/vgpu-number',
+          'volcano.sh/vgpu-memory',
+          'volcano.sh/vgpu-cores',
+        ]);
         for (const row of t.resourceExtras ?? []) {
           const k = row?.key?.trim();
           const val = row?.value?.trim();
-          if (k && val && k !== 'cpu' && k !== 'memory') limits[k] = val;
+          if (k && val && !HANDLED.has(k)) limits[k] = val;
         }
         const hasResources =
           Object.keys(requests).length > 0 || Object.keys(limits).length > 0;
@@ -1012,10 +1092,17 @@ function extractCronTasks(specTasks: any): TaskFV[] {
     const r = c.resources ?? {};
     const lim = (r.limits ?? {}) as Record<string, string>;
     const req = (r.requests ?? {}) as Record<string, string>;
-    // Same cpu/memory + everything-else split as JobForm. Union of
-    // limits + requests so single-sided keys don't disappear on edit.
+    // Same cpu/memory + vgpu-* + everything-else split as JobForm.
+    // Union of limits + requests so single-sided keys survive edit.
+    const NATIVE = new Set([
+      'cpu',
+      'memory',
+      'volcano.sh/vgpu-number',
+      'volcano.sh/vgpu-memory',
+      'volcano.sh/vgpu-cores',
+    ]);
     const extras: TaskResourceRow[] = [];
-    const seen = new Set<string>(['cpu', 'memory']);
+    const seen = new Set<string>(NATIVE);
     for (const [k, v] of Object.entries(lim)) {
       if (seen.has(k)) continue;
       extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
@@ -1026,6 +1113,11 @@ function extractCronTasks(specTasks: any): TaskFV[] {
       extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
       seen.add(k);
     }
+    const num = (s?: string): number | undefined => {
+      if (!s) return undefined;
+      const n = parseInt(s, 10);
+      return Number.isFinite(n) ? n : undefined;
+    };
     return {
       name: t.name ?? 'task',
       replicas: typeof t.replicas === 'number' ? t.replicas : 1,
@@ -1040,6 +1132,9 @@ function extractCronTasks(specTasks: any): TaskFV[] {
       args: Array.isArray(c.args) ? c.args.join(' ') : undefined,
       cpu: lim['cpu'] ?? req['cpu'],
       memory: lim['memory'] ?? req['memory'],
+      vgpuNumber: num(lim['volcano.sh/vgpu-number'] ?? req['volcano.sh/vgpu-number']),
+      vgpuMemory: num(lim['volcano.sh/vgpu-memory'] ?? req['volcano.sh/vgpu-memory']),
+      vgpuCores: num(lim['volcano.sh/vgpu-cores'] ?? req['volcano.sh/vgpu-cores']),
       resourceExtras: extras,
       restartPolicy:
         (podSpec.restartPolicy as TaskFV['restartPolicy']) ?? 'OnFailure',

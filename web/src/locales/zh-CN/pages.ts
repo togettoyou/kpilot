@@ -226,6 +226,15 @@ export default {
   'pages.compute.jobForm.task.command': '命令 (command)',
   'pages.compute.jobForm.task.args': '参数 (args)',
   'pages.compute.jobForm.task.resources': '资源请求 (留空不限制)',
+  'pages.compute.jobForm.task.gpu.number': 'GPU 卡数',
+  'pages.compute.jobForm.task.gpu.number.tip':
+    '请求的 vGPU 切片数（volcano.sh/vgpu-number）。整卡场景填 1；HAMi 切分场景表示申请几个切片。留空 = 不申请 GPU。',
+  'pages.compute.jobForm.task.gpu.memory': '显存',
+  'pages.compute.jobForm.task.gpu.memory.tip':
+    '每个 vGPU 切片分配的显存上限，MiB（volcano.sh/vgpu-memory）。HAMi 在容器内强制隔离。留空 = 不限制单切片显存。',
+  'pages.compute.jobForm.task.gpu.cores': '算力',
+  'pages.compute.jobForm.task.gpu.cores.tip':
+    '每个 vGPU 切片可用的 SM 算力百分比 0-100（volcano.sh/vgpu-cores）。advisory（HAMi 默认不强制隔离），主要供调度器打分。留空 = 不限制。',
 
   // CronJob 表单 + 操作
   'pages.compute.cronJob.create': '新建定时作业',

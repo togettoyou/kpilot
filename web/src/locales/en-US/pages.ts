@@ -225,6 +225,15 @@ export default {
   'pages.compute.jobForm.task.command': 'command',
   'pages.compute.jobForm.task.args': 'args',
   'pages.compute.jobForm.task.resources': 'Resource requests (empty = unlimited)',
+  'pages.compute.jobForm.task.gpu.number': 'GPU count',
+  'pages.compute.jobForm.task.gpu.number.tip':
+    'Requested vGPU slots (volcano.sh/vgpu-number). 1 = whole card on a non-shared cluster; under HAMi this is the number of slices. Empty = no GPU.',
+  'pages.compute.jobForm.task.gpu.memory': 'GPU memory',
+  'pages.compute.jobForm.task.gpu.memory.tip':
+    'Memory cap per vGPU slot, in MiB (volcano.sh/vgpu-memory). Enforced inside the container by HAMi. Empty = no per-slice memory limit.',
+  'pages.compute.jobForm.task.gpu.cores': 'GPU cores',
+  'pages.compute.jobForm.task.gpu.cores.tip':
+    'SM compute share per vGPU slot, 0-100% (volcano.sh/vgpu-cores). Advisory: HAMi does not hard-enforce SM time-slicing by default; mostly used for scheduler scoring. Empty = no cap.',
 
   // CronJob form + actions
   'pages.compute.cronJob.create': 'New CronJob',

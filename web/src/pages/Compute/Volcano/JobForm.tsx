@@ -62,10 +62,23 @@ interface TaskFV {
   // value) since gang-scheduled batch usually wants reservations.
   cpu?: string;
   memory?: string;
-  // Free-form extra resources (extended resources / GPUs / ephemeral-
-  // storage / hugepages-*). Emitted into limits only — extended
-  // resources require requests == limits per K8s convention, and
-  // K8s mirrors limit → request automatically when only limit is set.
+  // vGPU first-class fields (Volcano + HAMi vGPU device-plugin).
+  // Emitted as `volcano.sh/vgpu-number` / -memory / -cores into
+  // container limits. Surfaced as native form inputs because
+  // requesting GPUs is the 90% reason users put a task on Volcano
+  // — making them dig into the resource-extras editor every time
+  // was a UX regression for the most common batch workflow.
+  // Number = how many vGPU slots (cards or fractions) the pod gets;
+  // memory = MiB per slot (HAMi enforces); cores = % of SMs per slot
+  // (HAMi advisory).
+  vgpuNumber?: number;
+  vgpuMemory?: number;
+  vgpuCores?: number;
+  // Free-form extra resources (extended resources / non-NVIDIA /
+  // ephemeral-storage / hugepages-*). Emitted into limits only —
+  // extended resources require requests == limits per K8s convention,
+  // and K8s mirrors limit → request automatically when only limit
+  // is set.
   resourceExtras?: TaskResourceRow[];
   restartPolicy: 'OnFailure' | 'Never' | 'Always';
   // Per-task knobs that exist as TaskSpec siblings in upstream.
@@ -934,6 +947,66 @@ export function JobFormDrawer({
                       <Input placeholder="4Gi" maxLength={32} />
                     </Form.Item>
                   </Space.Compact>
+                  {/* GPU 三件套 — number 必填 / memory + cores 可选。
+                      留空就不发对应 volcano.sh/vgpu-* 资源，整组留空时
+                      pod 不请求 GPU。InputNumber 比 Input 严格一些，
+                      避免把 "abc" 写进资源数量。 */}
+                  <Space.Compact block style={{ marginTop: 4 }}>
+                    <Form.Item
+                      name={[field.name, 'vgpuNumber']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.number',
+                      })}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.number.tip',
+                      })}
+                      style={{ flex: 1 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        precision={0}
+                        placeholder="1"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'vgpuMemory']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.memory',
+                      })}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.memory.tip',
+                      })}
+                      style={{ flex: 1, marginInlineStart: 12 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        precision={0}
+                        placeholder="3000"
+                        addonAfter="MiB"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, 'vgpuCores']}
+                      label={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.cores',
+                      })}
+                      tooltip={intl.formatMessage({
+                        id: 'pages.compute.jobForm.task.gpu.cores.tip',
+                      })}
+                      style={{ flex: 1, marginInlineStart: 12 }}
+                    >
+                      <InputNumber
+                        min={0}
+                        max={100}
+                        precision={0}
+                        placeholder="50"
+                        addonAfter="%"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                  </Space.Compact>
                   <div
                     style={{
                       fontSize: 12,
@@ -960,7 +1033,7 @@ export function JobFormDrawer({
                               style={{ marginBottom: 0 }}
                             >
                               <Input
-                                placeholder="nvidia.com/gpu / volcano.sh/vgpu-number"
+                                placeholder="nvidia.com/gpu / ephemeral-storage / ..."
                                 style={{ width: 280 }}
                               />
                             </Form.Item>
@@ -1121,14 +1194,36 @@ function fvToInput(v: FormValues): JobInput {
         requests['memory'] = memory;
         limits['memory'] = memory;
       }
-      // Free-form extras (GPU / extended resources / ephemeral-storage
-      // / hugepages-* / ...) land only in limits — K8s mirrors limit
-      // → request automatically for extended resources, and that's
-      // the convention upstream Volcano docs follow too.
+      // vGPU first-class fields. Emit into limits only — extended
+      // resources require requests == limits per K8s convention and
+      // kubelet mirrors limit → request when only limit is set.
+      // Each field is independently optional; vGPU number alone is
+      // the typical "give me a whole card" pattern, memory/cores
+      // engage HAMi's fractional scheduling.
+      if (typeof t.vgpuNumber === 'number' && t.vgpuNumber > 0) {
+        limits['volcano.sh/vgpu-number'] = String(t.vgpuNumber);
+      }
+      if (typeof t.vgpuMemory === 'number' && t.vgpuMemory > 0) {
+        limits['volcano.sh/vgpu-memory'] = String(t.vgpuMemory);
+      }
+      if (typeof t.vgpuCores === 'number' && t.vgpuCores > 0) {
+        limits['volcano.sh/vgpu-cores'] = String(t.vgpuCores);
+      }
+      // Free-form extras (other extended resources / ephemeral-storage
+      // / hugepages-* / nvidia.com/gpu for clusters not using vGPU /
+      // ...) land only in limits, same K8s mirror rule. We skip the
+      // keys handled above so duplicates can't double-emit.
+      const HANDLED = new Set([
+        'cpu',
+        'memory',
+        'volcano.sh/vgpu-number',
+        'volcano.sh/vgpu-memory',
+        'volcano.sh/vgpu-cores',
+      ]);
       for (const row of t.resourceExtras ?? []) {
         const k = row?.key?.trim();
         const val = row?.value?.trim();
-        if (k && val && k !== 'cpu' && k !== 'memory') limits[k] = val;
+        if (k && val && !HANDLED.has(k)) limits[k] = val;
       }
       const hasResources =
         Object.keys(requests).length > 0 || Object.keys(limits).length > 0;
@@ -1215,12 +1310,19 @@ function extractTasks(specTasks: any): TaskFV[] {
     const r = c.resources ?? {};
     const lim = (r.limits ?? {}) as Record<string, string>;
     const req = (r.requests ?? {}) as Record<string, string>;
-    // Pull cpu/memory out and route everything else (vgpu-* /
-    // nvidia.com/gpu / ephemeral-storage / hugepages-* / ...) into
-    // the free-form extras list. Prefer the union of limits + requests
-    // so we don't lose keys that only exist on one side.
+    // Pull cpu/memory + vgpu-* out as native fields; route everything
+    // else (nvidia.com/gpu / ephemeral-storage / hugepages-* / ...)
+    // into the free-form extras list. Prefer the union of limits +
+    // requests so we don't lose keys that only exist on one side.
+    const NATIVE = new Set([
+      'cpu',
+      'memory',
+      'volcano.sh/vgpu-number',
+      'volcano.sh/vgpu-memory',
+      'volcano.sh/vgpu-cores',
+    ]);
     const extras: TaskResourceRow[] = [];
-    const seen = new Set<string>(['cpu', 'memory']);
+    const seen = new Set<string>(NATIVE);
     for (const [k, v] of Object.entries(lim)) {
       if (seen.has(k)) continue;
       extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
@@ -1231,6 +1333,13 @@ function extractTasks(specTasks: any): TaskFV[] {
       extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
       seen.add(k);
     }
+    // vgpu-* parsed as integers; fall back to undefined on garbage
+    // so the InputNumber renders empty rather than NaN.
+    const num = (s?: string): number | undefined => {
+      if (!s) return undefined;
+      const n = parseInt(s, 10);
+      return Number.isFinite(n) ? n : undefined;
+    };
     return {
       name: t.name ?? 'task',
       replicas: typeof t.replicas === 'number' ? t.replicas : 1,
@@ -1245,6 +1354,9 @@ function extractTasks(specTasks: any): TaskFV[] {
       args: Array.isArray(c.args) ? c.args.join(' ') : undefined,
       cpu: lim['cpu'] ?? req['cpu'],
       memory: lim['memory'] ?? req['memory'],
+      vgpuNumber: num(lim['volcano.sh/vgpu-number'] ?? req['volcano.sh/vgpu-number']),
+      vgpuMemory: num(lim['volcano.sh/vgpu-memory'] ?? req['volcano.sh/vgpu-memory']),
+      vgpuCores: num(lim['volcano.sh/vgpu-cores'] ?? req['volcano.sh/vgpu-cores']),
       resourceExtras: extras,
       restartPolicy:
         (podSpec.restartPolicy as TaskFV['restartPolicy']) ?? 'OnFailure',
