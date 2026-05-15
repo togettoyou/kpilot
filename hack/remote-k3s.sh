@@ -36,6 +36,27 @@ SSH_KEY="$HOME/.ssh/id_ed25519"
 # -o Port=. Default 22; cmd_up overrides from positional arg #2.
 SSH_PORT=22
 
+# SSH connection multiplexing: every ssh/scp call below reuses a single
+# master connection instead of opening a fresh TCP+handshake each time.
+# cmd_up makes ~10 separate ssh hops (probe, OS check, GPU detect,
+# toolkit install, k3s install, RuntimeClass apply, kubeconfig scp, …);
+# without multiplex they each count against sshd's MaxStartups
+# (default 10:30:100) and a previous run that left even a few probes
+# in flight can saturate the throttle window so new connections TCP
+# fine but never finish the SSH handshake — `ConnectTimeout` doesn't
+# catch that (it only covers the TCP layer). ServerAlive* gives every
+# individual call a real liveness check on top.
+SSH_MUX_DIR="$HOME/.ssh/control"
+mkdir -p "$SSH_MUX_DIR" && chmod 700 "$SSH_MUX_DIR"
+SSH_OPTS=(
+  -o StrictHostKeyChecking=no
+  -o ServerAliveInterval=10
+  -o ServerAliveCountMax=3
+  -o ControlMaster=auto
+  -o "ControlPath=$SSH_MUX_DIR/%C"
+  -o ControlPersist=60s
+)
+
 red()    { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 green()  { printf '\033[32m%s\033[0m\n' "$*"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
@@ -110,8 +131,11 @@ sed_replace_inplace() {
 push_key() {
   local host=$1
   # First try keyless — if it already works, skip the password dance.
-  if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-       -p "$SSH_PORT" "$SSH_USER@$host" 'true' 2>/dev/null; then
+  # Bypass multiplex on the probe (-o ControlPath=none): we don't want
+  # a half-formed master socket lingering when the BatchMode probe
+  # fails for auth reasons.
+  if ssh "${SSH_OPTS[@]}" -o ControlPath=none -o BatchMode=yes \
+       -o ConnectTimeout=5 -p "$SSH_PORT" "$SSH_USER@$host" 'true' 2>/dev/null; then
     return 0
   fi
   : "${REMOTE_K3S_PASSWORD:=}"
@@ -143,13 +167,13 @@ EOF
 remote_ssh() {
   local host=$1
   shift
-  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+  ssh "${SSH_OPTS[@]}" -o ConnectTimeout=15 \
       -p "$SSH_PORT" "$SSH_USER@$host" "$@"
 }
 
 remote_scp_from() {
   local host=$1 src=$2 dst=$3
-  scp -q -o StrictHostKeyChecking=no -P "$SSH_PORT" \
+  scp -q "${SSH_OPTS[@]}" -P "$SSH_PORT" \
       "$SSH_USER@$host:$src" "$dst"
 }
 
