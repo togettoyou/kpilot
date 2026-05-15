@@ -11,6 +11,7 @@ import {
   Col,
   Empty,
   Input,
+  Progress,
   Row,
   Space,
   Tag,
@@ -378,11 +379,8 @@ function ClusterKPIs({
             : k.tone === 'error'
               ? 'var(--ant-color-error)'
               : undefined;
+        const pct = Math.round((k.ratio ?? 0) * 100);
         return (
-          // 6 columns at md+ → 4 cards span the full row. Title
-          // minHeight matches Overview KPI row so values share a
-          // baseline. Bar/chips row reserved at fixed height even
-          // on bar-less KPIs so all 4 cards end at the same y.
           <Col key={k.key} xs={12} sm={12} md={6} lg={6} xl={6}>
             <AntCard
               size="small"
@@ -395,61 +393,79 @@ function ClusterKPIs({
                   fontSize: 14,
                   color: 'var(--ant-color-text-secondary)',
                   lineHeight: 1.4,
-                  minHeight: 40,
+                  marginBottom: 8,
                 }}
               >
                 {intl.formatMessage({
                   id: `pages.compute.vgpu.kpi.${k.key}`,
                 })}
               </div>
-              <div
-                style={{
-                  fontSize: 24,
-                  fontWeight: 500,
-                  lineHeight: 1.4,
-                  color: toneColor,
-                }}
-              >
-                {String(k.value)}
-                {k.suffix && (
-                  <span style={{ fontSize: 14, marginInlineStart: 4 }}>
-                    {k.suffix}
-                  </span>
-                )}
-              </div>
-              {/* Reserved slot — either a thin utilization bar
-                  (slots / memory) or a chip row (cards / nodes).
-                  Fixed height so the 4 cards stay aligned. */}
-              <div
-                style={{
-                  minHeight: 18,
-                  marginTop: 6,
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                {k.ratio !== undefined ? (
+              {k.ratio !== undefined ? (
+                // antd Progress.dashboard renders a 3/4-arc ring
+                // gauge — picked over @ant-design/plots Gauge because
+                // it's in the bundle already (no extra ~250 KB) and
+                // the look is cleaner for these small KPI tiles.
+                // strokeColor follows the same red/yellow/green
+                // thresholds the page uses everywhere else.
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Progress
+                    type="dashboard"
+                    percent={pct}
+                    size={110}
+                    strokeColor={utilColor(k.ratio)}
+                    format={() => (
+                      <span style={{ color: toneColor, fontSize: 20, fontWeight: 600 }}>
+                        {pct}%
+                      </span>
+                    )}
+                  />
+                  <Text
+                    type="secondary"
+                    style={{ fontSize: 12, marginTop: 4, textAlign: 'center' }}
+                  >
+                    {String(k.value)}
+                    {k.suffix ? ` ${k.suffix}` : ''}
+                  </Text>
+                </div>
+              ) : (
+                // Non-utilization tile (cards count). Big number +
+                // optional chips — same vertical real estate as the
+                // dashboard gauges so the row stays aligned.
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    minHeight: 138,
+                    justifyContent: 'center',
+                  }}
+                >
                   <div
                     style={{
-                      flex: 1,
-                      height: 6,
-                      background: 'var(--ant-color-fill-tertiary)',
-                      borderRadius: 2,
-                      overflow: 'hidden',
+                      fontSize: 40,
+                      fontWeight: 600,
+                      lineHeight: 1.1,
+                      color: toneColor,
                     }}
                   >
-                    <div
-                      style={{
-                        width: `${k.ratio * 100}%`,
-                        height: '100%',
-                        background: utilColor(k.ratio),
-                      }}
-                    />
+                    {String(k.value)}
+                    {k.suffix && (
+                      <span style={{ fontSize: 16, marginInlineStart: 4 }}>
+                        {k.suffix}
+                      </span>
+                    )}
                   </div>
-                ) : (
-                  k.chips
-                )}
-              </div>
+                  {k.chips && (
+                    <div style={{ marginTop: 8 }}>{k.chips}</div>
+                  )}
+                </div>
+              )}
             </AntCard>
           </Col>
         );
