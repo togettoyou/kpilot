@@ -96,7 +96,7 @@ func main() {
 		// Reverse-proxy HTTP forwarder (Server → in-cluster Service for
 		// embedded plugin UIs like Grafana). Independent of the resource
 		// proxy — it doesn't touch K8s APIs at all, just forwards HTTP.
-		httpProxy := proxy.NewHTTPProxy(tunnelClient.SendHTTPResponse)
+		httpProxy := proxy.NewHTTPProxy(tunnelClient.SendHTTPResponse, tunnelClient.StreamContext)
 		tunnelClient.SetHTTPHandler(httpProxy.Handle)
 
 		// WebSocket reverse proxy (Grafana Live, etc.) — sibling to the

@@ -73,7 +73,13 @@ func (m *ExecManager) Start(sessionID string, req *proto.ExecStartRequest) {
 		stdinW:   stdinW,
 		resizeCh: resizeCh,
 	}
+	// Replace any pre-existing entry under the same sessionID — see
+	// the matching note in ws.go.Start.
 	m.mu.Lock()
+	if old, ok := m.sessions[sessionID]; ok {
+		old.cancel()
+		_ = old.stdinW.Close()
+	}
 	m.sessions[sessionID] = sess
 	m.mu.Unlock()
 

@@ -64,7 +64,12 @@ func (m *LogsManager) Start(sessionID string, req *proto.LogsStartRequest) {
 	// the K8s log Stream() call unblocks via context cancel and we exit
 	// instead of leaking until the pod stops logging.
 	ctx, cancel := context.WithCancel(m.tunnel.StreamContext())
+	// Replace any pre-existing entry under the same sessionID — see
+	// the matching note in ws.go.Start.
 	m.mu.Lock()
+	if old, ok := m.sessions[sessionID]; ok {
+		old()
+	}
 	m.sessions[sessionID] = cancel
 	m.mu.Unlock()
 	defer m.cleanup(sessionID)

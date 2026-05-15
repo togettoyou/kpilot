@@ -49,13 +49,22 @@ const proxyMaxRespBytes = 31 * 1024 * 1024
 type HTTPProxy struct {
 	client *http.Client
 	sendFn func(requestID string, resp *proto.HTTPResponse)
+	// streamCtxFn returns the tunnel's current stream context, so each
+	// proxied request can derive its ctx from it. When the tunnel
+	// disconnects, in-flight upstream HTTP requests get cancelled
+	// instead of hanging on their 60 s timeout. nil-tolerant for tests.
+	streamCtxFn func() context.Context
 }
 
 // NewHTTPProxy builds an HTTPProxy with sensible defaults for the in-cluster
 // service traffic this layer carries (a Grafana dashboard load can pull a few
 // MB of JSON; static asset fetches are tiny). The send function should be the
-// tunnel client's SendHTTPResponse.
-func NewHTTPProxy(sendFn func(string, *proto.HTTPResponse)) *HTTPProxy {
+// tunnel client's SendHTTPResponse; streamCtxFn should be
+// tunnel.Client.StreamContext so request ctx tracks tunnel lifetime.
+func NewHTTPProxy(
+	sendFn func(string, *proto.HTTPResponse),
+	streamCtxFn func() context.Context,
+) *HTTPProxy {
 	return &HTTPProxy{
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -76,7 +85,8 @@ func NewHTTPProxy(sendFn func(string, *proto.HTTPResponse)) *HTTPProxy {
 			// separate dispatch path with no overall timeout.
 			Timeout: 60 * time.Second,
 		},
-		sendFn: sendFn,
+		sendFn:      sendFn,
+		streamCtxFn: streamCtxFn,
 	}
 }
 
@@ -121,7 +131,14 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 		return nil, fmt.Errorf("unsupported url scheme: %s", req.Url)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Parent on the tunnel's stream ctx so a disconnect immediately
+	// cancels the upstream request rather than letting it run out the
+	// 60 s timeout. streamCtxFn is nil-tolerant for tests.
+	parent := context.Background()
+	if p.streamCtxFn != nil {
+		parent = p.streamCtxFn()
+	}
+	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
 
 	var body io.Reader

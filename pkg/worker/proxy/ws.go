@@ -18,10 +18,14 @@ import (
 
 // WSPusher is the subset of the tunnel.Client this manager needs. Defining it
 // as an interface keeps the worker side decoupled and lets us swap a fake in
-// unit tests if we add them later.
+// unit tests if we add them later. StreamContext is included so per-session
+// ctxes can be derived from the live tunnel — a disconnect cancels the
+// upstream dial + read/write pumps instead of leaking them up to the per-
+// session timeout.
 type WSPusher interface {
 	SendWSFrame(sessionID string, frame *proto.WSFrame) error
 	SendWSEnd(sessionID string, end *proto.WSEnd) error
+	StreamContext() context.Context
 }
 
 // WSManager owns active reverse-proxy WebSocket sessions on the worker side.
@@ -111,7 +115,10 @@ func (m *WSManager) Start(sessionID string, req *proto.WSStartRequest) {
 		header.Del(drop)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Parent on the tunnel stream ctx so a tunnel disconnect cancels
+	// the dial + pump goroutines immediately; otherwise they leak
+	// waiting for the upstream's own timeouts.
+	ctx, cancel := context.WithCancel(m.pusher.StreamContext())
 	conn, dialResp, err := m.dialer.DialContext(ctx, req.Url, header)
 	if err != nil {
 		// gorilla/websocket reports any non-101 as the generic
@@ -139,7 +146,17 @@ func (m *WSManager) Start(sessionID string, req *proto.WSStartRequest) {
 		cancel:  cancel,
 		writeCh: make(chan *proto.WSFrame, wsSessionWriteBuf),
 	}
+	// Replace any pre-existing entry under the same sessionID — across
+	// a reconnect the Server may replay a Start whose id collides with
+	// an old session. Without this, the old goroutine's cancel is
+	// orphaned and the old conn keeps draining frames into nothing.
 	m.mu.Lock()
+	if old, ok := m.sessions[sessionID]; ok {
+		old.closeOnce.Do(func() {
+			old.cancel()
+			_ = old.conn.Close()
+		})
+	}
 	m.sessions[sessionID] = sess
 	m.mu.Unlock()
 
