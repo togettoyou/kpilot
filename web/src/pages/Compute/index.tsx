@@ -1,6 +1,6 @@
 import {
-  CheckCircleFilled,
-  CloseCircleFilled,
+  CheckCircleOutlined,
+  MinusCircleOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
@@ -13,9 +13,11 @@ import { type Cluster, listClusters } from '@/services/kpilot/cluster';
 const { Text } = Typography;
 
 // Compute landing page — pick a cluster to enter the GPU ops view.
-// Lighter version of the /clusters page: same card grid look but no
-// create/edit/delete actions (those live on /clusters; this page only
-// selects a cluster context for the compute platform).
+// Visual chrome mirrors the /clusters page (title + extra header,
+// description body with min-height, dates row at the bottom) so the
+// two landing pages feel like the same product. Differences vs
+// /clusters: no create / edit / delete affordances (cluster
+// lifecycle lives on /clusters; this page only picks a context).
 const ComputeLanding: React.FC = () => {
   const intl = useIntl();
   const { data, loading } = useRequest(listClusters, {
@@ -38,8 +40,8 @@ const ComputeLanding: React.FC = () => {
       }}
     >
       {loading && clusters.length === 0 ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 64 }}>
-          <Spin />
+        <div className="flex justify-center py-20">
+          <Spin size="large" />
         </div>
       ) : clusters.length === 0 ? (
         <Card>
@@ -61,7 +63,11 @@ const ComputeLanding: React.FC = () => {
           </Empty>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        // Same breakpoint ladder as /clusters: 1 / 2 / 3 columns. The
+        // older `xl:grid-cols-4` cap made cards too narrow on common
+        // 1440-wide laptops — the description got cut to fewer than
+        // half its 2 lines.
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {clusters.map((c) => (
             <PickerCard key={c.id} cluster={c} onEnter={() => enter(c.id)} />
           ))}
@@ -77,95 +83,98 @@ const PickerCard: React.FC<{ cluster: Cluster; onEnter: () => void }> = ({
 }) => {
   const intl = useIntl();
   const online = cluster.status === 'online';
+
+  // Show date + time — matches /clusters so a user comparing the two
+  // pages side-by-side sees consistent footer info.
+  const formatDate = (iso: string) => new Date(iso).toLocaleString();
+
   return (
     <Card
       hoverable
       onClick={onEnter}
-      styles={{ body: { padding: 16 } }}
-    >
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+      title={
+        // Flex with min-width:0 on the name so long cluster names
+        // truncate instead of pushing the status tag offscreen.
         <div
           style={{
             display: 'flex',
-            justifyContent: 'space-between',
             alignItems: 'center',
             gap: 8,
+            minWidth: 0,
           }}
         >
-          {/* min-width:0 + flex:1 lets the name truncate instead of
-              pushing the status tag offscreen on long cluster names. */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              minWidth: 0,
-              flex: 1,
-            }}
+          <ThunderboltOutlined
+            className="text-blue-500"
+            style={{ flexShrink: 0 }}
+          />
+          <Text
+            strong
+            ellipsis={{ tooltip: cluster.name }}
+            style={{ minWidth: 0, flex: 1 }}
           >
-            <ThunderboltOutlined
-              style={{ color: '#1677ff', fontSize: 18, flexShrink: 0 }}
-            />
-            {/* Pure-CSS truncate + native browser tooltip via the
-                `title` attr. antd's Text ellipsis={{ tooltip }} +
-                hoverable Card combination flickered: hovering moved
-                the card slightly, antd's resize observer
-                re-measured, the tooltip rebound, and the cycle
-                repeated. Native title is zero-JS, no observer. */}
-            <span
-              title={cluster.name}
-              style={{
-                fontWeight: 600,
-                fontSize: 15,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                minWidth: 0,
-              }}
-            >
-              {cluster.name}
-            </span>
-          </div>
-          {online ? (
-            <Tag color="success" icon={<CheckCircleFilled />} style={{ flexShrink: 0 }}>
-              {intl.formatMessage({ id: 'pages.clusters.status.online' })}
-            </Tag>
-          ) : (
-            <Tag icon={<CloseCircleFilled />} style={{ flexShrink: 0 }}>
-              {intl.formatMessage({ id: 'pages.clusters.status.offline' })}
-            </Tag>
-          )}
+            {cluster.name}
+          </Text>
+          <Tag
+            color={online ? 'success' : 'default'}
+            icon={online ? <CheckCircleOutlined /> : <MinusCircleOutlined />}
+            style={{ flexShrink: 0, marginInlineEnd: 0 }}
+          >
+            {intl.formatMessage({
+              id: online
+                ? 'pages.clusters.status.online'
+                : 'pages.clusters.status.offline',
+            })}
+          </Tag>
         </div>
-        {/* CSS line-clamp keeps the card height stable. When the
-            description overflows the 2-line clamp, hover shows the
-            full text inside an antd Tooltip — overlayInnerStyle caps
-            the popup at 280px tall and scrolls inside, so a 2000-
-            character description doesn't paint half the screen. */}
-        <Tooltip
-          title={cluster.description}
-          placement="topLeft"
-          overlayInnerStyle={{
-            maxHeight: 280,
-            overflowY: 'auto',
+      }
+    >
+      {/* Description — CSS line-clamp keeps card heights aligned.
+          Long descriptions reveal in a Tooltip on hover, capped at
+          280 px tall and scrollable inside, so a multi-paragraph
+          description doesn't paint half the screen. */}
+      <Tooltip
+        title={cluster.description}
+        placement="topLeft"
+        overlayInnerStyle={{
+          maxHeight: 280,
+          overflowY: 'auto',
+          wordBreak: 'break-all',
+        }}
+      >
+        <div
+          className="mb-3 min-h-[44px]"
+          style={{
+            color: 'var(--ant-color-text-secondary)',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
             wordBreak: 'break-all',
           }}
         >
-          <div
-            style={{
-              color: 'var(--ant-color-text-secondary)',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              wordBreak: 'break-all',
-              minHeight: 40,
-            }}
-          >
-            {cluster.description ||
-              intl.formatMessage({ id: 'pages.clusters.card.noDescription' })}
-          </div>
-        </Tooltip>
-      </Space>
+          {cluster.description ||
+            intl.formatMessage({ id: 'pages.clusters.card.noDescription' })}
+        </div>
+      </Tooltip>
+      {/* Created / updated side-by-side, single line. Same shape as
+          /clusters' ClusterCard so the footer reads consistently. */}
+      <div
+        className="flex justify-between text-xs text-gray-400"
+        style={{ gap: 12, whiteSpace: 'nowrap' }}
+      >
+        <span>
+          {intl.formatMessage(
+            { id: 'pages.clusters.card.createdAt' },
+            { date: formatDate(cluster.created_at) },
+          )}
+        </span>
+        <span>
+          {intl.formatMessage(
+            { id: 'pages.clusters.card.updatedAt' },
+            { date: formatDate(cluster.updated_at) },
+          )}
+        </span>
+      </div>
     </Card>
   );
 };
