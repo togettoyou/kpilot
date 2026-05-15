@@ -76,15 +76,31 @@ export default function VolcanoOverviewPage() {
 
   const { data, loading, error, refresh } = useRequest(
     async (): Promise<BundleData> => {
-      const [queues, jobs, cronJobs, podGroups, hyperNodes, jobFlows] =
-        await Promise.all([
-          listVolcanoQueues(clusterId!),
-          listVolcanoJobs(clusterId!, ns),
-          listVolcanoCronJobs(clusterId!, ns),
-          listVolcanoPodGroups(clusterId!, ns),
-          listVolcanoHyperNodes(clusterId!),
-          listVolcanoJobFlows(clusterId!, ns),
-        ]);
+      // Promise.allSettled so an optional CRD (JobFlow / NumaTopology /
+      // NodeShard / ColocationConfiguration) being absent on the
+      // cluster doesn't fail the whole dashboard. Each sub-list
+      // independently degrades to an empty bucket; the
+      // RESOURCE_NOT_AVAILABLE banner only fires when every list
+      // rejects (handled by the existing isResourceNotAvailable guard
+      // below — when individual sub-CRDs are missing here, the
+      // remaining lists still return data).
+      const results = await Promise.allSettled([
+        listVolcanoQueues(clusterId!),
+        listVolcanoJobs(clusterId!, ns),
+        listVolcanoCronJobs(clusterId!, ns),
+        listVolcanoPodGroups(clusterId!, ns),
+        listVolcanoHyperNodes(clusterId!),
+        listVolcanoJobFlows(clusterId!, ns),
+      ]);
+      const pick = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
+        r.status === 'fulfilled' ? r.value : fallback;
+      const empty = { items: [], continue: '' as string | undefined };
+      const queues = pick(results[0], empty as any);
+      const jobs = pick(results[1], empty as any);
+      const cronJobs = pick(results[2], empty as any);
+      const podGroups = pick(results[3], empty as any);
+      const hyperNodes = pick(results[4], empty as any);
+      const jobFlows = pick(results[5], empty as any);
       // Scheduler config summary — best-effort. Race conditions
       // around a fresh Volcano install can produce 404s here; we
       // tolerate them silently rather than break the whole page.

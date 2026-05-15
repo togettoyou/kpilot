@@ -92,4 +92,6 @@ export default {
   'menu.compute.resources.numatopologies': 'NumaTopology',
   'menu.compute.resources.nodeshards': 'NodeShard',
   'menu.compute.resources.colocationconfigurations': 'ColocationConfig',
+
+  'menu.account.logout': 'Logout',
 };

@@ -32,6 +32,7 @@ import {
   ResourceIntro,
   TruncatedBanner,
   useAutoRefresh,
+  useStaggeredRefresh,
 } from './shared/Layout';
 
 // totalPods sums every per-phase counter on a Job row. Used to decide
@@ -383,6 +384,12 @@ function JobLifecycleAction({
   const intl = useIntl();
   const { message, modal } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
+  // useStaggeredRefresh tracks the setTimeout ids so an unmount
+  // cancels pending refreshes — declared above the early return so
+  // hook order stays stable. Without it, a quick navigate-away
+  // after firing an action would call refresh() on an unmounted
+  // useRequest and React warns about setState-on-unmounted.
+  const fireRefresh = useStaggeredRefresh(refresh);
   if (!clusterId) return null;
 
   const ACTION_LABEL_ID: Record<string, string> = {
@@ -409,7 +416,7 @@ function JobLifecycleAction({
       message.success(
         intl.formatMessage({ id: 'pages.compute.job.commandSent' }),
       );
-      [600, 2500].forEach((d) => setTimeout(refresh, d));
+      fireRefresh([600, 2500]);
     } catch (e: any) {
       const m = e?.response?.data?.message ?? e?.message;
       if (m) message.error(String(m));

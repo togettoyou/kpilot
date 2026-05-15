@@ -12,7 +12,7 @@ import {
   Tabs,
 } from 'antd';
 import yaml from 'js-yaml';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import {
@@ -63,6 +63,14 @@ export function NodeShardFormDrawer({
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const isEdit = !!editing;
+  // Preserve metadata bits the form doesn't surface — see the
+  // matching note in HyperNodeForm.
+  const editMetaRef = useRef<{
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+    finalizers?: string[];
+    ownerReferences?: unknown[];
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -70,6 +78,7 @@ export function NodeShardFormDrawer({
     setView('form');
     setYamlText('');
     setYamlError(null);
+    editMetaRef.current = null;
     if (!editing) {
       form.setFieldsValue({ nodesDesired: [] });
       return;
@@ -87,6 +96,13 @@ export function NodeShardFormDrawer({
               )
             : [],
         });
+        const meta = obj?.metadata ?? {};
+        editMetaRef.current = {
+          labels: meta.labels,
+          annotations: meta.annotations,
+          finalizers: meta.finalizers,
+          ownerReferences: meta.ownerReferences,
+        };
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -138,6 +154,22 @@ export function NodeShardFormDrawer({
         return;
       }
       manifest = buildNodeShardManifest(fvToInput(v));
+      // Edit mode: merge back the metadata fields the form doesn't
+      // model so we don't strip labels / annotations / finalizers on
+      // save.
+      if (isEdit && editMetaRef.current) {
+        const m = manifest as Record<string, any>;
+        const meta = (m.metadata = { ...(m.metadata ?? {}) });
+        const extras = editMetaRef.current;
+        if (extras.labels) {
+          meta.labels = { ...extras.labels, ...(meta.labels ?? {}) };
+        }
+        if (extras.annotations) {
+          meta.annotations = { ...extras.annotations, ...(meta.annotations ?? {}) };
+        }
+        if (extras.finalizers) meta.finalizers = extras.finalizers;
+        if (extras.ownerReferences) meta.ownerReferences = extras.ownerReferences;
+      }
     } else {
       try {
         manifest = yaml.load(yamlText);

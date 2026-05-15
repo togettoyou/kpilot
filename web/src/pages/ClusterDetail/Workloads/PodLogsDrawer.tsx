@@ -138,7 +138,18 @@ export function PodLogsDrawer({
         }
       })
       .catch((err: any) => {
-        if (!cancelled) setError(String(err?.message ?? err));
+        if (cancelled) return;
+        // Drill into the request's structured error shape first —
+        // `String(err)` on a fetch rejection often yields the
+        // useless "[object Object]". message > data.message > code
+        // > generic toString.
+        const msg =
+          err?.response?.data?.message ??
+          err?.data?.message ??
+          err?.response?.data?.code ??
+          err?.message ??
+          String(err);
+        setError(String(msg));
       });
     return () => {
       cancelled = true;

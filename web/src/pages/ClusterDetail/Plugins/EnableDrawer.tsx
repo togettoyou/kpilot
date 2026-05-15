@@ -50,14 +50,23 @@ export function EnableDrawer({
     form.setFieldsValue({ version: target.version_override || '' });
     setValues(target.values_override || '');
     setRegistryDefault('');
-    getPlugin(target.plugin.id).then((p) => {
-      if (cancelled || !p) return;
-      const def = p.default_values || '';
-      setRegistryDefault(def);
-      // If the user has no override yet, seed the editor with the
-      // registry default. With an override, leave their text alone.
-      if (!target.values_override) setValues(def);
-    });
+    getPlugin(target.plugin.id)
+      .then((p) => {
+        if (cancelled || !p) return;
+        const def = p.default_values || '';
+        setRegistryDefault(def);
+        // If the user has no override yet, seed the editor with the
+        // registry default. With an override, leave their text alone.
+        if (!target.values_override) setValues(def);
+      })
+      .catch((err) => {
+        // Without this catch, a failed lookup leaves registryDefault
+        // as '' and the Reset button would silently wipe the editor
+        // — easy way to write blank values_override over a working
+        // install. Log and let the user know we couldn't load defaults.
+        if (cancelled) return;
+        console.warn('[plugins] getPlugin defaults failed', err);
+      });
     return () => {
       cancelled = true;
     };
@@ -69,6 +78,15 @@ export function EnableDrawer({
   // a different default (e.g. our k8s-stack → single migration).
   const handleReset = () => {
     if (!target) return;
+    // Guard against resetting to an empty string when the
+    // getPlugin defaults fetch failed — clearing values would
+    // overwrite a working install with blank values_override.
+    if (!registryDefault) {
+      message.warning(
+        intl.formatMessage({ id: 'pages.plugins.enable.reset.unavailable' }),
+      );
+      return;
+    }
     setValues(registryDefault);
     form.setFieldsValue({ version: '' });
   };

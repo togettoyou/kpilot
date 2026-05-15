@@ -16,7 +16,7 @@ import {
   Typography,
 } from 'antd';
 import yaml from 'js-yaml';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import {
@@ -86,6 +86,15 @@ export function HyperNodeFormDrawer({
   const [yamlError, setYamlError] = useState<string | null>(null);
 
   const isEdit = !!editing;
+  // Preserve metadata bits the form doesn't surface (labels,
+  // annotations, finalizers, ownerReferences) so an edit-mode save
+  // doesn't strip them. Cleared on every drawer (re)open.
+  const editMetaRef = useRef<{
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+    finalizers?: string[];
+    ownerReferences?: unknown[];
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -94,6 +103,7 @@ export function HyperNodeFormDrawer({
     setView('form');
     setYamlText('');
     setYamlError(null);
+    editMetaRef.current = null;
     if (!editing) {
       form.setFieldsValue({ tier: 1, members: [] });
       return;
@@ -103,6 +113,13 @@ export function HyperNodeFormDrawer({
       .then((obj: any) => {
         if (cancelled) return;
         form.setFieldsValue(formValuesFromManifest(obj, editing.name));
+        const meta = obj?.metadata ?? {};
+        editMetaRef.current = {
+          labels: meta.labels,
+          annotations: meta.annotations,
+          finalizers: meta.finalizers,
+          ownerReferences: meta.ownerReferences,
+        };
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -151,6 +168,22 @@ export function HyperNodeFormDrawer({
         return;
       }
       manifest = buildHyperNodeManifest(fvToInput(v));
+      // Edit mode: merge back the metadata fields the form doesn't
+      // model so we don't accidentally wipe labels / annotations /
+      // finalizers on save.
+      if (isEdit && editMetaRef.current) {
+        const m = manifest as Record<string, any>;
+        const meta = (m.metadata = { ...(m.metadata ?? {}) });
+        const extras = editMetaRef.current;
+        if (extras.labels) {
+          meta.labels = { ...extras.labels, ...(meta.labels ?? {}) };
+        }
+        if (extras.annotations) {
+          meta.annotations = { ...extras.annotations, ...(meta.annotations ?? {}) };
+        }
+        if (extras.finalizers) meta.finalizers = extras.finalizers;
+        if (extras.ownerReferences) meta.ownerReferences = extras.ownerReferences;
+      }
     } else {
       try {
         manifest = yaml.load(yamlText);

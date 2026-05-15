@@ -630,6 +630,8 @@ export default {
   'pages.plugins.delete': '删除',
   'pages.plugins.delete.confirm': '确认删除插件 "{name}"？',
   'pages.plugins.delete.success': '插件已删除',
+  'pages.plugins.enable.reset.unavailable':
+    '未能加载注册表默认值，暂无法重置 —— 请检查网络或稍后重试',
   'pages.plugins.builtin': '内置',
   'pages.plugins.empty': '暂无插件',
   'pages.plugins.repoTag': 'Helm 仓库',

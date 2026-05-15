@@ -1,5 +1,5 @@
 import { LogoutOutlined } from '@ant-design/icons';
-import { history, useModel } from '@umijs/max';
+import { history, useIntl, useModel } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Spin } from 'antd';
 import React from 'react';
@@ -12,6 +12,7 @@ export type GlobalHeaderRightProps = {
 };
 
 export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({ children }) => {
+  const intl = useIntl();
   const { initialState, setInitialState } = useModel('@@initialState');
 
   const onMenuClick: MenuProps['onClick'] = async ({ key }) => {
@@ -32,7 +33,7 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({ children }) =
     {
       key: 'logout',
       icon: <LogoutOutlined />,
-      label: '退出登录',
+      label: intl.formatMessage({ id: 'menu.account.logout' }),
     },
   ];
 

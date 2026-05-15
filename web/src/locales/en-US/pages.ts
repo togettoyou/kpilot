@@ -647,6 +647,8 @@ export default {
   'pages.plugins.delete': 'Delete',
   'pages.plugins.delete.confirm': 'Delete plugin "{name}"?',
   'pages.plugins.delete.success': 'Plugin deleted',
+  'pages.plugins.enable.reset.unavailable':
+    'Registry defaults could not be loaded — reset is disabled. Check network or retry.',
   'pages.plugins.builtin': 'Built-in',
   'pages.plugins.empty': 'No plugins',
   'pages.plugins.repoTag': 'Helm Repo',

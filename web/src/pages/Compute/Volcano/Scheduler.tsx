@@ -227,6 +227,11 @@ export default function VolcanoSchedulerPage() {
 
   useEffect(() => {
     if (!cm.data) return;
+    // Guard against the user being mid-edit when the underlying
+    // configmap refreshes (today there's no polling here so this
+    // only fires on first load, but the safety net protects against
+    // any future refresh / polling change clobbering the draft).
+    if (editing) return;
     const obj: any = cm.data;
     const text =
       obj?.data?.['volcano-scheduler.conf'] ??
@@ -247,6 +252,9 @@ export default function VolcanoSchedulerPage() {
     setYamlError(null);
     setView('form');
     setEditing(false);
+    // editing intentionally NOT in deps: this effect should re-run
+    // only on a cm.data refresh, not when the user toggles edit mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cm.data]);
 
   const cancelEdit = () => {
