@@ -34,7 +34,7 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 
 `volcano-scheduler-configmap` 的可视化编辑器。
 
-- **数据来源**：从 Volcano 插件的 `default_release_namespace`（默认 `kpilot-scheduling`）拉 `volcano-scheduler-configmap`，解析 `data."volcano-scheduler.conf"` 为 YAML
+- **数据来源**：cluster-side 探测（worker `getVolcanoStatus`，metadata.name 字段选择器全 ns 找 `volcano-scheduler-configmap`），不依赖 kpilot 插件注册表的 namespace。内置 Volcano 插件默认装在 `volcano-system`
 - **默认只读**：进入页面表单 Select 全部 disabled、YAML 编辑器 readOnly。右上角 toolbar 「刷新」+「编辑」
 - **编辑模式**：点「编辑」后右上角换成「取消」+「保存」；取消恢复到上次拉取快照
 - **双视图**：

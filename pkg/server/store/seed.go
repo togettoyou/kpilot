@@ -467,13 +467,15 @@ custom:
       - name: nodeorder
       - name: binpack
 `,
-		// kpilot-scheduling joins the kpilot-* namespace family so the
-		// Workload page treats Volcano's pods as read-only — users can
-		// browse them but can't accidentally `kubectl delete deployment`
-		// the scheduler. Volcano's chart is fully namespace-portable
-		// (every template references .Release.Namespace), so the choice
-		// is ours; we don't need to use upstream's "volcano-system".
-		DefaultReleaseNamespace: "kpilot-scheduling",
+		// volcano-system is the upstream convention. We earlier tried
+		// kpilot-scheduling to keep all kpilot-managed namespaces in
+		// one family, but the HAMi vGPU plugin binary hardcodes a
+		// `kube-system → volcano-system` fallback chain for its
+		// config ConfigMap lookup. Living in volcano-system means the
+		// device-config CM can stay un-pinned (fallback finds it) and
+		// the node-config volume-mount works (same ns as DaemonSet) —
+		// no two-namespace gymnastics needed.
+		DefaultReleaseNamespace: "volcano-system",
 	},
 	{
 		Name:        "volcano-vgpu-device-plugin",
@@ -483,7 +485,7 @@ custom:
 		// The chart_name subtitle still shows the full
 		// "volcano-vgpu-device-plugin" so users know what's installing.
 		DisplayName: "Volcano vGPU",
-		Description: "Registers physical NVIDIA GPUs as `volcano.sh/vgpu-*` resources (number / memory / cores) via a HAMi-core fork; Volcano's deviceshare plugin slices them per Pod requests. Required for the vGPU page and any fractional-GPU pod. Pair with `deviceshare.VGPUEnable: true` in scheduler config. Caveats: privileged DaemonSet (PodSecurity=restricted blocks it; default kpilot-scheduling ns is fine); GPU-Operator clusters need an extra `nvidia.com/gpu` toleration in the Enable drawer.",
+		Description: "Registers physical NVIDIA GPUs as `volcano.sh/vgpu-*` resources (number / memory / cores) via a HAMi-core fork; Volcano's deviceshare plugin slices them per Pod requests. Required for the vGPU page and any fractional-GPU pod. Pair with `deviceshare.VGPUEnable: true` in scheduler config. Caveats: privileged DaemonSet (PodSecurity=restricted blocks it; default volcano-system ns is fine); GPU-Operator clusters need an extra `nvidia.com/gpu` toleration in the Enable drawer.",
 		Category:    PluginCategoryScheduling,
 		IsBuiltin:   true,
 		// Same scheduling category, just after Volcano itself.
@@ -540,8 +542,10 @@ hostLibPath: /usr/local/vgpu
 		// Match the Volcano plugin's release namespace so the
 		// scheduler and the device-plugin share the same place. The
 		// device-plugin is namespace-portable (RBAC is ClusterRole
-		// scoped, hostPath mounts don't care).
-		DefaultReleaseNamespace: "kpilot-scheduling",
+		// scoped, hostPath mounts don't care). volcano-system aligns
+		// with the HAMi binary's hardcoded fallback for the device-
+		// config CM lookup (kube-system → volcano-system).
+		DefaultReleaseNamespace: "volcano-system",
 	},
 }
 
