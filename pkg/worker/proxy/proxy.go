@@ -157,7 +157,20 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 	}
 	mapping, err := p.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
-		return fail(fmt.Sprintf("map %v: %v", gvk, err))
+		// Mapper cache is stale → CRD got installed (or upgraded to a
+		// new version) after the worker started. Reset the discovery
+		// cache and retry once. controller-runtime returns a deferred
+		// mapper that implements meta.ResettableRESTMapper, so the
+		// type-assert is the supported way to trigger a reload.
+		if apimeta.IsNoMatchError(err) {
+			if rm, ok := p.mapper.(apimeta.ResettableRESTMapper); ok {
+				rm.Reset()
+				mapping, err = p.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+			}
+		}
+		if err != nil {
+			return fail(fmt.Sprintf("map %v: %v", gvk, err))
+		}
 	}
 
 	switch req.Action {

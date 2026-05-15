@@ -111,14 +111,22 @@ func NewVGPUTracker(cfg *rest.Config) (*VGPUTracker, error) {
 // Errors from either list propagate up so the caller can surface a
 // meaningful "vGPU unavailable" message instead of a half-empty view.
 func (t *VGPUTracker) Snapshot(ctx context.Context) (*vgpu.Snapshot, error) {
-	nodeList, err := t.cs.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	// Snapshot does a full Nodes + Pods sweep on every refresh. Per
+	// CLAUDE.md the eventual fix is informer-backed, but until then
+	// cap each page and walk continue tokens so very large clusters
+	// (10k+ pods) don't carry a multi-MB payload across one gRPC
+	// frame. 500 is the same per-page cap Server's list endpoints use.
+	const pageLimit = 500
+	nodes, err := listAllNodes(ctx, t.cs, pageLimit)
 	if err != nil {
 		return nil, err
 	}
-	podList, err := t.cs.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	pods, err := listAllPods(ctx, t.cs, pageLimit)
 	if err != nil {
 		return nil, err
 	}
+	nodeList := &corev1.NodeList{Items: nodes}
+	podList := &corev1.PodList{Items: pods}
 
 	// Build the per-node card inventory first. Nodes without the
 	// register annotation are dropped — they're not part of the vGPU
@@ -169,8 +177,14 @@ func (t *VGPUTracker) Snapshot(ctx context.Context) (*vgpu.Snapshot, error) {
 		if ids == "" {
 			continue
 		}
+		// Allowlist the bind phases that actually correspond to
+		// "this pod is holding vGPU slots right now". An empty
+		// phase value happens transiently between scheduler bind
+		// and device-plugin annotate; counting it inflates "used"
+		// for a window. failed / deallocating are explicit drop
+		// signals from Volcano.
 		phase := pod.Annotations[podBindPhaseAnnotation]
-		if phase == "failed" || phase == "deallocating" {
+		if phase != "allocating" && phase != "success" {
 			continue
 		}
 		if pod.Status.Phase == corev1.PodSucceeded ||
@@ -260,9 +274,24 @@ func decodeNodeRegister(s string) []vgpu.Card {
 			log.Printf("[vgpu] decodeNodeRegister: skipping malformed gpu entry %q", p)
 			continue
 		}
-		count, _ := strconv.Atoi(items[1])
-		mem, _ := strconv.Atoi(items[2])
-		health, _ := strconv.ParseBool(items[4])
+		// Parse each numeric / bool field with the real error path —
+		// silently defaulting to zero made malformed registers join
+		// the snapshot as zero-cap cards, dragging node totals down.
+		count, err := strconv.Atoi(items[1])
+		if err != nil {
+			log.Printf("[vgpu] decodeNodeRegister: bad count %q in entry %q: %v", items[1], p, err)
+			continue
+		}
+		mem, err := strconv.Atoi(items[2])
+		if err != nil {
+			log.Printf("[vgpu] decodeNodeRegister: bad memory %q in entry %q: %v", items[2], p, err)
+			continue
+		}
+		health, err := strconv.ParseBool(items[4])
+		if err != nil {
+			log.Printf("[vgpu] decodeNodeRegister: bad health %q in entry %q: %v", items[4], p, err)
+			continue
+		}
 		cards = append(cards, vgpu.Card{
 			Index:       idx,
 			UUID:        items[0],
@@ -331,4 +360,46 @@ func decodePodIDs(s string) [][]decodedDevice {
 		}
 	}
 	return out
+}
+
+// listAllNodes pages through every Node with the given per-page cap.
+// Re-uses the K8s continue token so the apiserver doesn't have to
+// hold a giant response in memory.
+func listAllNodes(ctx context.Context, cs kubernetes.Interface, limit int64) ([]corev1.Node, error) {
+	var out []corev1.Node
+	cont := ""
+	for {
+		page, err := cs.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+			Limit:    limit,
+			Continue: cont,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page.Items...)
+		if page.Continue == "" {
+			return out, nil
+		}
+		cont = page.Continue
+	}
+}
+
+// listAllPods is the all-namespaces sibling of listAllNodes.
+func listAllPods(ctx context.Context, cs kubernetes.Interface, limit int64) ([]corev1.Pod, error) {
+	var out []corev1.Pod
+	cont := ""
+	for {
+		page, err := cs.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+			Limit:    limit,
+			Continue: cont,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page.Items...)
+		if page.Continue == "" {
+			return out, nil
+		}
+		cont = page.Continue
+	}
 }
