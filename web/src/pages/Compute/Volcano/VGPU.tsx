@@ -3,8 +3,6 @@ import {
   InfoCircleOutlined,
   RocketOutlined,
 } from '@ant-design/icons';
-import type { ProColumns } from '@ant-design/pro-components';
-import { ProTable } from '@ant-design/pro-components';
 import { history, useIntl, useParams, useRequest } from '@umijs/max';
 import {
   Alert,
@@ -32,7 +30,6 @@ import {
   isResourceNotAvailable,
   NotInstalled,
   RefreshControl,
-  ResourceIntro,
   useAutoRefresh,
 } from './shared/Layout';
 
@@ -104,7 +101,6 @@ export default function VGPUPage() {
 
   return (
     <div className="p-6">
-      <ResourceIntro id="pages.compute.intro.vgpu" />
       <ClusterKPIs snapshot={snapshot} loading={loading} />
 
       {/* Aggregated unhealthy banner — a top-level signal that
@@ -509,181 +505,34 @@ function NodeTable({
     });
   }, [nodes, trimmed]);
 
-  // Manual expansions persist across search clears — operators
-  // expanded a particular node deliberately, the search filter
-  // shouldn't lose that signal.
-  const [manualExpanded, setManualExpanded] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const expandedRowKeys = useMemo<string[]>(() => {
-    if (!trimmed) return [...manualExpanded];
-    // Search active: union of user-expanded and search-matching
-    // nodes so the operator never loses a row they deliberately
-    // opened earlier.
-    const out = new Set<string>(manualExpanded);
-    for (const n of filteredNodes) out.add(n.name);
-    return [...out];
-  }, [filteredNodes, trimmed, manualExpanded]);
-
-  const onExpandChange = (expanded: boolean, record: VGPUNode) => {
-    setManualExpanded((prev) => {
-      const next = new Set(prev);
-      if (expanded) next.add(record.name);
-      else next.delete(record.name);
-      return next;
-    });
-  };
-
   // Single-model collapse: when every card in the cluster has the
-  // same type (common case), drop the dedicated "types" column and
-  // ride the model tag with the node name to save horizontal space.
+  // same type (common case), the per-node model tag rides next to
+  // the node name; the dedicated "types" chip row is skipped.
   const singleType = useMemo<string | null>(() => {
     const set = new Set<string>();
     for (const n of nodes) for (const c of n.cards) set.add(c.type);
     return set.size === 1 ? [...set][0] : null;
   }, [nodes]);
 
-  const columns: ProColumns<VGPUNode>[] = [
-    {
-      title: intl.formatMessage({ id: 'pages.compute.vgpu.node.col.name' }),
-      dataIndex: 'name',
-      width: 320,
-      fixed: 'left',
-      render: (_, r) => (
-        <Space size={6} wrap>
-          {/* Node name → cluster-management Nodes page. Operators
-              jump here to check taints / labels / k8s status. */}
-          <a onClick={() => history.push(`/clusters/${clusterId}/nodes`)}>
-            <Text strong style={{ fontSize: 13 }}>
-              {r.name}
-            </Text>
-          </a>
-          {r.healthy ? (
-            <Tag color="green" style={{ marginInlineEnd: 0 }}>
-              healthy
-            </Tag>
-          ) : (
-            <Tag color="red" style={{ marginInlineEnd: 0 }}>
-              degraded
-            </Tag>
-          )}
-          {singleType && (
-            <Tag color="blue" style={{ marginInlineEnd: 0 }}>
-              {singleType} × {r.cards.length}
-            </Tag>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: intl.formatMessage({ id: 'pages.compute.vgpu.node.col.cards' }),
-      key: 'cards',
-      width: 80,
-      sorter: (a, b) => a.cards.length - b.cards.length,
-      render: (_, r) => r.cards.length,
-    },
-    {
-      title: intl.formatMessage({ id: 'pages.compute.vgpu.node.col.slots' }),
-      key: 'slots',
-      width: 220,
-      // Sort by utilization so the most-stressed bubbles up. Same
-      // pattern as the Overview queue table.
-      sorter: (a, b) =>
-        ratio(a.usedNumber, a.totalNumber) -
-        ratio(b.usedNumber, b.totalNumber),
-      render: (_, r) => (
-        <UtilBar used={r.usedNumber} total={r.totalNumber} unit="" />
-      ),
-    },
-    {
-      title: intl.formatMessage({ id: 'pages.compute.vgpu.node.col.memory' }),
-      key: 'memory',
-      width: 260,
-      sorter: (a, b) =>
-        ratio(a.usedMemory, a.totalMemory) -
-        ratio(b.usedMemory, b.totalMemory),
-      render: (_, r) => (
-        <UtilBar used={r.usedMemory} total={r.totalMemory} unit="GiB" asGiB />
-      ),
-    },
-    {
-      // Compute share (cores) — aggregated client-side from the
-      // per-card usedCores values. Each card contributes 100% of
-      // capacity so node total = nCards × 100. Same UtilBar style
-      // as slots/memory; same advisory tooltip note as the per-card
-      // column inside the expanded row.
-      title: (
-        <Space size={4}>
-          <span>
-            {intl.formatMessage({ id: 'pages.compute.vgpu.node.col.cores' })}
-          </span>
-          <Tooltip
-            title={intl.formatMessage({
-              id: 'pages.compute.vgpu.card.col.cores.tip',
-            })}
-          >
-            <InfoCircleOutlined
-              style={{ color: 'var(--ant-color-text-tertiary)' }}
-            />
-          </Tooltip>
-        </Space>
-      ),
-      key: 'cores',
-      width: 200,
-      sorter: (a, b) => nodeCores(a).used - nodeCores(b).used,
-      render: (_, r) => {
-        const c = nodeCores(r);
-        return <UtilBar used={c.used} total={c.total} unit="%" percent />;
-      },
-    },
-  ];
-  if (!singleType) {
-    columns.push({
-      title: intl.formatMessage({ id: 'pages.compute.vgpu.node.col.types' }),
-      key: 'types',
-      width: 280,
-      render: (_, r) => {
-        const counts = new Map<string, number>();
-        for (const c of r.cards) {
-          counts.set(c.type, (counts.get(c.type) ?? 0) + 1);
-        }
-        if (counts.size === 0) return <Text type="secondary">-</Text>;
-        return (
-          <Space size={4} wrap>
-            {[...counts.entries()].map(([type, n]) => (
-              <Tag key={type} color="blue" style={{ marginInlineEnd: 0 }}>
-                {type} × {n}
-              </Tag>
-            ))}
-          </Space>
-        );
-      },
-    });
-  }
+  // Healthy / degraded breakdown surfaced in the section header so
+  // the operator sees fleet health without scrolling.
+  const { healthy, degraded } = useMemo(() => {
+    let h = 0;
+    for (const n of nodes) {
+      if (n.healthy && n.cards.every((c) => c.health)) h += 1;
+    }
+    return { healthy: h, degraded: nodes.length - h };
+  }, [nodes]);
 
   return (
-    <ProTable<VGPUNode>
-      rowKey="name"
-      columns={columns}
-      dataSource={filteredNodes}
-      loading={loading}
-      search={false}
-      pagination={{ pageSize: 20, showSizeChanger: true }}
-      scroll={{ x: 'max-content' }}
-      options={{ reload: false }}
-      expandable={{
-        expandedRowRender: (record) => (
-          <CardTable cards={record.cards} onPodClick={onPodClick} />
-        ),
-        rowExpandable: (record) => record.cards.length > 0,
-        expandedRowKeys,
-        onExpand: onExpandChange,
-      }}
-      headerTitle={
-        // Node count + healthy/degraded breakdown lives on the table
-        // header so the KPI row can use that vertical slot for the
-        // Cores utilization KPI instead. Same numbers, more useful
-        // adjacency (next to the actual node list).
+    <AntCard
+      size="small"
+      loading={loading && nodes.length === 0}
+      style={{ marginBottom: 12 }}
+      title={
+        // Header line stays inside the card chrome — node count +
+        // healthy/degraded ride alongside the title; search + refresh
+        // align to the right via `extra`.
         <Space size={12} wrap>
           <Text strong>
             {intl.formatMessage({ id: 'pages.compute.vgpu.node.title' })}
@@ -695,194 +544,307 @@ function NodeTable({
               : ''}
             )
           </Text>
-          {(() => {
-            let healthy = 0;
-            for (const n of nodes) {
-              if (n.healthy && n.cards.every((c) => c.health)) healthy += 1;
-            }
-            const degraded = nodes.length - healthy;
-            if (nodes.length === 0) return null;
-            return (
-              <Space size={6}>
+          {nodes.length > 0 && (
+            <Space size={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <span style={{ color: 'var(--ant-color-success)' }}>●</span>{' '}
+                {intl.formatMessage(
+                  { id: 'pages.compute.vgpu.kpi.nodes.healthy' },
+                  { n: healthy },
+                )}
+              </Text>
+              {degraded > 0 && (
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  <span style={{ color: 'var(--ant-color-success)' }}>●</span>{' '}
+                  <span style={{ color: 'var(--ant-color-error)' }}>●</span>{' '}
                   {intl.formatMessage(
-                    { id: 'pages.compute.vgpu.kpi.nodes.healthy' },
-                    { n: healthy },
+                    { id: 'pages.compute.vgpu.kpi.nodes.degraded' },
+                    { n: degraded },
                   )}
                 </Text>
-                {degraded > 0 && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    <span style={{ color: 'var(--ant-color-error)' }}>●</span>{' '}
-                    {intl.formatMessage(
-                      { id: 'pages.compute.vgpu.kpi.nodes.degraded' },
-                      { n: degraded },
-                    )}
-                  </Text>
-                )}
-              </Space>
-            );
-          })()}
+              )}
+            </Space>
+          )}
         </Space>
       }
-      toolBarRender={() => [
-        // Pod search — primary new affordance. Operators jump here
-        // first when troubleshooting "where is this pod running".
-        <Input.Search
-          key="search"
-          allowClear
-          placeholder={intl.formatMessage({
-            id: 'pages.compute.vgpu.search.placeholder',
-          })}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ width: 240 }}
-        />,
-        <RefreshControl
-          key="refresh"
-          interval={interval}
-          setInterval={setInterval}
-          refresh={refresh}
-          loading={loading}
-        />,
-      ]}
-      locale={{
-        emptyText: trimmed ? (
+      extra={
+        <Space size={8}>
+          <Input.Search
+            allowClear
+            placeholder={intl.formatMessage({
+              id: 'pages.compute.vgpu.search.placeholder',
+            })}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: 240 }}
+          />
+          <RefreshControl
+            interval={interval}
+            setInterval={setInterval}
+            refresh={refresh}
+            loading={loading}
+          />
+        </Space>
+      }
+      styles={{ body: { padding: 0 } }}
+    >
+      {filteredNodes.length === 0 ? (
+        <div style={{ padding: 32 }}>
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={intl.formatMessage(
-              { id: 'pages.compute.vgpu.search.empty' },
-              { q: search },
-            )}
+            description={
+              trimmed
+                ? intl.formatMessage(
+                    { id: 'pages.compute.vgpu.search.empty' },
+                    { q: search },
+                  )
+                : undefined
+            }
           />
-        ) : undefined,
-      }}
-    />
+        </div>
+      ) : (
+        // Card-per-node list: each node renders its summary bars
+        // PLUS every physical card with all metrics inline by
+        // default. Replaces the nested-table-with-expand pattern
+        // that hid GPU detail behind a click and made the page
+        // unscannable for "how full is each card on each node".
+        <Space direction="vertical" size={12} style={{ width: '100%', padding: 12 }}>
+          {filteredNodes.map((n) => (
+            <NodeCard
+              key={n.name}
+              node={n}
+              singleType={singleType}
+              clusterId={clusterId}
+              onPodClick={onPodClick}
+            />
+          ))}
+        </Space>
+      )}
+    </AntCard>
   );
 }
 
-// ─── Per-card nested table ───────────────────────────────────────────
-
-function CardTable({
-  cards,
+// NodeCard renders one node's full state: header (name + health +
+// model badge + drilldown link) → node-wide aggregated bars (slots
+// / memory / cores) → list of physical cards each with their own
+// metrics + pods. Everything visible at once — no expand toggle.
+function NodeCard({
+  node,
+  singleType,
+  clusterId,
   onPodClick,
 }: {
-  cards: VGPUCard[];
+  node: VGPUNode;
+  singleType: string | null;
+  clusterId: string;
   onPodClick: (namespace: string, name: string) => void;
 }) {
   const intl = useIntl();
-  const columns: ProColumns<VGPUCard>[] = [
-    {
-      title: '#',
-      key: 'identity',
-      width: 220,
-      render: (_, r) => (
-        <Space direction="vertical" size={0} style={{ lineHeight: 1.3 }}>
-          <Space size={6}>
-            <Text strong style={{ fontSize: 13 }}>
-              #{r.index}
-            </Text>
-            {r.health ? (
-              <Tag color="green" style={{ marginInlineEnd: 0 }}>
-                OK
-              </Tag>
-            ) : (
-              <Tag color="red" style={{ marginInlineEnd: 0 }}>
-                bad
-              </Tag>
-            )}
-          </Space>
-          {/* UUID tail-truncated — server-side UUIDs share fixed
-              "GPU-" prefixes; trailing hex is what distinguishes
-              cards. Copy button still copies the full UUID. */}
+  const cores = nodeCores(node);
+  // For mixed-model clusters, summarise this node's models as a
+  // single line of chips rather than a full column.
+  const typeBadges = useMemo<[string, number][]>(() => {
+    if (singleType) return [[singleType, node.cards.length]];
+    const counts = new Map<string, number>();
+    for (const c of node.cards) counts.set(c.type, (counts.get(c.type) ?? 0) + 1);
+    return [...counts.entries()];
+  }, [node, singleType]);
+
+  return (
+    <AntCard
+      size="small"
+      styles={{ body: { padding: '12px 16px' } }}
+      style={{ background: 'var(--ant-color-fill-quaternary)' }}
+    >
+      {/* Node header — name link, health, model breakdown. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 10,
+        }}
+      >
+        <a onClick={() => history.push(`/clusters/${clusterId}/nodes`)}>
+          <Text strong style={{ fontSize: 14 }}>
+            {node.name}
+          </Text>
+        </a>
+        {node.healthy ? (
+          <Tag color="green" style={{ marginInlineEnd: 0 }}>
+            healthy
+          </Tag>
+        ) : (
+          <Tag color="red" style={{ marginInlineEnd: 0 }}>
+            degraded
+          </Tag>
+        )}
+        {typeBadges.map(([t, n]) => (
+          <Tag key={t} color="blue" style={{ marginInlineEnd: 0 }}>
+            {t} × {n}
+          </Tag>
+        ))}
+      </div>
+      {/* Node-wide aggregates: three bars in one row, each one a
+          labeled slot. Lets the operator scan "is this node hot"
+          without reading any of the per-card detail below. */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 1fr',
+          gap: 16,
+          marginBottom: 12,
+        }}
+      >
+        <LabeledBar
+          label={intl.formatMessage({ id: 'pages.compute.vgpu.node.col.slots' })}
+          used={node.usedNumber}
+          total={node.totalNumber}
+        />
+        <LabeledBar
+          label={intl.formatMessage({
+            id: 'pages.compute.vgpu.node.col.memory',
+          })}
+          used={node.usedMemory}
+          total={node.totalMemory}
+          asGiB
+        />
+        <LabeledBar
+          label={intl.formatMessage({ id: 'pages.compute.vgpu.node.col.cores' })}
+          used={cores.used}
+          total={cores.total}
+          percent
+          tipId="pages.compute.vgpu.card.col.cores.tip"
+        />
+      </div>
+      {/* Physical cards in this node — each row shows everything in
+          one line: identity + bars + pods. No separate columns to
+          mentally align. */}
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        {node.cards.map((card) => (
+          <CardRow key={card.uuid} card={card} onPodClick={onPodClick} />
+        ))}
+      </Space>
+    </AntCard>
+  );
+}
+
+// CardRow — one physical GPU as a horizontal row. Identity on the
+// left, 3 bars in the middle, pods on the right. Replaces the
+// nested ProTable that previously rendered per-card data as a wall
+// of column cells.
+function CardRow({
+  card,
+  onPodClick,
+}: {
+  card: VGPUCard;
+  onPodClick: (namespace: string, name: string) => void;
+}) {
+  const intl = useIntl();
+  return (
+    <div
+      style={{
+        display: 'grid',
+        // identity 220 | three bars 1fr each | pods 280
+        gridTemplateColumns: '220px 1fr 1fr 1fr 280px',
+        gap: 16,
+        alignItems: 'center',
+        padding: '8px 12px',
+        background: 'var(--ant-color-bg-container)',
+        borderRadius: 4,
+        border: '1px solid var(--ant-color-border-secondary)',
+      }}
+    >
+      <div>
+        <Space size={6}>
+          <Text strong style={{ fontSize: 13 }}>
+            #{card.index}
+          </Text>
+          <Text style={{ fontSize: 12 }}>{card.type}</Text>
+          {card.health ? (
+            <Tag color="green" style={{ marginInlineEnd: 0, fontSize: 11 }}>
+              OK
+            </Tag>
+          ) : (
+            <Tag color="red" style={{ marginInlineEnd: 0, fontSize: 11 }}>
+              bad
+            </Tag>
+          )}
+        </Space>
+        <div style={{ marginTop: 2 }}>
           <Text
             type="secondary"
             style={{ fontSize: 11 }}
-            copyable={{ text: r.uuid, tooltips: false }}
+            copyable={{ text: card.uuid, tooltips: false }}
           >
-            {shortUuid(r.uuid)}
+            {shortUuid(card.uuid)}
           </Text>
-        </Space>
-      ),
-    },
-    {
-      title: intl.formatMessage({ id: 'pages.compute.vgpu.card.col.type' }),
-      key: 'type',
-      width: 180,
-      render: (_, r) => (
-        <Space direction="vertical" size={0} style={{ lineHeight: 1.3 }}>
-          <Text style={{ fontSize: 13 }}>{r.type}</Text>
-          <Tag style={{ marginInlineEnd: 0, fontSize: 11 }}>
-            {r.sharingMode}
-          </Tag>
-        </Space>
-      ),
-    },
-    {
-      title: intl.formatMessage({ id: 'pages.compute.vgpu.card.col.slots' }),
-      key: 'slots',
-      width: 200,
-      render: (_, r) => (
-        <UtilBar used={r.usedNumber} total={r.number} unit="" />
-      ),
-    },
-    {
-      title: intl.formatMessage({ id: 'pages.compute.vgpu.card.col.memory' }),
-      key: 'memory',
-      width: 240,
-      render: (_, r) => (
-        <UtilBar used={r.usedMemory} total={r.memory} unit="GiB" asGiB />
-      ),
-    },
-    {
-      // Cores semantics: Volcano vGPU exposes a 0-100 percentage
-      // for "compute share" — it's advisory (not enforced by HAMi
-      // by default like memory is). The tooltip on the header
-      // saves users from misreading it as a hard cap.
-      title: (
-        <Space size={4}>
-          <span>
-            {intl.formatMessage({ id: 'pages.compute.vgpu.card.col.cores' })}
-          </span>
-          <Tooltip
-            title={intl.formatMessage({
-              id: 'pages.compute.vgpu.card.col.cores.tip',
-            })}
+          <Tag
+            style={{
+              marginInlineStart: 6,
+              marginInlineEnd: 0,
+              fontSize: 11,
+            }}
           >
+            {card.sharingMode}
+          </Tag>
+        </div>
+      </div>
+      <UtilBar used={card.usedNumber} total={card.number} unit="" />
+      <UtilBar used={card.usedMemory} total={card.memory} unit="GiB" asGiB />
+      <UtilBar used={card.usedCores} total={100} unit="%" percent />
+      <PodsCell pods={card.pods ?? []} onPodClick={onPodClick} />
+    </div>
+  );
+}
+
+// LabeledBar — variant of UtilBar with a label above it, for the
+// node-aggregate row at the top of each NodeCard.
+function LabeledBar({
+  label,
+  used,
+  total,
+  asGiB,
+  percent,
+  tipId,
+}: {
+  label: string;
+  used: number;
+  total: number;
+  asGiB?: boolean;
+  percent?: boolean;
+  tipId?: string;
+}) {
+  const intl = useIntl();
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--ant-color-text-secondary)',
+          marginBottom: 4,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+      >
+        <span>{label}</span>
+        {tipId && (
+          <Tooltip title={intl.formatMessage({ id: tipId })}>
             <InfoCircleOutlined
               style={{ color: 'var(--ant-color-text-tertiary)' }}
             />
           </Tooltip>
-        </Space>
-      ),
-      key: 'cores',
-      width: 200,
-      render: (_, r) => (
-        <UtilBar used={r.usedCores} total={100} unit="%" percent />
-      ),
-    },
-    {
-      title: intl.formatMessage({ id: 'pages.compute.vgpu.card.col.pods' }),
-      key: 'pods',
-      width: 260,
-      render: (_, r) => (
-        <PodsCell pods={r.pods ?? []} onPodClick={onPodClick} />
-      ),
-    },
-  ];
-  return (
-    <ProTable<VGPUCard>
-      rowKey="uuid"
-      columns={columns}
-      dataSource={cards}
-      search={false}
-      pagination={false}
-      options={false}
-      scroll={{ x: 'max-content' }}
-      size="small"
-      headerTitle={false}
-      toolBarRender={false}
-    />
+        )}
+      </div>
+      <UtilBar
+        used={used}
+        total={total}
+        unit={asGiB ? 'GiB' : percent ? '%' : ''}
+        asGiB={asGiB}
+        percent={percent}
+      />
+    </div>
   );
 }
 
