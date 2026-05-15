@@ -15,22 +15,35 @@ plugin manifest (volcano-vgpu-device-plugin/volcano-vgpu-device-plugin.yml).
     leaves it empty-but-present so the DaemonSet doesn't crash-loop
     looking for the configmap.
 
-Both ConfigMaps are pinned to kube-system because the plugin binary
-(projecthami/volcano-vgpu-device-plugin v1.12) hardcodes the K8s-API
-lookup namespace there — neither POD_NAMESPACE nor any flag we
-found shifts it. The DaemonSet + RBAC still use the release
-namespace, only the two configmaps live in kube-system.
+Two namespaces, two reasons:
+
+  - volcano-vgpu-device-config is read via the K8s API from inside
+    the plugin binary (LoadConfigFromCM in pkg/util/util.go), which
+    hardcodes `kube-system` as the lookup namespace. The DaemonSet's
+    ServiceAccount has cluster-scoped configmap read perms, so
+    cross-namespace works. Pin to kube-system.
+
+  - volcano-vgpu-node-config is mounted into the plugin pod via a
+    volume (see templates/daemonset.yaml's `deviceconfig` volume
+    that references it by name). K8s volume-from-configmap resolves
+    within the pod's own namespace — pin it to the release namespace
+    so the DaemonSet can mount it.
+
+Earlier this file pinned both to kube-system. That broke the volume
+mount: the DaemonSet pods in kpilot-scheduling failed with
+"configmap volcano-vgpu-node-config not found" because the K8s
+volume-mount layer was looking in kpilot-scheduling, not kube-system.
 */ -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: volcano-vgpu-device-config
-  # NOT release namespace: the v1.12 plugin binary hardcodes a
-  # k8s-API lookup for these two ConfigMaps in kube-system. Helm's
-  # release namespace (kpilot-scheduling) is fine for the DaemonSet
-  # + RBAC, but if the ConfigMaps live anywhere else the plugin
-  # falls back to its empty default and tries to register the
-  # invalid ResourceName "volcano.sh/" with kubelet.
+  # Pinned to kube-system: the v1.12 plugin binary's LoadConfigFromCM
+  # (pkg/util/util.go:372 in projecthami/volcano-vgpu-device-plugin)
+  # hardcodes the K8s-API lookup namespace as kube-system (with a
+  # fallback to volcano-system, never the release ns). Without this
+  # pin the plugin falls back to its empty default and tries to
+  # register the invalid ResourceName "volcano.sh/" with kubelet.
   namespace: kube-system
   labels:
     app.kubernetes.io/component: volcano-vgpu-device-plugin
@@ -123,10 +136,12 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: volcano-vgpu-node-config
-  # See volcano-vgpu-device-config above — both ConfigMaps are
-  # pinned to kube-system because the plugin binary looks them up
-  # there.
-  namespace: kube-system
+  # No explicit namespace: this ConfigMap is mounted via volume into
+  # the DaemonSet pod (deviceconfig volume in daemonset.yaml).
+  # Volume-from-configmap resolves inside the pod's own namespace,
+  # so the CM must live with the DaemonSet (Helm's release ns).
+  # The other CM (device-config) is read via the K8s API and gets
+  # the kube-system pin instead.
   labels:
     app.kubernetes.io/component: volcano-vgpu-node-plugin
     {{- include "volcano-vgpu.labels" . | nindent 4 }}
