@@ -155,14 +155,52 @@ remote_scp_from() {
 
 # detect_gpu returns 0 if the remote has a working nvidia-smi + the
 # NVIDIA Container Toolkit; 1 otherwise. Soft-fails: a missing GPU isn't
-# an error, it just steers us to a vanilla k3s install. Same for a GPU
-# present but no container-toolkit — useful to warn so the user can fix
-# it before expecting vGPU pods to schedule.
+# an error, it just steers us to a vanilla k3s install. rc=2 means
+# "GPU present but toolkit missing" — install_nvidia_toolkit below
+# auto-fixes it.
 detect_gpu() {
   local host=$1
   remote_ssh "$host" '
     command -v nvidia-smi >/dev/null && nvidia-smi -L 2>/dev/null | grep -q . || exit 1
     command -v nvidia-container-runtime >/dev/null || exit 2
+  '
+}
+
+# install_nvidia_toolkit installs the NVIDIA Container Toolkit on a
+# Debian/Ubuntu remote. Idempotent — the apt install will no-op when
+# already present. After install, restart k3s if it's already running
+# so containerd picks up the new runtime binary; if k3s isn't installed
+# yet, the regular install path below will discover the runtime on
+# first start.
+#
+# Not supported on RHEL-family images — the existing script only ever
+# claimed Ubuntu support and the remote-k3s test rig is consistently
+# Ubuntu. If we add RHEL targets later this is the place to add an
+# `if command -v dnf` branch.
+install_nvidia_toolkit() {
+  local host=$1
+  step "installing NVIDIA Container Toolkit on $host"
+  remote_ssh "$host" 'set -e
+    if ! command -v apt-get >/dev/null; then
+      echo "ERROR: apt-get not found — Debian/Ubuntu only for now" >&2
+      exit 1
+    fi
+    DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null
+    DEBIAN_FRONTEND=noninteractive apt-get install -y curl gnupg ca-certificates >/dev/null
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+      gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+      sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
+      > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nvidia-container-toolkit
+    echo "installed: $(nvidia-ctk --version | head -1)"
+    # If k3s is already up (re-run case), restart so its embedded
+    # containerd re-discovers the new runtime binary. First-install
+    # case picks it up automatically on initial start.
+    if systemctl is-active --quiet k3s; then
+      systemctl restart k3s
+    fi
   '
 }
 
@@ -191,8 +229,14 @@ cmd_up() {
   else
     local rc=$?
     if [[ "$rc" == "2" ]]; then
-      yellow "GPU present but nvidia-container-runtime missing — installing CPU-only k3s"
-      yellow "(install NVIDIA Container Toolkit on the host first if you want vGPU)"
+      # GPU is there, just no container-toolkit yet. Most cloud
+      # vendors' GPU images ship CUDA + drivers but not the
+      # container-runtime side; install ourselves so vGPU testing
+      # works first-shot instead of asking the user to ssh in
+      # manually.
+      yellow "GPU present but nvidia-container-runtime missing — installing toolkit"
+      install_nvidia_toolkit "$host"
+      has_gpu=1
     else
       yellow "no GPU on remote — installing CPU-only k3s"
     fi
