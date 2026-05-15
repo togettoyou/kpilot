@@ -326,11 +326,23 @@ cmd_down() {
   kubectl config delete-context "$CONTEXT" 2>/dev/null || true
   kubectl config delete-cluster default 2>/dev/null || true
   kubectl config delete-user default 2>/dev/null || true
-  # If the just-deleted context was current, fall back to the first remaining one.
-  if ! kubectl config current-context >/dev/null 2>&1; then
+  # `kubectl config current-context` keeps printing the previous
+  # value even after delete-context wiped it — it just reads the
+  # `current-context:` line from ~/.kube/config without checking
+  # whether the target still exists. So we have to compare against
+  # the actual contexts list to know we need to switch.
+  local current
+  current=$(kubectl config current-context 2>/dev/null || true)
+  if [[ -z "$current" ]] || \
+     ! kubectl config get-contexts -o name 2>/dev/null | grep -qx "$current"; then
     local first
-    first=$(kubectl config get-contexts -o name | head -1 || true)
-    [[ -n "$first" ]] && kubectl config use-context "$first" >/dev/null
+    first=$(kubectl config get-contexts -o name 2>/dev/null | head -1 || true)
+    if [[ -n "$first" ]]; then
+      kubectl config use-context "$first" >/dev/null
+      yellow "switched current context to '$first'"
+    else
+      kubectl config unset current-context >/dev/null
+    fi
   fi
   green "done"
 }
