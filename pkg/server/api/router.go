@@ -111,6 +111,13 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// registered, same pattern as the Volcano CR list endpoints.
 		clusters.GET("/:id/vgpu", handler.GetVGPUSnapshot(gw))
 
+		// Volcano installation status — cluster-side detection (CRD
+		// + scheduler ConfigMap) so the frontend doesn't need to
+		// gate on KPilot's plugin registry. Works for any install
+		// path: KPilot plugin, kubectl apply, helm install outside
+		// KPilot, sealos preinstall, etc.
+		clusters.GET("/:id/volcano/status", handler.GetVolcanoStatus(gw))
+
 		// Per-cluster plugin state (read-only registry view + enable/disable)
 		clusters.GET("/:id/plugins", handler.ListClusterPlugins)
 		clusters.POST("/:id/plugins/:name/enable", handler.EnablePlugin(gw))

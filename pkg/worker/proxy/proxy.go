@@ -141,10 +141,13 @@ func (p *Proxy) Handle(requestID string, req *proto.ResourceRequest) {
 func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.ResourceResponse {
 	// Cluster-level synthetic queries don't carry a GVK — handle them
 	// before RESTMapping so empty Group/Version/Kind doesn't trip the
-	// mapper. Today: vgpu-snapshot. Future: anything else that
-	// aggregates across multiple GVKs goes here.
-	if req.Action == "vgpu-snapshot" {
+	// mapper. Today: vgpu-snapshot + volcano-status. Future: anything
+	// else that aggregates across multiple GVKs goes here.
+	switch req.Action {
+	case "vgpu-snapshot":
 		return p.vgpuSnapshot(ctx)
+	case "volcano-status":
+		return p.volcanoStatus(ctx)
 	}
 
 	gvk := schema.GroupVersionKind{

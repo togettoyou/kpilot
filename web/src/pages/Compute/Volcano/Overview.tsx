@@ -15,7 +15,7 @@ import {
 import yaml from 'js-yaml';
 import React, { lazy, Suspense, useMemo } from 'react';
 
-import { listClusterPlugins } from '@/services/kpilot/plugin';
+import { getVolcanoStatus } from '@/services/kpilot/volcano-status';
 import {
   type CronJobRow,
   type HyperNodeRow,
@@ -88,17 +88,22 @@ export default function VolcanoOverviewPage() {
       // Scheduler config summary — best-effort. Race conditions
       // around a fresh Volcano install can produce 404s here; we
       // tolerate them silently rather than break the whole page.
+      // Locates the scheduler ConfigMap by cluster-side discovery
+      // (worker probes Queue CRD + fieldSelector) so user-managed
+      // Volcano installs (kubectl apply / helm install / sealos
+      // preinstall) work without sitting in KPilot's plugin
+      // registry.
       let scheduler: SchedulerConfSummary | null = null;
       try {
-        const plugins = await listClusterPlugins(clusterId!);
-        const volcano = plugins?.find((p) => p.plugin.name === 'volcano');
-        const ns =
-          volcano?.plugin?.default_release_namespace ?? 'kpilot-scheduling';
+        const status = await getVolcanoStatus(clusterId!);
+        if (!status?.installed || !status.schedulerConfigMapNamespace) {
+          throw new Error('volcano not detected');
+        }
         const cm = (await getWorkload(
           clusterId!,
           'configmaps',
           'volcano-scheduler-configmap',
-          ns,
+          status.schedulerConfigMapNamespace,
         )) as any;
         const raw =
           cm?.data?.['volcano-scheduler.conf'] ??

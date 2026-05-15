@@ -47,7 +47,7 @@ import React, {
 const SchedulerFlowDiagram = lazy(() => import('./SchedulerFlowDiagram'));
 
 import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
-import { listClusterPlugins } from '@/services/kpilot/plugin';
+import { getVolcanoStatus } from '@/services/kpilot/volcano-status';
 import { applyManifest } from '@/services/kpilot/volcano';
 import { getWorkload } from '@/services/kpilot/workload';
 import {
@@ -183,16 +183,17 @@ export default function VolcanoSchedulerPage() {
   const { message } = App.useApp();
   const { id: clusterId } = useParams<{ id: string }>();
 
-  const plugins = useRequest(() => listClusterPlugins(clusterId!), {
+  // Cluster-side detection: works whether Volcano was installed via
+  // KPilot's plugin registry, kubectl apply, helm install outside
+  // KPilot, sealos preinstall, etc. — the worker probes the Queue
+  // CRD + locates volcano-scheduler-configmap by fieldSelector.
+  const status = useRequest(() => getVolcanoStatus(clusterId!), {
     formatResult: (res) => res,
     ready: !!clusterId,
     refreshDeps: [clusterId],
   });
-  const volcanoEntry = useMemo(() => {
-    return plugins.data?.find((p) => p.plugin.name === 'volcano');
-  }, [plugins.data]);
-  const volcanoNs = volcanoEntry?.plugin.default_release_namespace ?? null;
-  const volcanoReady = volcanoEntry?.phase === 'Running';
+  const volcanoNs = status.data?.schedulerConfigMapNamespace ?? null;
+  const volcanoReady = !!status.data?.installed;
 
   const cm = useRequest(
     () =>
@@ -335,7 +336,7 @@ export default function VolcanoSchedulerPage() {
     }
   };
 
-  if ((plugins.loading && !plugins.data) || (cm.loading && !cm.data)) {
+  if ((status.loading && !status.data) || (cm.loading && !cm.data)) {
     return (
       <div style={{ padding: 24 }}>
         <Spin size="large" />
@@ -343,7 +344,7 @@ export default function VolcanoSchedulerPage() {
     );
   }
 
-  if (plugins.data && !volcanoReady) {
+  if (status.data && !volcanoReady) {
     return clusterId ? <NotInstalled clusterId={clusterId} /> : null;
   }
 
