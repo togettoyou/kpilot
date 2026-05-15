@@ -20,7 +20,7 @@ import {
 } from 'antd';
 import React, { useMemo, useState } from 'react';
 
-import { PodLogsDrawer } from '@/pages/ClusterDetail/Workloads/PodLogsDrawer';
+import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
 import {
   getVGPUSnapshot,
   type VGPUCard,
@@ -67,10 +67,12 @@ export default function VGPUPage() {
   // Pod search lifted up so both NodeTable + the banner can react
   // to it (banner stays visible regardless of filtering).
   const [search, setSearch] = useState('');
-  // Pod-logs drawer fed by clicks on pod names in the per-card
-  // table. One shared state instead of one per row so memory stays
-  // low on big clusters.
-  const [podLogs, setPodLogs] = useState<{
+  // Pod describe drawer fed by clicks on pod names in the per-card
+  // rows. Describe (instead of logs) because vGPU work is typically
+  // about "where is this pod scheduled / what GPU did it get" — the
+  // describe output spells out volcano.sh/vgpu-* annotations + node
+  // assignment in one place. Logs are a click away on Workloads.
+  const [describeTarget, setDescribeTarget] = useState<{
     namespace: string;
     name: string;
   } | null>(null);
@@ -160,15 +162,18 @@ export default function VGPUPage() {
         search={search}
         setSearch={setSearch}
         clusterId={clusterId}
-        onPodClick={(namespace, name) => setPodLogs({ namespace, name })}
+        onPodClick={(namespace, name) =>
+          setDescribeTarget({ namespace, name })
+        }
       />
 
-      <PodLogsDrawer
-        open={!!podLogs}
-        onClose={() => setPodLogs(null)}
+      <DescribeDrawer
+        open={!!describeTarget}
+        onClose={() => setDescribeTarget(null)}
         clusterId={clusterId}
-        namespace={podLogs?.namespace ?? ''}
-        podName={podLogs?.name ?? ''}
+        resourceType="pods"
+        name={describeTarget?.name ?? ''}
+        namespace={describeTarget?.namespace ?? ''}
       />
     </div>
   );
