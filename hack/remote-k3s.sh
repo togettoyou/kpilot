@@ -385,6 +385,16 @@ EOF
         INSTALL_K3S_EXEC=\"--write-kubeconfig-mode 644 --disable traefik --tls-san $host\" \
         sh -
     fi
+    # kubectl wait --all errors out immediately when zero resources
+    # match (it doesn't wait for the first one to appear). After a
+    # fresh k3s install / restart there's a beat before the node
+    # object registers — poll for at least one node, then wait for
+    # Ready. 30 × 2s gives 60s for registration; the subsequent
+    # wait gives another 60s for the actual Ready condition.
+    for _ in \$(seq 1 30); do
+      [ \"\$(kubectl get nodes --no-headers 2>/dev/null | wc -l)\" -gt 0 ] && break
+      sleep 2
+    done
     kubectl wait --for=condition=Ready node --all --timeout=60s >/dev/null
   "
 
