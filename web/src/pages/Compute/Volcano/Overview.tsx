@@ -76,14 +76,33 @@ export default function VolcanoOverviewPage() {
 
   const { data, loading, error, refresh } = useRequest(
     async (): Promise<BundleData> => {
-      // Promise.allSettled so an optional CRD (JobFlow / NumaTopology /
-      // NodeShard / ColocationConfiguration) being absent on the
-      // cluster doesn't fail the whole dashboard. Each sub-list
-      // independently degrades to an empty bucket; the
-      // RESOURCE_NOT_AVAILABLE banner only fires when every list
-      // rejects (handled by the existing isResourceNotAvailable guard
-      // below — when individual sub-CRDs are missing here, the
-      // remaining lists still return data).
+      // Cluster-side Volcano probe runs first and is authoritative.
+      // If Volcano isn't installed the worker has no Queue CRD to
+      // map, so every list endpoint would 404 with
+      // RESOURCE_NOT_AVAILABLE — render the NotInstalled banner
+      // instead of a dashboard full of zeros that misleads users
+      // into thinking the cluster is just idle. The status response
+      // is cheap (one CRD existence check on the worker) so we
+      // gate the list fan-out on it.
+      const status = await getVolcanoStatus(clusterId!);
+      if (!status?.installed) {
+        // Throw a RESOURCE_NOT_AVAILABLE-shaped error so the
+        // existing isResourceNotAvailable() guard below kicks in
+        // and the NotInstalled page renders.
+        throw {
+          response: {
+            status: 404,
+            data: { code: 'RESOURCE_NOT_AVAILABLE' },
+          },
+        };
+      }
+
+      // Promise.allSettled so a sub-CRD that's absent (JobFlow /
+      // NumaTopology / NodeShard / ColocationConfiguration on older
+      // Volcano builds, or vanilla installs without the JobFlow
+      // controller) doesn't fail the whole dashboard. Each list
+      // independently degrades to an empty bucket. The
+      // "all-CRDs-missing" case is already filtered out above.
       const results = await Promise.allSettled([
         listVolcanoQueues(clusterId!),
         listVolcanoJobs(clusterId!, ns),
@@ -104,16 +123,10 @@ export default function VolcanoOverviewPage() {
       // Scheduler config summary — best-effort. Race conditions
       // around a fresh Volcano install can produce 404s here; we
       // tolerate them silently rather than break the whole page.
-      // Locates the scheduler ConfigMap by cluster-side discovery
-      // (worker probes Queue CRD + fieldSelector) so user-managed
-      // Volcano installs (kubectl apply / helm install / sealos
-      // preinstall) work without sitting in KPilot's plugin
-      // registry.
       let scheduler: SchedulerConfSummary | null = null;
       try {
-        const status = await getVolcanoStatus(clusterId!);
-        if (!status?.installed || !status.schedulerConfigMapNamespace) {
-          throw new Error('volcano not detected');
+        if (!status.schedulerConfigMapNamespace) {
+          throw new Error('scheduler configmap namespace unknown');
         }
         const cm = (await getWorkload(
           clusterId!,
