@@ -492,11 +492,49 @@ custom:
 		ChartType:      ChartTypeLocal,
 		ChartName:      "volcano-vgpu-device-plugin",
 		DefaultVersion: "0.1.0",
-		// Empty default values — chart's values.yaml carries the
-		// real defaults. Users override per-cluster via the Enable
-		// drawer when they need a different image tag or
-		// deviceSplitCount.
-		DefaultValues: "",
+		// Slim mirror of the chart's values.yaml — exposes the knobs
+		// users actually tweak (image registry / tag / split count /
+		// tolerations / nodeSelector) in the Enable drawer rather
+		// than leaving the editor empty. Comments inline so users
+		// don't have to cross-reference the chart source. This
+		// becomes the per-cluster values_override default; in-chart
+		// values.yaml still backs anything left absent.
+		DefaultValues: `# Container images for the device-plugin DaemonSet + monitor sidecar.
+# Override repository when mirroring through a private registry.
+image:
+  repository: docker.io/projecthami/volcano-vgpu-device-plugin
+  tag: v1.12.0
+  monitorTag: v1.11.0
+  pullPolicy: IfNotPresent
+
+# How many virtual slices each physical GPU advertises to kubelet.
+# 10 is the upstream default and matches every Volcano vGPU doc; lower
+# for whole-card workloads, higher for many tiny tenants.
+deviceSplitCount: 10
+
+# Tolerations appended to the DaemonSet pod template. Defaults cover
+# critical-addon + Volcano's own gpu-memory taint. GPU-Operator
+# clusters also taint with ` + "`nvidia.com/gpu: NoSchedule`" + ` — append:
+#   - key: nvidia.com/gpu
+#     operator: Exists
+#     effect: NoSchedule
+tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+  - key: volcano.sh/gpu-memory
+    operator: Exists
+    effect: NoSchedule
+
+# Empty = every node. Restrict to GPU nodes only with e.g.
+#   nodeSelector:
+#     nvidia.com/gpu.present: "true"
+nodeSelector: {}
+
+# Host path the device-plugin's NVML wrapper library gets copied to
+# (postStart hook). Workloads requesting volcano.sh/vgpu-* pull the
+# wrapper from here via LD_PRELOAD.
+hostLibPath: /usr/local/vgpu
+`,
 		// Match the Volcano plugin's release namespace so the
 		// scheduler and the device-plugin share the same place. The
 		// device-plugin is namespace-portable (RBAC is ClusterRole
