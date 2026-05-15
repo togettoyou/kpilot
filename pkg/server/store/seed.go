@@ -3,6 +3,8 @@ package store
 import (
 	"errors"
 	"fmt"
+	"log"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -607,7 +609,22 @@ func SeedBuiltinPlugins(db *gorm.DB) error {
 // upsert is sha256-deduped, so re-packaging the same source produces
 // the same DB row.
 func seedLocalChartBlobs() error {
-	vgpu, err := plugins.PackageVolcanoVGPU()
+	// helm package writes to os.MkdirTemp; transient disk pressure
+	// at boot used to crash Server with no recovery. Retry a few
+	// times with linear back-off before giving up — packaging the
+	// embedded chart sources is pure and idempotent.
+	var (
+		vgpu *plugins.PackagedChart
+		err  error
+	)
+	for attempt := 1; attempt <= 3; attempt++ {
+		vgpu, err = plugins.PackageVolcanoVGPU()
+		if err == nil {
+			break
+		}
+		log.Printf("[seed] package volcano-vgpu chart attempt %d failed: %v", attempt, err)
+		time.Sleep(time.Duration(attempt) * time.Second)
+	}
 	if err != nil {
 		return fmt.Errorf("package volcano-vgpu chart: %w", err)
 	}

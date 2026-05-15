@@ -299,6 +299,18 @@ func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *proto.PluginS
 		return
 	}
 
+	// If the user already flipped Enabled=false while this push was
+	// in flight (we're handling an Uninstalling / late-Running echo
+	// from the worker), don't downgrade the row to a non-Disabled
+	// phase — the UI would flicker enabled=false, phase=Running for
+	// the brief window between the Disable click and the worker's
+	// next status push. Uninstalling is the legit transitional state
+	// during disable; allow only that one through.
+	if existing, err := store.GetClusterPlugin(w.ClusterID, plugin.ID); err == nil &&
+		!existing.Enabled && phase != store.PluginPhaseUninstalling {
+		return
+	}
+
 	updates := map[string]any{
 		"phase":                phase,
 		"message":              capStatusMessage(st.Message),

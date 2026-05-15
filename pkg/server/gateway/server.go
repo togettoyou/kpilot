@@ -259,6 +259,12 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 			default:
 			}
 		}
+	default:
+		// Unknown oneof variant — almost certainly a Worker built from a
+		// newer proto. Log so a missing handler doesn't silently swallow
+		// new functionality.
+		log.Printf("[gateway] unhandled worker message variant: cluster=%s payload=%T",
+			w.ClusterID, msg.Payload)
 	}
 }
 

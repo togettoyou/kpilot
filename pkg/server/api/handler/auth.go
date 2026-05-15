@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"crypto/subtle"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -32,7 +33,13 @@ func Login(adminUser, adminPass, jwtSecret string) gin.HandlerFunc {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
-		if req.Username != adminUser || req.Password != adminPass {
+		// Constant-time compare so the response time doesn't leak
+		// "username matched but password didn't". Both arms must run
+		// to keep timing uniform; an early-return on Username mismatch
+		// would defeat the point.
+		userOK := subtle.ConstantTimeCompare([]byte(req.Username), []byte(adminUser)) == 1
+		passOK := subtle.ConstantTimeCompare([]byte(req.Password), []byte(adminPass)) == 1
+		if !userOK || !passOK {
 			// Login page handles this 200-level error directly; keep existing shape.
 			c.JSON(http.StatusOK, gin.H{"status": "error", "code": CodeLoginIncorrect})
 			return

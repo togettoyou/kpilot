@@ -368,7 +368,11 @@ type clusterPluginItem struct {
 func ListClusterPlugins(c *gin.Context) {
 	clusterID := c.Param("id")
 	if _, err := store.GetClusterByID(clusterID); err != nil {
-		apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+			return
+		}
+		apiErrInternal(c, err)
 		return
 	}
 	plugins, err := store.ListPluginsBrief()
@@ -440,7 +444,11 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		if _, err := store.GetClusterByID(clusterID); err != nil {
-			apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+				return
+			}
+			apiErrInternal(c, err)
 			return
 		}
 		plugin, err := store.GetPluginByName(pluginName)
@@ -522,7 +530,11 @@ func DisablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		pluginName := c.Param("name")
 
 		if _, err := store.GetClusterByID(clusterID); err != nil {
-			apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				apiErr(c, http.StatusNotFound, CodeClusterNotFound)
+				return
+			}
+			apiErrInternal(c, err)
 			return
 		}
 		plugin, err := store.GetPluginByName(pluginName)

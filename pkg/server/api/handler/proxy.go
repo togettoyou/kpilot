@@ -96,7 +96,10 @@ func resolveProxyTarget(clusterID, pluginName string) (releaseNS string, code st
 	}
 
 	if _, err := store.GetClusterByID(clusterID); err != nil {
-		return "", CodeClusterNotFound, err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", CodeClusterNotFound, err
+		}
+		return "", "", err
 	}
 	plugin, err := store.GetPluginByName(pluginName)
 	if err != nil {
@@ -465,7 +468,7 @@ func proxyWebSocket(
 
 	// Upgrade the browser conn AFTER WSStartRequest is on the wire, so we
 	// don't promote a connection that the worker can't service.
-	browserConn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	rawConn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		// Upgrade writes its own response on failure; tell the worker to
 		// abandon the upstream dial.
@@ -473,12 +476,22 @@ func proxyWebSocket(
 		stream.Close()
 		return
 	}
-	defer browserConn.Close()
+	defer rawConn.Close()
+
+	// Wrap in wsConn so the WriteMessage / WriteControl calls below are
+	// serialised under the per-conn mutex (matches PodLogs / PodExec /
+	// PluginInstallLog). The reverse-proxy pumps below are single-writer
+	// today, but the wrapper closes off a foot-gun for any future change
+	// that adds a second writer, and gets us startHeartbeat for free.
+	browserConn := newWSConn(rawConn)
+	hbCtx, hbCancel := context.WithCancel(c.Request.Context())
+	defer hbCancel()
+	browserConn.startHeartbeat(hbCtx)
 
 	// Browser → upstream pump.
 	go func() {
 		for {
-			opcode, data, err := browserConn.ReadMessage()
+			opcode, data, err := rawConn.ReadMessage()
 			if err != nil {
 				var ce *websocket.CloseError
 				if errors.As(err, &ce) {
@@ -506,7 +519,6 @@ func proxyWebSocket(
 			if op == 0 {
 				op = websocket.TextMessage
 			}
-			_ = browserConn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := browserConn.WriteMessage(op, frame.Data); err != nil {
 				stream.Close()
 				return

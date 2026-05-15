@@ -114,7 +114,7 @@ var resourceGVK = map[string]gvkInfo{
 	"customresourcedefinitions": {"apiextensions.k8s.io", "v1", "CustomResourceDefinition"},
 }
 
-// resolveGVK looks up the request's GVK + resource type. Two paths:
+// resolveGVK looks up the request's GVK. Two paths:
 //
 //   - Well-known kinds (Deployment, Service, …) come from the
 //     resourceGVK whitelist, keyed by URL `:type` segment.
@@ -123,23 +123,18 @@ var resourceGVK = map[string]gvkInfo{
 //     CRD without us hardcoding the GVK. Worker resolves the
 //     resource side via its dynamic RESTMapper, so we just pass
 //     group/version/kind through.
-//
-// Returns (gvk, resourceType, ok). resourceType is the original URL
-// segment ("_cr" or whatever); callers that need to gate behavior on
-// kind ("customresourcedefinitions" → CRD-name protection) compare
-// against resourceType, not `gvk.kind`.
-func resolveGVK(c *gin.Context) (gvkInfo, string, bool) {
+func resolveGVK(c *gin.Context) (gvkInfo, bool) {
 	rt := c.Param("type")
 	if rt == "_cr" {
 		v := c.Query("version")
 		k := c.Query("kind")
 		if v == "" || k == "" {
-			return gvkInfo{}, rt, false
+			return gvkInfo{}, false
 		}
-		return gvkInfo{group: c.Query("group"), version: v, kind: k}, rt, true
+		return gvkInfo{group: c.Query("group"), version: v, kind: k}, true
 	}
 	gvk, ok := resourceGVK[rt]
-	return gvk, rt, ok
+	return gvk, ok
 }
 
 func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
@@ -154,7 +149,7 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 			}
 		}
 
-		gvk, _, ok := resolveGVK(c)
+		gvk, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -196,7 +191,7 @@ func GetWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, _, ok := resolveGVK(c)
+		gvk, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -243,7 +238,7 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, _, ok := resolveGVK(c)
+		gvk, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -523,7 +518,7 @@ func DescribeWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, _, ok := resolveGVK(c)
+		gvk, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
@@ -562,7 +557,7 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		name := c.Param("name")
 		namespace := c.Query("namespace")
 
-		gvk, _, ok := resolveGVK(c)
+		gvk, ok := resolveGVK(c)
 		if !ok {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
