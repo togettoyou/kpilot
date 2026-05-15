@@ -113,19 +113,19 @@ export function PluginInstallLogDrawer({
         }
         setEntries((prev) => [...prev, entry]);
         if (entry.kind === 'end') {
+          // Don't close the WS here. The server's ring buffer
+          // replays the last operation's `end` frame on every fresh
+          // subscriber, so closing on end would drop the connection
+          // before the upcoming `reset` (emitted when the NEXT
+          // operation kicks off on the same plugin) ever arrives —
+          // see the recently-fixed "re-enable shows stale uninstall
+          // log" symptom. Server's 10-min session TTL will close
+          // idle subscribers itself; the per-drawer cleanup below
+          // closes on unmount.
           setEndStatus({
             success: !!entry.success,
             summary: entry.summary ?? '',
           });
-          // No more chunks are coming for this session — close the
-          // socket so we don't hold an idle connection. If the user
-          // triggers another operation later, the drawer closes and
-          // reopens via destroyOnHidden, which makes a fresh WS.
-          try {
-            ws.close();
-          } catch {
-            // ignore — already closed
-          }
         }
       } catch {
         // Malformed frame — skip silently. Backend always emits valid
