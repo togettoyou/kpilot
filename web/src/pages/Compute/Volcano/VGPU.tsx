@@ -249,6 +249,17 @@ function shortUuid(uuid: string): string {
   return `…${uuid.slice(-8)}`;
 }
 
+// nodeCores aggregates a node's per-card cores into one (used, total)
+// pair. Total is nCards × 100 because each card exposes 100% of its
+// compute. Used sums the per-card usedCores reported by the device-
+// plugin. Server doesn't ship this aggregation in the VGPUNode shape,
+// so we derive in the UI to avoid a worker-protocol change.
+function nodeCores(n: VGPUNode): { used: number; total: number } {
+  let used = 0;
+  for (const c of n.cards) used += c.usedCores ?? 0;
+  return { used, total: n.cards.length * 100 };
+}
+
 // ─── Cluster KPIs ────────────────────────────────────────────────────
 
 function ClusterKPIs({
@@ -269,6 +280,25 @@ function ClusterKPIs({
   const slotRatio = ratio(usedSlots, totalSlots);
   const memRatio = ratio(usedMemory, totalMemory);
 
+  // Cores aren't aggregated server-side (VGPUSnapshot has totalSlots /
+  // totalMemory but no totalCores). Sum here client-side from the per-
+  // card data each node already carries — `total` is N×100 because each
+  // card exposes 100% of its compute, `used` is whatever pods claimed
+  // via volcano.sh/vgpu-cores. Keeps the calc in one place and avoids a
+  // worker change for what's a pure derivation.
+  const { totalCores, usedCores } = useMemo(() => {
+    let total = 0;
+    let used = 0;
+    for (const n of nodes) {
+      for (const c of n.cards) {
+        total += 100;
+        used += c.usedCores ?? 0;
+      }
+    }
+    return { totalCores: total, usedCores: used };
+  }, [nodes]);
+  const coreRatio = ratio(usedCores, totalCores);
+
   // Per-model card inventory (e.g. "A10 × 4 · A100 × 2") — replaces
   // the empty bar slot on the "cards" KPI so mixed-model clusters
   // can be spotted immediately.
@@ -282,18 +312,6 @@ function ClusterKPIs({
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [nodes]);
 
-  // Healthy / degraded node counts for the "nodes" KPI's reserved
-  // slot — surfaces health distribution without forcing the user
-  // to expand the table.
-  const { healthy, degraded } = useMemo(() => {
-    let h = 0;
-    let d = 0;
-    for (const n of nodes) {
-      if (n.healthy && n.cards.every((c) => c.health)) h += 1;
-      else d += 1;
-    }
-    return { healthy: h, degraded: d };
-  }, [nodes]);
 
   const kpis: Array<{
     key: string;
@@ -341,28 +359,17 @@ function ClusterKPIs({
       tone: memRatio >= 0.85 ? 'error' : memRatio >= 0.6 ? 'warn' : undefined,
     },
     {
-      key: 'nodes',
-      value: nodes.length,
-      chips: nodes.length > 0 ? (
-        <Space size={6}>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            <span style={{ color: 'var(--ant-color-success)' }}>●</span>{' '}
-            {intl.formatMessage(
-              { id: 'pages.compute.vgpu.kpi.nodes.healthy' },
-              { n: healthy },
-            )}
-          </Text>
-          {degraded > 0 && (
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              <span style={{ color: 'var(--ant-color-error)' }}>●</span>{' '}
-              {intl.formatMessage(
-                { id: 'pages.compute.vgpu.kpi.nodes.degraded' },
-                { n: degraded },
-              )}
-            </Text>
-          )}
-        </Space>
-      ) : null,
+      // Cores (compute share) used to only show inside the expanded
+      // per-card row. Surfaced as a KPI so users get a cluster-wide
+      // utilization signal without expanding any nodes. Node count +
+      // healthy/degraded distribution moved into the NodeTable header
+      // (one less "what does this number mean" cognitive hop).
+      key: 'cores',
+      value: `${usedCores} / ${totalCores}`,
+      suffix: '%',
+      ratio: coreRatio,
+      tone:
+        coreRatio >= 0.85 ? 'error' : coreRatio >= 0.6 ? 'warn' : undefined,
     },
   ];
 
@@ -599,6 +606,36 @@ function NodeTable({
         <UtilBar used={r.usedMemory} total={r.totalMemory} unit="GiB" asGiB />
       ),
     },
+    {
+      // Compute share (cores) — aggregated client-side from the
+      // per-card usedCores values. Each card contributes 100% of
+      // capacity so node total = nCards × 100. Same UtilBar style
+      // as slots/memory; same advisory tooltip note as the per-card
+      // column inside the expanded row.
+      title: (
+        <Space size={4}>
+          <span>
+            {intl.formatMessage({ id: 'pages.compute.vgpu.node.col.cores' })}
+          </span>
+          <Tooltip
+            title={intl.formatMessage({
+              id: 'pages.compute.vgpu.card.col.cores.tip',
+            })}
+          >
+            <InfoCircleOutlined
+              style={{ color: 'var(--ant-color-text-tertiary)' }}
+            />
+          </Tooltip>
+        </Space>
+      ),
+      key: 'cores',
+      width: 200,
+      sorter: (a, b) => nodeCores(a).used - nodeCores(b).used,
+      render: (_, r) => {
+        const c = nodeCores(r);
+        return <UtilBar used={c.used} total={c.total} unit="%" percent />;
+      },
+    },
   ];
   if (!singleType) {
     columns.push({
@@ -643,6 +680,10 @@ function NodeTable({
         onExpand: onExpandChange,
       }}
       headerTitle={
+        // Node count + healthy/degraded breakdown lives on the table
+        // header so the KPI row can use that vertical slot for the
+        // Cores utilization KPI instead. Same numbers, more useful
+        // adjacency (next to the actual node list).
         <Space size={12} wrap>
           <Text strong>
             {intl.formatMessage({ id: 'pages.compute.vgpu.node.title' })}
@@ -654,6 +695,34 @@ function NodeTable({
               : ''}
             )
           </Text>
+          {(() => {
+            let healthy = 0;
+            for (const n of nodes) {
+              if (n.healthy && n.cards.every((c) => c.health)) healthy += 1;
+            }
+            const degraded = nodes.length - healthy;
+            if (nodes.length === 0) return null;
+            return (
+              <Space size={6}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  <span style={{ color: 'var(--ant-color-success)' }}>●</span>{' '}
+                  {intl.formatMessage(
+                    { id: 'pages.compute.vgpu.kpi.nodes.healthy' },
+                    { n: healthy },
+                  )}
+                </Text>
+                {degraded > 0 && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    <span style={{ color: 'var(--ant-color-error)' }}>●</span>{' '}
+                    {intl.formatMessage(
+                      { id: 'pages.compute.vgpu.kpi.nodes.degraded' },
+                      { n: degraded },
+                    )}
+                  </Text>
+                )}
+              </Space>
+            );
+          })()}
         </Space>
       }
       toolBarRender={() => [
