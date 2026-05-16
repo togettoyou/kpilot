@@ -239,14 +239,19 @@ type inClusterService struct {
 	namespace string
 	name      string
 	port      string
-	pathQuery string // path + raw query, prefixed with the path's leading '/'
+	// path is the path component the API proxy should forward to the
+	// upstream Service — passed via .Suffix() on the REST request.
+	path string
+	// query holds the parsed query parameters from the original URL.
+	// Passed individually via .Param(k, v) so client-go encodes them
+	// as real ?k=v segments instead of mangling them into the path.
+	query url.Values
 }
 
-// parseInClusterService extracts (svc, ns, port, path) from URLs of
-// the form `http://<svc>.<ns>.svc.<cluster-domain>:<port>/<path>?<q>`.
-// Returns nil for anything that doesn't match this shape (external
-// URLs, IP-literal hosts, …) so the caller falls back to direct
-// dial.
+// parseInClusterService extracts (svc, ns, port, path, query) from URLs
+// of the form `http://<svc>.<ns>.svc.<cluster-domain>:<port>/<path>?<q>`.
+// Returns nil for anything that doesn't match this shape (external URLs,
+// IP-literal hosts, …) so the caller falls back to direct dial.
 func parseInClusterService(rawURL string) *inClusterService {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -275,18 +280,16 @@ func parseInClusterService(rawURL string) *inClusterService {
 		// service proxy needs the port spec one way or another.
 		port = "http"
 	}
-	pathQuery := u.Path
-	if pathQuery == "" {
-		pathQuery = "/"
-	}
-	if u.RawQuery != "" {
-		pathQuery += "?" + u.RawQuery
+	path := u.Path
+	if path == "" {
+		path = "/"
 	}
 	return &inClusterService{
 		namespace: parts[1],
 		name:      parts[0],
 		port:      port,
-		pathQuery: pathQuery,
+		path:      path,
+		query:     u.Query(),
 	}
 }
 
@@ -310,12 +313,29 @@ func (p *HTTPProxy) doViaServiceProxy(
 	rest := p.clientset.CoreV1().RESTClient()
 	// Verb maps directly: GET/POST/PUT/etc. K8s REST client supports
 	// arbitrary verbs via `Verb(method)`.
+	//
+	// .Suffix expects URL-path segments (it splits on "/" and encodes
+	// each one). The path is split into segments because passing the
+	// whole "/api/v1/query_range" string as one segment used to URL-
+	// encode the "?" boundary into the path. Splitting on "/" + a
+	// separate Param() loop for the query keeps the request shape
+	// what the API server's service-proxy expects.
 	r := rest.Verb(strings.ToUpper(req.Method)).
 		Namespace(svc.namespace).
 		Resource("services").
 		Name(svc.name + ":" + svc.port).
-		SubResource("proxy").
-		Suffix(strings.TrimPrefix(svc.pathQuery, "/"))
+		SubResource("proxy")
+	for _, seg := range strings.Split(strings.TrimPrefix(svc.path, "/"), "/") {
+		if seg == "" {
+			continue
+		}
+		r = r.Suffix(seg)
+	}
+	for k, values := range svc.query {
+		for _, v := range values {
+			r = r.Param(k, v)
+		}
+	}
 	if len(req.Body) > 0 {
 		r = r.Body(bytes.NewReader(req.Body))
 	}
@@ -333,17 +353,21 @@ func (p *HTTPProxy) doViaServiceProxy(
 		r = r.SetHeader(h.Name, h.Value)
 	}
 
+	// Use Stream() rather than Do() — Do() turns non-2xx responses
+	// from the service-proxy endpoint into a generic
+	// "the server rejected our request for an unknown reason" error
+	// that throws away the actual upstream body. Stream() gives us
+	// the raw bytes for ANY status code, so we can forward the real
+	// VM/Grafana response to the browser even on 4xx/5xx.
 	res := r.Do(ctx)
-	if err := res.Error(); err != nil {
-		return nil, fmt.Errorf("svc-proxy dispatch: %w", err)
-	}
 	var status int
 	res.StatusCode(&status)
 	body, err := res.Raw()
-	if err != nil {
-		// `Raw()` returns the body bytes even on non-2xx; only a real
-		// transport error short-circuits here.
-		return nil, fmt.Errorf("svc-proxy read: %w", err)
+	if err != nil && status == 0 {
+		// Real transport error — no upstream response was even
+		// received. Surface verbatim so the dispatch log shows what
+		// went wrong (RBAC / connection refused / etc.).
+		return nil, fmt.Errorf("svc-proxy dispatch: %w", err)
 	}
 	if int64(len(body)) > proxyMaxRespBytes {
 		return nil, fmt.Errorf("upstream body exceeds %d bytes", proxyMaxRespBytes)
