@@ -48,7 +48,7 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 - **Volcano 内置 actions / plugins 元数据**：维护在 `pages/Compute/Volcano/schedulerMeta.ts`。覆盖 **6 个 actions**（enqueue / allocate / preempt / reclaim / backfill / shuffle）+ **24 个 plugins**（priority / gang / conformance / drf / proportion / predicates / nodeorder / binpack / overcommit / deviceshare / tdm / numa-aware / network-topology-aware / task-topology / usage / extender / capacity / resourcequota / pdb / cdp / sla / nodegroup / resource-strategy-fit / rescheduling）。每个 plugin 标 `callbacks: string[]`（25 个 enable\* 中实际会被该 plugin 注册的子集），未识别的 fallback 到「自定义 plugin」描述
 - 历史 review 校对默认值（`93bcf96`）：5 个 plugin args 默认值与 Volcano 源码对齐（task-topology.weight / numa-aware.weight / deviceshare.ScheduleWeight / network-topology-aware.hypernode.binpack.normal-pod.{enable,fading}）
 
-## 4. vGPU 视图（`/compute/:id/vgpu`）
+## 4. GPU 视图（`/compute/:id/vgpu`）
 
 集群级 Volcano vGPU 切分实况。
 
@@ -134,7 +134,7 @@ Volcano 提供两套机制：
 
 ## 6. GPU 监控（`/compute/:id/gpu-monitoring`）
 
-物理 GPU 健康度面板。**完全自绘 —— 不嵌入 Grafana**。vGPU 视图的姊妹页：vGPU 视图看切片分配（哪张卡上有谁、占了多少 slot / 显存 / cores），GPU 监控看硬件层指标（温度 / 功耗 / 实际利用率 / framebuffer / SM clock / tensor 核心活跃度）。
+物理 GPU 健康度面板。**完全自绘 —— 不嵌入 Grafana**。GPU 视图的姊妹页：GPU 视图看切片分配（哪张卡上有谁、占了多少 slot / 显存 / cores），GPU 监控看硬件层指标（温度 / 功耗 / 实际利用率 / framebuffer / SM clock / tensor 核心活跃度）。
 
 > 定位说明：算力调度平台所有可视化页全部自实现、Volcano 专用形态；Grafana 嵌入只保留给「集群管理」做通用监控（NodeExporterFull / VictoriaLogs Explorer）。这样升级 dashboard JSON / 调整面板布局 / 加 Volcano 联动 drill-down 不需要绕 Grafana。
 
@@ -146,6 +146,7 @@ Volcano 提供两套机制：
   - **snapshot** 服务端预算：activeGPUs / avgTempC / maxTempC / totalPowerW / avgUtilPct / fbUsedMiB / fbTotalMiB / fbUsagePct / avgTensorActPct，取每条 series 最右点 reduce，前端 KPI 不重复 walk
   - range step 表：1h=30s / 24h=5m / 7d=30m / 30d=2h（比 GPU-Hour 的 step 粗一档；line chart 没必要保留 30s 粒度走 30 天）
 - **VM 查询共享层**：`pkg/server/api/handler/vm_query.go` 抽出 `resolveVMQueryURL` / `queryVM` / `queryVMRange` / `urlQueryEscape`，DeviceHealth / GPUHour / GPUMetrics 三个 handler 共用
+- **worker 自动路由 in-cluster Service URL**：worker `pkg/worker/proxy/http.go` 检测 host 匹配 `*.svc.*` 时,改走 K8s API server 的 service proxy 端点(`/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/<path>`)而不是直接 dial。生产部署(worker 跑集群里)+ 本地 dev(worker 跨 kubeconfig/SSH tunnel 拿不到 cluster.local DNS)都能通,不需要给 server 端配置不同 URL 形态
 - **页面**：`pages/Compute/Volcano/GPUMonitoring.tsx` ——
   - 顶部 Radio.Group range picker + RefreshControl（default off）
   - 4 KPI 卡：activeGPUs / 平均利用率（`Progress.dashboard` + 阈值配色） / 平均温度（dashboard，max 90℃ 标 ↑）/ 总功耗 + 显存占用混合卡
@@ -155,9 +156,9 @@ Volcano 提供两套机制：
 - **前置条件**：每个 GPU 节点要装 **NVIDIA driver + nvidia-container-runtime**（与 volcano-vgpu-device-plugin 共用同一套基础设施）。DCGM Exporter 容器需要 `SYS_ADMIN` cap 才能读 profiling 指标（`DCGM_FI_PROF_*`），chart 默认 securityContext 已配齐
 - **节点选择**：默认无 nodeSelector —— exporter 在无 GPU 的节点上探针失败，pod 不会重新调度（无伤大雅但占 pod slot）。用 NFD / GPU Operator 的环境可在 EnableDrawer 里加 `nodeSelector.nvidia.com/gpu.present: "true"`
 
-## 7. Queue 配额（`/compute/:id/queue-quota`）
+## 7. 队列配额（`/compute/:id/queue-quota`）
 
-单 Queue 多资源配额深化视图。**Overview 的姊妹页**：Overview 显示集群级 capability vs allocated 三资源横向条；Queue 配额页选定一个 Queue 后展开 **全部资源类型** × **四状态**（capability / guarantee / allocated / deserved）+ **子 Queue 卡片递归**。
+单 Queue 多资源配额深化视图。**Overview 的姊妹页**：Overview 显示集群级 capability vs allocated 三资源横向条；队列配额页选定一个 Queue 后展开 **全部资源类型** × **四状态**（capability / guarantee / allocated / deserved）+ **子 Queue 卡片递归**。**默认选中 `root` 队列**——Volcano 总有 root 节点（隐式父队列），新装集群上 root 是唯一观察对象，首屏就有内容而不是空 CTA。
 
 - **数据流**：复用现有 `/api/v1/clusters/:id/volcano/queues` 列表端点（list-full 已经把 spec.{capability, guarantee, deserved, priority} + status.allocated 都投影出来）；一次拉全集群队列，子树关系在前端按 `spec.parent` 重组。**无新端点**
 - **后端字段扩展**：`pkg/server/api/handler/volcano.go::queueRow` 加 `Priority` / `Guarantee` / `Deserved` 三个字段。`spec.guarantee` 在 Volcano 里嵌套写成 `{ resource: ResourceList }`，server 端 unwrap 内层 `resource` 直接下发
@@ -165,16 +166,17 @@ Volcano 提供两套机制：
   - **顶部 selector**：缩进树形 option list 的 Queue Select（父子层级靠前缀 `│   ├─` 可视化，避免引入 Cascader 重组件），右侧统计「共 N 个 Queue」+ RefreshControl 间隔下拉（默认 off）
   - **主卡片**（选中 Queue 之后）：header bar 列名称 + state Tag + 父队列 Tag + priority/weight Badge + reclaimable 反向 Tag + extra 处运行/等待/排队 job 计数 Badge。body 内逐资源行：
     - **resource header**：人类化名（CPU / 内存 / GPU 整卡 / vGPU 切片数 / vGPU 显存 / vGPU 算力，其他键 raw 显示）+ 已分配 / 保障 / 上限 / 应得 数字串
-    - **bar**：纯 CSS 自绘 —— 横向 track = capability，填充 = allocated（颜色按状态切：超 capability 红 / 未达 guarantee 橙 / 正常蓝），guarantee 用 2px 绿色竖线 tick（hover Tooltip），deserved 用 2px 紫色竖线 tick（仅 capacity 插件启用时下发）。antd Progress 不支持多 marker 叠加，所以走 absolute-positioned div
+    - **bar**：纯 CSS 自绘 —— 横向 track = capability，填充 = allocated（颜色按状态切：超 capability 红 / 未达 guarantee 橙 / 正常蓝），guarantee 用 2px 绿色竖线 tick（hover Tooltip），deserved 用 2px 紫色竖线 tick（仅 capacity 插件启用时下发）。antd Progress 不支持多 marker 叠加，所以走 absolute-positioned div。**未设上限的资源**走斜纹空轨道（与 Overview CapacityRow 一致），不填充——曾经按 max(alloc, guar, des) 当分母会让条永远 100%「看起来满」，现在用 `repeating-linear-gradient(45deg)` + 隐藏 tick 表达「无上限」
     - **超限 / 未达保障**：Alert（error / warning）渲染在 bar 下方
   - **子 Queue 区**：用同款 QueueDetailCard 紧凑模式（`primary=false`，size=small）递归渲染直属子 Queue
-- **未选时**：Empty + CTA 提示选择
+- **首屏默认选中**：`root` 队列（Volcano 隐式根），无 root 时回退到 `items[0]`
 - **轮询**：复用 `useAutoRefresh` + `<RefreshControl>`，default off
-- **文件**：`pages/Compute/Volcano/QueueQuota.tsx`（单文件，~480 行；`parseQuantity` inline copy 自 `OverviewCharts.tsx`，第三处出现时再下沉到 common util）
+- **hooks 顺序**：所有 `useMemo` / `useEffect` 必须在 RESOURCE_NOT_AVAILABLE early-return 之前调用。曾经把 early-return 插在 hooks 之间 → 集群无 Volcano 时报「Rendered fewer hooks than expected」
+- **文件**：`pages/Compute/Volcano/QueueQuota.tsx`；`parseQuantity` / `shortUUID` / `usageColor` 共享于 `pages/Compute/Volcano/shared/utils.ts`
 
-## 8. 设备告警（`/compute/:id/device-health`）
+## 8. GPU 告警（`/compute/:id/device-health`）
 
-把 DCGM Exporter 采集到的硬件故障信号 server 侧聚合成单一告警列表。**vGPU 视图的姊妹页**：vGPU 看切片分配状态，设备告警看硬件故障状态。
+把 DCGM Exporter 采集到的硬件故障信号 server 侧聚合成单一告警列表。**GPU 视图的姊妹页**：GPU 视图看切片分配状态，GPU 告警看硬件故障状态。
 
 - **数据流**：server `pkg/server/api/handler/device_health.go::GetDeviceHealth` 通过 `resolveVMQueryURL` 拿到 victoria-metrics 在该集群的 Service FQDN（chart 命名 `<release>-victoria-metrics-single-server.<release-ns>.svc.<cluster-domain>:8428`），通过 `gw.SendHTTPRequest` 走 worker tunnel 并发跑 4 条 PromQL 查询：
   - `DCGM_FI_DEV_XID_ERRORS > 0` —— XID 故障（critical）
@@ -184,7 +186,7 @@ Volcano 提供两套机制：
 - **单查询失败不阻塞**：4 条 PromQL goroutine 内 `recover` 各自的 error，失败时 log 跳过，前端只少一类告警，不空白
 - **响应 shape**：`{ alerts: [{severity, kind, hostname, instance, gpu, uuid, value, message}], generatedAt, counts: {critical, warning, info} }`，counts 服务端预算，前端 KPI 不重复 walk
 - **VM 未启用**：`resolveVMQueryURL` 检测 victoria-metrics plugin row 缺失 / 未启用 / Phase != Running，返回 `RESOURCE_NOT_AVAILABLE`；前端走 `<NotInstalled>` 引导启用
-- **页面**：`pages/Compute/Volcano/DeviceHealth.tsx` —— 3 KPI 卡（critical / warning / info 数字 + 配色）+ 严重程度 / 类别 / 主机 / GPU / UUID / 说明列的 ProTable，severity 列带 filter 多选，hostname 列点击跳 `/clusters/:id/nodes`，UUID 尾截 `…hhhhhhhh` 复制完整 UUID；空告警时绿色对勾 Empty
+- **页面**：`pages/Compute/Volcano/DeviceHealth.tsx` —— 3 KPI 卡（critical / warning / info 数字 + 配色）+ 单一 ProTable（无论有无告警都渲染：有数据走表格、空数据走 `locale.emptyText` 的绿色对勾 Empty），RefreshControl 放在 ProTable `toolBarRender` 里。severity 列 filter 多选，hostname 列点击跳 `/clusters/:id/nodes`，UUID 尾截 `…hhhhhhhh` 复制完整 UUID。**alert 句子全部前端 i18n**（zh-CN / en-US 双套 message 模板，server 只下发 `kind` + `value`）
 - **未来扩展**：可在同一响应里合并 vGPU snapshot 的 `Card.Health=false` 与 Volcano Job event 失败聚合，结构兼容（kind 新增即可，前端 unknown kind 走 fallback）
 
 ## 9. GPU-Hour 用量（`/compute/:id/gpu-hour`）
@@ -202,13 +204,13 @@ Volcano 提供两套机制：
 
 ```
 算力调度 (/compute)
-├── Volcano 概览     (/compute/:id/overview)        ← 默认首屏
-├── 调度策略        (/compute/:id/scheduler)
-├── vGPU            (/compute/:id/vgpu)
-├── GPU 监控        (/compute/:id/gpu-monitoring)
-├── Queue 配额      (/compute/:id/queue-quota)
-├── 设备告警        (/compute/:id/device-health)
-├── GPU-Hour 用量   (/compute/:id/gpu-hour)
+├── 调度概览       (/compute/:id/overview)         ← 默认首屏
+├── 调度策略       (/compute/:id/scheduler)
+├── 队列配额       (/compute/:id/queue-quota)      ← 紧挨调度策略,二者都是 policy 视角
+├── GPU 视图       (/compute/:id/vgpu)
+├── GPU 监控       (/compute/:id/gpu-monitoring)
+├── GPU 告警       (/compute/:id/device-health)
+├── GPU-Hour 用量  (/compute/:id/gpu-hour)
 └── 调度资源 (group)
     ├── Queue                       (/compute/:id/queues)
     ├── Job                         (/compute/:id/jobs)

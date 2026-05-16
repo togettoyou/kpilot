@@ -93,14 +93,15 @@ kpilot/
 │   │   │   ├── middleware/  # JWT 中间件
 │   │   │   └── router.go    # 路由注册
 │   │   ├── store/           # PostgreSQL CRUD（GORM）+ 启动 seed（内置插件 + 本地 chart blob upsert）
+│   │   ├── pluginservice/   # 插件域服务（BuildEnableCommand 拼装 PluginCommand + 合 dashboards 覆盖 + 解析 ${KPILOT_*} / PersistStatus 写 ClusterPlugin 行），gateway 不再直接 import store/dashboards
 │   │   ├── dashboards/      # 内置 Grafana dashboard JSON（go:embed）+ overlay 合并器
 │   │   ├── plugins/         # 内置 Helm chart 源（charts/<name>/，go:embed）+ 启动时 helm package 出 .tgz 写 PluginBlob
 │   │   ├── config/          # Server 环境变量
-│   │   └── gateway/         # gRPC Server + Worker 连接管理 + ResourceRequest 路由 + 流式会话路由 + BuildEnableCommand
+│   │   └── gateway/         # 纯传输层：gRPC Server + Worker 连接管理 + ResourceRequest 路由 + 流式会话路由。BuildEnableCommand / handlePluginStatus 委托给 pluginservice（通过 ClusterDomainResolver 接口反向调用拿 worker 上报的 cluster_domain）
 │   ├── worker/
 │   │   ├── apis/v1alpha1/   # Plugin CRD Go 类型 + DeepCopy
 │   │   ├── plugin/          # Plugin CRD reconciler + Helm SDK + chart cache + manager
-│   │   ├── proxy/           # K8s 资源代理（list/get/apply/update/patch/delete/describe）+ LogsManager + ExecManager + HTTPProxy + WSManager + VGPUTracker（解析 Volcano vGPU annotation）
+│   │   ├── proxy/           # K8s 资源代理（list/get/apply/update/patch/delete/describe）+ LogsManager + ExecManager + HTTPProxy（in-cluster `*.svc.*` URL 自动改走 K8s API server 的 service-proxy 端点,生产 + 本地调试都通）+ WSManager + VGPUTracker（解析 Volcano vGPU annotation）
 │   │   ├── config/          # Worker 环境变量
 │   │   └── tunnel/          # gRPC Client（注册、心跳、消息分发）
 │   └── common/
@@ -129,13 +130,14 @@ web/src/
 │   │   └── Logging/         # 日志页（VictoriaLogs Explorer K8S dashboard）
 │   ├── Compute/             # 算力调度
 │   │   ├── index.tsx        # 顶级 landing（集群 picker，进入 → /overview）
-│   │   └── Volcano/         # Overview（KPI + 图表 dashboard） + Scheduler（调度策略编辑器） + VGPU（每节点 Card 列表 + Progress 仪表盘 KPI） + GPUMonitoring（**自绘** `@ant-design/plots` Line —— 4 KPI 卡 + 6 张多线时序图，不嵌 Grafana） + QueueQuota（单 Queue 多资源 capability/guarantee/allocated/deserved 三 tick bar） + DeviceHealth（DCGM XID/ECC/温度/显存四路 PromQL 聚合的告警列表） + GPUHour（DCGM 利用率 × 窗口积分的历史用量报表，1h/24h/7d/30d range picker） + 10 个 CR 页（Queues / Jobs / CronJobs / PodGroups / HyperNodes / JobFlows / JobTemplates / NumaTopologies / NodeShards / ColocationConfigurations）+ 对应 Form drawer（7 个类型化表单 + JobFlow/JobTemplate 走 YamlCreateDrawer / NumaTopology 只读）+ schedulerMeta + shared/Layout（NotInstalled / isResourceNotAvailable / useAutoRefresh / useStaggeredRefresh / RefreshControl / TruncatedBanner / formatAge）
+│   │   └── Volcano/         # Overview（调度概览,KPI + 图表 dashboard）+ Scheduler（调度策略编辑器）+ QueueQuota（队列配额,单 Queue 多资源 capability/guarantee/allocated/deserved 三 tick bar,默认选 root）+ VGPU（GPU 视图,每节点 Card 列表 + Progress 仪表盘 KPI）+ GPUMonitoring（GPU 监控,**自绘** `@ant-design/plots` Line —— 4 KPI 卡 + 6 张多线时序图,不嵌 Grafana）+ DeviceHealth（GPU 告警,DCGM XID/ECC/温度/显存四路 PromQL 聚合）+ GPUHour（GPU-Hour 用量,DCGM 利用率 × 窗口积分,1h/24h/7d/30d range picker）+ 10 个 CR 页（Queues / Jobs / CronJobs / PodGroups / HyperNodes / JobFlows / JobTemplates / NumaTopologies / NodeShards / ColocationConfigurations）+ 对应 Form drawer（7 个类型化表单 + JobFlow/JobTemplate 走 YamlCreateDrawer / NumaTopology 只读）+ schedulerMeta + shared/Layout（NotInstalled / isResourceNotAvailable / useAutoRefresh / useStaggeredRefresh / RefreshControl / TruncatedBanner / formatAge）+ shared/utils（parseQuantity / shortUUID / usageBand / usageColor 跨页共享）
 │   ├── ModelHub/            # 模型服务 landing（P15+ 占位）
 │   ├── Plugins/             # 全局插件注册表 CRUD
 │   └── exception/404/
-├── services/kpilot/         # API 服务（auth、cluster、node、workload、pod、plugin、volcano）
+├── services/kpilot/         # API 服务（auth、cluster、node、workload、pod、plugin、volcano、vm-backed 三件套 device-health / gpu-hour / gpu-metrics）
+├── hooks/                   # useClusterRequest（manual:true + useEffect 替代 ready+refreshDeps 反模式，所有 Compute 页统一用这个）
 ├── models/                  # Umi useModel 全局状态（namespace 等）
-├── components/              # Footer、HeaderDropdown、RightContent、NamespacePicker、GrafanaEmbed
+├── components/              # Footer、HeaderDropdown、RightContent（含 DefaultPasswordWarning 头部 ⚠ icon）、NamespacePicker、GrafanaEmbed、PluginInstallLogDrawer
 ├── locales/                 # zh-CN / en-US（menu.ts、pages.ts）
 └── app.tsx                  # 全局布局、动态菜单注入、认证初始化、顶部栏 actionsRender
 ```
@@ -337,6 +339,10 @@ const { data, loading } = useRequest(listXxx, {
 > }, [open, name, clusterId]);
 > ```
 
+> ⚠️ **页面级条件 fetch**：page 级 `useRequest({ ready, refreshDeps })` 同样有上面这个 bug。`web/src/hooks/useClusterRequest.ts` 封装了 `manual: true + useEffect` 的正确模式，签名 `(service, deps, { ready })`，返回 `{data, loading, error, refresh, mutate, run}`。所有 Compute/Volcano 的页面（10 个 CR 页 + Overview + Scheduler + VGPU + 4 个 P14 新页 + GrafanaEmbed）已迁移完毕。**新页面优先用这个 hook**，原生 `useRequest` 留给真的需要 polling / 复杂 manual 控制的场景。
+
+> ⚠️ **hooks 顺序**：React 跟踪 hook 调用顺序。所有 `useMemo` / `useEffect` / `useCallback` 必须在任何 early-return 之前调用，否则当条件改变（如 RESOURCE_NOT_AVAILABLE 错误第一次出现）时 React 会抛 "Rendered fewer hooks than expected"。已踩过 —— QueueQuota 把 early-return 插在 `useClusterRequest` 之后 / 三个 `useMemo` 之前,集群无 Volcano 时挂掉。
+
 - 所有路径使用相对路径，dev 环境通过 `config/proxy.ts` 代理到 `http://localhost:8080`
 - 认证依赖 HTTP-only cookie，不需要手动传 token
 
@@ -367,7 +373,7 @@ const { data, loading } = useRequest(listXxx, {
 | P11 | vGPU 实况：worker `pkg/worker/proxy/vgpu.go` 解析 `volcano.sh/node-vgpu-register` + `vgpu-ids-new` annotation，server `/api/v1/clusters/:id/vgpu` 返回集群 → 节点 → 卡 → Pod 树，前端 `/compute/:id/vgpu` 渲染 KPI + 节点列表；volcano-vgpu-device-plugin 包成 wrapper Helm chart（go:embed + 启动时 helm package）加为内置插件 | ✅ 完成 |
 | P12 | P11 收尾打磨。**vGPU 页**：完整重构 —— KPI 三个利用率（slots / memory / cores）改用 `Progress.dashboard` 环形仪表盘（cores 客户端聚合自每张卡）；旧的"节点表 + 展开行 = 卡列表"改成 card-per-node 列表，每节点头部三段聚合 bar，节点下方逐张卡一行（身份 + 三 bar + Pods 占用），所有信息默认可见无展开；pod 名点击改打开 DescribeDrawer（不是 Logs）；UUID 尾截 `…hhhhhhhh`；搜索框 + 排序 + drilldown 到节点 / health banner / 空集群 CTA。**chart**：两个 ConfigMap 都放 release namespace（默认 `volcano-system`），device-config 依赖 binary 的 `kube-system → volcano-system` fallback 链，去掉之前错误的 kube-system pin；display_name 缩 "Volcano vGPU"；description 修到 varchar(500) 内。**架构**：删除 `pkg/server/protect/`（写保护全部归还给 K8s RBAC + controller）。**schedulerMeta**：`arguments` 加入已知 top-level key。**Volcano 内置 chart**：默认 scheduler.conf 已带 `deviceshare` 插件 + `VGPUEnable: true`（新装即用）；默认 release namespace 改成 `volcano-system`。**Job/CronJob/Queue 表单**：原生 vGPU 三件套字段（number / memory / cores）；JobForm 编辑时 Alert 提示 webhook 三字段限制 + submit-time diff 拦截。**Overview / Scheduler**：Volcano 检测 cluster-side（worker 探 Queue CRD + ConfigMap field-selector），不再依赖 kpilot 插件注册表；Overview list fetch 走 `Promise.allSettled` 容忍可选 sub-CRD 缺失。**plugin install log**：修 10 分钟 buffer TTL 内重新 enable 旧 end 帧误关 WS 的 bug。**hack/**：`aliyun-gpu.sh` → `remote-k3s.sh` 改名 + 跨平台 tunnel pid 跟踪 + SSH multiplex；Tencent/GCP/EC2 镜像 root 密码 SSH 禁用时自动通过 ubuntu/centos/ec2-user/admin 用同密码登录 + sudo bootstrap pubkey 到 root；GPU 节点缺 NVIDIA Container Toolkit 时自动 apt 装上。 | ✅ 完成 |
 | P13 | GPU 物理卡监控：NVIDIA DCGM Exporter 内置插件（repo chart 4.8.2，sort_order 27，DaemonSet 暴露 `:9400` Prometheus 指标）。**首版用 Grafana iframe 嵌 dashboard 12239，后修订为完全自绘**：新增 server-side `pkg/server/api/handler/gpu_metrics.go::GetGPUMetrics` 通过 `gw.SendHTTPRequest` 并发跑 6 条 PromQL（util/temp/power/fbUsed/fbTotal/SM/tensor），server 预算 snapshot；前端 `pages/Compute/Volcano/GPUMonitoring.tsx` 用 `@ant-design/plots` Line + Progress.dashboard 渲染 4 KPI 卡 + 6 张多线时序图，required 改成 `victoria-metrics + dcgm-exporter`（**不再依赖 grafana**）。删除 `pkg/server/dashboards/builtin/nvidia-dcgm.json` + `embed.go` 里的注册条目。Grafana 嵌入只留给「集群管理」的通用监控 / 日志页。算力调度 = 专用形态，集群管理 = 通用形态 | ✅ 完成 |
-| P14 | 资源治理三件套（VM 查询基础层 + 三个专题页）。**共享层**：抽 `pkg/server/api/handler/vm_query.go`（`resolveVMQueryURL` 通过 plugin DB lookup 拿 VictoriaMetrics Service FQDN + `queryVM` instant + `queryVMRange` matrix + `urlQueryEscape`），DeviceHealth / GPUHour / GPUMetrics 三 handler 共用。**Queue 配额**（`/queue-quota`）：`queueRow` 加 `Priority` / `Guarantee`（unwrap `spec.guarantee.resource`）/ `Deserved` 三字段；前端缩进树形 Queue Select + 主卡片 + 子 Queue 递归卡片；每资源行纯 CSS 自绘三 tick bar（capability=track / allocated=填充 / guarantee=绿色竖线 / deserved=紫色竖线）+ 超限 / 未达保障 Alert。**设备告警**（`/device-health`）：4 条 PromQL 并发（XID / 30min ECC increase / 温度 ≥85 / FB ≥95%）走 worker tunnel，单 query 失败仅 log 跳过；server 预算 severity counts，**alert 句子全部前端 i18n**（zh-CN / en-US 双套 message 模板，server 只下发 `kind` + `value`）。前端三 KPI 卡 + severity 多选 filter ProTable，hostname 跳 `/clusters/:id/nodes`，空告警时绿色对勾 Empty。**GPU-Hour 用量**（`/gpu-hour`）：`avg_over_time((DCGM_FI_DEV_GPU_UTIL/100)[range:step])` × 窗口小时 = GPU-Hour 数（step 1h→1m / 24h→5m / 7d/30d→15m），server 按 hours 倒序返回 + total；前端 Radio.Group range picker + 双 Statistic 卡 + ProTable + share `<Progress>` 占比；30d 多挂 retention warning。v1 仅按 (Hostname, gpu) 聚合，Queue / Namespace 细分留作后续（需要 worker 周期性 Volcano 分配快照持久化） | ✅ 完成 |
+| P14 | 资源治理三件套（VM 查询基础层 + 三个专题页）。**共享层**：抽 `pkg/server/api/handler/vm_query.go`（`resolveVMQueryURL` 通过 plugin DB lookup 拿 VictoriaMetrics Service FQDN + `queryVM` instant + `queryVMRange` matrix + `urlQueryEscape`），DeviceHealth / GPUHour / GPUMetrics 三 handler 共用。**队列配额**（`/queue-quota`）：`queueRow` 加 `Priority` / `Guarantee`（unwrap `spec.guarantee.resource`）/ `Deserved` 三字段；前端缩进树形 Queue Select（默认选 `root`）+ 主卡片 + 子 Queue 递归卡片；每资源行纯 CSS 自绘三 tick bar（capability=track / allocated=填充 / guarantee=绿色竖线 / deserved=紫色竖线），未设上限走斜纹空轨道 + 超限 / 未达保障 Alert。**GPU 告警**（`/device-health`）：4 条 PromQL 并发（XID / 30min ECC increase / 温度 ≥85 / FB ≥95%）走 worker tunnel，单 query 失败仅 log 跳过；server 预算 severity counts，**alert 句子全部前端 i18n**（zh-CN / en-US 双套 message 模板，server 只下发 `kind` + `value`）。单一 ProTable（空数据走 `locale.emptyText`），RefreshControl 在 `toolBarRender`。**GPU-Hour 用量**（`/gpu-hour`）：`avg_over_time((DCGM_FI_DEV_GPU_UTIL/100)[range:step])` × 窗口小时 = GPU-Hour 数（step 1h→1m / 24h→5m / 7d/30d→15m），server 按 hours 倒序返回 + total；前端 Radio.Group range picker + 双 Statistic 卡 + ProTable + share `<Progress>` 占比；30d 多挂 retention warning。v1 仅按 (Hostname, gpu) 聚合，Queue / Namespace 细分留作后续（需要 worker 周期性 Volcano 分配快照持久化）。**worker 端 in-cluster Service URL 路由**：`*.svc.*` 自动改走 K8s API server 的 service-proxy 端点（`/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/<path>`），生产部署 + 本地调试都通 | ✅ 完成 |
 | P15 | 模型服务 → 模型仓库 + 内置预设（Qwen / DeepSeek / Llama 等 vLLM 启动模板） | 待开始 |
 | P16 | 模型服务 → 推理部署 + 内置 chat 调试 + 可选反代 endpoint | 待开始 |
 | P17 | 模型服务 → OpenAI 兼容路由（按 model 参数路由后端，灰度 / A/B） | 待规划 |
