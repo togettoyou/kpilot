@@ -5,10 +5,19 @@
 # Works against any ssh-reachable host (bare metal, cloud VM, on-prem box).
 # Custom ssh port supported via positional arg.
 #
-#   remote-k3s up <host> [port]   install k3s, pull kubeconfig, start SSH tunnel, merge context
+#   remote-k3s up [user@]<host> [port]
+#     install k3s, pull kubeconfig, start SSH tunnel, merge context.
+#     The `user@` prefix overrides the default (root). Use it for
+#     cloud images that disable root password SSH — pass the cloud's
+#     default sudoer (ubuntu / centos / ec2-user / admin / opc).
 #   remote-k3s down               kill the tunnel + remove local context (server untouched)
 #   remote-k3s reset              down + delete kubeconfig file and backups
 #   remote-k3s status             show tunnel pid + cluster reachability
+#
+# Examples:
+#   remote-k3s up 1.2.3.4               # ssh as root
+#   remote-k3s up ubuntu@1.2.3.4        # ssh as ubuntu (sudo-capable)
+#   remote-k3s up ubuntu@1.2.3.4 2222   # custom port
 #
 # GPU is auto-detected: if `nvidia-smi` is on the remote PATH we set
 # default-runtime=nvidia + apply the nvidia RuntimeClass; otherwise we
@@ -165,57 +174,6 @@ expect {
 EOF
 }
 
-# bootstrap_root_via_admin handles the cloud-image case where root
-# password SSH is disabled (Tencent Cloud / common Ubuntu cloud
-# images) but a sudo-capable admin user shares the same password.
-# Connects as $admin_user, drops our pubkey into root's
-# authorized_keys via sudo, then leaves cleanup to the caller.
-# Returns 0 on success, 1 on auth failure, 2 on other failure.
-bootstrap_root_via_admin() {
-  local host=$1 admin_user=$2
-  if ! command -v expect >/dev/null 2>&1; then return 2; fi
-  # Pass the pubkey + remote command + ssh target via env vars to
-  # avoid quoting the multi-line script into the expect heredoc. The
-  # quoted-heredoc keeps shell out of expect's parser entirely.
-  REMOTE_K3S_PASSWORD="$REMOTE_K3S_PASSWORD" \
-  SSH_PORT="$SSH_PORT" \
-  RK3S_HOST="$host" \
-  RK3S_USER="$admin_user" \
-  RK3S_PUB="$(cat "${SSH_KEY}.pub")" \
-  expect <<'EOF'
-set timeout 60
-log_user 0
-set pub $env(RK3S_PUB)
-# Inline remote script — appends our pubkey to the admin user's
-# authorized_keys (so subsequent runs can keyless-bootstrap as
-# this user too), then mirrors it into /root/.ssh via sudo.
-# Cloud-image sshd_config commonly has PermitRootLogin
-# prohibit-password, which accepts pubkey but not password — so
-# pubkey is all we need.
-set cmd "set -e; \
-mkdir -p ~/.ssh && chmod 700 ~/.ssh; \
-grep -qF '$pub' ~/.ssh/authorized_keys 2>/dev/null || echo '$pub' >> ~/.ssh/authorized_keys; \
-chmod 600 ~/.ssh/authorized_keys; \
-sudo mkdir -p /root/.ssh; \
-sudo cp ~/.ssh/authorized_keys /root/.ssh/authorized_keys; \
-sudo chmod 700 /root/.ssh; \
-sudo chmod 600 /root/.ssh/authorized_keys; \
-sudo chown -R root:root /root/.ssh; \
-echo BOOTSTRAP_DONE"
-spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  -o ControlPath=none -o PreferredAuthentications=password \
-  -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
-  -o ConnectTimeout=15 \
-  -p $env(SSH_PORT) "$env(RK3S_USER)@$env(RK3S_HOST)" "$cmd"
-expect {
-  -re "password:|Password:" { send "$env(REMOTE_K3S_PASSWORD)\r"; exp_continue }
-  "Permission denied" { exit 1 }
-  "BOOTSTRAP_DONE" { exit 0 }
-  eof { exit 2 }
-}
-EOF
-}
-
 push_key() {
   local host=$1
   # 1. Already-keyless? Skip the password dance entirely.
@@ -228,41 +186,62 @@ push_key() {
     echo
   fi
   step "pushing pubkey via expect"
-  # 2. Standard ssh-copy-id to $SSH_USER (default: root). Works on
-  #    most VPS images where root password SSH is enabled.
   if try_ssh_copy_id "$SSH_USER" "$host"; then
     return 0
   fi
-  # 3. Tencent Cloud / similar lock root password SSH off in the
-  #    default Ubuntu image but expose a sudo-capable admin user
-  #    that uses the same password. If $SSH_USER is root and we got
-  #    rejected, try ubuntu+sudo to bootstrap. Same trick covers
-  #    centos/ec2-user/admin in their respective images — extend the
-  #    list when a new platform demands it.
+  red "could not push pubkey to $SSH_USER@$host"
   if [[ "$SSH_USER" == "root" ]]; then
-    for admin in ubuntu centos ec2-user admin; do
-      yellow "root password SSH rejected; trying $admin+sudo bootstrap"
-      if bootstrap_root_via_admin "$host" "$admin"; then
-        if try_keyless "$SSH_USER" "$host"; then
-          green "root pubkey installed via $admin+sudo"
-          return 0
-        fi
-      fi
-    done
+    red "many cloud images (Tencent / GCP / AWS Ubuntu) disable root password SSH —"
+    red "  retry as the sudoer user, e.g.:  ./hack/remote-k3s.sh up ubuntu@$host"
+    red "  common defaults: ubuntu (Ubuntu / Tencent / GCP) / centos / ec2-user (AWS AL2) / admin (Debian) / opc (Oracle)"
+  else
+    red "check password is correct and that '$SSH_USER' is the right login user for this image"
   fi
-  red "could not push pubkey to $SSH_USER@$host — check password and that root SSH (key or password) is permitted"
   return 1
 }
 
 remote_ssh() {
   local host=$1
   shift
+  # When SSH_USER is non-root, transparently wrap the command in
+  # `sudo -n bash -c '<cmd>'` so k3s install / apt-get / systemctl /
+  # etc. all run with the privileges they need. -n makes sudo
+  # non-interactive so we fail fast on password-required sudo
+  # rather than hanging the remote SSH session. Cloud images expose
+  # passwordless sudo for the default user; if a custom user lacks
+  # NOPASSWD, the error is loud and the fix is one sudoers edit.
+  if [[ "$SSH_USER" != "root" ]]; then
+    # Encode the original command via base64 so embedded quotes /
+    # newlines / heredocs in the caller's script don't fight the
+    # additional layer of shell quoting introduced by sudo.
+    local encoded
+    encoded=$(printf '%s' "$*" | base64 | tr -d '\n')
+    ssh "${SSH_OPTS[@]}" -o ConnectTimeout=15 \
+        -p "$SSH_PORT" "$SSH_USER@$host" \
+        "echo $encoded | base64 -d | sudo -n bash"
+    return
+  fi
   ssh "${SSH_OPTS[@]}" -o ConnectTimeout=15 \
       -p "$SSH_PORT" "$SSH_USER@$host" "$@"
 }
 
 remote_scp_from() {
   local host=$1 src=$2 dst=$3
+  # k3s.yaml lives under /etc/rancher/k3s which is root-only on most
+  # distros. For non-root SSH_USER, stage via sudo into a temp file
+  # in the user's home first, then scp that. Cleanup the temp file
+  # afterwards.
+  if [[ "$SSH_USER" != "root" ]]; then
+    local stage="/tmp/remote-k3s-stage-$$.yaml"
+    remote_ssh "$host" "set -e
+      cp '$src' '$stage'
+      chown $SSH_USER '$stage'
+      chmod 600 '$stage'"
+    scp -q "${SSH_OPTS[@]}" -P "$SSH_PORT" \
+        "$SSH_USER@$host:$stage" "$dst"
+    remote_ssh "$host" "rm -f '$stage'" || true
+    return
+  fi
   scp -q "${SSH_OPTS[@]}" -P "$SSH_PORT" \
       "$SSH_USER@$host:$src" "$dst"
 }
@@ -319,13 +298,22 @@ install_nvidia_toolkit() {
 }
 
 cmd_up() {
-  local host=${1:-}
-  [[ -z "$host" ]] && { red "missing <host>"; usage; }
+  local target=${1:-}
+  [[ -z "$target" ]] && { red "missing <host>"; usage; }
+
+  # Accept "user@host" so cloud images that disable root password SSH
+  # can be addressed without an extra flag. Default user remains root.
+  local host=$target
+  if [[ "$target" == *"@"* ]]; then
+    SSH_USER="${target%@*}"
+    host="${target#*@}"
+  fi
+
   if [[ -n "${2:-}" ]]; then
     SSH_PORT=$2
   fi
 
-  step "verifying SSH access to $host:$SSH_PORT"
+  step "verifying SSH access to $SSH_USER@$host:$SSH_PORT"
   push_key "$host"
   remote_ssh "$host" 'true' || { red "SSH still failing"; exit 1; }
 
