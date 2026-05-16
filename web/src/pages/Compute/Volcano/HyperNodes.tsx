@@ -1,7 +1,9 @@
 import { PlusOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
-import { useIntl, useParams, useRequest } from '@umijs/max';
+import { useIntl, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import { App, Button, Popconfirm, Space, Tag, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -31,13 +33,10 @@ export default function VolcanoHyperNodesPage() {
   const { id: clusterId } = useParams<{ id: string }>();
   const { message } = App.useApp();
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest(
     () => listVolcanoHyperNodes(clusterId!),
-    {
-      formatResult: (res) => res,
-      ready: !!clusterId,
-      refreshDeps: [clusterId],
-    },
+    [clusterId],
+    { ready: !!clusterId },
   );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);

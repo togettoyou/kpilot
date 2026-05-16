@@ -10,7 +10,9 @@ import {
   ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import { useIntl, useParams, useRequest } from '@umijs/max';
+import { useIntl, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Alert,
   App,
@@ -80,6 +82,7 @@ function TristateSegmented({
   onChange: (next: boolean | undefined) => void;
   disabled?: boolean;
 }) {
+  const intl = useIntl();
   const cur: 'default' | 'true' | 'false' =
     value === true ? 'true' : value === false ? 'false' : 'default';
   return (
@@ -91,9 +94,30 @@ function TristateSegmented({
         onChange(v === 'default' ? undefined : v === 'true')
       }
       options={[
-        { label: tristateLabel('默认', cur === 'default', 'neutral'), value: 'default' },
-        { label: tristateLabel('开', cur === 'true', 'success'), value: 'true' },
-        { label: tristateLabel('关', cur === 'false', 'error'), value: 'false' },
+        {
+          label: tristateLabel(
+            intl.formatMessage({ id: 'pages.compute.scheduler.tristate.default' }),
+            cur === 'default',
+            'neutral',
+          ),
+          value: 'default',
+        },
+        {
+          label: tristateLabel(
+            intl.formatMessage({ id: 'pages.compute.scheduler.tristate.on' }),
+            cur === 'true',
+            'success',
+          ),
+          value: 'true',
+        },
+        {
+          label: tristateLabel(
+            intl.formatMessage({ id: 'pages.compute.scheduler.tristate.off' }),
+            cur === 'false',
+            'error',
+          ),
+          value: 'false',
+        },
       ]}
     />
   );
@@ -187,15 +211,15 @@ export default function VolcanoSchedulerPage() {
   // KPilot's plugin registry, kubectl apply, helm install outside
   // KPilot, sealos preinstall, etc. — the worker probes the Queue
   // CRD + locates volcano-scheduler-configmap by fieldSelector.
-  const status = useRequest(() => getVolcanoStatus(clusterId!), {
-    formatResult: (res) => res,
-    ready: !!clusterId,
-    refreshDeps: [clusterId],
-  });
+  const status = useClusterRequest(
+    () => getVolcanoStatus(clusterId!),
+    [clusterId],
+    { ready: !!clusterId },
+  );
   const volcanoNs = status.data?.schedulerConfigMapNamespace ?? null;
   const volcanoReady = !!status.data?.installed;
 
-  const cm = useRequest(
+  const cm = useClusterRequest(
     () =>
       getWorkload(
         clusterId!,
@@ -203,10 +227,9 @@ export default function VolcanoSchedulerPage() {
         'volcano-scheduler-configmap',
         volcanoNs!,
       ),
+    [clusterId, volcanoNs, volcanoReady],
     {
-      formatResult: (res) => res,
       ready: !!clusterId && !!volcanoNs && volcanoReady,
-      refreshDeps: [clusterId, volcanoNs, volcanoReady],
     },
   );
 
@@ -308,7 +331,12 @@ export default function VolcanoSchedulerPage() {
     try {
       yaml.load(text);
     } catch (e: any) {
-      message.error(`YAML invalid: ${e?.message ?? e}`);
+      message.error(
+        intl.formatMessage(
+          { id: 'pages.compute.scheduler.yamlInvalid' },
+          { detail: String(e?.message ?? e) },
+        ),
+      );
       return;
     }
     setSaving(true);
@@ -329,7 +357,10 @@ export default function VolcanoSchedulerPage() {
       const res = await applyManifest(clusterId!, manifest);
       const fail = res?.results?.find((r) => !r.success);
       if (fail) {
-        message.error(fail.error ?? 'apply failed');
+        message.error(
+          fail.error ??
+            intl.formatMessage({ id: 'pages.compute.scheduler.applyFailed' }),
+        );
         return;
       }
       message.success(
@@ -418,11 +449,17 @@ export default function VolcanoSchedulerPage() {
         // Two-thirds of the viewport — large enough to lay out a
         // wide pipeline (enqueue → allocate → preempt → reclaim →
         // backfill → shuffle = 6 actions + 2 endpoints) without
-        // covering the form behind it.
-        width="66.66vw"
+        // covering the form behind it. antd v6 deprecated `width` in
+        // favor of `size`; both still work but `size` is the
+        // forward-compatible spelling.
+        size="66.66vw"
+        // Force the user through the explicit close button so an
+        // accidental mask click doesn't lose the flow viewport state.
+        maskClosable={false}
         // Each open mounts a fresh diagram so it re-derives from the
         // current draft state (which may have changed between opens).
-        destroyOnClose
+        // antd v6 renamed destroyOnClose → destroyOnHidden.
+        destroyOnHidden
       >
         <Suspense
           fallback={

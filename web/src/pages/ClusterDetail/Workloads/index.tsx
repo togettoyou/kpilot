@@ -526,28 +526,36 @@ export function WorkloadsContent({
     history.push(`/clusters/${clusterId}/workloads/_cr?${params.toString()}`);
   };
 
-  const openEditor = async (item: WorkloadItem, ro = false) => {
-    const seq = ++editorSeqRef.current;
-    setEditingItem(item);
-    setReadOnly(ro);
-    setYamlText('');
-    setDrawerOpen(true);
-    try {
-      const raw = await getWorkload(
-        clusterId,
-        resourceType,
-        item.name,
-        item.namespace ?? '',
-        cr,
-      );
-      if (seq !== editorSeqRef.current) return;
-      setYamlText(toEditableYaml(raw));
-    } catch {
-      if (seq !== editorSeqRef.current) return;
-      message.error(intl.formatMessage({ id: 'pages.workloads.loadError' }));
-      setDrawerOpen(false);
-    }
-  };
+  // useCallback so the columns useMemo below doesn't rebuild every
+  // render — a fresh function identity per render let columns
+  // re-create itself on every 5s poll tick, defeating the memo and
+  // causing the entire table action column to re-render (ProTable's
+  // memoization checks reference equality on column entries).
+  const openEditor = React.useCallback(
+    async (item: WorkloadItem, ro = false) => {
+      const seq = ++editorSeqRef.current;
+      setEditingItem(item);
+      setReadOnly(ro);
+      setYamlText('');
+      setDrawerOpen(true);
+      try {
+        const raw = await getWorkload(
+          clusterId,
+          resourceType,
+          item.name,
+          item.namespace ?? '',
+          cr,
+        );
+        if (seq !== editorSeqRef.current) return;
+        setYamlText(toEditableYaml(raw));
+      } catch {
+        if (seq !== editorSeqRef.current) return;
+        message.error(intl.formatMessage({ id: 'pages.workloads.loadError' }));
+        setDrawerOpen(false);
+      }
+    },
+    [clusterId, resourceType, cr, intl, message],
+  );
 
   const handleApply = async () => {
     if (!editingItem) return;
@@ -574,23 +582,29 @@ export function WorkloadsContent({
     }
   };
 
-  const handleDelete = async (item: WorkloadItem) => {
-    try {
-      await deleteWorkload(
-        clusterId,
-        resourceType,
-        item.name,
-        item.namespace ?? '',
-        cr,
-      );
-      message.success(
-        intl.formatMessage({ id: 'pages.workloads.delete.success' }),
-      );
-      refresh();
-    } catch {
-      // global error handler in requestErrorConfig already shows the toast
-    }
-  };
+  // Memoized identity for the same reason as openEditor above —
+  // referenced by the columns useMemo, so stable identity preserves
+  // the memo across polling refreshes.
+  const handleDelete = React.useCallback(
+    async (item: WorkloadItem) => {
+      try {
+        await deleteWorkload(
+          clusterId,
+          resourceType,
+          item.name,
+          item.namespace ?? '',
+          cr,
+        );
+        message.success(
+          intl.formatMessage({ id: 'pages.workloads.delete.success' }),
+        );
+        refresh();
+      } catch {
+        // global error handler in requestErrorConfig already shows the toast
+      }
+    },
+    [clusterId, resourceType, cr, intl, message, refresh],
+  );
 
   const isPods = resourceType === 'pods';
 

@@ -6,7 +6,9 @@ import {
 } from '@ant-design/icons';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
-import { history, useIntl, useParams, useRequest } from '@umijs/max';
+import { history, useIntl, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Card,
   Col,
@@ -74,9 +76,10 @@ const DeviceHealthPage: React.FC = () => {
   const intl = useIntl();
   const { id: clusterId = '' } = useParams<{ id: string }>();
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest(
     () => getDeviceHealth(clusterId),
-    { formatResult: (res) => res, refreshDeps: [clusterId], ready: !!clusterId },
+    [clusterId],
+    { ready: !!clusterId },
   );
 
   const [interval, setInter] = useAutoRefresh(refresh, !!data);

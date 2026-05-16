@@ -5,7 +5,9 @@ import {
   CrownOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { useIntl, useParams, useRequest } from '@umijs/max';
+import { useIntl, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Alert,
   Badge,
@@ -91,13 +93,10 @@ const QueueQuotaPage: React.FC = () => {
 
   const [selectedQueue, setSelectedQueue] = useState<string | null>(null);
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest(
     () => listVolcanoQueues(clusterId, { limit: 500 }),
-    {
-      formatResult: (res) => res,
-      refreshDeps: [clusterId],
-      ready: !!clusterId,
-    },
+    [clusterId],
+    { ready: !!clusterId },
   );
 
   // Polling is opt-in; useAutoRefresh starts at 0 (off) and the

@@ -1,7 +1,9 @@
 import { PlusOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
-import { useIntl, useModel, useParams, useRequest } from '@umijs/max';
+import { useIntl, useModel, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import { App, Button, Popconfirm, Space, Tag, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -34,13 +36,10 @@ export default function VolcanoPodGroupsPage() {
   const namespaceModel = useModel('namespace');
   const ns = clusterId ? namespaceModel.get(clusterId).selected : '';
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest(
     () => listVolcanoPodGroups(clusterId!, ns),
-    {
-      formatResult: (res) => res,
-      ready: !!clusterId,
-      refreshDeps: [clusterId, ns],
-    },
+    [clusterId, ns],
+    { ready: !!clusterId },
   );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);

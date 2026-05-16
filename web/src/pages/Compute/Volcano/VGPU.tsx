@@ -3,7 +3,9 @@ import {
   InfoCircleOutlined,
   RocketOutlined,
 } from '@ant-design/icons';
-import { history, useIntl, useParams, useRequest } from '@umijs/max';
+import { history, useIntl, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Alert,
   Card as AntCard,
@@ -53,12 +55,11 @@ export default function VGPUPage() {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest(
     () => getVGPUSnapshot(clusterId!),
+    [clusterId],
     {
-      formatResult: (res) => res,
       ready: !!clusterId,
-      refreshDeps: [clusterId],
     },
   );
 

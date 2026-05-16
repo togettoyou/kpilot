@@ -458,11 +458,23 @@ function MemberCard({
           <Select
             style={{ width: 200 }}
             options={[
-              { value: 'exactMatch', label: 'exactMatch (按名匹配)' },
-              { value: 'regexMatch', label: 'regexMatch (正则匹配)' },
+              {
+                value: 'exactMatch',
+                label: intl.formatMessage({
+                  id: 'pages.compute.hyperNode.selector.exactMatch',
+                }),
+              },
+              {
+                value: 'regexMatch',
+                label: intl.formatMessage({
+                  id: 'pages.compute.hyperNode.selector.regexMatch',
+                }),
+              },
               {
                 value: 'labelMatch',
-                label: 'labelMatch (按标签匹配，仅 Node)',
+                label: intl.formatMessage({
+                  id: 'pages.compute.hyperNode.selector.labelMatch',
+                }),
                 disabled: memberType === 'HyperNode',
               },
             ]}

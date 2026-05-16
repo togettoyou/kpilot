@@ -183,6 +183,7 @@ export default {
   'pages.compute.jobForm.maxRetry.extra':
     '失败后重试的最大次数，超过则标记 Failed。默认 3',
   'pages.compute.jobForm.ttl': '完成后保留秒数 (ttlSecondsAfterFinished)',
+  'pages.compute.jobForm.ttl.placeholder': '不设置则保留',
   'pages.compute.jobForm.ttl.extra':
     '作业进入终态（Completed / Failed）后多少秒自动删除。0 = 立即删；留空 = 永不自动删',
   'pages.compute.jobForm.runningEstimate': '预估运行时长 (runningEstimate)',
@@ -277,9 +278,15 @@ export default {
 
   // Scheduler configmap viewer / editor
   'pages.compute.scheduler.title': 'Volcano 调度策略',
+  'pages.compute.scheduler.tristate.default': '默认',
+  'pages.compute.scheduler.tristate.on': '开',
+  'pages.compute.scheduler.tristate.off': '关',
+  'pages.compute.scheduler.yamlInvalid': 'YAML 格式错误:{detail}',
+  'pages.compute.scheduler.applyFailed': '应用失败',
 
   // 调度概览大盘
   'pages.compute.overview.title': 'Volcano 调度概览',
+  'pages.compute.overview.allNamespaces': '全部命名空间',
   'pages.compute.overview.truncated':
     '部分资源数量超出 list 端点上限（500），下方图表只反映已返回的数据',
   'pages.compute.overview.empty': '当前命名空间下暂无 Volcano 资源',
@@ -504,6 +511,9 @@ export default {
   'pages.compute.hyperNodeForm.members.add': '添加成员',
   'pages.compute.hyperNodeForm.member.title': '成员 {n}',
   'pages.compute.hyperNodeForm.member.type': '类型',
+  'pages.compute.hyperNode.selector.exactMatch': 'exactMatch（按名匹配）',
+  'pages.compute.hyperNode.selector.regexMatch': 'regexMatch（正则匹配）',
+  'pages.compute.hyperNode.selector.labelMatch': 'labelMatch（按标签匹配,仅 Node）',
   'pages.compute.hyperNodeForm.member.selectorType': '选择方式',
   'pages.compute.hyperNodeForm.member.exactName': '精确名称',
   'pages.compute.hyperNodeForm.member.exactName.extra':
@@ -561,6 +571,7 @@ export default {
   'pages.compute.nodeShard.name': '名称',
   'pages.compute.nodeShard.name.extra': 'DNS-1123，多调度器场景下用作 shard 标识',
   'pages.compute.nodeShard.nodesDesired': '期望节点',
+  'pages.compute.nodeShard.nodesDesired.required': '至少填写一个节点',
   'pages.compute.nodeShard.nodesDesired.extra':
     '该 shard 应包含的节点名列表。控制器根据真实节点状况算出 toAdd / toRemove。',
   'pages.compute.nodeShard.nodesDesired.placeholder': '回车 / 逗号分隔的节点名',

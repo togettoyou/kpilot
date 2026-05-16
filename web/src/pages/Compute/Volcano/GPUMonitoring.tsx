@@ -1,6 +1,8 @@
 import { Line } from '@ant-design/plots';
 import { PageContainer } from '@ant-design/pro-components';
-import { useIntl, useParams, useRequest } from '@umijs/max';
+import { useIntl, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Card,
   Col,
@@ -91,13 +93,10 @@ const GPUMonitoringPage: React.FC = () => {
 
   const [range, setRange] = useState<GPUMetricsRange>('1h');
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest(
     () => getGPUMetrics(clusterId, range),
-    {
-      formatResult: (res) => res,
-      refreshDeps: [clusterId, range],
-      ready: !!clusterId,
-    },
+    [clusterId, range],
+    { ready: !!clusterId },
   );
 
   const [interval, setInter] = useAutoRefresh(refresh, !!data);

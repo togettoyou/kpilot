@@ -185,6 +185,7 @@ export default {
   'pages.compute.jobForm.maxRetry.extra':
     'Maximum retries before the Job is marked Failed. Defaults to 3.',
   'pages.compute.jobForm.ttl': 'ttlSecondsAfterFinished',
+  'pages.compute.jobForm.ttl.placeholder': 'never (leave empty to keep)',
   'pages.compute.jobForm.ttl.extra':
     'Seconds to wait after the Job reaches a terminal state before auto-deletion. 0 = delete immediately; empty = never auto-delete.',
   'pages.compute.jobForm.runningEstimate': 'Running estimate',
@@ -275,9 +276,15 @@ export default {
 
   // Scheduler configmap viewer / editor
   'pages.compute.scheduler.title': 'Volcano scheduler config',
+  'pages.compute.scheduler.tristate.default': 'default',
+  'pages.compute.scheduler.tristate.on': 'on',
+  'pages.compute.scheduler.tristate.off': 'off',
+  'pages.compute.scheduler.yamlInvalid': 'YAML invalid: {detail}',
+  'pages.compute.scheduler.applyFailed': 'Apply failed',
 
   // Scheduling overview dashboard
   'pages.compute.overview.title': 'Volcano overview',
+  'pages.compute.overview.allNamespaces': 'all namespaces',
   'pages.compute.overview.truncated':
     'Some resource counts exceeded the list endpoint cap (500). Charts only reflect what was returned.',
   'pages.compute.overview.empty':
@@ -508,6 +515,9 @@ export default {
   'pages.compute.hyperNodeForm.members.add': 'Add member',
   'pages.compute.hyperNodeForm.member.title': 'Member {n}',
   'pages.compute.hyperNodeForm.member.type': 'Type',
+  'pages.compute.hyperNode.selector.exactMatch': 'exactMatch (by name)',
+  'pages.compute.hyperNode.selector.regexMatch': 'regexMatch (regex)',
+  'pages.compute.hyperNode.selector.labelMatch': 'labelMatch (by label, Node only)',
   'pages.compute.hyperNodeForm.member.selectorType': 'Selector',
   'pages.compute.hyperNodeForm.member.exactName': 'Exact name',
   'pages.compute.hyperNodeForm.member.exactName.extra':
@@ -566,6 +576,7 @@ export default {
   'pages.compute.nodeShard.name.extra':
     'DNS-1123 — shard identifier for multi-scheduler setups',
   'pages.compute.nodeShard.nodesDesired': 'Desired nodes',
+  'pages.compute.nodeShard.nodesDesired.required': 'At least one node is required',
   'pages.compute.nodeShard.nodesDesired.extra':
     "Names of nodes this shard should manage. The controller diffs against the live node set and surfaces toAdd / toRemove.",
   'pages.compute.nodeShard.nodesDesired.placeholder':

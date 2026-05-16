@@ -7,8 +7,9 @@ import {
   useLocation,
   useModel,
   useParams,
-  useRequest,
 } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   App,
   Button,
@@ -65,13 +66,10 @@ export default function VolcanoJobsPage() {
     namespace: string;
   } | null>(null);
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest(
     () => listVolcanoJobs(clusterId!, ns),
-    {
-      formatResult: (res) => res,
-      ready: !!clusterId,
-      refreshDeps: [clusterId, ns],
-    },
+    [clusterId, ns],
+    { ready: !!clusterId },
   );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);

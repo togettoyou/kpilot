@@ -1,6 +1,8 @@
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
-import { useIntl, useParams, useRequest } from '@umijs/max';
+import { useIntl, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import { Button, Space, Tag, Tooltip, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -36,13 +38,10 @@ export default function VolcanoNumaTopologiesPage() {
   const { id: clusterId } = useParams<{ id: string }>();
   const [describingName, setDescribingName] = useState<string | null>(null);
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest(
     () => listVolcanoNumatopologies(clusterId!),
-    {
-      formatResult: (res) => res,
-      ready: !!clusterId,
-      refreshDeps: [clusterId],
-    },
+    [clusterId],
+    { ready: !!clusterId },
   );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);

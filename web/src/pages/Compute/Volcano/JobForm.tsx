@@ -637,7 +637,9 @@ export function JobFormDrawer({
         >
           <InputNumber
             min={0}
-            placeholder="无 / never"
+            placeholder={intl.formatMessage({
+              id: 'pages.compute.jobForm.ttl.placeholder',
+            })}
             style={{ width: 200 }}
           />
         </Form.Item>

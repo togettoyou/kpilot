@@ -281,7 +281,14 @@ export function NodeShardFormDrawer({
               extra={intl.formatMessage({
                 id: 'pages.compute.nodeShard.nodesDesired.extra',
               })}
-              rules={[{ required: true, message: '至少一个节点' }]}
+              rules={[
+                {
+                  required: true,
+                  message: intl.formatMessage({
+                    id: 'pages.compute.nodeShard.nodesDesired.required',
+                  }),
+                },
+              ]}
             >
               <Select
                 mode="tags"

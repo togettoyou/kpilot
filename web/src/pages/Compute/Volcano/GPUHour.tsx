@@ -1,7 +1,9 @@
 import { ClockCircleOutlined } from '@ant-design/icons';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
-import { history, useIntl, useParams, useRequest } from '@umijs/max';
+import { history, useIntl, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Alert,
   Card,
@@ -52,13 +54,10 @@ const GPUHourPage: React.FC = () => {
 
   const [range, setRange] = useState<GPUHourRange>('24h');
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest(
     () => getGPUHour(clusterId, range),
-    {
-      formatResult: (res) => res,
-      refreshDeps: [clusterId, range],
-      ready: !!clusterId,
-    },
+    [clusterId, range],
+    { ready: !!clusterId },
   );
 
   const [interval, setInter] = useAutoRefresh(refresh, !!data);

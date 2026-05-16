@@ -5,7 +5,9 @@ import {
   LoadingOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { history, useIntl, useParams, useRequest } from '@umijs/max';
+import { history, useIntl, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import { Alert, Button, Result, Spin, Tooltip } from 'antd';
 import { useThemeMode } from 'antd-style';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -108,13 +110,10 @@ const GrafanaEmbed: React.FC<GrafanaEmbedConfig> = ({
   // our own size).
   const [containerHeight, setContainerHeight] = useState<number | null>(null);
 
-  const { data, loading, refresh } = useRequest(
+  const { data, loading, refresh } = useClusterRequest(
     () => listClusterPlugins(clusterId!),
-    {
-      formatResult: (res) => res,
-      ready: !!clusterId,
-      refreshDeps: [clusterId],
-    },
+    [clusterId],
+    { ready: !!clusterId },
   );
 
   const summary = useMemo(() => {

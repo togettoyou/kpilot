@@ -1,5 +1,7 @@
 import { ArrowRightOutlined, ReloadOutlined } from '@ant-design/icons';
-import { history, useIntl, useModel, useParams, useRequest } from '@umijs/max';
+import { history, useIntl, useModel, useParams } from '@umijs/max';
+
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Button,
   Card,
@@ -74,7 +76,7 @@ export default function VolcanoOverviewPage() {
   const namespaceModel = useModel('namespace');
   const ns = clusterId ? namespaceModel.get(clusterId).selected : '';
 
-  const { data, loading, error, refresh } = useRequest(
+  const { data, loading, error, refresh } = useClusterRequest<BundleData>(
     async (): Promise<BundleData> => {
       // Cluster-side Volcano probe runs first and is authoritative.
       // If Volcano isn't installed the worker has no Queue CRD to
@@ -173,11 +175,8 @@ export default function VolcanoOverviewPage() {
         ),
       };
     },
-    {
-      formatResult: (res) => res,
-      ready: !!clusterId,
-      refreshDeps: [clusterId, ns],
-    },
+    [clusterId, ns],
+    { ready: !!clusterId },
   );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
@@ -199,7 +198,11 @@ export default function VolcanoOverviewPage() {
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
           {intl.formatMessage({ id: 'pages.compute.overview.title' })}
         </h2>
-        <Tag color="blue">{ns ? `ns=${ns}` : 'all namespaces'}</Tag>
+        <Tag color="blue">
+          {ns
+            ? `ns=${ns}`
+            : intl.formatMessage({ id: 'pages.compute.overview.allNamespaces' })}
+        </Tag>
         <RefreshControl
           interval={interval}
           setInterval={setInterval}
