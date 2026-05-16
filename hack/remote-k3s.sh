@@ -45,6 +45,26 @@ SSH_KEY="$HOME/.ssh/id_ed25519"
 # -o Port=. Default 22; cmd_up overrides from positional arg #2.
 SSH_PORT=22
 
+# ensure_ssh_key auto-generates $SSH_KEY if it doesn't exist. Lots of
+# accidents otherwise — `IdentitiesOnly=yes` makes ssh refuse to fall
+# back to default identities, and `cat ${SSH_KEY}.pub` on a missing
+# file yields an empty pubkey that quietly "succeeds" with a
+# `grep -qF ''` of every authorized_keys file (empty string matches
+# every line), so the bootstrap reports DONE without actually pushing
+# anything. Generate a passphrase-less ed25519 the first time the
+# script is run; subsequent invocations are no-ops.
+ensure_ssh_key() {
+  if [[ -f "$SSH_KEY" && -f "${SSH_KEY}.pub" ]]; then
+    return 0
+  fi
+  yellow "no ssh key at $SSH_KEY — generating a passphrase-less ed25519"
+  mkdir -p "$(dirname "$SSH_KEY")"
+  chmod 700 "$(dirname "$SSH_KEY")"
+  ssh-keygen -t ed25519 -f "$SSH_KEY" -N "" -C "kpilot-remote-k3s@$(hostname -s)" >/dev/null
+  green "generated $SSH_KEY (+ .pub)"
+}
+ensure_ssh_key
+
 # SSH connection multiplexing: every ssh/scp call below reuses a single
 # master connection instead of opening a fresh TCP+handshake each time.
 # cmd_up makes ~10 separate ssh hops (probe, OS check, GPU detect,
@@ -177,11 +197,18 @@ try_keyless() {
       -o ConnectTimeout=5 -p "$SSH_PORT" "$user@$host" 'true' 2>/dev/null
 }
 
-# try_ssh_copy_id sends our pubkey to $1@host using $REMOTE_K3S_PASSWORD
-# via expect. Returns 0 on success, 1 on "Permission denied" (the
-# remote rejected the password OR password auth is disabled for that
-# user), 2 on other expect failures (timeout, expect missing, etc.).
-try_ssh_copy_id() {
+# push_pubkey_via_password runs an explicit bootstrap script as $1@host
+# using $REMOTE_K3S_PASSWORD. Returns 0 only when the pubkey is
+# verified present in ~/.ssh/authorized_keys on the remote (we check by
+# grep-ing the exact line back). Returns 1 on auth failure, 2 on
+# environment failure (no expect / no ssh).
+#
+# Replaces ssh-copy-id because that tool's exit code is unreliable
+# under our wrapper — it can report success when the remote `cat >>`
+# silently failed (perms / SELinux / sshd_config override of
+# authorized_keys path). The explicit script `grep -qF` verifies the
+# key actually landed where sshd will look.
+push_pubkey_via_password() {
   local user=$1 host=$2
   if ! command -v expect >/dev/null 2>&1; then
     red "expect not installed; install it (apt: expect / brew: expect / pacman: expect) or"
@@ -189,16 +216,73 @@ try_ssh_copy_id() {
     red "  ssh-copy-id -o Port=$SSH_PORT -i ${SSH_KEY}.pub $user@$host"
     return 2
   fi
-  # ssh-copy-id's `-p PORT` arg isn't portable across implementations;
-  # the `-o Port=` form goes through to the underlying ssh and works
-  # everywhere.
-  expect <<EOF
-set timeout 30
+  # Belt-and-suspenders: ensure_ssh_key at script start should have
+  # made this file, but double-check before reading. An empty pubkey
+  # would make the remote `grep -qF ''` match every line and report
+  # BOOTSTRAP_DONE without pushing anything.
+  if [[ ! -s "${SSH_KEY}.pub" ]]; then
+    red "pubkey file ${SSH_KEY}.pub is missing or empty — cannot bootstrap"
+    return 2
+  fi
+  REMOTE_K3S_PASSWORD="$REMOTE_K3S_PASSWORD" \
+  SSH_PORT="$SSH_PORT" \
+  RK3S_HOST="$host" \
+  RK3S_USER="$user" \
+  RK3S_PUB="$(cat "${SSH_KEY}.pub")" \
+  expect <<'EOF'
+set timeout 60
 log_user 0
-spawn ssh-copy-id -o StrictHostKeyChecking=no -o Port=$SSH_PORT -i ${SSH_KEY}.pub $user@$host
+set pub $env(RK3S_PUB)
+# Inline shell script — idempotently append our pubkey, fix perms,
+# then verify it can be read back. Echoes a sentinel only on success
+# so expect can distinguish "ran but failed" from "appeared to run
+# but no key actually landed".
+set cmd "set -e; \
+mkdir -p ~/.ssh && chmod 700 ~/.ssh; \
+touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys; \
+grep -qF '$pub' ~/.ssh/authorized_keys || echo '$pub' >> ~/.ssh/authorized_keys; \
+grep -qF '$pub' ~/.ssh/authorized_keys && echo BOOTSTRAP_DONE"
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  -o ControlPath=none -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
+  -o ConnectTimeout=15 \
+  -p $env(SSH_PORT) "$env(RK3S_USER)@$env(RK3S_HOST)" "$cmd"
 expect {
-  -re "password:|Password:" { send "$REMOTE_K3S_PASSWORD\r"; exp_continue }
+  -re "password:|Password:" { send "$env(REMOTE_K3S_PASSWORD)\r"; exp_continue }
   "Permission denied" { exit 1 }
+  "BOOTSTRAP_DONE" { exit 0 }
+  eof { exit 2 }
+}
+EOF
+}
+
+# diagnose_pubkey_auth prints likely causes when try_keyless fails
+# after a successful bootstrap. Common Tencent / Ubuntu cloud-image
+# culprits: a sshd_config drop-in that disables PubkeyAuthentication
+# for the cloud-default user, AuthorizedKeysFile pointed at
+# /var/lib/cloud/.../keys, or home-dir perms set 777 by an installer
+# (sshd rejects keys when ~ is world-writable, silently).
+diagnose_pubkey_auth() {
+  local host=$1
+  yellow "diagnosing why pubkey auth fails for $SSH_USER@$host …"
+  REMOTE_K3S_PASSWORD="$REMOTE_K3S_PASSWORD" \
+  SSH_PORT="$SSH_PORT" \
+  RK3S_HOST="$host" \
+  RK3S_USER="$SSH_USER" \
+  expect <<'EOF' 2>/dev/null || true
+set timeout 30
+log_user 1
+set cmd "echo ===HOME_PERMS===; stat -c '%a %U:%G %n' \$HOME \$HOME/.ssh \$HOME/.ssh/authorized_keys 2>/dev/null; \
+echo ===AUTHORIZED_KEYS_LINES===; wc -l \$HOME/.ssh/authorized_keys 2>/dev/null; \
+echo ===SSHD_PUBKEY===; sudo -n grep -h -E '^(PubkeyAuthentication|AuthorizedKeysFile|AuthenticationMethods|PasswordAuthentication)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true; \
+echo ===SSHD_PIDFILE===; sudo -n journalctl -u ssh --since '1 minute ago' --no-pager -q 2>/dev/null | tail -20 || true"
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  -o ControlPath=none -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
+  -o ConnectTimeout=15 \
+  -p $env(SSH_PORT) "$env(RK3S_USER)@$env(RK3S_HOST)" "$cmd"
+expect {
+  -re "password:|Password:" { send "$env(REMOTE_K3S_PASSWORD)\r"; exp_continue }
   eof
 }
 EOF
@@ -217,7 +301,7 @@ push_key() {
     echo
   fi
   step "pushing pubkey via expect"
-  if ! try_ssh_copy_id "$SSH_USER" "$host"; then
+  if ! push_pubkey_via_password "$SSH_USER" "$host"; then
     red "could not push pubkey to $SSH_USER@$host"
     if [[ "$SSH_USER" == "root" ]]; then
       red "many cloud images (Tencent / GCP / AWS Ubuntu) disable root password SSH —"
@@ -229,13 +313,18 @@ push_key() {
     return 1
   fi
   # Re-probe with BatchMode key auth using the exact key we just
-  # pushed. If this fails after a "successful" ssh-copy-id, something
-  # is rejecting the key on the remote side (sshd_config
-  # PubkeyAuthentication no, wrong authorized_keys path, perm 077,
-  # etc.) — surface clearly instead of letting the tunnel hit it
-  # next and confuse the user.
+  # pushed. The bootstrap verifies the key is present in
+  # authorized_keys, but sshd_config may still reject (drop-in
+  # overrides, AuthorizedKeysFile redirect, home-dir 777, etc.) —
+  # dump diagnostics so the user can fix the remote side without
+  # another debug cycle.
   if ! try_keyless "$SSH_USER" "$host"; then
-    red "pubkey push reported success but key auth still fails — investigate sshd_config / ~/.ssh perms on the remote"
+    red "pubkey is in ~/.ssh/authorized_keys but sshd is still rejecting it"
+    diagnose_pubkey_auth "$host"
+    red "common fixes:"
+    red "  - \`chmod 700 ~\` + \`chmod 700 ~/.ssh\` on the remote (sshd refuses keys when home is group/world writable)"
+    red "  - check /etc/ssh/sshd_config.d/*.conf for a 'PubkeyAuthentication no' or 'AuthorizedKeysFile /var/lib/cloud/...' override"
+    red "  - after editing sshd config: \`sudo systemctl reload ssh\`"
     return 1
   fi
   green "pubkey installed and verified for $SSH_USER@$host"
