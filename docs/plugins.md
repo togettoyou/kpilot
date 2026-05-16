@@ -89,6 +89,7 @@ status:
 - **AttemptHash 防死循环**：reconcile 前计算 `sha256(chart.type + repo + name + version + sha256 + release.name + release.namespace + canonical(values))`。Phase=Running/Failed 且 AttemptHash 匹配时跳过执行。永久 Failed 需修改 spec 或 disable+re-enable 触发重试
 - **Manager SSA**：处理 PluginCommand 时使用 `client.Apply` + `FieldOwner("kpilot")` + `ForceOwnership` 写入 CRD
 - **离线 / 重连**：handler 提交前通过 `gw.GetWorker()` 预检；离线返回 503 且不写 DB。`handlePluginStatus` 使用 upsert，自愈"push 成功但 DB 写入失败"场景。`Manager.handleDisable` 找不到 CRD 时 push 空 phase（Server 端翻译为 Disabled）
+- **状态写入并发保护**：`store.PersistClusterPluginStatusIfActive` 把"读 ClusterPlugin → 判断 enabled → upsert status"合并成一个 GORM 事务。Disable 操作把行置成 `enabled=false`、phase=Uninstalling 之后，可能在事务窗口内仍有 Worker 旧 PluginStatus push 上来（Pending/Installing 等），如果用 read-modify-write 两步会把已 Disable 的行重新拉回 Running。事务里判 `enabled=true`，否则 `pluginservice/status.go` log "late status echo ignored" 静默丢弃。终结状态（Disabled 主动写、Uninstalling phase 写）走非条件 upsert，不进这个 guard
 - **重连补发**（`gateway.replayPendingPluginCommands`）：Worker 重连后扫描 `cluster_plugins`：
   - `phase=Uninstalling && enabled=false` → 重发 disable
   - `phase ∈ {Pending,Installing,Upgrading} && enabled=true` → 重发 enable

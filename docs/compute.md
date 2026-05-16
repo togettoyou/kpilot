@@ -152,6 +152,7 @@ Volcano 提供两套机制：
   - 4 KPI 卡：activeGPUs / 平均利用率（`Progress.dashboard` + 阈值配色） / 平均温度（dashboard，max 90℃ 标 ↑）/ 总功耗 + 显存占用混合卡
   - 6 张 Line chart 网格（响应式 `xs=24 xl=12`）—— 每张多 series（按 hostname · GPU index 标签），暗色主题切换 `theme="classicDark"`；FB 自动 MiB → GiB，Tensor 0-1 → %
   - 单图无数据走 `Empty.PRESENTED_IMAGE_SIMPLE` 占位，整页全空走 EmptyCard CTA
+  - **chart 拆 lazy chunk**：`@ant-design/plots` G2 runtime ~250 KB gzip 单独抽到 `GPUMonitoringChart.tsx`，主页面用 `React.lazy` + `Suspense(fallback=Spin)` 引入。算力调度其他 5 个页面不开 GPU 监控就不下载这份 bundle，VGPU / QueueQuota 等纯 antd 页保持轻量
 - **VM 未启用**：`resolveVMQueryURL` 返回 `RESOURCE_NOT_AVAILABLE` → 前端 `<NotInstalled>` 引导启用 VM + DCGM Exporter（**不再依赖 Grafana**）
 - **前置条件**：每个 GPU 节点要装 **NVIDIA driver + nvidia-container-runtime**（与 volcano-vgpu-device-plugin 共用同一套基础设施）。DCGM Exporter 容器需要 `SYS_ADMIN` cap 才能读 profiling 指标（`DCGM_FI_PROF_*`），chart 默认 securityContext 已配齐
 - **节点选择**：默认无 nodeSelector —— exporter 在无 GPU 的节点上探针失败，pod 不会重新调度（无伤大雅但占 pod slot）。用 NFD / GPU Operator 的环境可在 EnableDrawer 里加 `nodeSelector.nvidia.com/gpu.present: "true"`
