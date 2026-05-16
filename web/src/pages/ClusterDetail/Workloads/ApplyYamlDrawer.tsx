@@ -990,3 +990,10 @@ export function ApplyYamlDrawer({
     </Drawer>
   );
 }
+
+// Default export so React.lazy can code-split this drawer from the
+// Workloads page. The drawer is ~750 lines of logic plus the lazy
+// YamlEditor underneath, but the lazy boundary needs a default-
+// exported component to attach to. Workloads/index.tsx still uses
+// the named import via the wrapper file pattern.
+export default ApplyYamlDrawer;

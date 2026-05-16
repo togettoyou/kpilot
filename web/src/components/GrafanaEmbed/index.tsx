@@ -165,21 +165,30 @@ const GrafanaEmbed: React.FC<GrafanaEmbedConfig> = ({
   }, [summary.allReady]);
 
   // Theme flip: rewrite iframe src preserving current Grafana path.
+  // Debounced so a user clicking the SettingDrawer theme toggle a few
+  // times in quick succession doesn't reload the dashboard once per
+  // click — each reload re-runs every panel query against the
+  // upstream Prometheus / VictoriaMetrics, which is noticeably
+  // expensive on a busy cluster. 350ms is just over the visual
+  // settle time of the antd theme transition.
   useEffect(() => {
     if (!summary.allReady) return;
     const iframe = iframeRef.current;
     if (!iframe) return;
-    try {
-      const cw = iframe.contentWindow;
-      const cur = cw?.location?.href;
-      if (!cur || cur === 'about:blank' || cur.startsWith('about:')) return;
-      const url = new URL(cur);
-      if (url.searchParams.get('theme') === grafanaTheme) return;
-      url.searchParams.set('theme', grafanaTheme);
-      iframe.src = url.toString();
-    } catch {
-      // cross-origin / sandbox; initial src already has the right theme
-    }
+    const t = window.setTimeout(() => {
+      try {
+        const cw = iframe.contentWindow;
+        const cur = cw?.location?.href;
+        if (!cur || cur === 'about:blank' || cur.startsWith('about:')) return;
+        const url = new URL(cur);
+        if (url.searchParams.get('theme') === grafanaTheme) return;
+        url.searchParams.set('theme', grafanaTheme);
+        iframe.src = url.toString();
+      } catch {
+        // cross-origin / sandbox; initial src already has the right theme
+      }
+    }, 350);
+    return () => window.clearTimeout(t);
   }, [grafanaTheme, summary.allReady]);
 
   // Wrapper sizing: measure relative to viewport top so it's loop-free.

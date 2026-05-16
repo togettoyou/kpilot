@@ -52,11 +52,18 @@ import {
   getWorkload,
   listWorkloads,
 } from '@/services/kpilot/workload';
-import { ApplyYamlDrawer } from './ApplyYamlDrawer';
+// Each lazy() below carves out a route-chunk so the Workloads main
+// page doesn't carry editor / terminal runtimes users may never need.
+//   - ApplyYamlDrawer: ~750-line drawer + transitive YamlEditor →
+//     CodeMirror + @codemirror/* (~500 KB gzip)
+//   - PodExecDrawer:   xterm + addons + xterm.css (~150 KB gzip)
+// PodLogsDrawer / PodTopDrawer / DescribeDrawer / YamlEditor are
+// small enough that the indirection isn't worth it — and YamlEditor's
+// own file already lazy-wraps the CodeMirror payload, so widely-used
+// places like the EnableDrawer / Volcano forms also benefit from
+// that split without an extra Suspense per call site.
+const ApplyYamlDrawer = lazy(() => import('./ApplyYamlDrawer'));
 import { DescribeDrawer } from './DescribeDrawer';
-// xterm + addons + xterm.css total ~150 KB gzip — lazy-loaded so the
-// Workloads page chunk doesn't carry the terminal runtime for users
-// who never open a Pod shell.
 const PodExecDrawer = lazy(() => import('./PodExecDrawer'));
 import { PodLogsDrawer } from './PodLogsDrawer';
 import { PodTopDrawer } from './PodTopDrawer';
@@ -979,18 +986,22 @@ export function WorkloadsContent({
           cr={cr}
         />
       )}
-      <ApplyYamlDrawer
-        open={applyOpen}
-        onClose={() => setApplyOpen(false)}
-        onApplied={() => {
-          refresh();
-          // Applied YAML may have created a Namespace — ask the model to
-          // refetch so the global picker shows it without a browser reload.
-          ns.refresh(clusterId);
-        }}
-        clusterId={clusterId}
-        resourceType={resourceType}
-      />
+      {applyOpen && (
+        <Suspense fallback={null}>
+          <ApplyYamlDrawer
+            open={applyOpen}
+            onClose={() => setApplyOpen(false)}
+            onApplied={() => {
+              refresh();
+              // Applied YAML may have created a Namespace — ask the model to
+              // refetch so the global picker shows it without a browser reload.
+              ns.refresh(clusterId);
+            }}
+            clusterId={clusterId}
+            resourceType={resourceType}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

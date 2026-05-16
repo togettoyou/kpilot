@@ -1,84 +1,45 @@
-import { yaml } from '@codemirror/lang-yaml';
-import { RangeSetBuilder } from '@codemirror/state';
-import {
-  Decoration,
-  type DecorationSet,
-  EditorView,
-  ViewPlugin,
-  type ViewUpdate,
-} from '@codemirror/view';
-import CodeMirror from '@uiw/react-codemirror';
-import { useThemeMode } from 'antd-style';
+import { theme as antdTheme } from 'antd';
+import React, { lazy, Suspense } from 'react';
 
-// ─── K8s status-section decoration ────────────────────────────────────────────
-// Lines under the top-level `status:` key are K8s-managed and cannot be
-// changed via a normal Update call — dim them to signal read-only intent.
+import type { YamlEditorProps } from './YamlEditorImpl';
 
-const statusLineDeco = Decoration.line({ class: 'cm-k8s-status' });
+// Lazy wrapper around the real CodeMirror-based editor in
+// `YamlEditorImpl.tsx`. The named-export name `YamlEditor` is kept so
+// every existing importer (14 across Workloads / Nodes / Plugins /
+// Volcano forms / Scheduler / shared YamlCreateDrawer) keeps working
+// transparently — they get code-splitting for free.
+//
+// Before: every page that imported YamlEditor pulled in @codemirror/*
+// + @uiw/react-codemirror (~500 KB gzip) at route-entry time, even if
+// the user never opened a YAML drawer. After: the chunk only ships
+// when an editor actually mounts. Visible win on the Workloads main
+// page (the most-visited route in the app) and on every Volcano CR
+// list page that has a Form drawer.
+const YamlEditorImpl = lazy(() => import('./YamlEditorImpl'));
 
-function buildStatusDecos(view: EditorView): DecorationSet {
-  const b = new RangeSetBuilder<Decoration>();
-  let inStatus = false;
-  for (let i = 1; i <= view.state.doc.lines; i++) {
-    const line = view.state.doc.line(i);
-    if (/^status:/.test(line.text)) {
-      inStatus = true;
-      b.add(line.from, line.from, statusLineDeco);
-    } else if (inStatus) {
-      // Blank lines or indented lines are still part of the block.
-      if (/^\s/.test(line.text) || line.text.trim() === '') {
-        b.add(line.from, line.from, statusLineDeco);
-      } else {
-        inStatus = false;
-      }
-    }
-  }
-  return b.finish();
-}
-
-const k8sStatusPlugin = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
-    constructor(view: EditorView) {
-      this.decorations = buildStatusDecos(view);
-    }
-    update(u: ViewUpdate) {
-      if (u.docChanged) this.decorations = buildStatusDecos(u.view);
-    }
-  },
-  { decorations: (v) => v.decorations },
-);
-
-const statusTheme = EditorView.baseTheme({
-  // Dim the status block in both light and dark modes.
-  '& .cm-k8s-status': { opacity: '0.45', fontStyle: 'italic' },
-});
-
-// ─── Component ────────────────────────────────────────────────────────────────
-
-interface YamlEditorProps {
-  value: string;
-  onChange?: (val: string) => void;
-  readOnly?: boolean;
-}
-
-export function YamlEditor({ value, onChange, readOnly = false }: YamlEditorProps) {
-  const { isDarkMode } = useThemeMode();
-
+export function YamlEditor(props: YamlEditorProps) {
   return (
-    <CodeMirror
-      value={value}
-      onChange={onChange}
-      readOnly={readOnly}
-      theme={isDarkMode ? 'dark' : 'light'}
-      extensions={[yaml(), k8sStatusPlugin, statusTheme, EditorView.lineWrapping]}
-      style={{ fontSize: 13 }}
-      basicSetup={{
-        lineNumbers: true,
-        foldGutter: true,
-        highlightActiveLine: !readOnly,
-        highlightActiveLineGutter: !readOnly,
+    <Suspense fallback={<EditorFallback readOnly={props.readOnly} />}>
+      <YamlEditorImpl {...props} />
+    </Suspense>
+  );
+}
+
+// Skeleton sized roughly like a small editor so the drawer doesn't
+// jump when the chunk arrives. Color tracks the antd theme so dark
+// mode users don't get a flash of white.
+function EditorFallback({ readOnly: _ }: { readOnly?: boolean }) {
+  const { token } = antdTheme.useToken();
+  return (
+    <div
+      style={{
+        minHeight: 220,
+        background: token.colorBgContainer,
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderRadius: token.borderRadius,
       }}
     />
   );
 }
+
+export type { YamlEditorProps };
