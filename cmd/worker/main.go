@@ -94,9 +94,19 @@ func main() {
 		tunnelClient.SetResourceHandler(p.Handle)
 
 		// Reverse-proxy HTTP forwarder (Server → in-cluster Service for
-		// embedded plugin UIs like Grafana). Independent of the resource
-		// proxy — it doesn't touch K8s APIs at all, just forwards HTTP.
-		httpProxy := proxy.NewHTTPProxy(tunnelClient.SendHTTPResponse, tunnelClient.StreamContext)
+		// embedded plugin UIs like Grafana). For URLs whose host ends in
+		// `.svc.<cluster-domain>` (e.g. `victoria-metrics-…svc.cluster.
+		// local:8428`), the proxy routes the request through the K8s
+		// API server's Service proxy endpoint instead of direct dial —
+		// otherwise local-dev workers running outside the cluster can't
+		// resolve the in-cluster DNS name. In production (worker
+		// in-cluster) both paths work; the API-proxy path adds a small
+		// hop and accurate auth flow through the API server.
+		httpProxy := proxy.NewHTTPProxy(
+			tunnelClient.SendHTTPResponse,
+			tunnelClient.StreamContext,
+			clientset,
+		)
 		tunnelClient.SetHTTPHandler(httpProxy.Handle)
 
 		// WebSocket reverse proxy (Grafana Live, etc.) — sibling to the

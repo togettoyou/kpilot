@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
 
@@ -54,6 +56,12 @@ type HTTPProxy struct {
 	// disconnects, in-flight upstream HTTP requests get cancelled
 	// instead of hanging on their 60 s timeout. nil-tolerant for tests.
 	streamCtxFn func() context.Context
+	// clientset is used to route in-cluster Service URLs through the
+	// K8s API server's `/api/v1/namespaces/.../services/.../proxy/`
+	// endpoint when direct DNS dial would fail (the common case for
+	// local-dev workers outside the cluster). nil-tolerant — when
+	// nil, the proxy falls back to direct dial only.
+	clientset kubernetes.Interface
 }
 
 // NewHTTPProxy builds an HTTPProxy with sensible defaults for the in-cluster
@@ -61,9 +69,17 @@ type HTTPProxy struct {
 // MB of JSON; static asset fetches are tiny). The send function should be the
 // tunnel client's SendHTTPResponse; streamCtxFn should be
 // tunnel.Client.StreamContext so request ctx tracks tunnel lifetime.
+//
+// clientset (optional, nil-tolerant) enables routing for URLs whose host
+// ends in `.svc.*` — those go through the K8s API server's service
+// proxy instead of direct TCP dial, so the worker can reach in-cluster
+// Services without resolving `cluster.local` DNS itself. Required for
+// local-dev workers that talk to a remote cluster via kubeconfig +
+// SSH tunnel.
 func NewHTTPProxy(
 	sendFn func(string, *proto.HTTPResponse),
 	streamCtxFn func() context.Context,
+	clientset kubernetes.Interface,
 ) *HTTPProxy {
 	return &HTTPProxy{
 		client: &http.Client{
@@ -87,6 +103,7 @@ func NewHTTPProxy(
 		},
 		sendFn:      sendFn,
 		streamCtxFn: streamCtxFn,
+		clientset:   clientset,
 	}
 }
 
@@ -140,6 +157,16 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 	}
 	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
+
+	// If the URL host points at an in-cluster Service (`*.svc.…`) and
+	// we have a K8s clientset, route through the API server's Service
+	// proxy. Direct dial fails for local-dev workers running outside
+	// the cluster — they reach the API server via kubeconfig + SSH
+	// tunnel just fine, but `*.svc.cluster.local` doesn't resolve on
+	// the local machine. The API-proxy path works regardless.
+	if svc := parseInClusterService(req.Url); svc != nil && p.clientset != nil {
+		return p.doViaServiceProxy(ctx, req, svc)
+	}
 
 	var body io.Reader
 	if len(req.Body) > 0 {
@@ -202,5 +229,132 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 		Status:  int32(hresp.StatusCode),
 		Headers: headers,
 		Body:    respBody,
+	}, nil
+}
+
+// inClusterService captures the K8s Service identity parsed out of a
+// URL host. Used to route through the API server's service proxy
+// when direct dial would fail.
+type inClusterService struct {
+	namespace string
+	name      string
+	port      string
+	pathQuery string // path + raw query, prefixed with the path's leading '/'
+}
+
+// parseInClusterService extracts (svc, ns, port, path) from URLs of
+// the form `http://<svc>.<ns>.svc.<cluster-domain>:<port>/<path>?<q>`.
+// Returns nil for anything that doesn't match this shape (external
+// URLs, IP-literal hosts, …) so the caller falls back to direct
+// dial.
+func parseInClusterService(rawURL string) *inClusterService {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil
+	}
+	host := u.Hostname()
+	if host == "" {
+		return nil
+	}
+	// Pattern: svc-name.namespace.svc.<rest>  — split on the first
+	// ".svc." occurrence so cluster domains with extra dots
+	// (cluster.local, k8s.example.com) all parse.
+	const marker = ".svc."
+	idx := strings.Index(host, marker)
+	if idx <= 0 {
+		return nil
+	}
+	prefix := host[:idx] // svc-name.namespace
+	parts := strings.SplitN(prefix, ".", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return nil
+	}
+	port := u.Port()
+	if port == "" {
+		// Default to port name "http" if the URL omits the port —
+		// service proxy needs the port spec one way or another.
+		port = "http"
+	}
+	pathQuery := u.Path
+	if pathQuery == "" {
+		pathQuery = "/"
+	}
+	if u.RawQuery != "" {
+		pathQuery += "?" + u.RawQuery
+	}
+	return &inClusterService{
+		namespace: parts[1],
+		name:      parts[0],
+		port:      port,
+		pathQuery: pathQuery,
+	}
+}
+
+// doViaServiceProxy issues the proxied request through the K8s API
+// server's `/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/...`
+// endpoint. Auth + transport come from the K8s clientset's REST
+// client, so the worker doesn't need direct network reachability
+// to the in-cluster Service — only to the API server.
+//
+// Trade-offs vs direct dial: rate-limited by API server, larger
+// per-request overhead, but works from anywhere a kubeconfig works.
+// Body forwarding is straightforward for the JSON / GET workloads
+// that need this path (VM PromQL queries). Streaming protocols
+// (Grafana Live, large file uploads) should still go through the
+// direct WS path or be routed differently.
+func (p *HTTPProxy) doViaServiceProxy(
+	ctx context.Context,
+	req *proto.HTTPRequest,
+	svc *inClusterService,
+) (*proto.HTTPResponse, error) {
+	rest := p.clientset.CoreV1().RESTClient()
+	// Verb maps directly: GET/POST/PUT/etc. K8s REST client supports
+	// arbitrary verbs via `Verb(method)`.
+	r := rest.Verb(strings.ToUpper(req.Method)).
+		Namespace(svc.namespace).
+		Resource("services").
+		Name(svc.name + ":" + svc.port).
+		SubResource("proxy").
+		Suffix(strings.TrimPrefix(svc.pathQuery, "/"))
+	if len(req.Body) > 0 {
+		r = r.Body(bytes.NewReader(req.Body))
+	}
+	// Replay non-hop-by-hop headers. Host / Content-Length / Cookie
+	// don't make sense through the API proxy (it manages those for
+	// us), so just forward Content-Type / Accept / etc.
+	for _, h := range req.Headers {
+		if _, hop := hopByHopHeaders[http.CanonicalHeaderKey(h.Name)]; hop {
+			continue
+		}
+		switch http.CanonicalHeaderKey(h.Name) {
+		case "Host", "Cookie", "Content-Length":
+			continue
+		}
+		r = r.SetHeader(h.Name, h.Value)
+	}
+
+	res := r.Do(ctx)
+	if err := res.Error(); err != nil {
+		return nil, fmt.Errorf("svc-proxy dispatch: %w", err)
+	}
+	var status int
+	res.StatusCode(&status)
+	body, err := res.Raw()
+	if err != nil {
+		// `Raw()` returns the body bytes even on non-2xx; only a real
+		// transport error short-circuits here.
+		return nil, fmt.Errorf("svc-proxy read: %w", err)
+	}
+	if int64(len(body)) > proxyMaxRespBytes {
+		return nil, fmt.Errorf("upstream body exceeds %d bytes", proxyMaxRespBytes)
+	}
+	if status == 0 {
+		// API server's proxy sets status on success but Raw() can
+		// return without populating it on some error paths.
+		status = http.StatusOK
+	}
+	return &proto.HTTPResponse{
+		Status: int32(status),
+		Body:   body,
 	}, nil
 }

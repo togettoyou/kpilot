@@ -81,7 +81,7 @@ export default {
   // /compute/:id/*. P5b will add GPU monitoring as a sibling.
   'menu.compute.overview': '调度概览',
   'menu.compute.scheduler': '调度策略',
-  'menu.compute.vgpu': 'vGPU 视图',
+  'menu.compute.vgpu': 'GPU 视图',
   'menu.compute.gpuMonitoring': 'GPU 监控',
   'menu.compute.queueQuota': '队列配额',
   'menu.compute.deviceHealth': '设备告警',

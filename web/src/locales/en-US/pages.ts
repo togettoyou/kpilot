@@ -676,7 +676,7 @@ export default {
   'pages.gpuMonitoring.notInstalled.action': 'Open Plugins',
   'pages.gpuMonitoring.error.title': 'Failed to load GPU metrics',
   'pages.gpuMonitoring.empty':
-    'No DCGM metrics in the selected window. Are NVIDIA driver + nvidia-container-runtime installed on the GPU nodes? Is the DCGM Exporter pod running?',
+    'No DCGM metrics in the selected window. Check: NVIDIA driver + nvidia-container-runtime installed on GPU nodes; DCGM Exporter pod running; worker is running inside the cluster (a locally-run worker over an SSH tunnel cannot resolve *.svc.cluster.local).',
   'pages.gpuMonitoring.chartEmpty': 'No data for this metric yet',
   'pages.gpuMonitoring.snap.activeGPUs': 'Active GPUs',
   'pages.gpuMonitoring.snap.avgUtil': 'Avg utilization',

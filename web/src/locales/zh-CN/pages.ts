@@ -663,7 +663,7 @@ export default {
   'pages.gpuMonitoring.notInstalled.action': '前往插件管理',
   'pages.gpuMonitoring.error.title': '读取 GPU 监控数据失败',
   'pages.gpuMonitoring.empty':
-    '在选定窗口内没有 DCGM 指标。GPU 节点是否已安装 NVIDIA 驱动 + nvidia-container-runtime?DCGM Exporter Pod 是否在运行?',
+    '在选定窗口内没有 DCGM 指标。请检查:GPU 节点是否已安装 NVIDIA 驱动 + nvidia-container-runtime;DCGM Exporter Pod 是否在运行;Worker 是否运行在集群内(本地 worker 跨 SSH 隧道无法解析 *.svc.cluster.local)。',
   'pages.gpuMonitoring.chartEmpty': '该指标暂无数据',
   'pages.gpuMonitoring.snap.activeGPUs': '活跃 GPU 数',
   'pages.gpuMonitoring.snap.avgUtil': '平均利用率',

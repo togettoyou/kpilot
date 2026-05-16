@@ -80,7 +80,7 @@ export default {
   // /compute/:id/*.
   'menu.compute.overview': 'Overview',
   'menu.compute.scheduler': 'Scheduler Config',
-  'menu.compute.vgpu': 'vGPU',
+  'menu.compute.vgpu': 'GPU View',
   'menu.compute.gpuMonitoring': 'GPU Monitoring',
   'menu.compute.queueQuota': 'Queue Quota',
   'menu.compute.deviceHealth': 'Device Alerts',
