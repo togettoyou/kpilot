@@ -25,8 +25,7 @@
   - **概览** → NodeDetailDrawer 结构化卡片：基本/网络/调度/资源/conditions/labels/annotations
   - **查看** → NodeYamlDrawer 只读 YAML
   - **禁用调度 / 启用调度** → cordon/uncordon
-- **Node 写操作收敛到专用端点**：`POST /workloads/nodes/:name/cordon` body 仅 `{cordon: bool}`，Server 端构造 strategic merge patch `{"spec":{"unschedulable":<bool>}}`，客户端无法注入其他字段
-- **通用 PUT/DELETE 对 Node 一律返回 403 NODE_PROTECTED**——Edit YAML 修改 Node 风险过高，scoped action 是唯一写入路径
+- **Node 写操作有专用 cordon 端点**：`POST /workloads/nodes/:name/cordon` body 仅 `{cordon: bool}`，Server 端构造 strategic merge patch `{"spec":{"unschedulable":<bool>}}`，客户端无法注入其他字段。语义比通用 PUT 更窄、更易审计；通用 PUT/DELETE 路径仍开放（写保护已下放给 K8s RBAC，见下文「写操作 protection」）
 
 ## 3. 工作负载（`/clusters/:id/workloads/:type`）
 

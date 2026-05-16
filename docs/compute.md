@@ -6,7 +6,7 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 
 三层能力：
 
-1. **作业调度层**（已实现）：Volcano 全套 CR（Queue / Job / CronJob / PodGroup / HyperNode / JobFlow / JobTemplate / Numatopology / NodeShard / ColocationConfiguration）的浏览 + 类型化表单创建编辑 + 生命周期操作；`volcano-scheduler-configmap` 可视化编辑器；集群级 Volcano dashboard
+1. **作业调度层**（已实现）：Volcano 全套 CR（Queue / Job / CronJob / PodGroup / HyperNode / JobFlow / JobTemplate / Numatopology / NodeShard / ColocationConfiguration）的浏览 + 编辑（7 个 CR 走类型化表单 / JobFlow + JobTemplate 走 YAML-only / Numatopology 只读）+ 生命周期操作；`volcano-scheduler-configmap` 可视化编辑器；集群级 Volcano dashboard
 2. **GPU 虚拟化层**（已实现）：`volcano-vgpu-device-plugin`（HAMi-core fork，Volcano scheduler 的 deviceshare 后端）打包为内置 chart，集群级 vGPU snapshot 页（每节点 → 每卡 → 占用 Pod）
 3. **治理层**（远期）：Volcano queue 配额视图 + 设备健康告警 + GPU-Hour 计费
 
@@ -26,15 +26,15 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 - **KPI 卡片**：Queues / Running Jobs / Pending Jobs / Failed Jobs / CronJobs / PodGroups / HyperNodes 数量 + GPU 节点数 + 总 vGPU 切片
 - **容量水平条**：每个 Queue 的 capacity vs allocated（CPU / memory / vGPU 一行一资源），有界资源按利用率排序，无界资源按负载排序（`a8bd696`），无界视觉与有界明显区分（`63446a4`）
 - **饼图 / 列表**：Job phase 分布（点击切片可跳 `/compute/:id/jobs?state=Running`，URL-driven 过滤）+ 最近失败 Job 列表 + Queue 层级树（cpu + memory 同时展示，`51fe1fb`）
-- **数据合并**：一次性并行拉 listVolcanoQueues / Jobs / CronJobs / PodGroups / HyperNodes / JobFlows + listClusterPlugins，单次 `useRequest` + `Promise.all`，刷新统一
-- **依赖检测**：Volcano 插件未启用 → `NotInstalled`；插件 Running 但 CR 为空 → 空 dashboard 而非错误
+- **数据合并**：先做 cluster-side `getVolcanoStatus` 探测（worker 探 Queue CRD + ConfigMap field selector），未装就 throw `RESOURCE_NOT_AVAILABLE`-shape 触发 `<NotInstalled>`；安装的话并行拉 6 个 list 端点 + scheduler configmap（`Promise.allSettled`，可选 sub-CRD 缺失自动降级成空桶，不让整个 dashboard fail）
+- **依赖检测**：Volcano 集群侧未装 → `NotInstalled`；装了但 CR 为空 → 空 dashboard 而非错误。判定不依赖 kpilot 插件注册表（用户手 `kubectl apply` / `helm install` 装的 Volcano 也能识别）
 - 文件：`Overview.tsx`（~620 行 page 框架）+ `OverviewCharts.tsx`（~1300 行图表 / 卡片组件）
 
 ## 3. 调度策略（`/compute/:id/scheduler`）
 
 `volcano-scheduler-configmap` 的可视化编辑器。
 
-- **数据来源**：cluster-side 探测（worker `getVolcanoStatus`，metadata.name 字段选择器全 ns 找 `volcano-scheduler-configmap`），不依赖 kpilot 插件注册表的 namespace。内置 Volcano 插件默认装在 `volcano-system`
+- **数据来源**：cluster-side 探测（worker `getVolcanoStatus`，metadata.name 字段选择器全 ns 找 `volcano-scheduler-configmap`），不依赖 kpilot 插件注册表的 namespace。内置 Volcano 插件默认装在 `volcano-system`；KPilot 内置 Volcano chart 的默认 scheduler 配置已经把 `deviceshare` 启用并 `ScheduleWeight=10`（与 volcano-vgpu-device-plugin 配套），开箱即用
 - **默认只读**：进入页面表单 Select 全部 disabled、YAML 编辑器 readOnly。右上角 toolbar 「刷新」+「编辑」
 - **编辑模式**：点「编辑」后右上角换成「取消」+「保存」；取消恢复到上次拉取快照
 - **双视图**：
@@ -55,11 +55,15 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 - **数据流**：worker `pkg/worker/proxy/vgpu.go::VGPUTracker` 解析每个 Node 的 `volcano.sh/node-vgpu-register` annotation（device-plugin 注册的物理卡清单）+ 每个 Pod 的 `volcano.sh/vgpu-ids-new` annotation（scheduler 写回的分配信息，UUID,Type,Usedmem,Usedcores 序列）→ 在内存里聚合成「cluster → node → card → pod」树，JSON 序列化 → Server REST `/api/v1/clusters/:id/vgpu` 透传给前端
 - **endpoint 单一**：一个 endpoint 返回完整 snapshot（cluster KPI + 节点 + 卡 + Pod），前端切片渲染三视图。snapshot 用 `kubernetes.Interface` 直接 List Node + Pod，不走 RESTMapping（cluster-scoped 合成查询，proxy 端在 RESTMapping 之前路由）
 - **空状态**：snapshot.nodes 为空 → server 返回 `404 RESOURCE_NOT_AVAILABLE`，前端走 `NotInstalled` 变体，文案指向 device-plugin 而非 Volcano 本体（`titleId/subTitleId/actionId` override，`5d34988`）
-- **页面布局**：
-  - 4 个 KPI 卡：物理卡数 / 总显存（GiB）/ 总切片 / 利用率
-  - 节点表（搜索 / 排序 / drilldown）：每行展开 = 该节点的卡列表（UUID 截断 + Type + Health + UsedMemory / TotalMemory + 占用 Pod 折叠列表）
-  - 显存统一显示 GiB；切片显示绝对数 + 百分比（`4ac0f57` 统一了 KPI / bar / 单位）
+- **页面布局**（无 ResourceIntro、紧凑信息密度）：
+  - **顶部 KPI 行（4 张卡）**：物理卡数（含型号 chip `A10 × N`）+ 三个 `Progress.dashboard` 环形仪表 —— 切片利用率 / 显存利用率（GiB）/ 算力利用率（cores，跨所有卡客户端聚合）。仪表配色按通用阈值（≥85% 红 / ≥60% 黄 / 其余绿）
+  - **告警 banner**：snapshot 内任意卡 `health=false` → 顶部聚合 Alert "N 张卡（M 个节点）报告异常"
+  - **空集群 CTA**：装了 vGPU 但 0 个 Pod 在用 → 引导卡 + 跳 `/compute/:id/jobs`
+  - **节点列表（card-per-node，无展开）**：每节点一张 Card 默认全展开 —— 节点头部三段聚合 bar（slots / memory / cores）+ 节点下每张物理卡一行：身份（`#idx` + Health Tag + 尾截 UUID `…hhhhhhhh` 带 copy + sharing mode）+ 三根 bar + Pods 列表（按 `ns/name` 折叠 + `× N` 切片计数 + hover tooltip 显示 mem/cores 聚合）。点击 Pod 名打开 `<DescribeDrawer>`（vGPU 排查通常关心 annotation / 节点分配 / 调度结果，而不是 stdout 日志）
+  - **顶部表头**：搜索框（节点名 / Pod ns / Pod name 模糊）+ 节点数 + 健康分布 `● N 正常 / ● M 异常`（搜索激活的节点保留手动展开状态）+ 刷新控件
+  - **drilldown**：节点名点击跳 `/clusters/:id/nodes`
 - **共享类型**：`pkg/common/vgpu/types.go` 是 Worker / Server / Frontend 共用的 JSON 契约（Card / PodUsage / Node / Snapshot 四个 struct，hand-mirror 到前端 `services/kpilot/vgpu.ts`）
+- **synthetic worker action**：`vgpu-snapshot` 是 worker 端 `pkg/worker/proxy/proxy.go::execute` 的 cluster-level 合成查询，路由在 RESTMapping 之前（不需要 GVK），同款模式还有 `volcano-status`
 
 ## 5. Volcano CR 浏览器（10 个）
 
@@ -67,9 +71,9 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 
 | 路由 | Kind | 范围 | GUI 操作 |
 |---|---|---|---|
-| `/compute/:id/queues` | `scheduling.volcano.sh/v1beta1 Queue` | Cluster | 创建 / 编辑表单（weight + priority + reclaimable + parent + 3 个 ResourceList + 4 槽 nodeGroup affinity） + Open/Close（bus.volcano.sh Command） |
-| `/compute/:id/jobs` | `batch.volcano.sh/v1alpha1 Job` | Namespaced | 多任务创建 / 编辑表单（含 imagePullPolicy 选择） + Resume/Abort/Restart/Complete/Terminate（Command）+ 编辑时显式提示 Volcano webhook 不可变字段 |
-| `/compute/:id/cronjobs` | `batch.volcano.sh/v1alpha1 CronJob` | Namespaced | 创建 / 编辑表单 + Suspend/Resume（直接 SSA patch `spec.suspend`） |
+| `/compute/:id/queues` | `scheduling.volcano.sh/v1beta1 Queue` | Cluster | 创建 / 编辑表单（weight + priority + reclaimable + parent + 3 个 ResourceList，每个 ResourceList 都带原生 vGPU 三件套字段：`vgpuNumber / vgpuMemory / vgpuCores` + 4 槽 nodeGroup affinity） + Open/Close（bus.volcano.sh Command） |
+| `/compute/:id/jobs` | `batch.volcano.sh/v1alpha1 Job` | Namespaced | 多任务创建 / 编辑表单（imagePullPolicy + 原生 vGPU 三件套字段：`vgpuNumber / vgpuMemory / vgpuCores`） + Resume/Abort/Restart/Complete/Terminate（Command）+ 编辑时显式提示 Volcano webhook 不可变字段（顶部 Alert + submit-time diff 兜底） |
+| `/compute/:id/cronjobs` | `batch.volcano.sh/v1alpha1 CronJob` | Namespaced | 创建 / 编辑表单（同 JobForm，含 vGPU 三件套） + Suspend/Resume（直接 SSA patch `spec.suspend`） |
 | `/compute/:id/podgroups` | `scheduling.volcano.sh/v1beta1 PodGroup` | Namespaced | 类型化表单（minMember / minResources / minTaskMember / networkTopology） |
 | `/compute/:id/hypernodes` | `topology.volcano.sh/v1alpha1 HyperNode` | Cluster | 类型化表单（tier + tierName + 三态 selector 数组 exactMatch/regexMatch/labelMatch） |
 | `/compute/:id/jobflows` | `flow.volcano.sh/v1alpha1 JobFlow` | Namespaced | YAML drawer（DAG / 探针结构复杂；默认 namespace 来自 NamespacePicker） |
@@ -86,7 +90,7 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 - **Worker `list-full` action**（`pkg/worker/proxy/proxy.go::listFull`）：dynamic.List 返回完整对象，每个 item marshal 前 strip `metadata.managedFields`（kubectl 同款做法）。按需添加新 GVK 时只需在 server 端加 handler，worker 不动
 - **页面结构**：所有 list 页都直接渲染 `<ProTable>`（不包 `WorkloadsContent`），列定义按 kind 单独写，cell 全部 props-driven 纯渲染（无 per-row fetch）。共享 helper 在 `pages/Compute/Volcano/shared/Layout.tsx`：
   - `<NotInstalled>` / `isResourceNotAvailable` —— RESOURCE_NOT_AVAILABLE 兜底（接受 `titleId/subTitleId/actionId` override 覆盖默认 Volcano 文案，vGPU 页用此对 device-plugin 命名）
-  - `<ResourceIntro id>` —— 每页顶部一句"这是啥 + 谁用 + 前置依赖"的 info Alert，全 10 个 CR + vGPU + Overview 都有，文案在 `pages.compute.intro.<resource>` i18n key
+  - `<ResourceIntro id>` —— CR 浏览器页顶部一句"这是啥 + 谁用 + 前置依赖"的 info Alert，10 个 CR 页都有；vGPU 页与 Overview 页因为已有自身顶部解释（KPI / banner）不再叠加。文案在 `pages.compute.intro.<resource>` i18n key
   - `useAutoRefresh` —— 用户可控的轮询 interval（5/10/30/60s）
   - `<RefreshControl>` —— 图标 reload + 间隔 Dropdown 紧凑组（`Space.Compact`），关掉 ProTable 自带 reload（`options={{ reload: false }}`）避免叠加
   - `<TruncatedBanner shown count>` —— 响应带 `continue` token 时渲染 Alert 提示结果被截断

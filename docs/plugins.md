@@ -44,8 +44,8 @@ status:
 | kube-state-metrics          | monitoring | repo     | K8s 对象状态指标（Deployment 副本、Pod phase、Node condition）         |
 | Grafana                     | monitoring | **oci**  | 可视化前端，反代嵌入 + 内置 dashboard + auth.proxy                     |
 | VictoriaLogs                | logging    | repo     | 日志存储 + 自带 Vector DaemonSet 采集                                |
-| Volcano                     | scheduling | repo     | Batch 调度器，gang scheduling + Queue + drf 公平共享                  |
-| volcano-vgpu-device-plugin  | scheduling | **local**| Volcano scheduler deviceshare 的后端 device-plugin（HAMi-core fork）：把物理 GPU 注册为 `volcano.sh/vgpu-{number,memory,cores}` 资源；驱动 `/compute/:id/vgpu` 实况页 |
+| Volcano                     | scheduling | repo     | Batch 调度器，gang scheduling + Queue + drf 公平共享；默认装在 `volcano-system`，默认 scheduler 配置已启 `deviceshare` 以配合 vGPU 后端 |
+| Volcano vGPU<br/>(`volcano-vgpu-device-plugin`) | scheduling | **local**| Volcano scheduler deviceshare 的后端 device-plugin（HAMi-core fork）：把物理 GPU 注册为 `volcano.sh/vgpu-{number,memory,cores}` 资源；驱动 `/compute/:id/vgpu` 实况页。display_name 缩短为 "Volcano vGPU" 适配 antd Card 单行 ellipsis；默认装在 `volcano-system`（chart 把两个 ConfigMap 也写到 release namespace，依赖 device-plugin 二进制内的 `kube-system → volcano-system` fallback 链找到 `volcano-vgpu-device-config`） |
 
 **计划新增**：
 
@@ -102,7 +102,7 @@ status:
 - **Helm chart cache**：本地 .tgz 存于 `$DATA_DIR/charts/<sha256>.tgz`，atomic write + sha256 校验。Repo chart 在 `$DATA_DIR/helm/cache/` 缓存，`LoadChart` 命中时跳过 Pull
 - **Helm release storage**：secrets driver（v3 默认），keyed by (release_name, release_namespace)
 - **失败错误展示**：Failed phase tag hover 触发 Popover（非 Tooltip，可滚动 + 复制按钮 + `overscroll-behavior: contain`）
-- **实时安装日志**（V1）：Worker 把 Helm SDK 的 `inst.Log` callback 接到 `tunnel.PushPluginLog`，加上 reconciler 里几条关键里程碑（chart 加载 / helm install starting / 完成或失败），通过新增的 `WorkerMessage.PluginLogChunk` + `PluginLogEnd` 推回 Server。Server 端 `pkg/server/gateway/plugin_log.go` 维护 per-`(cluster, plugin)` ring buffer（500 条 / 10min TTL）+ 订阅者 fanout；WS 端点 `/api/v1/clusters/:id/plugins/:name/install-log` 上线时先 replay buffer 再订阅 live。前端 `<PluginInstallLogDrawer>` 渲染 `kind=chunk` / `kind=end` 两种帧，自动滚底，终态用绿勾 / 红叉 banner。两个触发点：用户在 `EnableDrawer` 点提交后自动开启该 drawer（看启用进度）；卡片在 Pending/Installing/Upgrading/Uninstalling/Failed phase 显示「查看日志」按钮（回头看进度或排查失败）。不做 DB 持久化 —— buffer TTL 过后只剩 phase + message
+- **实时安装日志**（V1）：Worker 把 Helm SDK 的 `inst.Log` callback 接到 `tunnel.PushPluginLog`，加上 reconciler 里几条关键里程碑（chart 加载 / helm install starting / 完成或失败），通过新增的 `WorkerMessage.PluginLogChunk` + `PluginLogEnd` 推回 Server。Server 端 `pkg/server/gateway/plugin_log.go` 维护 per-`(cluster, plugin)` ring buffer（500 条 / 10min TTL）+ 订阅者 fanout；WS 端点 `/api/v1/clusters/:id/plugins/:name/install-log` 上线时先 replay buffer 再订阅 live。前端 `<PluginInstallLogDrawer>` 渲染三种帧：`kind=chunk`（进度行）/ `kind=end`（终态成功失败 banner）/ `kind=reset`（gateway 在已 ended 的 plugin 上检测到新操作时下发，前端见到就清空 entries / endStatus，避免「再次启用时打开日志只看到上一次的旧 uninstall log」—— 2f632b4 修的就是漏掉这一帧的 bug）。终端 end 帧到达后**不主动关闭 WS**，否则 ring buffer 的 end-frame replay 会让下次 reset 帧没机会到达；server 端 10min 会话 TTL 自己关空闲订阅者，drawer 关闭时也会断 WS。两个触发点：用户在 `EnableDrawer` 点提交后自动开启该 drawer（看启用进度）；卡片在 Pending/Installing/Upgrading/Uninstalling/Failed phase 显示「查看日志」按钮（回头看进度或排查失败）。不做 DB 持久化 —— buffer TTL 过后只剩 phase + message
 - **Reconcile-on-Watch 防抖**（`pkg/worker/plugin/reconciler.go::reconcileTriggerPredicate`）：仅 spec generation 变化、Create、Delete、新设 DeletionTimestamp 触发 Reconcile。status-only 写入与 finalizer add/remove 不触发
 - **Worker 注册 TOCTOU 保护**：`gateway.Connect` 的 occupied 检查与 slot 写入合并到单次 `g.mu.Lock()`
 - **⚠️ Helm SDK 陷阱**：不要使用 `RunWithContext` + `defer cancel()`——install 成功后 deferred cancel 会污染 K8s client transport，导致后续 K8s 读取静默挂起。使用 `Run()` 不带 ctx，disable 期间的 install 等待 Helm 自身 timeout（10min）

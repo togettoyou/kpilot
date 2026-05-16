@@ -105,7 +105,8 @@ kpilot/
 │   │   └── tunnel/          # gRPC Client（注册、心跳、消息分发）
 │   └── common/
 │       ├── proto/           # protobuf 生成代码（不手动编辑）
-│       └── vgpu/            # vGPU snapshot 共享 JSON 类型（worker 投影 → server 透传 → 前端渲染）
+│       ├── vgpu/            # vGPU snapshot 共享 JSON 类型（worker 投影 → server 透传 → 前端渲染）
+│       └── volcano/         # volcano-status 探测共享类型（installed + schedulerConfigMapNamespace）
 ├── proto/                   # .proto 源文件
 ├── web/                     # 前端（见下方前端规范）
 ├── deploy/
@@ -127,8 +128,8 @@ web/src/
 │   │   ├── Monitoring/      # 监控页（NodeExporterFull dashboard）
 │   │   └── Logging/         # 日志页（VictoriaLogs Explorer K8S dashboard）
 │   ├── Compute/             # 算力调度
-│   │   ├── index.tsx        # 顶级 landing（集群 picker，进入 → /scheduler）
-│   │   └── Volcano/         # 5 个 CR 页（Queues / Jobs / CronJobs / PodGroups / HyperNodes）+ Scheduler + 对应 Form drawer + schedulerMeta + shared/Layout（NotInstalled / isResourceNotAvailable / useAutoRefresh / useStaggeredRefresh / RefreshControl / TruncatedBanner / formatAge）
+│   │   ├── index.tsx        # 顶级 landing（集群 picker，进入 → /overview）
+│   │   └── Volcano/         # Overview（KPI + 图表 dashboard） + Scheduler（调度策略编辑器） + VGPU（每节点 Card 列表 + Progress 仪表盘 KPI） + 10 个 CR 页（Queues / Jobs / CronJobs / PodGroups / HyperNodes / JobFlows / JobTemplates / NumaTopologies / NodeShards / ColocationConfigurations）+ 对应 Form drawer（7 个类型化表单 + JobFlow/JobTemplate 走 YamlCreateDrawer / NumaTopology 只读）+ schedulerMeta + shared/Layout（NotInstalled / isResourceNotAvailable / useAutoRefresh / useStaggeredRefresh / RefreshControl / TruncatedBanner / formatAge）
 │   ├── ModelHub/            # 模型服务 landing（P7 占位）
 │   ├── Plugins/             # 全局插件注册表 CRUD
 │   └── exception/404/
@@ -365,8 +366,8 @@ const { data, loading } = useRequest(listXxx, {
 | Volcano 转向 P1 | Volcano 核心对接：5 个 CR 浏览器（Queue / Job / CronJob / PodGroup / HyperNode）+ 类型化创建编辑表单（form / YAML 双视图）+ 生命周期操作（bus.volcano.sh Command）+ 调度策略可视化编辑器（actions / tier / plugin 元数据 + 新手提示）；GPU dashboard 与 HAMi 解析器 / snapshot informer 全量删除 | ✅ 完成 |
 | Volcano 转向 P1.5 | 算力调度页性能重写：worker 加 `list-full` action，server 加 5 个专用 list 端点按 kind 投影 slim row，前端 5 个页改写为单 useRequest + ProTable，cell 全部 props-driven。N+1（100 队列 = 101 请求）→ 1 请求 / 刷新；删 CRPage / sharedFetch / WorkloadsContent 扩展点 | ✅ 完成 |
 | 集群 + Volcano review 硬化 | 全栈 review 修复。集群侧：gateway RegisterAck Send race、流式会话 ctx 派生自 tunnel.StreamContext()、Pod 日志 64 MiB 字节封顶、HTTP/WS 反代 URL scheme 白名单、describe panic recover、exec writer onSendErr cancel、proxy 读/写超时拆分（120s / 30s）、UpdateCluster TOCTOU 删除等 ~12 项。Volcano 侧：server workerTimeout 拆 read/write 与 worker 对齐、5 list 端点接 `limit + continue` 透传 + 响应 shape 改 `{items, continue?, remainingItemCount?}` 带截断兜底、worker listFull 剥 managedFields + 加 effective ns 日志、5 页 + 2 form i18n 完整覆盖、QueueForm editOriginalRef 镜像 spec.priority、useStaggeredRefresh 解决 setTimeout-on-unmounted 等 13+3 项 | ✅ 完成 |
-| Volcano 转向 P2 | vGPU 实况：worker `pkg/worker/proxy/vgpu.go` 解析 `volcano.sh/node-vgpu-register` + `vgpu-ids-new` annotation，server `/api/v1/clusters/:id/vgpu` 返回集群 → 节点 → 卡 → Pod 树，前端 `/compute/:id/vgpu` 渲染 KPI + 每节点表格（展开行 = 卡列表）；volcano-vgpu-device-plugin 包成 wrapper Helm chart（go:embed + 启动时 helm package）加为内置插件 | ✅ 完成 |
-| Volcano 转向 P2.x | P2 收尾打磨。**vGPU 页**：搜索 / 排序 / drilldown / banner / CTA + KPI 对齐 + 统一 bar 组件 + GiB 单位 + early-return 前算 derived state（hooks rule）。**chart**：ConfigMap 钉死 `kube-system`（device-plugin 容器硬编码读 `kube-system/volcano-vgpu-device-config`，原来走 release namespace 错的） + `all:` 前缀避免 `_helpers.tpl` 被 go:embed 默认规则跳过 + display_name 缩短到 "Volcano vGPU" 适配 antd Card 单行 ellipsis + description 修到 varchar(500) 内。**架构**：删除 `pkg/server/protect/`（588 行写保护，归还集群级写权由 K8s RBAC + controller 兜底）。**schedulerMeta**：把 `arguments` 作为已知 top-level key 修复 plugin block round-trip。**JobForm**：编辑时提前告知用户 Volcano webhook 仅接受 `minAvailable / tasks[*].replicas / priorityClassName` 三字段修改，dirty-diff 监听到改动其它字段就 inline Alert。**hack/**：`remote-k3s.sh` 一键 SSH 到任意服务器装 k3s + 合并 kubeconfig 给 Worker 调试用（GPU 节点自动配 nvidia runtime，CPU 节点也能用） | ✅ 完成 |
+| Volcano 转向 P2 | vGPU 实况：worker `pkg/worker/proxy/vgpu.go` 解析 `volcano.sh/node-vgpu-register` + `vgpu-ids-new` annotation，server `/api/v1/clusters/:id/vgpu` 返回集群 → 节点 → 卡 → Pod 树，前端 `/compute/:id/vgpu` 渲染 KPI + 节点列表；volcano-vgpu-device-plugin 包成 wrapper Helm chart（go:embed + 启动时 helm package）加为内置插件 | ✅ 完成 |
+| Volcano 转向 P2.x | P2 收尾打磨。**vGPU 页**：完整重构 —— KPI 三个利用率（slots / memory / cores）改用 `Progress.dashboard` 环形仪表盘（cores 客户端聚合自每张卡）；旧的"节点表 + 展开行 = 卡列表"改成 card-per-node 列表，每节点头部三段聚合 bar，节点下方逐张卡一行（身份 + 三 bar + Pods 占用），所有信息默认可见无展开；pod 名点击改打开 DescribeDrawer（不是 Logs）；UUID 尾截 `…hhhhhhhh`；搜索框 + 排序 + drilldown 到节点 / health banner / 空集群 CTA。**chart**：两个 ConfigMap 都放 release namespace（默认 `volcano-system`），device-config 依赖 binary 的 `kube-system → volcano-system` fallback 链，去掉之前错误的 kube-system pin；display_name 缩 "Volcano vGPU"；description 修到 varchar(500) 内。**架构**：删除 `pkg/server/protect/`（写保护全部归还给 K8s RBAC + controller）。**schedulerMeta**：`arguments` 加入已知 top-level key。**Volcano 内置 chart**：默认 scheduler.conf 已带 `deviceshare` 插件 + `VGPUEnable: true`（新装即用）；默认 release namespace 改成 `volcano-system`。**Job/CronJob/Queue 表单**：原生 vGPU 三件套字段（number / memory / cores）；JobForm 编辑时 Alert 提示 webhook 三字段限制 + submit-time diff 拦截。**Overview / Scheduler**：Volcano 检测 cluster-side（worker 探 Queue CRD + ConfigMap field-selector），不再依赖 kpilot 插件注册表；Overview list fetch 走 `Promise.allSettled` 容忍可选 sub-CRD 缺失。**plugin install log**：修 10 分钟 buffer TTL 内重新 enable 旧 end 帧误关 WS 的 bug。**hack/**：`aliyun-gpu.sh` → `remote-k3s.sh` 改名 + 跨平台 tunnel pid 跟踪 + SSH multiplex；Tencent/GCP/EC2 镜像 root 密码 SSH 禁用时自动通过 ubuntu/centos/ec2-user/admin 用同密码登录 + sudo bootstrap pubkey 到 root；GPU 节点缺 NVIDIA Container Toolkit 时自动 apt 装上。 | ✅ 完成 |
 | Volcano 转向 P3 | DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard（GPU 物理卡监控） | 待规划 |
 | Volcano 转向 P4 | 资源治理：Volcano queue 配额视图 + 设备健康告警 + GPU-Hour 计费报表 | 待规划 |
 | P7a | 模型服务 → 模型仓库 + 内置预设（Qwen / DeepSeek / Llama 等 vLLM 启动模板） | 待开始 |
