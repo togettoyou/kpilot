@@ -663,7 +663,7 @@ export default {
   'pages.gpuMonitoring.notInstalled.action': '前往插件管理',
   'pages.gpuMonitoring.error.title': '读取 GPU 监控数据失败',
   'pages.gpuMonitoring.empty':
-    '在选定窗口内没有 DCGM 指标。请检查:GPU 节点是否已安装 NVIDIA 驱动 + nvidia-container-runtime;DCGM Exporter Pod 是否在运行;Worker 是否运行在集群内(本地 worker 跨 SSH 隧道无法解析 *.svc.cluster.local)。',
+    '在选定窗口内没有 DCGM 指标。请检查:GPU 节点是否已安装 NVIDIA 驱动 + nvidia-container-runtime;DCGM Exporter Pod 是否在运行。',
   'pages.gpuMonitoring.chartEmpty': '该指标暂无数据',
   'pages.gpuMonitoring.snap.activeGPUs': '活跃 GPU 数',
   'pages.gpuMonitoring.snap.avgUtil': '平均利用率',
@@ -708,13 +708,13 @@ export default {
   'pages.queueQuota.resource.vgpuMemory': 'vGPU 显存',
   'pages.queueQuota.resource.vgpuCores': 'vGPU 算力',
 
-  // Device health page (P14b)
-  'pages.deviceHealth.title': '设备告警',
+  // GPU alerts page (P14b)
+  'pages.deviceHealth.title': 'GPU 告警',
   'pages.deviceHealth.notInstalled.title': 'VictoriaMetrics 尚未启用',
   'pages.deviceHealth.notInstalled.subTitle':
-    '设备告警需要从 VictoriaMetrics 查询 DCGM 指标。请先启用 VictoriaMetrics 与 DCGM Exporter。',
+    'GPU 告警需要从 VictoriaMetrics 查询 DCGM 指标。请先启用 VictoriaMetrics 与 DCGM Exporter。',
   'pages.deviceHealth.notInstalled.action': '前往插件管理',
-  'pages.deviceHealth.error.title': '读取设备告警失败',
+  'pages.deviceHealth.error.title': '读取 GPU 告警失败',
   'pages.deviceHealth.empty.title': '一切正常',
   'pages.deviceHealth.empty.subTitle':
     '当前未检测到 XID 错误、ECC 错误、过热或显存即将耗尽的告警',

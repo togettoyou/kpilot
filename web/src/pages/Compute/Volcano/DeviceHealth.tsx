@@ -203,26 +203,6 @@ const DeviceHealthPage: React.FC = () => {
     <div className="p-6">
       <Spin spinning={loading && !data}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          {/* In-page toolbar — match the platform's no-breadcrumb /
-             no-page-title convention. RefreshControl rides at the
-             right edge of a thin Card so the table below isn't
-             responsible for hosting it. */}
-          <Card size="small" styles={{ body: { padding: '8px 12px' } }}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-              }}
-            >
-              <RefreshControl
-                interval={interval}
-                setInterval={setInter}
-                loading={loading}
-                refresh={refresh}
-              />
-            </div>
-          </Card>
           {/* KPI row — server pre-computes the counts so the cards
              render before the table mounts. All clear = green check
              card so the page doesn't feel "empty" when healthy. */}
@@ -268,43 +248,61 @@ const DeviceHealthPage: React.FC = () => {
             </Col>
           </Row>
 
-          {alerts.length === 0 ? (
-            <Card>
-              <Empty
-                image={
-                  <CheckCircleOutlined
-                    style={{ fontSize: 48, color: token.colorSuccess }}
-                  />
-                }
-                description={
-                  <Space direction="vertical" align="center">
-                    <Typography.Text strong>
-                      {intl.formatMessage({
-                        id: 'pages.deviceHealth.empty.title',
-                      })}
-                    </Typography.Text>
-                    <Typography.Text type="secondary">
-                      {intl.formatMessage({
-                        id: 'pages.deviceHealth.empty.subTitle',
-                      })}
-                    </Typography.Text>
-                  </Space>
-                }
-              />
-            </Card>
-          ) : (
-            <ProTable<DeviceAlert>
-              dataSource={alerts}
-              columns={columns}
-              rowKey={(row) =>
-                `${row.kind}/${row.hostname || ''}/${row.gpu || ''}/${row.uuid || ''}`
-              }
-              search={false}
-              options={{ reload: false, density: true, fullScreen: false }}
-              pagination={{ pageSize: 20, showSizeChanger: true }}
-              scroll={{ x: 'max-content' }}
-            />
-          )}
+          {/* Single ProTable instance — when there are no alerts the
+             custom locale renders the all-clear card inline, so we
+             don't need a separate conditional Empty branch (which
+             previously also lost the RefreshControl). toolBarRender
+             puts the refresh on the table header, matching the
+             pattern Queues / Jobs / etc. already use. */}
+          <ProTable<DeviceAlert>
+            dataSource={alerts}
+            columns={columns}
+            rowKey={(row) =>
+              `${row.kind}/${row.hostname || ''}/${row.gpu || ''}/${row.uuid || ''}`
+            }
+            search={false}
+            options={{ reload: false, density: true, fullScreen: false }}
+            pagination={
+              alerts.length > 0
+                ? { pageSize: 20, showSizeChanger: true }
+                : false
+            }
+            scroll={{ x: 'max-content' }}
+            toolBarRender={() => [
+              <RefreshControl
+                key="refresh"
+                interval={interval}
+                setInterval={setInter}
+                loading={loading}
+                refresh={refresh}
+              />,
+            ]}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={
+                    <CheckCircleOutlined
+                      style={{ fontSize: 48, color: token.colorSuccess }}
+                    />
+                  }
+                  description={
+                    <Space direction="vertical" align="center">
+                      <Typography.Text strong>
+                        {intl.formatMessage({
+                          id: 'pages.deviceHealth.empty.title',
+                        })}
+                      </Typography.Text>
+                      <Typography.Text type="secondary">
+                        {intl.formatMessage({
+                          id: 'pages.deviceHealth.empty.subTitle',
+                        })}
+                      </Typography.Text>
+                    </Space>
+                  }
+                />
+              ),
+            }}
+          />
         </Space>
       </Spin>
     </div>

@@ -84,7 +84,7 @@ export default {
   'menu.compute.vgpu': 'GPU 视图',
   'menu.compute.gpuMonitoring': 'GPU 监控',
   'menu.compute.queueQuota': '队列配额',
-  'menu.compute.deviceHealth': '设备告警',
+  'menu.compute.deviceHealth': 'GPU 告警',
   'menu.compute.gpuHour': 'GPU-Hour 用量',
   // Volcano CR 浏览器：Queue / Job / CronJob / PodGroup / HyperNode，
   // 全部塞在「调度资源」子菜单下。Kind 名（中英都直接保留）—— 这些是

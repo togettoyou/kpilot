@@ -83,7 +83,7 @@ export default {
   'menu.compute.vgpu': 'GPU View',
   'menu.compute.gpuMonitoring': 'GPU Monitoring',
   'menu.compute.queueQuota': 'Queue Quota',
-  'menu.compute.deviceHealth': 'Device Alerts',
+  'menu.compute.deviceHealth': 'GPU Alerts',
   'menu.compute.gpuHour': 'GPU-Hour Usage',
   'menu.compute.resources': 'Resources',
   'menu.compute.resources.queues': 'Queue',

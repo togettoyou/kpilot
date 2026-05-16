@@ -676,7 +676,7 @@ export default {
   'pages.gpuMonitoring.notInstalled.action': 'Open Plugins',
   'pages.gpuMonitoring.error.title': 'Failed to load GPU metrics',
   'pages.gpuMonitoring.empty':
-    'No DCGM metrics in the selected window. Check: NVIDIA driver + nvidia-container-runtime installed on GPU nodes; DCGM Exporter pod running; worker is running inside the cluster (a locally-run worker over an SSH tunnel cannot resolve *.svc.cluster.local).',
+    'No DCGM metrics in the selected window. Check: NVIDIA driver + nvidia-container-runtime installed on GPU nodes; DCGM Exporter pod running.',
   'pages.gpuMonitoring.chartEmpty': 'No data for this metric yet',
   'pages.gpuMonitoring.snap.activeGPUs': 'Active GPUs',
   'pages.gpuMonitoring.snap.avgUtil': 'Avg utilization',
@@ -723,13 +723,13 @@ export default {
   'pages.queueQuota.resource.vgpuMemory': 'vGPU memory',
   'pages.queueQuota.resource.vgpuCores': 'vGPU cores',
 
-  // Device health page (P14b)
-  'pages.deviceHealth.title': 'Device Alerts',
+  // GPU alerts page (P14b)
+  'pages.deviceHealth.title': 'GPU Alerts',
   'pages.deviceHealth.notInstalled.title': 'VictoriaMetrics is not enabled',
   'pages.deviceHealth.notInstalled.subTitle':
-    'Device alerts require querying DCGM metrics from VictoriaMetrics. Enable VictoriaMetrics and DCGM Exporter on this cluster.',
+    'GPU alerts require querying DCGM metrics from VictoriaMetrics. Enable VictoriaMetrics and DCGM Exporter on this cluster.',
   'pages.deviceHealth.notInstalled.action': 'Open Plugins',
-  'pages.deviceHealth.error.title': 'Failed to load device alerts',
+  'pages.deviceHealth.error.title': 'Failed to load GPU alerts',
   'pages.deviceHealth.empty.title': 'All clear',
   'pages.deviceHealth.empty.subTitle':
     'No active XID errors, ECC faults, overheating or near-full framebuffer alerts.',
