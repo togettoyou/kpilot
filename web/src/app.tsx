@@ -10,6 +10,7 @@ import {
   DeploymentUnitOutlined,
   DesktopOutlined,
   FileTextOutlined,
+  FundOutlined,
   LineChartOutlined,
   SafetyOutlined,
   SettingOutlined,
@@ -494,6 +495,16 @@ function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
       path: `${base}/gpu-monitoring`,
       name: 'gpuMonitoring',
       icon: <LineChartOutlined />,
+    },
+    {
+      // Queue quota deep-dive — single-queue view of capability /
+      // guarantee / allocated / deserved across every resource the
+      // queue declares. Sits at the top level (not nested under 调度
+      // 资源) because it's a dashboard view, not a CR list. Right after
+      // GPU 监控 because both are observation pages.
+      path: `${base}/queue-quota`,
+      name: 'queueQuota',
+      icon: <FundOutlined />,
     },
     {
       // Group label only — has no path of its own. ProLayout opens

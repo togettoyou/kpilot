@@ -71,16 +71,27 @@ type queueRow struct {
 	UID               string            `json:"uid"`
 	CreationTimestamp string            `json:"creationTimestamp"`
 	Weight            int64             `json:"weight"`
+	Priority          int64             `json:"priority,omitempty"`
 	State             string            `json:"state"`
 	Parent            string            `json:"parent,omitempty"`
 	Reclaimable       *bool             `json:"reclaimable,omitempty"`
 	Capability        map[string]string `json:"capability,omitempty"`
-	Allocated         map[string]string `json:"allocated,omitempty"`
-	Running           int64             `json:"running"`
-	Pending           int64             `json:"pending"`
-	Inqueue           int64             `json:"inqueue"`
-	Completed         int64             `json:"completed"`
-	Unknown           int64             `json:"unknown"`
+	// Guarantee: soft floor — Volcano spec stores it nested as
+	// spec.guarantee.resource (ResourceList), not flat under
+	// spec.guarantee. The form builder writes it nested, so we
+	// unwrap during projection.
+	Guarantee map[string]string `json:"guarantee,omitempty"`
+	// Deserved: capacity-aware-plugin field — what the queue
+	// should receive after the capacity plugin reapportions
+	// resources. Only present when the capacity plugin is in the
+	// scheduler config; otherwise absent.
+	Deserved  map[string]string `json:"deserved,omitempty"`
+	Allocated map[string]string `json:"allocated,omitempty"`
+	Running   int64             `json:"running"`
+	Pending   int64             `json:"pending"`
+	Inqueue   int64             `json:"inqueue"`
+	Completed int64             `json:"completed"`
+	Unknown   int64             `json:"unknown"`
 }
 
 func ListVolcanoQueues(gw *gateway.GatewayServer) gin.HandlerFunc {
@@ -128,15 +139,21 @@ func ListVolcanoQueues(gw *gateway.GatewayServer) gin.HandlerFunc {
 				UID:               str(meta["uid"]),
 				CreationTimestamp: str(meta["creationTimestamp"]),
 				Weight:            int64Of(spec["weight"]),
+				Priority:          int64Of(spec["priority"]),
 				State:             str(status["state"]),
 				Parent:            str(spec["parent"]),
 				Capability:        stringMap(spec["capability"]),
+				Deserved:          stringMap(spec["deserved"]),
 				Allocated:         stringMap(status["allocated"]),
 				Running:           int64Of(status["running"]),
 				Pending:           int64Of(status["pending"]),
 				Inqueue:           int64Of(status["inqueue"]),
 				Completed:         int64Of(status["completed"]),
 				Unknown:           int64Of(status["unknown"]),
+			}
+			// spec.guarantee is { resource: ResourceList } — unwrap.
+			if g := mapOf(spec["guarantee"]); g != nil {
+				row.Guarantee = stringMap(g["resource"])
 			}
 			if r, ok := spec["reclaimable"].(bool); ok {
 				row.Reclaimable = &r

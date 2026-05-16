@@ -83,6 +83,7 @@ export default {
   'menu.compute.scheduler': '调度策略',
   'menu.compute.vgpu': 'vGPU 视图',
   'menu.compute.gpuMonitoring': 'GPU 监控',
+  'menu.compute.queueQuota': 'Queue 配额',
   // Volcano CR 浏览器：Queue / Job / CronJob / PodGroup / HyperNode，
   // 全部塞在「调度资源」子菜单下。Kind 名（中英都直接保留）—— 这些是
   // 社区通用术语，翻译反而失真，且页面标题里也是英文 Kind。

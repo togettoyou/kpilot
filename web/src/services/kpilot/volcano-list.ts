@@ -40,10 +40,19 @@ export interface QueueRow {
   uid: string;
   creationTimestamp: string;
   weight: number;
+  // priority is omitempty server-side; absent when 0 / unset
+  priority?: number;
   state: 'Open' | 'Closed' | 'Closing' | 'Unknown' | string;
   parent?: string;
   reclaimable?: boolean;
   capability?: Record<string, string>;
+  // Soft floor — Volcano nests it under spec.guarantee.resource;
+  // server projects the inner resource map directly.
+  guarantee?: Record<string, string>;
+  // Capacity-aware-plugin field — what the queue should receive
+  // after reapportionment. Absent when the capacity plugin isn't
+  // in the scheduler config.
+  deserved?: Record<string, string>;
   allocated?: Record<string, string>;
   running: number;
   pending: number;

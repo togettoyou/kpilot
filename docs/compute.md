@@ -142,7 +142,24 @@ Volcano 提供两套机制：
 - **前置条件**：每个 GPU 节点要装 **NVIDIA driver + nvidia-container-runtime**（与 volcano-vgpu-device-plugin 共用同一套基础设施）。DCGM Exporter 容器需要 `SYS_ADMIN` cap 才能读 profiling 指标（`DCGM_FI_PROF_*`），chart 默认 securityContext 已配齐
 - **节点选择**：默认无 nodeSelector —— exporter 在无 GPU 的节点上探针失败，pod 不会重新调度（无伤大雅但占 pod slot）。用 NFD / GPU Operator 的环境可在 EnableDrawer 里加 `nodeSelector.nvidia.com/gpu.present: "true"`
 
-## 7. 路由 + 菜单结构
+## 7. Queue 配额（`/compute/:id/queue-quota`）
+
+单 Queue 多资源配额深化视图。**Overview 的姊妹页**：Overview 显示集群级 capability vs allocated 三资源横向条；Queue 配额页选定一个 Queue 后展开 **全部资源类型** × **四状态**（capability / guarantee / allocated / deserved）+ **子 Queue 卡片递归**。
+
+- **数据流**：复用现有 `/api/v1/clusters/:id/volcano/queues` 列表端点（list-full 已经把 spec.{capability, guarantee, deserved, priority} + status.allocated 都投影出来）；一次拉全集群队列，子树关系在前端按 `spec.parent` 重组。**无新端点**
+- **后端字段扩展**（P14a）：`pkg/server/api/handler/volcano.go::queueRow` 加 `Priority` / `Guarantee` / `Deserved` 三个字段。`spec.guarantee` 在 Volcano 里嵌套写成 `{ resource: ResourceList }`，server 端 unwrap 内层 `resource` 直接下发
+- **页面布局**：
+  - **顶部 selector**：缩进树形 option list 的 Queue Select（父子层级靠前缀 `│   ├─` 可视化，避免引入 Cascader 重组件），右侧统计「共 N 个 Queue」+ RefreshControl 间隔下拉（默认 off）
+  - **主卡片**（选中 Queue 之后）：header bar 列名称 + state Tag + 父队列 Tag + priority/weight Badge + reclaimable 反向 Tag + extra 处运行/等待/排队 job 计数 Badge。body 内逐资源行：
+    - **resource header**：人类化名（CPU / 内存 / GPU 整卡 / vGPU 切片数 / vGPU 显存 / vGPU 算力，其他键 raw 显示）+ 已分配 / 保障 / 上限 / 应得 数字串
+    - **bar**：纯 CSS 自绘 —— 横向 track = capability，填充 = allocated（颜色按状态切：超 capability 红 / 未达 guarantee 橙 / 正常蓝），guarantee 用 2px 绿色竖线 tick（hover Tooltip），deserved 用 2px 紫色竖线 tick（仅 capacity 插件启用时下发）。antd Progress 不支持多 marker 叠加，所以走 absolute-positioned div
+    - **超限 / 未达保障**：Alert（error / warning）渲染在 bar 下方
+  - **子 Queue 区**：用同款 QueueDetailCard 紧凑模式（`primary=false`，size=small）递归渲染直属子 Queue
+- **未选时**：Empty + CTA 提示选择
+- **轮询**：复用 `useAutoRefresh` + `<RefreshControl>`，default off
+- **文件**：`pages/Compute/Volcano/QueueQuota.tsx`（单文件，~480 行；`parseQuantity` inline copy 自 `OverviewCharts.tsx`，第三处出现时再下沉到 common util）
+
+## 8. 路由 + 菜单结构
 
 ```
 算力调度 (/compute)
@@ -150,6 +167,7 @@ Volcano 提供两套机制：
 ├── 调度策略        (/compute/:id/scheduler)
 ├── vGPU            (/compute/:id/vgpu)
 ├── GPU 监控        (/compute/:id/gpu-monitoring)
+├── Queue 配额      (/compute/:id/queue-quota)
 └── 调度资源 (group)
     ├── Queue                       (/compute/:id/queues)
     ├── Job                         (/compute/:id/jobs)
@@ -165,8 +183,9 @@ Volcano 提供两套机制：
 
 `/compute/:id` redirect 到 `/overview`。
 
-## 8. 后续路线
+## 9. 后续路线
 
 | 阶段 | 内容 |
 |---|---|
-| P14 | Volcano queue 配额可视化深化 + 设备健康告警 + GPU-Hour 计费报表 |
+| P14b | 设备健康告警：DCGM XID / ECC 异常聚合 + vGPU `health=false` 卡片汇总通知中心，Grafana alerting 兜底 |
+| P14c | GPU-Hour 计费报表：Volcano Pod allocation × 持续时间，按 queue / namespace / 用户聚合的历史用量报表（VictoriaMetrics 查询路线 vs server 持久化路线待定） |

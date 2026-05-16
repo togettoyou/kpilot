@@ -142,6 +142,18 @@ export default [
         component: './Compute/Volcano/GPUMonitoring',
       },
       {
+        // Per-queue resource quota deep-dive: capability / guarantee /
+        // allocated / deserved across every resource a queue declares,
+        // with hierarchical subqueue cards. Sister to Overview — that
+        // page rolls everything up to cluster totals; this one drills
+        // into a single queue at a time. No new endpoint; the existing
+        // /volcano/queues list-full already returns spec.{capability,
+        // guarantee, deserved} + status.allocated after the P14a queueRow
+        // extension.
+        path: '/compute/:id/queue-quota',
+        component: './Compute/Volcano/QueueQuota',
+      },
+      {
         // Read-only view of volcano-scheduler-configmap → the
         // currently configured actions + plugin tiers. Editing
         // happens through the volcano plugin's helm values, not

@@ -654,6 +654,37 @@ export default {
     '请前往插件页查看错误详情并重新启用,或调整 values 后重试。常见原因:GPU 节点缺少 NVIDIA 驱动或 nvidia-container-runtime。',
   'pages.gpuMonitoring.recommended': '建议同时启用 {names}。',
 
+  // Queue quota deep-dive page
+  'pages.queueQuota.title': 'Queue 配额',
+  'pages.queueQuota.selector.label': '选择 Queue:',
+  'pages.queueQuota.selector.placeholder': '搜索或选择一个 Queue',
+  'pages.queueQuota.summary': '共 {total} 个 Queue',
+  'pages.queueQuota.empty.cta': '请选择一个 Queue 查看其多资源配额情况',
+  'pages.queueQuota.noResources': '该 Queue 未声明任何资源配额',
+  'pages.queueQuota.children.title': '子 Queue（{count}）',
+  'pages.queueQuota.card.parent': '父队列: {parent}',
+  'pages.queueQuota.card.priority': '优先级 {priority}',
+  'pages.queueQuota.card.weight': '权重 {weight}',
+  'pages.queueQuota.card.nonReclaimable': '不可回收',
+  'pages.queueQuota.card.running': '运行中 {n}',
+  'pages.queueQuota.card.pending': '等待 {n}',
+  'pages.queueQuota.card.inqueue': '排队 {n}',
+  'pages.queueQuota.row.alloc': '已分配 {v}',
+  'pages.queueQuota.row.guarantee': '保障 {v}',
+  'pages.queueQuota.row.capability': '上限 {v}',
+  'pages.queueQuota.row.deserved': '应得 {v}',
+  'pages.queueQuota.row.unbounded': '未设上限',
+  'pages.queueQuota.row.overcommit':
+    '超出上限: 已分配 {allocated} 超过 capability {capability}',
+  'pages.queueQuota.row.unmetGuarantee':
+    '未达保障: 已分配 {allocated} 低于 guarantee {guarantee}',
+  'pages.queueQuota.resource.cpu': 'CPU',
+  'pages.queueQuota.resource.memory': '内存',
+  'pages.queueQuota.resource.nvidiaGpu': 'GPU (整卡)',
+  'pages.queueQuota.resource.vgpuNumber': 'vGPU 切片数',
+  'pages.queueQuota.resource.vgpuMemory': 'vGPU 显存',
+  'pages.queueQuota.resource.vgpuCores': 'vGPU 算力',
+
 
   // plugin management
   'pages.plugins.title': '插件管理',

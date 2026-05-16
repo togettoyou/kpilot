@@ -82,6 +82,7 @@ export default {
   'menu.compute.scheduler': 'Scheduler Config',
   'menu.compute.vgpu': 'vGPU',
   'menu.compute.gpuMonitoring': 'GPU Monitoring',
+  'menu.compute.queueQuota': 'Queue Quota',
   'menu.compute.resources': 'Resources',
   'menu.compute.resources.queues': 'Queue',
   'menu.compute.resources.jobs': 'Job',

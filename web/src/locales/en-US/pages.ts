@@ -670,6 +670,39 @@ export default {
   'pages.gpuMonitoring.recommended':
     'Consider also enabling {names}.',
 
+  // Queue quota deep-dive page
+  'pages.queueQuota.title': 'Queue Quota',
+  'pages.queueQuota.selector.label': 'Select queue:',
+  'pages.queueQuota.selector.placeholder': 'Search or pick a queue',
+  'pages.queueQuota.summary': '{total} queue(s)',
+  'pages.queueQuota.empty.cta':
+    'Pick a queue to see its capability / guarantee / allocated breakdown across every resource it declares.',
+  'pages.queueQuota.noResources':
+    'This queue does not declare any resource quota.',
+  'pages.queueQuota.children.title': 'Child queues ({count})',
+  'pages.queueQuota.card.parent': 'parent: {parent}',
+  'pages.queueQuota.card.priority': 'priority {priority}',
+  'pages.queueQuota.card.weight': 'weight {weight}',
+  'pages.queueQuota.card.nonReclaimable': 'non-reclaimable',
+  'pages.queueQuota.card.running': 'running {n}',
+  'pages.queueQuota.card.pending': 'pending {n}',
+  'pages.queueQuota.card.inqueue': 'inqueue {n}',
+  'pages.queueQuota.row.alloc': 'allocated {v}',
+  'pages.queueQuota.row.guarantee': 'guarantee {v}',
+  'pages.queueQuota.row.capability': 'capability {v}',
+  'pages.queueQuota.row.deserved': 'deserved {v}',
+  'pages.queueQuota.row.unbounded': 'unbounded',
+  'pages.queueQuota.row.overcommit':
+    'Overcommit: allocated {allocated} exceeds capability {capability}',
+  'pages.queueQuota.row.unmetGuarantee':
+    'Unmet guarantee: allocated {allocated} below guarantee {guarantee}',
+  'pages.queueQuota.resource.cpu': 'CPU',
+  'pages.queueQuota.resource.memory': 'Memory',
+  'pages.queueQuota.resource.nvidiaGpu': 'GPU (whole card)',
+  'pages.queueQuota.resource.vgpuNumber': 'vGPU slots',
+  'pages.queueQuota.resource.vgpuMemory': 'vGPU memory',
+  'pages.queueQuota.resource.vgpuCores': 'vGPU cores',
+
   'pages.layouts.userLayout.title':
     'Unified GPU + Model platform for Kubernetes',
 
