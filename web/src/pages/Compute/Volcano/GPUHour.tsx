@@ -1,5 +1,5 @@
 import { ClockCircleOutlined } from '@ant-design/icons';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import { history, useIntl, useParams } from '@umijs/max';
 
@@ -65,25 +65,21 @@ const GPUHourPage: React.FC = () => {
 
   if (error && isResourceNotAvailable(error)) {
     return (
-      <PageContainer ghost>
-        <NotInstalled
-          clusterId={clusterId}
-          titleId="pages.gpuHour.notInstalled.title"
-          subTitleId="pages.gpuHour.notInstalled.subTitle"
-          actionId="pages.gpuHour.notInstalled.action"
-        />
-      </PageContainer>
+      <NotInstalled
+        clusterId={clusterId}
+        titleId="pages.gpuHour.notInstalled.title"
+        subTitleId="pages.gpuHour.notInstalled.subTitle"
+        actionId="pages.gpuHour.notInstalled.action"
+      />
     );
   }
   if (error) {
     return (
-      <PageContainer ghost>
-        <Result
-          status="error"
-          title={intl.formatMessage({ id: 'pages.gpuHour.error.title' })}
-          subTitle={(error as Error).message}
-        />
-      </PageContainer>
+      <Result
+        status="error"
+        title={intl.formatMessage({ id: 'pages.gpuHour.error.title' })}
+        subTitle={(error as Error).message}
+      />
     );
   }
 
@@ -164,31 +160,37 @@ const GPUHourPage: React.FC = () => {
   ];
 
   return (
-    <PageContainer
-      ghost
-      header={{
-        title: intl.formatMessage({ id: 'pages.gpuHour.title' }),
-        extra: (
-          <Space>
-            <Radio.Group
-              value={range}
-              onChange={(e) => setRange(e.target.value)}
-              optionType="button"
-              buttonStyle="solid"
-              options={RANGES.map((r) => ({ label: r, value: r }))}
-            />
-            <RefreshControl
-              interval={interval}
-              setInterval={setInter}
-              loading={loading}
-              refresh={refresh}
-            />
-          </Space>
-        ),
-      }}
-    >
+    <div className="p-6">
       <Spin spinning={loading && !data}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {/* In-page toolbar — range picker on the left, refresh on
+             the right. Matches the no-breadcrumb / no-page-title
+             convention the rest of the Compute platform uses. */}
+          <Card size="small" styles={{ body: { padding: '8px 12px' } }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <Radio.Group
+                value={range}
+                onChange={(e) => setRange(e.target.value)}
+                optionType="button"
+                buttonStyle="solid"
+                options={RANGES.map((r) => ({ label: r, value: r }))}
+              />
+              <RefreshControl
+                interval={interval}
+                setInterval={setInter}
+                loading={loading}
+                refresh={refresh}
+              />
+            </div>
+          </Card>
           {range === '30d' && (
             <Alert
               type="info"
@@ -247,7 +249,7 @@ const GPUHourPage: React.FC = () => {
           )}
         </Space>
       </Spin>
-    </PageContainer>
+    </div>
   );
 };
 

@@ -4,7 +4,7 @@ import {
   InfoCircleOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import { history, useIntl, useParams } from '@umijs/max';
 
@@ -93,25 +93,21 @@ const DeviceHealthPage: React.FC = () => {
 
   if (error && isResourceNotAvailable(error)) {
     return (
-      <PageContainer ghost>
-        <NotInstalled
-          clusterId={clusterId}
-          titleId="pages.deviceHealth.notInstalled.title"
-          subTitleId="pages.deviceHealth.notInstalled.subTitle"
-          actionId="pages.deviceHealth.notInstalled.action"
-        />
-      </PageContainer>
+      <NotInstalled
+        clusterId={clusterId}
+        titleId="pages.deviceHealth.notInstalled.title"
+        subTitleId="pages.deviceHealth.notInstalled.subTitle"
+        actionId="pages.deviceHealth.notInstalled.action"
+      />
     );
   }
   if (error) {
     return (
-      <PageContainer ghost>
-        <Result
-          status="error"
-          title={intl.formatMessage({ id: 'pages.deviceHealth.error.title' })}
-          subTitle={(error as Error).message}
-        />
-      </PageContainer>
+      <Result
+        status="error"
+        title={intl.formatMessage({ id: 'pages.deviceHealth.error.title' })}
+        subTitle={(error as Error).message}
+      />
     );
   }
 
@@ -204,22 +200,29 @@ const DeviceHealthPage: React.FC = () => {
   ];
 
   return (
-    <PageContainer
-      ghost
-      header={{
-        title: intl.formatMessage({ id: 'pages.deviceHealth.title' }),
-        extra: (
-          <RefreshControl
-            interval={interval}
-            setInterval={setInter}
-            loading={loading}
-            refresh={refresh}
-          />
-        ),
-      }}
-    >
+    <div className="p-6">
       <Spin spinning={loading && !data}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {/* In-page toolbar — match the platform's no-breadcrumb /
+             no-page-title convention. RefreshControl rides at the
+             right edge of a thin Card so the table below isn't
+             responsible for hosting it. */}
+          <Card size="small" styles={{ body: { padding: '8px 12px' } }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+              }}
+            >
+              <RefreshControl
+                interval={interval}
+                setInterval={setInter}
+                loading={loading}
+                refresh={refresh}
+              />
+            </div>
+          </Card>
           {/* KPI row — server pre-computes the counts so the cards
              render before the table mounts. All clear = green check
              card so the page doesn't feel "empty" when healthy. */}
@@ -304,7 +307,7 @@ const DeviceHealthPage: React.FC = () => {
           )}
         </Space>
       </Spin>
-    </PageContainer>
+    </div>
   );
 };
 

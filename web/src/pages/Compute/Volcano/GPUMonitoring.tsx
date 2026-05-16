@@ -1,5 +1,4 @@
 import { Line } from '@ant-design/plots';
-import { PageContainer } from '@ant-design/pro-components';
 import { useIntl, useParams } from '@umijs/max';
 
 import { useClusterRequest } from '@/hooks/useClusterRequest';
@@ -108,25 +107,21 @@ const GPUMonitoringPage: React.FC = () => {
 
   if (error && isResourceNotAvailable(error)) {
     return (
-      <PageContainer ghost>
-        <NotInstalled
-          clusterId={clusterId}
-          titleId="pages.gpuMonitoring.notInstalled.title"
-          subTitleId="pages.gpuMonitoring.notInstalled.subTitle"
-          actionId="pages.gpuMonitoring.notInstalled.action"
-        />
-      </PageContainer>
+      <NotInstalled
+        clusterId={clusterId}
+        titleId="pages.gpuMonitoring.notInstalled.title"
+        subTitleId="pages.gpuMonitoring.notInstalled.subTitle"
+        actionId="pages.gpuMonitoring.notInstalled.action"
+      />
     );
   }
   if (error) {
     return (
-      <PageContainer ghost>
-        <Result
-          status="error"
-          title={intl.formatMessage({ id: 'pages.gpuMonitoring.error.title' })}
-          subTitle={(error as Error).message}
-        />
-      </PageContainer>
+      <Result
+        status="error"
+        title={intl.formatMessage({ id: 'pages.gpuMonitoring.error.title' })}
+        subTitle={(error as Error).message}
+      />
     );
   }
 
@@ -139,31 +134,37 @@ const GPUMonitoringPage: React.FC = () => {
     );
 
   return (
-    <PageContainer
-      ghost
-      header={{
-        title: intl.formatMessage({ id: 'pages.gpuMonitoring.title' }),
-        extra: (
-          <Space>
-            <Radio.Group
-              value={range}
-              onChange={(e) => setRange(e.target.value)}
-              optionType="button"
-              buttonStyle="solid"
-              options={RANGES.map((r) => ({ label: r, value: r }))}
-            />
-            <RefreshControl
-              interval={interval}
-              setInterval={setInter}
-              loading={loading}
-              refresh={refresh}
-            />
-          </Space>
-        ),
-      }}
-    >
+    <div className="p-6">
       <Spin spinning={loading && !data}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {/* In-page toolbar — range picker + refresh, matching the
+             no-breadcrumb / no-page-title convention the rest of the
+             Compute platform uses. */}
+          <Card size="small" styles={{ body: { padding: '8px 12px' } }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <Radio.Group
+                value={range}
+                onChange={(e) => setRange(e.target.value)}
+                optionType="button"
+                buttonStyle="solid"
+                options={RANGES.map((r) => ({ label: r, value: r }))}
+              />
+              <RefreshControl
+                interval={interval}
+                setInterval={setInter}
+                loading={loading}
+                refresh={refresh}
+              />
+            </div>
+          </Card>
           {/* KPI row — snapshot is computed server-side from the last
              range point per series. activeGPUs comes from util series
              cardinality (utilization reports even for idle GPUs). */}
@@ -273,7 +274,7 @@ const GPUMonitoringPage: React.FC = () => {
           )}
         </Space>
       </Spin>
-    </PageContainer>
+    </div>
   );
 };
 

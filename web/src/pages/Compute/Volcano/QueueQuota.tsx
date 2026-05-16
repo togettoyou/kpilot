@@ -4,7 +4,6 @@ import {
   BranchesOutlined,
   CrownOutlined,
 } from '@ant-design/icons';
-import { PageContainer } from '@ant-design/pro-components';
 import { useIntl, useParams } from '@umijs/max';
 
 import { useClusterRequest } from '@/hooks/useClusterRequest';
@@ -177,64 +176,63 @@ const QueueQuotaPage: React.FC = () => {
   // All hooks above. From here it's safe to conditionally return
   // different JSX without changing the hook count.
   if (error && isResourceNotAvailable(error)) {
-    return (
-      <PageContainer ghost>
-        <NotInstalled clusterId={clusterId} />
-      </PageContainer>
-    );
+    return <NotInstalled clusterId={clusterId} />;
   }
 
   return (
-    <PageContainer
-      ghost
-      header={{
-        title: intl.formatMessage({ id: 'pages.queueQuota.title' }),
-        extra: (
-          <Space>
-            <RefreshControl
-              interval={interval}
-              setInterval={setInter}
-              loading={loading}
-              refresh={refresh}
-            />
-          </Space>
-        ),
-      }}
-    >
+    <div className="p-6">
       <Spin spinning={loading && !data}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           {/* Top filter row — Queue selector with the indented tree
              option list so parent / child relationships are obvious
-             without leaving the select. */}
+             without leaving the select. RefreshControl rides along on
+             the right to match the in-page-toolbar pattern the rest
+             of the Compute platform uses (no breadcrumb / page title
+             — those duplicate the sider). */}
           <Card size="small">
-            <Space wrap>
-              <span>
-                {intl.formatMessage({ id: 'pages.queueQuota.selector.label' })}
-              </span>
-              <Select
-                style={{ minWidth: 280 }}
-                placeholder={intl.formatMessage({
-                  id: 'pages.queueQuota.selector.placeholder',
-                })}
-                allowClear
-                value={selectedQueue ?? undefined}
-                onChange={(v) => setSelectedQueue(v ?? null)}
-                options={queueOptions}
-                optionLabelProp="value"
-                showSearch
-                filterOption={(input, option) =>
-                  String(option?.value ?? '')
-                    .toLowerCase()
-                    .includes(input.toLowerCase())
-                }
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <Space wrap style={{ flex: 1, minWidth: 0 }}>
+                <span>
+                  {intl.formatMessage({ id: 'pages.queueQuota.selector.label' })}
+                </span>
+                <Select
+                  style={{ minWidth: 280 }}
+                  placeholder={intl.formatMessage({
+                    id: 'pages.queueQuota.selector.placeholder',
+                  })}
+                  allowClear
+                  value={selectedQueue ?? undefined}
+                  onChange={(v) => setSelectedQueue(v ?? null)}
+                  options={queueOptions}
+                  optionLabelProp="value"
+                  showSearch
+                  filterOption={(input, option) =>
+                    String(option?.value ?? '')
+                      .toLowerCase()
+                      .includes(input.toLowerCase())
+                  }
+                />
+                <Typography.Text type="secondary">
+                  {intl.formatMessage(
+                    { id: 'pages.queueQuota.summary' },
+                    { total: queues.length },
+                  )}
+                </Typography.Text>
+              </Space>
+              <RefreshControl
+                interval={interval}
+                setInterval={setInter}
+                loading={loading}
+                refresh={refresh}
               />
-              <Typography.Text type="secondary">
-                {intl.formatMessage(
-                  { id: 'pages.queueQuota.summary' },
-                  { total: queues.length },
-                )}
-              </Typography.Text>
-            </Space>
+            </div>
           </Card>
 
           {!selected ? (
@@ -277,7 +275,7 @@ const QueueQuotaPage: React.FC = () => {
           )}
         </Space>
       </Spin>
-    </PageContainer>
+    </div>
   );
 };
 
