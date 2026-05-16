@@ -68,4 +68,46 @@ Coming in upcoming releases:
 
 ## Quick Start
 
-> Coming soon.
+The chart at `deploy/chart/` deploys the Server, the Worker, or both.
+Images live at `ghcr.io/togettoyou/kpilot-{server,worker}`.
+
+### 1. Install the Server (control-plane cluster)
+
+```bash
+helm dependency build deploy/chart
+helm install kpilot deploy/chart \
+  --namespace kpilot-system --create-namespace \
+  --set server.admin.password='<rotate-me>'
+```
+
+This brings up the Server, a bundled Bitnami PostgreSQL, and exposes
+two ClusterIP Services (`kpilot-server` HTTP, `kpilot-server-grpc`).
+Open the UI:
+
+```bash
+kubectl -n kpilot-system port-forward svc/kpilot-server 8080:80
+open http://localhost:8080
+```
+
+Default admin credentials: `kpilot` / the password you set above.
+For production deployments, set `server.ingress.enabled=true` and
+expose the gRPC service via a LoadBalancer or gRPC-capable Ingress.
+
+### 2. Install the Worker (each managed cluster)
+
+In the Server UI, create a cluster row. The UI shows a one-time
+ClusterToken — copy it, then:
+
+```bash
+helm install kpilot-worker deploy/chart \
+  --namespace kpilot-system --create-namespace \
+  --set server.enabled=false \
+  --set worker.enabled=true \
+  --set postgresql.enabled=false \
+  --set worker.serverAddr='kpilot.example.com:9090' \
+  --set worker.clusterToken='<paste-token>'
+```
+
+The cluster row flips Online within a few seconds. See
+[`deploy/README.md`](deploy/README.md) for upgrade, uninstall, and
+external-Postgres setups.

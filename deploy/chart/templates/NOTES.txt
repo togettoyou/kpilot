@@ -1,0 +1,43 @@
+{{- if .Values.server.enabled }}
+KPilot Server installed.
+
+  Namespace: {{ .Release.Namespace }}
+  HTTP:      svc/{{ include "kpilot.serverFullname" . }}        port {{ .Values.server.http.service.port }}
+  gRPC:      svc/{{ include "kpilot.serverFullname" . }}-grpc   port {{ .Values.server.grpc.service.port }}
+{{- if .Values.server.ingress.enabled }}
+  Ingress:   {{ range $i, $h := .Values.server.ingress.hosts }}{{ if $i }}, {{ end }}{{ $h.host }}{{ end }}
+{{- else }}
+  Ingress:   disabled
+
+  Open the UI locally:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kpilot.serverFullname" . }} 8080:{{ .Values.server.http.service.port }}
+    open http://localhost:8080
+{{- end }}
+
+  Admin login: {{ .Values.server.admin.username }} / (value of server.admin.password)
+  Change ADMIN_PASSWORD immediately — the chart default is a known string.
+
+Next steps:
+  1. Log into the UI.
+  2. Create a cluster row; the UI shows a one-time ClusterToken.
+  3. Install KPilot Worker on the target cluster (this same chart with
+     worker.enabled=true, worker.serverAddr=<server-grpc-host>:{{ .Values.server.grpc.service.port }},
+     worker.clusterToken=<token>).
+{{- end }}
+
+{{- if .Values.worker.enabled }}
+
+KPilot Worker installed.
+
+  Namespace:    {{ .Release.Namespace }}
+  Server addr:  {{ .Values.worker.serverAddr }}
+  Data PVC:     {{ if .Values.worker.persistence.enabled }}{{ include "kpilot.workerFullname" . }}-data{{ else }}<emptyDir>{{ end }}
+
+The Worker dials the Server over gRPC. Check the rollout with:
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "kpilot.workerFullname" . }} -f
+
+Expected log lines: "tunnel: connected" → "registered cluster".
+The cluster row in the Server UI should flip Online within a few
+seconds. If it stays Offline, verify SERVER_ADDR is reachable from
+the Worker Pod and that the ClusterToken matches what the UI shows.
+{{- end }}

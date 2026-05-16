@@ -1,0 +1,29 @@
+{{- if and .Values.worker.enabled .Values.worker.rbac.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kpilot.workerFullname" . }}
+  labels:
+    {{- include "kpilot.worker.labels" . | nindent 4 }}
+---
+# The Worker is a generic cluster broker — it proxies operations from
+# the KPilot Server (HTTP handlers + UI actions) to the Kubernetes API.
+# Anything an admin would do via kubectl, the Worker may forward. The
+# cluster-admin binding below mirrors that posture explicitly; sites
+# wanting a tighter RBAC profile can set worker.rbac.create=false and
+# bring their own bindings.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kpilot.workerFullname" . }}
+  labels:
+    {{- include "kpilot.worker.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kpilot.workerFullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

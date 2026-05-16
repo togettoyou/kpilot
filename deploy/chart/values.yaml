@@ -1,0 +1,220 @@
+## KPilot Helm chart values.
+##
+## The chart can deploy the Server (control plane), the Worker
+## (in-cluster agent), or both. The intended deployment topology is:
+##
+##   1. Server cluster:
+##        helm install kpilot ./chart \
+##          --set server.enabled=true,worker.enabled=false
+##
+##   2. Each managed cluster (one install per cluster):
+##        helm install kpilot-worker ./chart \
+##          --set server.enabled=false,worker.enabled=true \
+##          --set worker.serverAddr=<server-host>:9090 \
+##          --set worker.clusterToken=<token-from-server-ui>
+##
+## Both can also live in the same cluster (useful for kind / minikube
+## smoke tests) by leaving both enabled.
+
+## ---------------------------------------------------------------------
+## Global
+## ---------------------------------------------------------------------
+image:
+  registry: ghcr.io
+  repository: togettoyou/kpilot
+  # imagePullPolicy applies to both server and worker images unless
+  # overridden under server.image / worker.image.
+  pullPolicy: IfNotPresent
+  # Tag is empty here so the chart picks .Chart.AppVersion by default,
+  # locking the image to the chart version. Override with --set
+  # image.tag=v1.2.3 or :dev for the dev channel.
+  tag: ""
+
+imagePullSecrets: []
+
+## Pod-level common settings — applied to both server and worker
+## unless explicitly overridden under their sub-block.
+podSecurityContext:
+  runAsNonRoot: true
+  fsGroup: 65532
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+
+## ---------------------------------------------------------------------
+## Server (control plane)
+## ---------------------------------------------------------------------
+server:
+  enabled: true
+
+  image:
+    # Override only when you need a different image for the server.
+    # Otherwise it inherits from .image.* above and tags
+    # ghcr.io/togettoyou/kpilot-server:<chart-appVersion>.
+    repository: togettoyou/kpilot-server
+    tag: ""
+
+  replicaCount: 1
+
+  ## Admin credentials. CHANGE THESE before any non-local deploy.
+  admin:
+    username: kpilot
+    password: kpilot123
+
+  ## JWT signing secret. Leave blank to have the chart generate a
+  ## random value and store it in the rendered Secret. Restarts with
+  ## a regenerated secret invalidate every issued token, so commit
+  ## an explicit value in values.yaml for long-running deployments.
+  jwtSecret: ""
+
+  ## CORS allow-list. Empty list = development permissive mode.
+  ## Set to the externally-facing frontend origin(s) before going
+  ## public, e.g. ["https://kpilot.example.com"].
+  corsOrigins: []
+
+  ## PostgreSQL backend.
+  ## The bundled Bitnami subchart is gated by the top-level
+  ## `postgresql.enabled` (see bottom of this file). When that is
+  ## false, set `externalDsn` here.
+  postgresql:
+    ## externalDsn is used when the top-level postgresql.enabled is
+    ## false. Standard libpq DSN, e.g.
+    ##   postgres://kpilot:pw@postgres.db.svc:5432/kpilot?sslmode=require
+    externalDsn: ""
+
+  ## HTTP service (web UI + REST API)
+  http:
+    service:
+      type: ClusterIP
+      port: 80
+      targetPort: 8080
+
+  ## gRPC service (Worker dial-in). Expose externally so Workers in
+  ## other clusters can reach the Server — typically via Service of
+  ## type LoadBalancer or an Ingress that supports gRPC.
+  grpc:
+    service:
+      type: ClusterIP
+      port: 9090
+      targetPort: 9090
+
+  ## Optional Ingress for the HTTP path. The gRPC service usually
+  ## needs its own L7 termination (e.g. an Ingress with gRPC
+  ## annotations or a LoadBalancer Service) — examples in deploy/README.md.
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: kpilot.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  ## Probes hit /health on the HTTP port.
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 20
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+## ---------------------------------------------------------------------
+## Worker (in-cluster agent)
+## ---------------------------------------------------------------------
+worker:
+  enabled: false
+
+  image:
+    repository: togettoyou/kpilot-worker
+    tag: ""
+
+  replicaCount: 1
+
+  ## REQUIRED when enabled: the Server's gRPC endpoint reachable from
+  ## this cluster, and the one-time ClusterToken shown in the
+  ## Server UI when the cluster row was created.
+  serverAddr: ""
+  clusterToken: ""
+  ## Override only when your cluster runs on a custom DNS suffix.
+  ## Defaults to "cluster.local" inside the Worker if left empty.
+  clusterDomain: ""
+
+  ## DATA_DIR holds the Helm chart cache + Helm SDK working files.
+  ## A PVC is created so chart pulls survive Pod restarts.
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  ## The Worker reconciles the Plugin CRD (cluster-scoped) and
+  ## installs Helm charts in arbitrary namespaces. The ClusterRole
+  ## below grants what's needed for both — operators who prefer a
+  ## tighter posture can disable rbac.create and bring their own.
+  rbac:
+    create: true
+    ## Namespaces the worker is allowed to manage. Empty = all.
+    ## Listed here for documentation; not yet enforced by the chart.
+    namespaces: []
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+## ---------------------------------------------------------------------
+## Bitnami postgresql subchart.
+##
+## `enabled` gates whether the subchart deploys at all (consumed by the
+## Chart.yaml dependency condition). Default true so a server-only
+## install works out of the box.
+##
+## For worker-only deployments (server lives in a different cluster) set
+##   --set postgresql.enabled=false
+## For server deployments wanting an external Postgres set the same and
+## fill in server.postgresql.externalDsn above.
+## ---------------------------------------------------------------------
+postgresql:
+  enabled: true
+  auth:
+    username: kpilot
+    password: kpilot123
+    database: kpilot
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+  ## Keep the subchart minimal — operators wanting HA or backups should
+  ## switch to externalDsn and bring their own managed Postgres.
+  architecture: standalone

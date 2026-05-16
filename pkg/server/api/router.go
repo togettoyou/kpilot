@@ -1,7 +1,11 @@
 package api
 
 import (
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -182,5 +186,41 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		plugins.DELETE("/:id", handler.DeletePlugin)
 	}
 
+	// SPA static fallback — only mounted when STATIC_DIR points at a
+	// real directory with an index.html. In dev the frontend runs on
+	// its own UmiJS port and proxies API calls back here, so STATIC_DIR
+	// stays unset; in prod the Docker image bakes the built frontend
+	// into /app/web and sets STATIC_DIR=/app/web. The NoRoute handler
+	// serves index.html for any path that didn't match an API route
+	// (or /health), letting the SPA's client-side router take over.
+	mountSPA(r, cfg.StaticDir)
+
 	return r
+}
+
+func mountSPA(r *gin.Engine, dir string) {
+	if dir == "" {
+		return
+	}
+	indexPath := filepath.Join(dir, "index.html")
+	if _, err := os.Stat(indexPath); err != nil {
+		log.Printf("[router] STATIC_DIR=%s but index.html not found, skipping SPA mount: err=%v", dir, err)
+		return
+	}
+	// Serve everything under the directory as static; gin walks the
+	// directory once at mount time and registers handlers per file.
+	r.Static("/assets", filepath.Join(dir, "assets"))
+	r.StaticFile("/favicon.ico", filepath.Join(dir, "favicon.ico"))
+	r.NoRoute(func(c *gin.Context) {
+		// Anything starting with /api/ or /health is a real miss, not
+		// a SPA route — preserve the original 404 so HTTP clients
+		// don't get HTML where they expect JSON.
+		p := c.Request.URL.Path
+		if strings.HasPrefix(p, "/api/") || p == "/health" {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		c.File(indexPath)
+	})
+	log.Printf("[router] SPA mounted: dir=%s", dir)
 }

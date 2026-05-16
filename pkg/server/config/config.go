@@ -29,6 +29,12 @@ type Config struct {
 	AdminPasswordIsDefault bool
 	JWTSecret              string
 	CORSOrigins            []string // allowed origins; empty = dev permissive mode
+	// StaticDir is the path to a built frontend SPA on disk. When set
+	// the HTTP server serves the directory as a static asset tree and
+	// falls back to index.html for any unknown route — the standard
+	// SPA-friendly behavior. When empty (dev), the frontend is served
+	// by UmiJS on its own port and the Go server is API-only.
+	StaticDir string
 }
 
 func Load() *Config {
@@ -66,6 +72,7 @@ func Load() *Config {
 		AdminPasswordIsDefault: adminPasswordIsDefault,
 		JWTSecret:              jwtSecret,
 		CORSOrigins:            corsOrigins,
+		StaticDir:              envOr("STATIC_DIR", ""),
 	}
 }
 

@@ -1,0 +1,33 @@
+{{- if .Values.server.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kpilot.serverFullname" . }}
+  labels:
+    {{- include "kpilot.server.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.server.http.service.type }}
+  selector:
+    {{- include "kpilot.server.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.server.http.service.port }}
+      targetPort: {{ .Values.server.http.service.targetPort }}
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kpilot.serverFullname" . }}-grpc
+  labels:
+    {{- include "kpilot.server.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.server.grpc.service.type }}
+  selector:
+    {{- include "kpilot.server.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.server.grpc.service.port }}
+      targetPort: {{ .Values.server.grpc.service.targetPort }}
+      protocol: TCP
+{{- end }}

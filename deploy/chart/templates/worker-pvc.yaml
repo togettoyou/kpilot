@@ -1,0 +1,17 @@
+{{- if and .Values.worker.enabled .Values.worker.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kpilot.workerFullname" . }}-data
+  labels:
+    {{- include "kpilot.worker.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.worker.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.worker.persistence.size }}
+  {{- with .Values.worker.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}

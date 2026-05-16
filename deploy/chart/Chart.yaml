@@ -1,0 +1,31 @@
+apiVersion: v2
+name: kpilot
+description: |
+  Unified GPU + model platform for Kubernetes. Single chart can deploy
+  the KPilot Server (control plane), the KPilot Worker (in-cluster
+  agent), or both. The two are decoupled via the server.enabled and
+  worker.enabled toggles in values.yaml so an operator can install
+  the server in one cluster and the worker in many others using the
+  same chart.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - gpu
+  - kubernetes
+  - volcano
+  - vgpu
+  - model-serving
+home: https://github.com/togettoyou/kpilot
+sources:
+  - https://github.com/togettoyou/kpilot
+
+# Bitnami PostgreSQL — pulled in when `postgresql.enabled` is true at
+# the top level. Default is true so a server-only install works out
+# of the box; worker-only deployments must `--set postgresql.enabled=false`
+# (and server-side deployments wanting an external Postgres also).
+dependencies:
+  - name: postgresql
+    version: "15.5.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled

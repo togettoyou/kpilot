@@ -1,0 +1,42 @@
+# keep build context lean — anything not consumed by the Dockerfiles
+# under deploy/{server,worker} is excluded here.
+
+# Source-tree noise
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+.DS_Store
+
+# Editor / OS
+*.swp
+*.swo
+*~
+
+# Build artifacts
+web/node_modules
+web/dist
+web/.umi
+web/.umi-production
+web/.umi-test
+web/coverage
+**/*.test
+**/*.out
+
+# Local-dev secrets / state
+.env
+.env.local
+*.local
+
+# Docs + scripts not needed at build time
+docs/
+hack/
+*.md
+LICENSE*
+
+# Existing deploy artifacts we don't need to recurse into during build
+deploy/chart/
+
+# CI
+.github/

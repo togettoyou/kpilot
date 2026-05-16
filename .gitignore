@@ -39,3 +39,7 @@ go.work.sum
 .idea/
 
 .DS_Store
+
+# Helm subchart cache (downloaded by `helm dependency build`). The
+# pinned versions live in Chart.lock, which IS committed.
+deploy/chart/charts/*.tgz

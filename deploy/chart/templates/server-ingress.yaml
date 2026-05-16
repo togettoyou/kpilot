@@ -1,0 +1,35 @@
+{{- if and .Values.server.enabled .Values.server.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "kpilot.serverFullname" . }}
+  labels:
+    {{- include "kpilot.server.labels" . | nindent 4 }}
+  {{- with .Values.server.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.server.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.server.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.server.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "kpilot.serverFullname" $ }}
+                port:
+                  number: {{ $.Values.server.http.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

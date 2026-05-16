@@ -1,0 +1,93 @@
+{{- if .Values.server.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kpilot.serverFullname" . }}
+  labels:
+    {{- include "kpilot.server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kpilot.server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kpilot.server.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Bounce the Pod when the secret content changes so a
+        # password / DSN rotation actually takes effect without a
+        # manual `kubectl rollout restart`.
+        checksum/secret: {{ include (print $.Template.BasePath "/server-secret.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: server
+          image: {{ include "kpilot.server.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: grpc
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: HTTP_ADDR
+              value: ":8080"
+            - name: GRPC_ADDR
+              value: ":9090"
+            {{- with .Values.server.corsOrigins }}
+            - name: CORS_ORIGINS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kpilot.serverFullname" . }}-credentials
+                  key: adminUsername
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kpilot.serverFullname" . }}-credentials
+                  key: adminPassword
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kpilot.serverFullname" . }}-credentials
+                  key: jwtSecret
+            - name: DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kpilot.serverFullname" . }}-credentials
+                  key: dsn
+          {{- with .Values.server.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.server.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+      {{- with .Values.server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

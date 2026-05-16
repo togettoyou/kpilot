@@ -1,0 +1,93 @@
+name: release
+
+# Image release pipeline.
+#
+# Trigger matrix:
+#   - push to main           → :dev tag only (rolling unreleased build)
+#   - push of a v* tag       → :<version> + :latest tags
+#   - manual workflow_dispatch with `tag` input → :<input> tag
+#
+# Tags land on two images under the same ghcr.io org/repo prefix:
+#   ghcr.io/<owner>/kpilot-server:<tag>
+#   ghcr.io/<owner>/kpilot-worker:<tag>
+#
+# Both architectures (linux/amd64 + linux/arm64) ship in the same
+# manifest list — distroless base + statically-linked Go binary means
+# the cross-build cost is mostly the frontend (server image only).
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to push (overrides branch / tag-derived default)'
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/kpilot
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [server, worker]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Resolve the tag list:
+      #   - workflow_dispatch input wins if provided
+      #   - tag push        → vX.Y.Z + latest
+      #   - branch push     → dev
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.component }}
+          tags: |
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' }}
+            type=raw,value=dev,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=KPilot ${{ matrix.component }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=Apache-2.0
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/${{ matrix.component }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,scope=${{ matrix.component }},mode=max
