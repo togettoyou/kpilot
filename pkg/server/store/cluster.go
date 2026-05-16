@@ -56,12 +56,18 @@ func UpdateClusterStatus(id string, status ClusterStatus) error {
 	return DB.Model(&Cluster{}).Where("id = ?", id).Update("status", status).Error
 }
 
-func UpdateCluster(id, name, description string) error {
-	return DB.Model(&Cluster{}).Where("id = ?", id).Updates(map[string]any{
+// UpdateCluster updates the row and returns (rowsAffected, err). A
+// successful no-op (no row with the id, e.g. concurrent Delete) returns
+// (0, nil) so callers can translate to 404. Without this, GORM's
+// silent "no rows updated" merges with success and the handler reports
+// 204 OK for an UPDATE that hit nothing.
+func UpdateCluster(id, name, description string) (int64, error) {
+	res := DB.Model(&Cluster{}).Where("id = ?", id).Updates(map[string]any{
 		"name":        name,
 		"description": description,
 		"updated_at":  time.Now(),
-	}).Error
+	})
+	return res.RowsAffected, res.Error
 }
 
 func UpdateClusterToken(id, token string) error {

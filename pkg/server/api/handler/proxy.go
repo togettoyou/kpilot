@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -174,15 +175,16 @@ var hopByHopHeadersServer = map[string]struct{}{
 	"Upgrade":             {},
 }
 
-// wsUpgrader handles the browser → KPilot side of a WebSocket reverse-proxy
-// session. CheckOrigin returns true unconditionally because the request has
-// already been authenticated by the JWT middleware — we accept all origins
-// the browser would have set since the proxy is same-origin from KPilot's
-// perspective anyway.
+// wsUpgrader handles the browser → KPilot side of a WebSocket reverse-
+// proxy session. CheckOrigin is enforced via the package-shared
+// checkWSOrigin: JWT cookie auth alone is NOT enough because SameSite=
+// Lax doesn't gate WS handshakes, and a hostile page could otherwise
+// open ws:// against the proxy with the user's session cookie
+// auto-attached. The origin allow-list is the CORS_ORIGINS env var.
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4 * 1024,
 	WriteBufferSize: 32 * 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
+	CheckOrigin:     checkWSOrigin,
 }
 
 // isWSUpgrade returns true when the incoming request asks for an HTTP →
@@ -226,6 +228,17 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		subPath := strings.TrimPrefix(c.Request.URL.EscapedPath(), prefix)
 		if subPath == "" {
 			subPath = "/"
+		}
+		// Path-traversal guard: TrimPrefix runs on the escaped path, so
+		// a payload like "..%2F..%2Fadmin" survives unchanged. Decode
+		// once and reject any ".." segment — upstream services normalize
+		// differently (Grafana does, generic Services may not) and we
+		// shouldn't rely on the upstream for safety. Strict allow-list
+		// (reject ".." substring) keeps the rule simple; any real
+		// K8s/Grafana path doesn't contain it.
+		if decoded, derr := url.PathUnescape(subPath); derr != nil || strings.Contains(decoded, "..") {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
 		}
 
 		svc, ok := proxiableServices[pluginName]
@@ -352,10 +365,13 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		if resp.Error != "" {
 			// Worker couldn't reach the Service (DNS, connect, timeout) —
 			// surface as 502 with the upstream error so the embedded UI
-			// doesn't show a blank screen.
+			// doesn't show a blank screen. apiErrDetail keeps the JSON
+			// envelope consistent with the rest of the API so the
+			// frontend's requestErrorConfig pipeline can translate
+			// `code: PROXY_UPSTREAM_ERROR` to a localized toast.
 			log.Printf("[proxy] worker dispatch failed: cluster=%s plugin=%s err=%s",
 				clusterID, pluginName, resp.Error)
-			c.String(http.StatusBadGateway, "proxy upstream error: %s", resp.Error)
+			apiErrDetail(c, http.StatusBadGateway, CodeProxyUpstream, resp.Error)
 			return
 		}
 

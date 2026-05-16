@@ -2,11 +2,65 @@ package handler
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+// configuredWSOrigins is the allowed Origin set for WebSocket upgrades,
+// populated at boot from cfg.CORSOrigins. Lives at package scope rather
+// than threading cfg through every handler constructor — WS upgraders
+// are var-declared at file scope (pod.go, proxy.go) and we want them
+// to consult the same allow-list.
+//
+// devMode (empty list) matches the HTTP CORS middleware behavior in
+// router.go: anything goes, suited for local development. Production
+// MUST set CORS_ORIGINS or every browser session is exposed to cross-
+// site WS hijacking.
+var (
+	configuredWSOrigins map[string]struct{}
+	corsDevMode         = true
+)
+
+// SetCORSOrigins is called once during router setup with the parsed
+// origin list from config. After init it's read-only — no locking
+// needed for reads.
+func SetCORSOrigins(origins []string) {
+	configuredWSOrigins = make(map[string]struct{}, len(origins))
+	for _, o := range origins {
+		configuredWSOrigins[o] = struct{}{}
+	}
+	corsDevMode = len(configuredWSOrigins) == 0
+}
+
+// checkWSOrigin is the CheckOrigin callback shared across all gorilla
+// WebSocket upgraders in the handler package. Same-origin (no Origin
+// header) is accepted; otherwise the Origin must appear in the
+// configured set. In dev mode any Origin is accepted to match the HTTP
+// CORS middleware.
+//
+// Why this matters: gorilla's default CheckOrigin allows only same-
+// origin, but the handlers were overriding to `return true` which
+// opens cross-site WebSocket hijacking — any malicious page on any
+// origin can open ws:// against KPilot and the browser will attach
+// the kpilot_token cookie (SameSite=Lax does NOT block WS handshakes
+// — those are treated as cross-site subresources).
+func checkWSOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Non-browser client (curl, native ws) or same-origin without
+		// the header. Accept — the JWT cookie / Authorization header
+		// is the actual access control.
+		return true
+	}
+	if corsDevMode {
+		return true
+	}
+	_, ok := configuredWSOrigins[origin]
+	return ok
+}
 
 // wsHeartbeat tunes ping/pong intervals.
 //   - pongWait: max time between pongs before the connection is considered dead.

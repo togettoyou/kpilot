@@ -28,6 +28,11 @@ const (
 	CodePluginNotEnabled     = "PLUGIN_NOT_ENABLED"
 	CodePluginNotRunning     = "PLUGIN_NOT_RUNNING"
 	CodeLoginIncorrect       = "LOGIN_INCORRECT"
+	// CodeProxyUpstream is the 502-style code used when the in-cluster
+	// reverse proxy successfully dispatched through the worker but the
+	// worker reported the upstream Service unreachable (DNS, dial,
+	// timeout). The upstream error message rides along in `message`.
+	CodeProxyUpstream = "PROXY_UPSTREAM_ERROR"
 )
 
 // apiErr writes a JSON error response with the given code.
@@ -47,4 +52,13 @@ func apiErrInternal(c *gin.Context, err error) {
 // and are safe to expose.
 func apiErrWorker(c *gin.Context, errMsg string) {
 	c.JSON(http.StatusBadRequest, gin.H{"code": CodeWorkerError, "message": errMsg})
+}
+
+// apiErrDetail is the apiErr variant for cases where the upstream
+// failure carries a free-form message the operator needs to see (e.g.
+// reverse-proxy "could not dial Grafana: …"). Same shape as
+// apiErrWorker but with a caller-specified status code and error code,
+// so the frontend can route on `code` and surface `message` directly.
+func apiErrDetail(c *gin.Context, status int, code, message string) {
+	c.JSON(status, gin.H{"code": code, "message": message})
 }

@@ -993,9 +993,17 @@ func latestCondition(rawStatus any, condType string) string {
 			continue
 		}
 		t := str(cm["lastTransitionTime"])
-		// String compare works for RFC3339-formatted timestamps that
-		// share a fixed-width layout — newer > older lexicographically.
-		if t >= latestTime {
+		// Skip conditions without a timestamp — `"" >= ""` is true, so
+		// the previous logic let a timestamp-less condition overwrite
+		// a real timestamped one, making display order data-dependent.
+		if t == "" {
+			continue
+		}
+		// Strict greater-than: identical timestamps shouldn't replace
+		// the earlier-seen one. String compare works for RFC3339
+		// timestamps that share a fixed-width layout — newer > older
+		// lexicographically.
+		if t > latestTime {
 			latestTime = t
 			latestStatus = str(cm["status"])
 		}

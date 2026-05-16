@@ -884,6 +884,7 @@ export default {
     'Plugin is currently uninstalling. Wait for it to finish before re-enabling.',
   'errors.PLUGIN_NOT_ENABLED': 'Plugin is not enabled on this cluster',
   'errors.PLUGIN_NOT_RUNNING': 'Plugin is not in Running state',
+  'errors.PROXY_UPSTREAM_ERROR': 'Reverse-proxy upstream error',
 
   // login
   'pages.login.subtitle': 'Unified GPU + Model platform for Kubernetes',

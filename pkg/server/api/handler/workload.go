@@ -35,6 +35,14 @@ const (
 )
 const maxBodySize = 1 << 20 // 1 MB — sufficient for any K8s manifest
 
+// workloadListCap is the hard ceiling on the per-request K8s list size
+// that the generic CR list path will pass to the worker. Matches the
+// Volcano list endpoints' defaultVolcanoListLimit (500) so the entire
+// list surface has the same upper bound. Without this cap, a hostile
+// `?limit=10000000` query would have the worker streaming back a list
+// large enough to blow past the 32 MiB gRPC message ceiling.
+const workloadListCap int64 = 500
+
 type gvkInfo struct {
 	group, version, kind string
 }
@@ -142,9 +150,15 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 		clusterID := c.Param("id")
 		namespace := c.Query("namespace")
 		continueToken := c.Query("continue")
-		var limit int64
+		// Cap incoming limit. Without the cap, a malicious client can
+		// request `limit=10000000` and the worker streams back a huge
+		// list that easily exceeds the 32 MiB gRPC message ceiling —
+		// the resulting ResourceExhausted abort leaves the request
+		// dangling and pins server memory until GC. Default and cap
+		// both = workloadListCap, matching the Volcano list endpoints.
+		var limit int64 = workloadListCap
 		if s := c.Query("limit"); s != "" {
-			if v, err := strconv.ParseInt(s, 10, 64); err == nil && v > 0 {
+			if v, err := strconv.ParseInt(s, 10, 64); err == nil && v > 0 && v < workloadListCap {
 				limit = v
 			}
 		}

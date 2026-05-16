@@ -21,6 +21,13 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 	}
 	devMode := len(allowedOrigins) == 0
 
+	// Mirror the CORS allow-list into the handler package so the
+	// WebSocket upgraders use the same policy. Without this, the
+	// upgraders fall back to `return true` and accept cross-site WS
+	// handshakes — letting an attacker page hijack Grafana / Pod
+	// exec / Pod logs sessions via the browser's auto-attached cookie.
+	handler.SetCORSOrigins(cfg.CORSOrigins)
+
 	r.Use(func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
 		if origin != "" {

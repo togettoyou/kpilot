@@ -20,14 +20,14 @@ import (
 // after the client disconnects before tearing down the session.
 const wsCloseGrace = 2 * time.Second
 
-// upgrader for Pod logs / Exec WS endpoints. Origins are validated by the
-// existing CORS middleware applied at the router level; browsers also send
-// the auth cookie automatically with the WS upgrade so the JWT middleware
-// runs first and aborts on missing/invalid tokens.
+// upgrader for Pod logs / Exec / plugin install-log WS endpoints.
+// Origin is validated via the package-shared checkWSOrigin so cross-
+// site WebSocket hijacking is blocked (SameSite=Lax cookies still ride
+// the upgrade, so we cannot rely on cookie scoping alone).
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 4096,
-	CheckOrigin:     func(*http.Request) bool { return true },
+	CheckOrigin:     checkWSOrigin,
 }
 
 // PodLogs streams Pod logs from the cluster Worker to the browser over a WS.
@@ -175,6 +175,12 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 			stream.Close()
 			return
 		}
+		// Cap each WS frame from the browser at 1 MiB. Without this,
+		// gorilla's default 4 GiB ceiling lets a hostile authenticated
+		// client gigaframe-flood the server before the typecheck on
+		// data[0] rejects each frame. Exec stdin chunks are realistically
+		// kilobytes; resize messages are tens of bytes.
+		rawConn.SetReadLimit(1 << 20)
 		conn := newWSConn(rawConn)
 		defer rawConn.Close()
 		defer stream.Close()

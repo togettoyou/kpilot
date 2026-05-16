@@ -858,6 +858,7 @@ export default {
   'errors.PLUGIN_UNINSTALLING': '插件正在卸载中，请等待卸载完成再启用',
   'errors.PLUGIN_NOT_ENABLED': '插件尚未启用',
   'errors.PLUGIN_NOT_RUNNING': '插件未处于运行中状态',
+  'errors.PROXY_UPSTREAM_ERROR': '反向代理上游错误',
 
   // login
   'pages.login.subtitle': 'Kubernetes 上的 GPU + 模型一体化平台',
