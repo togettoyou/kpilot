@@ -85,15 +85,15 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 ### 5.1 通用机制
 
 - **专用列表端点**：每种 CR 一个 server handler（`pkg/server/api/handler/volcano.go`），通过 worker 的 `list-full` action 一次取齐 spec + status，server 端把字段投影成 slim row JSON 下发前端。**100 个 Queue 渲染 = 1 个 HTTP 请求**——不再是「1 list + 100 GET」N+1 模式
-- **响应 shape**：10 个端点统一返回 `{ items: Row[], continue?: string, remainingItemCount?: number }`，承载 K8s list metadata 让前端能感知截断。Server 端默认 `limit=500`（同时是上限），客户端可以用 `?limit=N` 收紧但不能放大
+- **响应 shape**：10 个端点统一返回 `{ items: Row[], continue?: string, remainingItemCount?: number }`，承载 K8s list metadata 让前端能感知截断 + 翻页。Server 端默认 `limit=500`（同时是上限），客户端可以用 `?limit=N` 收紧但不能放大。`continue` token 由前端 `useVolcanoList` 累积——见 5.1 下方
 - **超时**：跑在 `readWorkerTimeout=120s` 下（与 worker 端 read 路径对齐）
 - **Worker `list-full` action**（`pkg/worker/proxy/proxy.go::listFull`）：dynamic.List 返回完整对象，每个 item marshal 前 strip `metadata.managedFields`（kubectl 同款做法）。按需添加新 GVK 时只需在 server 端加 handler，worker 不动
-- **页面结构**：所有 list 页都直接渲染 `<ProTable>`（不包 `WorkloadsContent`），列定义按 kind 单独写，cell 全部 props-driven 纯渲染（无 per-row fetch）。共享 helper 在 `pages/Compute/Volcano/shared/Layout.tsx`：
+- **页面结构**：所有 list 页都直接渲染 `<ProTable>`（不包 `WorkloadsContent`），列定义按 kind 单独写，cell 全部 props-driven 纯渲染（无 per-row fetch）。数据走 `web/src/hooks/useVolcanoList.ts`（cursor 累积器，返回 `{ items, loading, error, refresh, loadMore, hasMore, total }`）。共享 helper 在 `pages/Compute/Volcano/shared/Layout.tsx`：
   - `<NotInstalled>` / `isResourceNotAvailable` —— RESOURCE_NOT_AVAILABLE 兜底（接受 `titleId/subTitleId/actionId` override 覆盖默认 Volcano 文案，vGPU 页用此对 device-plugin 命名）
   - `<ResourceIntro id>` —— CR 浏览器页顶部一句"这是啥 + 谁用 + 前置依赖"的 info Alert，10 个 CR 页都有；vGPU 页与 Overview 页因为已有自身顶部解释（KPI / banner）不再叠加。文案在 `pages.compute.intro.<resource>` i18n key
-  - `useAutoRefresh` —— 用户可控的轮询 interval（5/10/30/60s）
+  - `useAutoRefresh` —— 用户可控的轮询 interval（5/10/30/60s），内部用 ref 镜像 `refresh` 函数，避免 useRequest 每渲染新 closure 导致 timer 反复 tear-down
   - `<RefreshControl>` —— 图标 reload + 间隔 Dropdown 紧凑组（`Space.Compact`），关掉 ProTable 自带 reload（`options={{ reload: false }}`）避免叠加
-  - `<TruncatedBanner shown count>` —— 响应带 `continue` token 时渲染 Alert 提示结果被截断
+  - `<TruncatedBanner shown total onLoadMore loading>` —— 响应带 `continue` token 时渲染 Alert：当 `onLoadMore` 传入时附带「加载更多」按钮，点击调用 `useVolcanoList.loadMore` 取下一页 500 行追加到 items 累积器；`total = items.length + remainingItemCount` 显示"已加载 N / 共约 M 行"
   - `useStaggeredRefresh(refresh)` —— 返回 `fire(delays[])`，内部用 useRef 跟踪 setTimeout id 并在 unmount 时清理。Queue Open/Close、CronJob Suspend/Resume 这类异步生命周期操作触发后用它做 staggered refresh
   - `formatAge` —— kubectl 风格的 `5m / 3h / 2d` age 字符串
 - **错误兜底**：list 端点在 CRD 不存在时返回 `404 / RESOURCE_NOT_AVAILABLE`，页面切换为 `<NotInstalled>`。Server 端同时打 `[handler] volcano CRD not available: cluster=... kind=...` 日志

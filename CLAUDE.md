@@ -89,7 +89,7 @@ kpilot/
 ├── pkg/
 │   ├── server/
 │   │   ├── api/
-│   │   │   ├── handler/     # Gin Handler（auth、cluster、workload、volcano、plugin、proxy、pod (logs/exec)、pod_top、system、ws helper、errors）
+│   │   │   ├── handler/     # Gin Handler（auth、cluster、workload、volcano、plugin、proxy、pod (logs/exec)、pod_top、system、ws helper、errors、metrics 调试端点、vm_cache 共享 TTL response cache）
 │   │   │   ├── middleware/  # JWT 中间件
 │   │   │   └── router.go    # 路由注册
 │   │   ├── store/           # PostgreSQL CRUD（GORM）+ 启动 seed（内置插件 + 本地 chart blob upsert）
@@ -130,12 +130,12 @@ web/src/
 │   │   └── Logging/         # 日志页（VictoriaLogs Explorer K8S dashboard）
 │   ├── Compute/             # 算力调度
 │   │   ├── index.tsx        # 顶级 landing（集群 picker，进入 → /overview）
-│   │   └── Volcano/         # Overview（调度概览,KPI + 图表 dashboard）+ Scheduler（调度策略编辑器）+ QueueQuota（队列配额,单 Queue 多资源 capability/guarantee/allocated/deserved 三 tick bar,默认选 root）+ VGPU（GPU 视图,每节点 Card 列表 + Progress 仪表盘 KPI）+ GPUMonitoring（GPU 监控,**自绘** `@ant-design/plots` Line —— 4 KPI 卡 + 6 张多线时序图,不嵌 Grafana）+ DeviceHealth（GPU 告警,DCGM XID/ECC/温度/显存四路 PromQL 聚合）+ GPUHour（GPU-Hour 用量,DCGM 利用率 × 窗口积分,1h/24h/7d/30d range picker）+ 10 个 CR 页（Queues / Jobs / CronJobs / PodGroups / HyperNodes / JobFlows / JobTemplates / NumaTopologies / NodeShards / ColocationConfigurations）+ 对应 Form drawer（7 个类型化表单 + JobFlow/JobTemplate 走 YamlCreateDrawer / NumaTopology 只读）+ schedulerMeta + shared/Layout（NotInstalled / isResourceNotAvailable / useAutoRefresh / useStaggeredRefresh / RefreshControl / TruncatedBanner / formatAge）+ shared/utils（parseQuantity / shortUUID / usageBand / usageColor 跨页共享）
+│   │   └── Volcano/         # Overview（调度概览,KPI + 图表 dashboard）+ Scheduler（调度策略编辑器）+ QueueQuota（队列配额,单 Queue 多资源 capability/guarantee/allocated/deserved 三 tick bar,默认选 root）+ VGPU（GPU 视图,每节点 Card 列表 + Progress 仪表盘 KPI）+ GPUMonitoring（GPU 监控,**自绘** `@ant-design/plots` Line —— 4 KPI 卡 + 6 张多线时序图,不嵌 Grafana）+ DeviceHealth（GPU 告警,DCGM XID/ECC/温度/显存四路 PromQL 聚合）+ GPUHour（GPU-Hour 用量,DCGM 利用率 × 窗口积分,1h/24h/7d/30d range picker）+ 10 个 CR 页（Queues / Jobs / CronJobs / PodGroups / HyperNodes / JobFlows / JobTemplates / NumaTopologies / NodeShards / ColocationConfigurations）+ 对应 Form drawer（7 个类型化表单 + JobFlow/JobTemplate 走 YamlCreateDrawer / NumaTopology 只读）+ schedulerMeta + shared/Layout（NotInstalled / isResourceNotAvailable / useAutoRefresh / useStaggeredRefresh / RefreshControl / TruncatedBanner 带 load-more action / formatAge）+ shared/utils（parseQuantity / shortUUID / usageBand / usageColor 跨页共享）
 │   ├── ModelHub/            # 模型服务 landing（P15+ 占位）
 │   ├── Plugins/             # 全局插件注册表 CRUD
 │   └── exception/404/
 ├── services/kpilot/         # API 服务（auth、cluster、node、workload、pod、plugin、volcano、vm-backed 三件套 device-health / gpu-hour / gpu-metrics）
-├── hooks/                   # useClusterRequest（manual:true + useEffect 替代 ready+refreshDeps 反模式，所有 Compute 页统一用这个）
+├── hooks/                   # useClusterRequest（manual:true + useEffect 替代 ready+refreshDeps 反模式）+ useVolcanoList（cursor 分页累积器，Volcano 10 个 CR 列表页用）
 ├── models/                  # Umi useModel 全局状态（namespace 等）
 ├── components/              # Footer、HeaderDropdown、RightContent（含 DefaultPasswordWarning 头部 ⚠ icon）、NamespacePicker、GrafanaEmbed、PluginInstallLogDrawer
 ├── locales/                 # zh-CN / en-US（menu.ts、pages.ts）
@@ -339,7 +339,7 @@ const { data, loading } = useRequest(listXxx, {
 > }, [open, name, clusterId]);
 > ```
 
-> ⚠️ **页面级条件 fetch**：page 级 `useRequest({ ready, refreshDeps })` 同样有上面这个 bug。`web/src/hooks/useClusterRequest.ts` 封装了 `manual: true + useEffect` 的正确模式，签名 `(service, deps, { ready })`，返回 `{data, loading, error, refresh, mutate, run}`。所有 Compute/Volcano 的页面（10 个 CR 页 + Overview + Scheduler + VGPU + 4 个 P14 新页 + GrafanaEmbed）已迁移完毕。**新页面优先用这个 hook**，原生 `useRequest` 留给真的需要 polling / 复杂 manual 控制的场景。
+> ⚠️ **页面级条件 fetch**：page 级 `useRequest({ ready, refreshDeps })` 同样有上面这个 bug。`web/src/hooks/useClusterRequest.ts` 封装了 `manual: true + useEffect` 的正确模式，签名 `(service, deps, { ready })`，返回 `{data, loading, error, refresh, mutate, run}`。Compute/Volcano 的非列表页（Overview + Scheduler + VGPU + 4 个 P14 新页 + GrafanaEmbed）走这个。**列表分页用 `useVolcanoList`**：返回 `{ items, loading, error, refresh, loadMore, hasMore, total }`，K8s `continue` token 在 hook 内串起来，单次 cap 500 行，`TruncatedBanner` 的 load-more 按钮直接调 `loadMore`；10 个 Volcano CR 列表页都用这个。原生 `useRequest` 留给真的需要 polling / 复杂 manual 控制的场景。
 
 > ⚠️ **hooks 顺序**：React 跟踪 hook 调用顺序。所有 `useMemo` / `useEffect` / `useCallback` 必须在任何 early-return 之前调用，否则当条件改变（如 RESOURCE_NOT_AVAILABLE 错误第一次出现）时 React 会抛 "Rendered fewer hooks than expected"。已踩过 —— QueueQuota 把 early-return 插在 `useClusterRequest` 之后 / 三个 `useMemo` 之前,集群无 Volcano 时挂掉。
 

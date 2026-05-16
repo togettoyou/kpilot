@@ -58,9 +58,18 @@
   - CRD 版本选择优先 storage version，否则首个 served version，最后 versions[0]
   - 标题 = Kind + 灰色 group/version 副标题，左侧带图标返回按钮
   - **菜单状态保持**：`/workloads/_cr` 在 `app.tsx buildClusterSubMenu` 注册为 CRDs 菜单的 `hideInMenu: true` 子路由
-- **Pod 日志**：WebSocket 流式 follow，可选容器、tail 行数（100/500/1000/5000）、previous 实例；前端 rAF 节流避免高吞吐场景的渲染抖动；内置客户端 grep（200ms 防抖，字符串 / 正则双模式，匹配高亮 + "匹配 X / 共 Y 行" 计数）
-- **Pod 终端（Exec）**：xterm.js + FitAddon，Worker 端默认 `/bin/bash`，不存在时自动回退 `/bin/sh`；二进制 WS 帧（首字节为类型）
-- **Pod 即时指标**：Pods 行操作栏「指标」按钮 → `GET /api/v1/clusters/:id/pods/:namespace/:name/top`，Server 拉 `metrics.k8s.io/v1beta1 PodMetrics` 转成 `{containers: [{name, cpu_milli, memory_bytes}]}`。Drawer 5s 自动刷新；"no matches for kind PodMetrics" 与 "podmetrics ... not found" 都翻译成 404 / `RESOURCE_NOT_AVAILABLE`，前端显示「请确认 Metrics Server 插件已启用」+ 跳插件管理。**路由用 `/pods/...` 前缀而非 `/workloads/pods/...`**，避免 Gin v1.12 的 GET radix 树静态段 `pods` 抢走 `:type` 通配的所有 `/workloads/pods/...` 流量
+- **Pod 日志**：WebSocket 流式 follow，可选容器、tail 行数（100/500/1000/5000）、previous 实例；前端 rAF 节流避免高吞吐场景的渲染抖动；内置客户端 grep（200ms 防抖，字符串 / 正则双模式，匹配高亮 + "匹配 X / 共 Y 行" 计数）。`onclose` 区分 clean（code 1000/1005）vs abnormal，异常断开 Alert 带 **Reconnect** 按钮（bump `reloadKey` 重开 WS）
+- **Pod 终端（Exec）**：xterm.js + FitAddon，Worker 端默认 `/bin/bash`，不存在时自动回退 `/bin/sh`；二进制 WS 帧（首字节为类型）。整个 Drawer 用 `React.lazy` code-split，xterm + addons + css ~150 KB gzip 只在首次打开终端时下载。WS abnormal close 同样带 Reconnect 按钮
+- **Pod 即时指标**：Pods 行操作栏「指标」按钮 → `GET /api/v1/clusters/:id/pods/:namespace/:name/top`，Server 拉 `metrics.k8s.io/v1beta1 PodMetrics` 转成 `{containers: [{name, cpu_milli, memory_bytes}]}`。Drawer 自带 RefreshControl 风格的 off/5/10/30/60s 轮询 picker（默认 5s）；"no matches for kind PodMetrics" 与 "podmetrics ... not found" 都翻译成 404 / `RESOURCE_NOT_AVAILABLE`，前端显示「请确认 Metrics Server 插件已启用」+ 跳插件管理。**路由用 `/pods/...` 前缀而非 `/workloads/pods/...`**，避免 Gin v1.12 的 GET radix 树静态段 `pods` 抢走 `:type` 通配的所有 `/workloads/pods/...` 流量
+
+### 运维调试端点
+
+`GET /api/v1/metrics`（JWT 保护）返回当前进程的内部计数 snapshot：
+- gateway：`workers` / `pending` (resource req) / `pendingHTTP` (proxy req) / `streams` 总数 + 按 cluster 分桶 / `pluginLogSessions`
+- handler 缓存：`pluginResolve` / `proxySemaphores` / `vmResponse`（gpu-metrics + gpu-hour 共享 cache）
+- runtime：`goroutines` / Go 版本
+
+不是 Prometheus 文本格式，是给 operator 看的 JSON 调试面。生产想接 Prometheus 应该另开一个 OpenMetrics 端点（保持指标名稳定）。
 
 ### 写操作 protection
 
