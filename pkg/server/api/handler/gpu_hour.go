@@ -15,16 +15,13 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
@@ -158,52 +155,17 @@ func GetGPUHour(gw *gateway.GatewayServer) gin.HandlerFunc {
 //
 //nolint:unused
 func gpuHourPullAndSum(ctx context.Context, gw *gateway.GatewayServer, clusterID, vmURL string, from, to time.Time, step time.Duration) (map[string]float64, error) {
-	promql := `DCGM_FI_DEV_GPU_UTIL / 100`
-	q := fmt.Sprintf("%s/api/v1/query_range?query=%s&start=%d&end=%d&step=%d",
-		vmURL,
-		urlQueryEscape(promql),
-		from.Unix(), to.Unix(), int(step.Seconds()),
-	)
-	resp, err := gw.SendHTTPRequest(ctx, clusterID, &proto.HTTPRequest{
-		Method: http.MethodGet,
-		Url:    q,
-	})
+	rows, err := queryVMRange(ctx, gw, clusterID, vmURL,
+		`DCGM_FI_DEV_GPU_UTIL / 100`, from, to, step)
 	if err != nil {
-		return nil, err
-	}
-	if int(resp.Status) != http.StatusOK {
-		return nil, fmt.Errorf("VM HTTP %d", resp.Status)
-	}
-	var env struct {
-		Status string `json:"status"`
-		Data   struct {
-			ResultType string `json:"resultType"`
-			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				Values [][2]any          `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(resp.Body, &env); err != nil {
 		return nil, err
 	}
 	out := map[string]float64{}
 	stepHours := step.Hours()
-	for _, r := range env.Data.Result {
-		key := fmt.Sprintf("%s/%s", r.Metric["Hostname"], r.Metric["gpu"])
-		for _, pt := range r.Values {
-			if len(pt) != 2 {
-				continue
-			}
-			vstr, ok := pt[1].(string)
-			if !ok {
-				continue
-			}
-			v, perr := strconv.ParseFloat(vstr, 64)
-			if perr != nil {
-				continue
-			}
-			out[key] += v * stepHours
+	for _, r := range rows {
+		key := fmt.Sprintf("%s/%s", r.Labels["Hostname"], r.Labels["gpu"])
+		for _, pt := range r.Points {
+			out[key] += pt.Value * stepHours
 		}
 	}
 	return out, nil

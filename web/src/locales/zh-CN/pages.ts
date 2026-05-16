@@ -641,18 +641,28 @@ export default {
     '请前往插件页查看错误详情并重新启用,或调整 values 后重试。',
   'pages.logging.recommended': '建议同时启用 {names}。',
 
-  // GPU monitoring page (deps: grafana + victoria-metrics + dcgm-exporter,
-  // dashboard: NVIDIA DCGM Exporter)
-  'pages.gpuMonitoring.missing.title': 'GPU 监控所需的内置插件尚未启用',
-  'pages.gpuMonitoring.missing.subTitle':
-    '请先启用 Grafana、VictoriaMetrics 和 NVIDIA DCGM Exporter,启用完成后此页面会自动显示 GPU 监控面板。',
-  'pages.gpuMonitoring.installing.title': 'GPU 监控所需的插件正在安装',
-  'pages.gpuMonitoring.installing.subTitle':
-    '安装一般需要 1-2 分钟,本页会自动每 5 秒刷新;完成后会自动切换到 GPU 监控面板。GPU 节点需要安装 NVIDIA 驱动与 nvidia-container-runtime。',
-  'pages.gpuMonitoring.failed.title': 'GPU 监控所需的插件安装失败',
-  'pages.gpuMonitoring.failed.subTitle':
-    '请前往插件页查看错误详情并重新启用,或调整 values 后重试。常见原因:GPU 节点缺少 NVIDIA 驱动或 nvidia-container-runtime。',
-  'pages.gpuMonitoring.recommended': '建议同时启用 {names}。',
+  // GPU monitoring page (deps: victoria-metrics + dcgm-exporter; pure
+  // custom panel rendering, no Grafana embed)
+  'pages.gpuMonitoring.title': 'GPU 监控',
+  'pages.gpuMonitoring.notInstalled.title': 'VictoriaMetrics 尚未启用',
+  'pages.gpuMonitoring.notInstalled.subTitle':
+    'GPU 监控面板从 VictoriaMetrics 查询 DCGM Exporter 指标。请先启用 VictoriaMetrics 与 DCGM Exporter,GPU 节点需要 NVIDIA 驱动 + nvidia-container-runtime。',
+  'pages.gpuMonitoring.notInstalled.action': '前往插件管理',
+  'pages.gpuMonitoring.error.title': '读取 GPU 监控数据失败',
+  'pages.gpuMonitoring.empty':
+    '在选定窗口内没有 DCGM 指标。GPU 节点是否已安装 NVIDIA 驱动 + nvidia-container-runtime?DCGM Exporter Pod 是否在运行?',
+  'pages.gpuMonitoring.chartEmpty': '该指标暂无数据',
+  'pages.gpuMonitoring.snap.activeGPUs': '活跃 GPU 数',
+  'pages.gpuMonitoring.snap.avgUtil': '平均利用率',
+  'pages.gpuMonitoring.snap.avgTemp': '平均温度',
+  'pages.gpuMonitoring.snap.totalPower': '总功耗',
+  'pages.gpuMonitoring.snap.fbUsage': '显存占用',
+  'pages.gpuMonitoring.metric.util': 'GPU 利用率',
+  'pages.gpuMonitoring.metric.temp': 'GPU 温度',
+  'pages.gpuMonitoring.metric.power': 'GPU 功耗',
+  'pages.gpuMonitoring.metric.fbUsed': '已用显存',
+  'pages.gpuMonitoring.metric.sm': 'SM 时钟频率',
+  'pages.gpuMonitoring.metric.tensor': 'Tensor Core 活跃度',
 
   // Queue quota deep-dive page
   'pages.queueQuota.title': 'Queue 配额',

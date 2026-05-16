@@ -656,19 +656,28 @@ export default {
   'pages.logging.recommended':
     'Consider also enabling {names}.',
 
-  // GPU monitoring page (deps: grafana + victoria-metrics + dcgm-exporter,
-  // dashboard: NVIDIA DCGM Exporter)
-  'pages.gpuMonitoring.missing.title': 'GPU monitoring plugins are not enabled yet',
-  'pages.gpuMonitoring.missing.subTitle':
-    'Enable Grafana, VictoriaMetrics and NVIDIA DCGM Exporter on this cluster — the dashboard will load here automatically once they finish installing.',
-  'pages.gpuMonitoring.installing.title': 'GPU monitoring plugins are installing',
-  'pages.gpuMonitoring.installing.subTitle':
-    "Installation usually takes 1–2 minutes; this page auto-refreshes every 5s. GPU nodes need NVIDIA driver + nvidia-container-runtime preinstalled.",
-  'pages.gpuMonitoring.failed.title': 'GPU monitoring plugins failed to install',
-  'pages.gpuMonitoring.failed.subTitle':
-    'Open the plugins page to inspect the error and re-enable, or adjust values and retry. Common cause: GPU nodes missing NVIDIA driver or nvidia-container-runtime.',
-  'pages.gpuMonitoring.recommended':
-    'Consider also enabling {names}.',
+  // GPU monitoring page (deps: victoria-metrics + dcgm-exporter; native
+  // KPilot panels, no Grafana iframe)
+  'pages.gpuMonitoring.title': 'GPU Monitoring',
+  'pages.gpuMonitoring.notInstalled.title': 'VictoriaMetrics is not enabled',
+  'pages.gpuMonitoring.notInstalled.subTitle':
+    'GPU monitoring queries DCGM Exporter metrics from VictoriaMetrics. Enable both plugins; GPU nodes need NVIDIA driver + nvidia-container-runtime.',
+  'pages.gpuMonitoring.notInstalled.action': 'Open Plugins',
+  'pages.gpuMonitoring.error.title': 'Failed to load GPU metrics',
+  'pages.gpuMonitoring.empty':
+    'No DCGM metrics in the selected window. Are NVIDIA driver + nvidia-container-runtime installed on the GPU nodes? Is the DCGM Exporter pod running?',
+  'pages.gpuMonitoring.chartEmpty': 'No data for this metric yet',
+  'pages.gpuMonitoring.snap.activeGPUs': 'Active GPUs',
+  'pages.gpuMonitoring.snap.avgUtil': 'Avg utilization',
+  'pages.gpuMonitoring.snap.avgTemp': 'Avg temperature',
+  'pages.gpuMonitoring.snap.totalPower': 'Total power',
+  'pages.gpuMonitoring.snap.fbUsage': 'FB usage',
+  'pages.gpuMonitoring.metric.util': 'GPU utilization',
+  'pages.gpuMonitoring.metric.temp': 'GPU temperature',
+  'pages.gpuMonitoring.metric.power': 'GPU power',
+  'pages.gpuMonitoring.metric.fbUsed': 'Framebuffer used',
+  'pages.gpuMonitoring.metric.sm': 'SM clock',
+  'pages.gpuMonitoring.metric.tensor': 'Tensor-core active',
 
   // Queue quota deep-dive page
   'pages.queueQuota.title': 'Queue Quota',

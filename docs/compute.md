@@ -134,11 +134,24 @@ Volcano 提供两套机制：
 
 ## 6. GPU 监控（`/compute/:id/gpu-monitoring`）
 
-物理 GPU 健康度面板。**vGPU 视图的姊妹页**：vGPU 视图看切片分配（哪张卡上有谁、占了多少 slot / 显存 / cores），GPU 监控看硬件层指标（温度 / 功耗 / 实际利用率 / framebuffer / SM clock / tensor 核心活跃度）。
+物理 GPU 健康度面板。**完全自绘 —— 不嵌入 Grafana**。vGPU 视图的姊妹页：vGPU 视图看切片分配（哪张卡上有谁、占了多少 slot / 显存 / cores），GPU 监控看硬件层指标（温度 / 功耗 / 实际利用率 / framebuffer / SM clock / tensor 核心活跃度）。
 
-- **数据流**：NVIDIA DCGM Exporter 内置插件（`pkg/server/store/seed.go` 中 `dcgm-exporter` 一行，sort_order 27，chart 来源 `https://nvidia.github.io/dcgm-exporter/helm-charts`，DaemonSet 部署）→ 暴露 `:9400` 上的 Prometheus 指标 → VictoriaMetrics 按 `prometheus.io/{scrape,port}` 服务注解抓取 → Grafana 渲染面板
-- **Dashboard**：Grafana ID 12239（NVIDIA 官方 DCGM Exporter Dashboard，UID `Oxed_c6Wz`），完整 JSON 落在 `pkg/server/dashboards/builtin/nvidia-dcgm.json`，通过 `embed.go::buildGrafanaOverlay` 注入到 Grafana plugin 的 values。**JSON 预处理**：从 grafana.com 拉到的原 JSON 包含 `__inputs` / `__requires` 块（Grafana 导入向导用）和 `${DS_PROMETHEUS}` 占位符；保存前用 `jq` 把前者 `del`、把后者 `gsub` 成字面量 `VictoriaMetrics`（与 grafana 插件 default_values 里 datasource name 对齐），让文件级 provisioning 直接 load 不走 import flow
-- **页面**：`pages/Compute/Volcano/GPUMonitoring.tsx` —— 复用 `<GrafanaEmbed>`，`required=['grafana', 'victoria-metrics', 'dcgm-exporter']`，无 recommended；缺依赖时复用现有 `pages.gpuMonitoring.{missing,installing,failed}.{title,subTitle}` 文案
+> 定位说明：算力调度平台所有可视化页全部自实现、Volcano 专用形态；Grafana 嵌入只保留给「集群管理」做通用监控（NodeExporterFull / VictoriaLogs Explorer）。这样升级 dashboard JSON / 调整面板布局 / 加 Volcano 联动 drill-down 不需要绕 Grafana。
+
+- **数据流**：NVIDIA DCGM Exporter 内置插件（`pkg/server/store/seed.go` 中 `dcgm-exporter` 一行，sort_order 27，chart 来源 `https://nvidia.github.io/dcgm-exporter/helm-charts`，DaemonSet 部署）→ 暴露 `:9400` 上的 Prometheus 指标 → VictoriaMetrics 按 `prometheus.io/{scrape,port}` 服务注解抓取 → server `pkg/server/api/handler/gpu_metrics.go::GetGPUMetrics` 通过 `gw.SendHTTPRequest` 走 worker tunnel 并发跑 6 条 PromQL 范围查询 → 前端 `<Line>` 图表渲染
+- **后端 `/api/v1/clusters/:id/gpu-metrics?range=1h|24h|7d|30d`**：
+  - 6 条 PromQL 并发：`DCGM_FI_DEV_GPU_UTIL` / `_TEMP` / `_POWER_USAGE` / `_FB_USED` / `_FB_TOTAL` / `_SM_CLOCK` / `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE`
+  - 单查询失败仅 log，对应 metric 返回空，前端只少一张图
+  - 响应 shape `{ range, from, to, generatedAt, stepSeconds, snapshot, series: { util, temp, power, fbUsed, fbTotal, sm, tensor: [{ hostname, gpu, uuid, points: [{ts,value}] }] } }`，每条 series 按 (hostname, gpu) 稳定排序
+  - **snapshot** 服务端预算：activeGPUs / avgTempC / maxTempC / totalPowerW / avgUtilPct / fbUsedMiB / fbTotalMiB / fbUsagePct / avgTensorActPct，取每条 series 最右点 reduce，前端 KPI 不重复 walk
+  - range step 表：1h=30s / 24h=5m / 7d=30m / 30d=2h（比 GPU-Hour 的 step 粗一档；line chart 没必要保留 30s 粒度走 30 天）
+- **VM 查询共享层**：`pkg/server/api/handler/vm_query.go` 抽出 `resolveVMQueryURL` / `queryVM` / `queryVMRange` / `urlQueryEscape`，DeviceHealth / GPUHour / GPUMetrics 三个 handler 共用
+- **页面**：`pages/Compute/Volcano/GPUMonitoring.tsx` ——
+  - 顶部 Radio.Group range picker + RefreshControl（default off）
+  - 4 KPI 卡：activeGPUs / 平均利用率（`Progress.dashboard` + 阈值配色） / 平均温度（dashboard，max 90℃ 标 ↑）/ 总功耗 + 显存占用混合卡
+  - 6 张 Line chart 网格（响应式 `xs=24 xl=12`）—— 每张多 series（按 hostname · GPU index 标签），暗色主题切换 `theme="classicDark"`；FB 自动 MiB → GiB，Tensor 0-1 → %
+  - 单图无数据走 `Empty.PRESENTED_IMAGE_SIMPLE` 占位，整页全空走 EmptyCard CTA
+- **VM 未启用**：`resolveVMQueryURL` 返回 `RESOURCE_NOT_AVAILABLE` → 前端 `<NotInstalled>` 引导启用 VM + DCGM Exporter（**不再依赖 Grafana**）
 - **前置条件**：每个 GPU 节点要装 **NVIDIA driver + nvidia-container-runtime**（与 volcano-vgpu-device-plugin 共用同一套基础设施）。DCGM Exporter 容器需要 `SYS_ADMIN` cap 才能读 profiling 指标（`DCGM_FI_PROF_*`），chart 默认 securityContext 已配齐
 - **节点选择**：默认无 nodeSelector —— exporter 在无 GPU 的节点上探针失败，pod 不会重新调度（无伤大雅但占 pod slot）。用 NFD / GPU Operator 的环境可在 EnableDrawer 里加 `nodeSelector.nvidia.com/gpu.present: "true"`
 

@@ -16,30 +16,17 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
-	"github.com/togettoyou/kpilot/pkg/server/store"
 )
-
-// vmTimeout caps a single PromQL request through the gateway. Queries
-// against the bundled victoria-metrics-single chart return in tens of
-// milliseconds on healthy clusters; a hard 15s cap turns hung VM into
-// a 504 instead of holding the browser. Three parallel queries fit
-// inside the page's overall read deadline.
-const vmTimeout = 15 * time.Second
 
 // alertSeverity tracks the severity bucket the frontend uses for KPI
 // counts and the row color. critical > warning > info; the frontend
@@ -172,138 +159,6 @@ func severityRank(s alertSeverity) int {
 		return 2
 	}
 	return 3
-}
-
-// resolveVMQueryURL returns the base URL of the cluster's VictoriaMetrics
-// /api/v1 endpoint, going through the same plugin lookup the reverse
-// proxy uses. The VM Service name follows the chart convention
-// "<release>-victoria-metrics-single-server" — the chart we ship has the
-// release name pinned to the kpilot plugin name "victoria-metrics", so the
-// FQDN is "victoria-metrics-victoria-metrics-single-server.<ns>.svc.<dom>".
-func resolveVMQueryURL(gw *gateway.GatewayServer, clusterID string) (string, string, error) {
-	if _, err := store.GetClusterByID(clusterID); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", CodeClusterNotFound, err
-		}
-		return "", "", err
-	}
-	plugin, err := store.GetPluginByName("victoria-metrics")
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", CodePluginNotFound, err
-		}
-		return "", "", err
-	}
-	cp, err := store.GetClusterPlugin(clusterID, plugin.ID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", CodePluginNotEnabled, err
-		}
-		return "", "", err
-	}
-	if !cp.Enabled || cp.Phase != store.PluginPhaseRunning {
-		return "", CodePluginNotRunning, fmt.Errorf("victoria-metrics not running")
-	}
-	dom := workerClusterDomain(gw, clusterID)
-	// Chart naming: <release>-victoria-metrics-single-server. Our seed
-	// row pins ReleaseName to the plugin name "victoria-metrics".
-	host := fmt.Sprintf("victoria-metrics-victoria-metrics-single-server.%s.svc.%s",
-		plugin.DefaultReleaseNamespace, dom)
-	return fmt.Sprintf("http://%s:8428", host), "", nil
-}
-
-// queryVM runs a single PromQL `query` (instant — no range) against the
-// VM HTTP API and parses the standard `{status, data:{resultType, result:[]}}`
-// envelope. Returns the parsed series; non-vector result types raise.
-func queryVM(ctx context.Context, gw *gateway.GatewayServer, clusterID, baseURL, promql string) ([]vmSeries, error) {
-	q := fmt.Sprintf("%s/api/v1/query?query=%s", baseURL, urlQueryEscape(promql))
-	resp, err := gw.SendHTTPRequest(ctx, clusterID, &proto.HTTPRequest{
-		Method: http.MethodGet,
-		Url:    q,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("send VM query: %w", err)
-	}
-	if resp.Error != "" {
-		return nil, fmt.Errorf("worker VM dispatch: %s", resp.Error)
-	}
-	if int(resp.Status) != http.StatusOK {
-		// VM puts the error text in the body; surface the first ~200 chars.
-		body := string(resp.Body)
-		if len(body) > 200 {
-			body = body[:200] + "…"
-		}
-		return nil, fmt.Errorf("VM HTTP %d: %s", resp.Status, body)
-	}
-	var env struct {
-		Status string `json:"status"`
-		Data   struct {
-			ResultType string `json:"resultType"`
-			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				// VM returns "[<ts>, \"<value>\"]" for vector samples;
-				// the value is a string to preserve float precision.
-				Value [2]any `json:"value"`
-			} `json:"result"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(resp.Body, &env); err != nil {
-		return nil, fmt.Errorf("parse VM response: %w", err)
-	}
-	if env.Status != "success" {
-		return nil, fmt.Errorf("VM status=%s", env.Status)
-	}
-	if env.Data.ResultType != "vector" {
-		return nil, fmt.Errorf("expected vector result, got %s", env.Data.ResultType)
-	}
-	out := make([]vmSeries, 0, len(env.Data.Result))
-	for _, r := range env.Data.Result {
-		v := 0.0
-		if len(r.Value) == 2 {
-			if s, ok := r.Value[1].(string); ok {
-				if parsed, perr := strconv.ParseFloat(s, 64); perr == nil {
-					v = parsed
-				}
-			}
-		}
-		out = append(out, vmSeries{Labels: r.Metric, Value: v})
-	}
-	return out, nil
-}
-
-type vmSeries struct {
-	Labels map[string]string
-	Value  float64
-}
-
-// urlQueryEscape is a minimal RFC 3986 query-string encoder — we
-// can't use net/url because it would escape "{" / "}" / "(" which
-// VM accepts in its query strings, and the result wouldn't round-trip
-// through worker proxying. Encode the bare-minimum dangerous chars
-// (=, &, +, %, #) and leave PromQL syntactic chars alone.
-func urlQueryEscape(s string) string {
-	const hex = "0123456789ABCDEF"
-	out := make([]byte, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		// Allow PromQL operators / structural chars to pass unescaped:
-		// {}[]()=!<>,~*+:-./|0-9A-Za-z_"
-		switch {
-		case c >= '0' && c <= '9',
-			c >= 'A' && c <= 'Z',
-			c >= 'a' && c <= 'z',
-			c == '_', c == '-', c == '.', c == '~', c == '/',
-			c == ':', c == '[', c == ']', c == '(', c == ')',
-			c == '{', c == '}', c == ',', c == '!', c == '<', c == '>',
-			c == '=', c == '*', c == '|', c == '"':
-			out = append(out, c)
-		case c == ' ':
-			out = append(out, '+')
-		default:
-			out = append(out, '%', hex[c>>4], hex[c&0xF])
-		}
-	}
-	return string(out)
 }
 
 // collectDeviceAlerts runs all four health PromQL queries in parallel

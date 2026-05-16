@@ -123,6 +123,12 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// into a single alert list. RESOURCE_NOT_AVAILABLE if VM isn't
 		// running on the cluster.
 		clusters.GET("/:id/device-health", handler.GetDeviceHealth(gw))
+		// GPU metrics for the custom monitoring page — six DCGM
+		// range queries fanned out in parallel + a server-computed
+		// "current" snapshot. Replaces the original Grafana iframe
+		// approach so the /compute platform doesn't depend on the
+		// generic dashboard plugin.
+		clusters.GET("/:id/gpu-metrics", handler.GetGPUMetrics(gw))
 		// GPU-Hour billing report — VM range query integrating
 		// DCGM_FI_DEV_GPU_UTIL/100 over the requested window. Capped
 		// at 30d to match the bundled victoria-metrics-single chart's
