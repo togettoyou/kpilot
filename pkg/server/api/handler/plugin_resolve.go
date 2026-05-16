@@ -136,6 +136,16 @@ func resolvePluginRunning(clusterID, pluginName string) (releaseNS, code string,
 	return releaseNS, "", nil
 }
 
+// PluginResolveCacheSize returns the number of entries currently held
+// in the (cluster, plugin) → release-namespace cache. Used by the
+// /metrics endpoint; takes the read lock so it's safe to call alongside
+// resolvePluginRunning / Invalidate*.
+func PluginResolveCacheSize() int {
+	pluginResolveMu.RLock()
+	defer pluginResolveMu.RUnlock()
+	return len(pluginResolveCache)
+}
+
 // InvalidatePluginResolve drops cached lookups for a (cluster, plugin)
 // so the next request re-checks DB state. Called by the plugin enable/
 // disable handlers when state changes that would affect routing.
@@ -143,5 +153,20 @@ func InvalidatePluginResolve(clusterID, pluginName string) {
 	key := clusterID + "/" + pluginName
 	pluginResolveMu.Lock()
 	delete(pluginResolveCache, key)
+	pluginResolveMu.Unlock()
+}
+
+// InvalidateClusterPluginResolves drops every cached entry for the
+// given cluster — used when the cluster row itself is deleted so the
+// per-plugin keys don't linger forever. Walks the map under lock;
+// O(N) but N is small (one entry per (cluster, plugin) ever accessed).
+func InvalidateClusterPluginResolves(clusterID string) {
+	prefix := clusterID + "/"
+	pluginResolveMu.Lock()
+	for k := range pluginResolveCache {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			delete(pluginResolveCache, k)
+		}
+	}
 	pluginResolveMu.Unlock()
 }

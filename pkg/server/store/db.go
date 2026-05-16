@@ -28,8 +28,14 @@ func Init(dsn string) error {
 	if err != nil {
 		return fmt.Errorf("get underlying db: %w", err)
 	}
-	sqlDB.SetMaxOpenConns(25)
-	sqlDB.SetMaxIdleConns(5)
+	// Pool sized for realistic multi-cluster / multi-tab load: 50
+	// clusters × 5 open tabs × per-handler 2-4 GORM queries comfortably
+	// fits inside 100 with headroom. Previous 25-conn cap hit `sql:
+	// connection refused` long before any individual query was slow.
+	// MaxIdleConns at 20 keeps a working set warm without bleeding the
+	// idle ones too aggressively on quiet periods.
+	sqlDB.SetMaxOpenConns(100)
+	sqlDB.SetMaxIdleConns(20)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
 	if err = db.AutoMigrate(&Cluster{}, &PluginBlob{}, &Plugin{}, &ClusterPlugin{}); err != nil {

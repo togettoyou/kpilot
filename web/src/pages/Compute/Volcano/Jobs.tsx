@@ -9,7 +9,7 @@ import {
   useParams,
 } from '@umijs/max';
 
-import { useClusterRequest } from '@/hooks/useClusterRequest';
+import { useVolcanoList } from '@/hooks/useVolcanoList';
 import {
   App,
   Button,
@@ -66,8 +66,16 @@ export default function VolcanoJobsPage() {
     namespace: string;
   } | null>(null);
 
-  const { data, loading, error, refresh } = useClusterRequest(
-    () => listVolcanoJobs(clusterId!, ns),
+  const {
+    items: rawItemsAll,
+    loading,
+    error,
+    refresh,
+    loadMore,
+    hasMore,
+    total,
+  } = useVolcanoList(
+    (cont) => listVolcanoJobs(clusterId!, ns, { continueToken: cont }),
     [clusterId, ns],
     { ready: !!clusterId },
   );
@@ -89,11 +97,9 @@ export default function VolcanoJobsPage() {
     return <NotInstalled clusterId={clusterId} />;
   }
 
-  const rawItems = data?.items ?? [];
   const items = stateFilter
-    ? rawItems.filter((j) => j.state === stateFilter)
-    : rawItems;
-  const truncated = !!data?.continue;
+    ? rawItemsAll.filter((j) => j.state === stateFilter)
+    : rawItemsAll;
 
   const clearStateFilter = () =>
     history.push({ pathname: location.pathname, search: '' });
@@ -169,14 +175,42 @@ export default function VolcanoJobsPage() {
       width: 220,
       render: (_, r) => (
         <Space size={4} wrap>
-          {r.running > 0 && <Tag color="green">Running {r.running}</Tag>}
-          {r.pending > 0 && <Tag color="gold">Pending {r.pending}</Tag>}
-          {r.succeeded > 0 && <Tag color="blue">Succeeded {r.succeeded}</Tag>}
-          {r.failed > 0 && <Tag color="red">Failed {r.failed}</Tag>}
-          {r.terminating > 0 && (
-            <Tag color="orange">Terminating {r.terminating}</Tag>
+          {r.running > 0 && (
+            <Tag color="green">
+              {intl.formatMessage({ id: 'pages.compute.phase.running' })}{' '}
+              {r.running}
+            </Tag>
           )}
-          {r.unknown > 0 && <Tag>Unknown {r.unknown}</Tag>}
+          {r.pending > 0 && (
+            <Tag color="gold">
+              {intl.formatMessage({ id: 'pages.compute.phase.pending' })}{' '}
+              {r.pending}
+            </Tag>
+          )}
+          {r.succeeded > 0 && (
+            <Tag color="blue">
+              {intl.formatMessage({ id: 'pages.compute.phase.succeeded' })}{' '}
+              {r.succeeded}
+            </Tag>
+          )}
+          {r.failed > 0 && (
+            <Tag color="red">
+              {intl.formatMessage({ id: 'pages.compute.phase.failed' })}{' '}
+              {r.failed}
+            </Tag>
+          )}
+          {r.terminating > 0 && (
+            <Tag color="orange">
+              {intl.formatMessage({ id: 'pages.compute.phase.terminating' })}{' '}
+              {r.terminating}
+            </Tag>
+          )}
+          {r.unknown > 0 && (
+            <Tag>
+              {intl.formatMessage({ id: 'pages.compute.phase.unknown' })}{' '}
+              {r.unknown}
+            </Tag>
+          )}
           {totalPods(r) === 0 && (
             <Typography.Text type="secondary">-</Typography.Text>
           )}
@@ -253,8 +287,13 @@ export default function VolcanoJobsPage() {
   return (
     <div className="p-6">
       <ResourceIntro id="pages.compute.intro.job" />
-      {truncated && (
-        <TruncatedBanner shown={items.length} count={items.length} />
+      {hasMore && (
+        <TruncatedBanner
+          shown={items.length}
+          total={total}
+          onLoadMore={loadMore}
+          loading={loading}
+        />
       )}
       {stateFilter && (
         <div style={{ marginBottom: 8 }}>

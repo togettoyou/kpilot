@@ -209,6 +209,10 @@ func UpdateClusterPluginStatus(clusterID string, pluginID uint, updates map[stri
 // the update. The new row is marked enabled iff the phase implies the
 // release exists on the cluster (anything other than Disabled).
 func UpsertClusterPluginStatus(clusterID string, pluginID uint, phase PluginPhase, updates map[string]any) error {
+	return upsertClusterPluginStatusOn(DB, clusterID, pluginID, phase, updates)
+}
+
+func upsertClusterPluginStatusOn(db *gorm.DB, clusterID string, pluginID uint, phase PluginPhase, updates map[string]any) error {
 	now := time.Now()
 	cp := &ClusterPlugin{
 		ClusterID: clusterID,
@@ -236,8 +240,37 @@ func UpsertClusterPluginStatus(clusterID string, pluginID uint, phase PluginPhas
 		cp.InstalledAt = v
 	}
 	updates["updated_at"] = now
-	return DB.Clauses(clause.OnConflict{
+	return db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "cluster_id"}, {Name: "plugin_id"}},
 		DoUpdates: clause.Assignments(updates),
 	}).Create(cp).Error
+}
+
+// PersistClusterPluginStatusIfActive atomically reads the row, applies
+// the "don't downgrade a user-disabled row to a non-Uninstalling phase"
+// predicate, and upserts the new state — all inside one DB transaction
+// so a concurrent EnablePlugin can't slip in between the read and the
+// write and have its row clobbered by a late status echo from the
+// previous Disable.
+//
+// `phase == Uninstalling` is the legal transitional phase during a
+// disable in progress — that one is allowed through even when the row
+// has `enabled=false` already.
+//
+// Returns (skipped=true, nil) when the predicate filtered the update
+// out so callers can log "echo ignored" if they want. (false, nil) on
+// successful write; (_, err) on DB error.
+func PersistClusterPluginStatusIfActive(clusterID string, pluginID uint, phase PluginPhase, updates map[string]any) (skipped bool, err error) {
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var existing ClusterPlugin
+		err := tx.Where("cluster_id = ? AND plugin_id = ?", clusterID, pluginID).
+			First(&existing).Error
+		if err == nil && !existing.Enabled && phase != PluginPhaseUninstalling {
+			skipped = true
+			return nil
+		}
+		// gorm.ErrRecordNotFound is fine — the upsert will INSERT.
+		return upsertClusterPluginStatusOn(tx, clusterID, pluginID, phase, updates)
+	})
+	return skipped, err
 }

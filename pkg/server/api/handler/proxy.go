@@ -90,6 +90,25 @@ var (
 	proxySemBySys = make(map[string]chan struct{})
 )
 
+// DropProxySemaphore removes the per-cluster semaphore entry. Called
+// when a cluster is deleted so the map doesn't accumulate dead keys
+// across the server's lifetime. Inflight callers holding the buffer
+// keep their slot until release; the next acquire will lazily create
+// a fresh semaphore if the cluster id were ever reused.
+func DropProxySemaphore(clusterID string) {
+	proxySemMu.Lock()
+	delete(proxySemBySys, clusterID)
+	proxySemMu.Unlock()
+}
+
+// ProxySemaphoreCount returns the number of per-cluster semaphores
+// allocated by the reverse proxy. Used by the /metrics endpoint.
+func ProxySemaphoreCount() int {
+	proxySemMu.Lock()
+	defer proxySemMu.Unlock()
+	return len(proxySemBySys)
+}
+
 // proxyAcquire returns a release function the caller must call when its
 // proxy request returns. Blocks until a slot is free or ctx cancels;
 // returns false if ctx fired before a slot opened so the caller can

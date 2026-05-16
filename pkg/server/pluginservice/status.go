@@ -51,18 +51,6 @@ func PersistStatus(clusterID string, st *proto.PluginStatusPush) error {
 		return nil
 	}
 
-	// If the user already flipped Enabled=false while this push was in
-	// flight (we're handling an Uninstalling / late-Running echo from
-	// the worker), don't downgrade the row to a non-Disabled phase —
-	// the UI would flicker enabled=false, phase=Running for the brief
-	// window between the Disable click and the worker's next status
-	// push. Uninstalling is the legit transitional state during
-	// disable; allow only that one through.
-	if existing, err := store.GetClusterPlugin(clusterID, plugin.ID); err == nil &&
-		!existing.Enabled && phase != store.PluginPhaseUninstalling {
-		return nil
-	}
-
 	updates := map[string]any{
 		"phase":                phase,
 		"message":              capStatusMessage(st.Message),
@@ -75,15 +63,25 @@ func PersistStatus(clusterID string, st *proto.PluginStatusPush) error {
 		updates["installed_at"] = &t
 	}
 
-	// Upsert (not just Update) self-heals the rare path where the
-	// Enable handler successfully pushed to the Worker but the
-	// subsequent ClusterPlugin row write failed. Without this the
-	// Worker would reconcile happily while Server kept reporting
-	// "Disabled" and the AttemptHash gate blocked any retry.
-	if err := store.UpsertClusterPluginStatus(clusterID, plugin.ID, phase, updates); err != nil {
+	// PersistClusterPluginStatusIfActive does the "don't downgrade a
+	// user-disabled row to a non-Uninstalling phase" predicate AND the
+	// upsert inside a single DB transaction. Previously these were two
+	// separate calls and a concurrent EnablePlugin (sets enabled=true)
+	// landing between them could see its row clobbered back by a late
+	// status echo from the worker's previous Disable. The transactional
+	// variant closes that window. Upsert (not Update) self-heals the
+	// rare path where Enable pushed to the Worker but the subsequent
+	// row write failed — otherwise Server reports "Disabled" forever
+	// and the AttemptHash gate blocks any retry.
+	skipped, err := store.PersistClusterPluginStatusIfActive(clusterID, plugin.ID, phase, updates)
+	if err != nil {
 		log.Printf("[pluginservice] update cluster plugin status: cluster=%s plugin=%s err=%v",
 			clusterID, st.CrdName, err)
 		return err
+	}
+	if skipped {
+		log.Printf("[pluginservice] late status echo ignored (user already disabled): cluster=%s plugin=%s phase=%s",
+			clusterID, st.CrdName, phase)
 	}
 	return nil
 }

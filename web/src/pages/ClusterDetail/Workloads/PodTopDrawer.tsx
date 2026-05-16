@@ -1,15 +1,16 @@
-import { ReloadOutlined } from '@ant-design/icons';
+import { DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { history, useIntl } from '@umijs/max';
 import {
   Button,
   Drawer,
+  Dropdown,
   Result,
   Space,
   Spin,
   Table,
   Tag,
 } from 'antd';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import {
   getPodTop,
@@ -42,6 +43,9 @@ export function PodTopDrawer({
   const [loading, setLoading] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  // Polling cadence matches the rest of the app's RefreshControl
+  // (off / 5s / 10s / 30s / 60s). Default 5s preserves prior behavior.
+  const [interval, setIntervalMs] = useState<number>(5000);
 
   const fetchOnce = React.useCallback(() => {
     setLoading(true);
@@ -74,14 +78,21 @@ export function PodTopDrawer({
     fetchOnce();
   }, [open, fetchOnce]);
 
-  // Auto-refresh while open. 5s matches the pages-wide default and is
-  // a touch faster than metrics-server's 15s scrape — close enough that
-  // the user sees fresh data without spamming the API.
+  // Auto-refresh while open. Cadence is user-controlled (off / 5 / 10 /
+  // 30 / 60s) via the RefreshControl-style dropdown in the drawer extra.
+  // Keep the latest fetch closure addressable through a ref so changing
+  // the interval doesn't tear-down + recreate the timer on every render
+  // (fetchOnce's identity already changes whenever clusterId/ns/pod
+  // change, and that's what should drive the timer).
+  const fetchRef = useRef(fetchOnce);
   useEffect(() => {
-    if (!open || unavailable) return;
-    const t = setInterval(fetchOnce, 5000);
+    fetchRef.current = fetchOnce;
+  }, [fetchOnce]);
+  useEffect(() => {
+    if (!open || unavailable || interval <= 0) return;
+    const t = setInterval(() => fetchRef.current(), interval);
     return () => clearInterval(t);
-  }, [open, unavailable, fetchOnce]);
+  }, [open, unavailable, interval]);
 
   const goToPlugins = () => {
     onClose();
@@ -125,14 +136,39 @@ export function PodTopDrawer({
       maskClosable={false}
       destroyOnHidden
       extra={
-        <Button
-          icon={<ReloadOutlined />}
-          loading={loading}
-          onClick={fetchOnce}
-          disabled={unavailable}
-        >
-          {intl.formatMessage({ id: 'pages.workloads.refresh' })}
-        </Button>
+        <Space.Compact>
+          <Button
+            icon={<ReloadOutlined />}
+            loading={loading}
+            onClick={fetchOnce}
+            disabled={unavailable}
+          />
+          <Dropdown
+            trigger={['click']}
+            disabled={unavailable}
+            menu={{
+              items: [
+                {
+                  key: '0',
+                  label: intl.formatMessage({
+                    id: 'pages.workloads.refresh.off',
+                  }),
+                },
+                { type: 'divider' },
+                { key: '5000', label: '5s' },
+                { key: '10000', label: '10s' },
+                { key: '30000', label: '30s' },
+                { key: '60000', label: '60s' },
+              ],
+              selectedKeys: [String(interval)],
+              onClick: ({ key }) => setIntervalMs(Number(key)),
+            }}
+          >
+            <Button style={{ minWidth: 46 }} disabled={unavailable}>
+              {interval > 0 ? `${interval / 1000}s` : <DownOutlined />}
+            </Button>
+          </Dropdown>
+        </Space.Compact>
       }
     >
       {unavailable ? (

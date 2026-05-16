@@ -387,6 +387,65 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 	}
 }
 
+// MetricsSnapshot is a point-in-time read of the gateway's internal
+// maps for the /api/v1/metrics endpoint. Counts are taken under the
+// matching mutex so a concurrent register / response / stream open
+// can't tear them, but the four sections aren't a single consistent
+// snapshot (no global lock) — close enough for an operator gauge.
+type MetricsSnapshot struct {
+	// Workers is the number of currently-registered worker connections.
+	Workers int `json:"workers"`
+	// PerClusterStreams maps clusterID → live stream count (logs / exec
+	// / ws proxy sessions). Useful for spotting a single cluster
+	// holding the bulk of open sessions.
+	PerClusterStreams map[string]int `json:"perClusterStreams"`
+	// Pending is the count of outstanding ResourceRequest replies the
+	// gateway is waiting on. Should stay near zero in steady state;
+	// growth means the worker is slow or wedged.
+	Pending int `json:"pending"`
+	// PendingHTTP is the same for the reverse-proxy path.
+	PendingHTTP int `json:"pendingHTTP"`
+	// Streams is the total active streaming sessions across clusters.
+	Streams int `json:"streams"`
+	// PluginLogSessions is the number of per-(cluster, plugin) install
+	// log ring buffers held in memory. Each session is reaped 10min
+	// after its last frame.
+	PluginLogSessions int `json:"pluginLogSessions"`
+}
+
+// MetricsSnapshot collects internal counters for the /metrics endpoint.
+// Each map read takes its own lock; the four sections aren't atomic with
+// respect to each other, but operator observability doesn't need that.
+func (g *GatewayServer) MetricsSnapshot() MetricsSnapshot {
+	snap := MetricsSnapshot{
+		PerClusterStreams: make(map[string]int),
+	}
+	g.mu.RLock()
+	snap.Workers = len(g.workers)
+	g.mu.RUnlock()
+
+	g.pendingMu.Lock()
+	snap.Pending = len(g.pending)
+	g.pendingMu.Unlock()
+
+	g.pendingHTTPMu.Lock()
+	snap.PendingHTTP = len(g.pendingHTTP)
+	g.pendingHTTPMu.Unlock()
+
+	g.streamMu.Lock()
+	snap.Streams = len(g.streams)
+	for _, s := range g.streams {
+		snap.PerClusterStreams[s.clusterID]++
+	}
+	g.streamMu.Unlock()
+
+	g.pluginLogMu.Lock()
+	snap.PluginLogSessions = len(g.pluginLogSessions)
+	g.pluginLogMu.Unlock()
+
+	return snap
+}
+
 // SendHTTPRequest forwards an HTTP request through the Worker to an in-
 // cluster Service and blocks until the Worker writes back HTTPResponse or
 // ctx is cancelled. Used by the reverse-proxy handler that embeds Grafana

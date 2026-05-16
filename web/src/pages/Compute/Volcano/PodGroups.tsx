@@ -3,7 +3,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useModel, useParams } from '@umijs/max';
 
-import { useClusterRequest } from '@/hooks/useClusterRequest';
+import { useVolcanoList } from '@/hooks/useVolcanoList';
 import { App, Button, Popconfirm, Space, Tag, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -36,11 +36,12 @@ export default function VolcanoPodGroupsPage() {
   const namespaceModel = useModel('namespace');
   const ns = clusterId ? namespaceModel.get(clusterId).selected : '';
 
-  const { data, loading, error, refresh } = useClusterRequest(
-    () => listVolcanoPodGroups(clusterId!, ns),
-    [clusterId, ns],
-    { ready: !!clusterId },
-  );
+  const { items, loading, error, refresh, loadMore, hasMore, total } =
+    useVolcanoList(
+      (cont) => listVolcanoPodGroups(clusterId!, ns, { continueToken: cont }),
+      [clusterId, ns],
+      { ready: !!clusterId },
+    );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
   const [createOpen, setCreateOpen] = useState(false);
@@ -57,9 +58,6 @@ export default function VolcanoPodGroupsPage() {
   if (error && isResourceNotAvailable(error)) {
     return <NotInstalled clusterId={clusterId} />;
   }
-
-  const items = data?.items ?? [];
-  const truncated = !!data?.continue;
 
   const doDelete = async (record: PodGroupRow) => {
     try {
@@ -187,8 +185,13 @@ export default function VolcanoPodGroupsPage() {
   return (
     <div className="p-6">
       <ResourceIntro id="pages.compute.intro.podgroup" />
-      {truncated && (
-        <TruncatedBanner shown={items.length} count={items.length} />
+      {hasMore && (
+        <TruncatedBanner
+          shown={items.length}
+          total={total}
+          onLoadMore={loadMore}
+          loading={loading}
+        />
       )}
       <ProTable<PodGroupRow>
         rowKey="uid"

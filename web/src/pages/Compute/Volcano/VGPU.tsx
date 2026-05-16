@@ -21,7 +21,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import React, { useMemo, useState } from 'react';
+import React, { memo, useCallback, useMemo, useState } from 'react';
 
 import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
 import {
@@ -79,6 +79,11 @@ export default function VGPUPage() {
     namespace: string;
     name: string;
   } | null>(null);
+  // Stable callback so the memoized NodeCard / CardRow / PodsCell
+  // chain doesn't see a fresh function on every refresh.
+  const onPodClick = useCallback((namespace: string, name: string) => {
+    setDescribeTarget({ namespace, name });
+  }, []);
 
   // All hooks MUST run on every render — the two derived counters
   // were once positioned below the NotInstalled early return, which
@@ -165,9 +170,7 @@ export default function VGPUPage() {
         search={search}
         setSearch={setSearch}
         clusterId={clusterId}
-        onPodClick={(namespace, name) =>
-          setDescribeTarget({ namespace, name })
-        }
+        onPodClick={onPodClick}
       />
 
       <DescribeDrawer
@@ -653,7 +656,13 @@ function NodeTable({
 // model badge + drilldown link) → node-wide aggregated bars (slots
 // / memory / cores) → list of physical cards each with their own
 // metrics + pods. Everything visible at once — no expand toggle.
-function NodeCard({
+//
+// Wrapped in memo: a 50-node cluster with 5s auto-refresh re-renders
+// ~10 times/second across the page during navigation. Without memo
+// every NodeCard's grid + per-card bars re-evaluate on every refresh
+// even when their data didn't change. The reference-stable onPodClick
+// useCallback in the parent makes this effective.
+const NodeCard = memo(function NodeCard({
   node,
   singleType,
   clusterId,
@@ -698,11 +707,11 @@ function NodeCard({
         </a>
         {node.healthy ? (
           <Tag color="green" style={{ marginInlineEnd: 0 }}>
-            healthy
+            {intl.formatMessage({ id: 'pages.compute.vgpu.health.healthy' })}
           </Tag>
         ) : (
           <Tag color="red" style={{ marginInlineEnd: 0 }}>
-            degraded
+            {intl.formatMessage({ id: 'pages.compute.vgpu.health.degraded' })}
           </Tag>
         )}
         {typeBadges.map(([t, n]) => (
@@ -753,7 +762,7 @@ function NodeCard({
       </Space>
     </AntCard>
   );
-}
+});
 
 // CardRow — one physical GPU as a horizontal row. Identity on the
 // left, 3 bars in the middle, pods on the right. Replaces the
@@ -789,11 +798,11 @@ function CardRow({
           <Text style={{ fontSize: 12 }}>{card.type}</Text>
           {card.health ? (
             <Tag color="green" style={{ marginInlineEnd: 0, fontSize: 11 }}>
-              OK
+              {intl.formatMessage({ id: 'pages.compute.vgpu.health.ok' })}
             </Tag>
           ) : (
             <Tag color="red" style={{ marginInlineEnd: 0, fontSize: 11 }}>
-              bad
+              {intl.formatMessage({ id: 'pages.compute.vgpu.health.bad' })}
             </Tag>
           )}
         </Space>

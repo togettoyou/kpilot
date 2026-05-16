@@ -81,6 +81,20 @@ export default {
   'pages.compute.vgpu.kpi.nodes': 'GPU 节点',
   'pages.compute.vgpu.kpi.nodes.healthy': '{n} 正常',
   'pages.compute.vgpu.kpi.nodes.degraded': '{n} 异常',
+  // 节点 / 卡的健康标签：节点标签为 healthy/degraded，单卡 OK/bad
+  'pages.compute.vgpu.health.healthy': '正常',
+  'pages.compute.vgpu.health.degraded': '异常',
+  'pages.compute.vgpu.health.ok': 'OK',
+  'pages.compute.vgpu.health.bad': '故障',
+  // 共享 Pod 相位标签（Volcano Queue/Job 等都使用）
+  'pages.compute.phase.running': '运行中',
+  'pages.compute.phase.pending': '等待中',
+  'pages.compute.phase.inqueue': '在队列',
+  'pages.compute.phase.succeeded': '已成功',
+  'pages.compute.phase.completed': '已完成',
+  'pages.compute.phase.failed': '失败',
+  'pages.compute.phase.terminating': '终止中',
+  'pages.compute.phase.unknown': '未知',
   'pages.compute.vgpu.search.placeholder': '搜索 Pod 名称 / 命名空间',
   'pages.compute.vgpu.search.empty': '没有匹配 "{q}" 的节点或 Pod',
   'pages.compute.vgpu.healthBanner.title':
@@ -398,6 +412,9 @@ export default {
   // 共享文案：list 端点的截断提示
   'pages.compute.list.truncated':
     '结果已截断，仅显示前 {n} 条；缩小命名空间或筛选范围可看到更多',
+  'pages.compute.list.truncated.withTotal':
+    '已加载 {shown} / 共约 {total} 条，可点击右侧加载更多',
+  'pages.compute.list.loadMore': '加载更多',
 
   // Queue 列 / 文案
   'pages.compute.queue.col.name': '名称',
@@ -1089,12 +1106,16 @@ export default {
   'pages.podLogs.search.placeholder': '搜索（grep）',
   'pages.podLogs.search.regex': '正则',
   'pages.podLogs.error.connection': 'WebSocket 连接失败',
+  'pages.podLogs.error.closed': '连接已断开（{code} {reason}）',
+  'pages.podLogs.reconnect': '重连',
 
   // pod exec drawer
   'pages.podExec.title': 'Pod 终端',
   'pages.podExec.container': '容器',
   'pages.podExec.reload': '重连',
+  'pages.podExec.reconnect': '重连',
   'pages.podExec.error.connection': 'WebSocket 连接失败',
+  'pages.podExec.error.closed': '连接已断开（{code} {reason}）',
 
   // 404
   'pages.404.subTitle': '抱歉，您访问的页面不存在。',

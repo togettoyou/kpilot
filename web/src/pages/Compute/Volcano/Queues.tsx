@@ -3,7 +3,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams } from '@umijs/max';
 
-import { useClusterRequest } from '@/hooks/useClusterRequest';
+import { useVolcanoList } from '@/hooks/useVolcanoList';
 import { App, Button, Popconfirm, Space, Tag, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -39,11 +39,12 @@ export default function VolcanoQueuesPage() {
   const [editingName, setEditingName] = useState<string | null>(null);
   const [describingName, setDescribingName] = useState<string | null>(null);
 
-  const { data, loading, error, refresh } = useClusterRequest(
-    () => listVolcanoQueues(clusterId!),
-    [clusterId],
-    { ready: !!clusterId },
-  );
+  const { items, loading, error, refresh, loadMore, hasMore, total } =
+    useVolcanoList(
+      (cont) => listVolcanoQueues(clusterId!, { continueToken: cont }),
+      [clusterId],
+      { ready: !!clusterId },
+    );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
 
@@ -51,9 +52,6 @@ export default function VolcanoQueuesPage() {
   if (error && isResourceNotAvailable(error)) {
     return <NotInstalled clusterId={clusterId} />;
   }
-
-  const items = data?.items ?? [];
-  const truncated = !!data?.continue;
 
   const doDelete = async (name: string) => {
     try {
@@ -160,8 +158,13 @@ export default function VolcanoQueuesPage() {
   return (
     <div className="p-6">
       <ResourceIntro id="pages.compute.intro.queue" />
-      {truncated && (
-        <TruncatedBanner shown={items.length} count={items.length} />
+      {hasMore && (
+        <TruncatedBanner
+          shown={items.length}
+          total={total}
+          onLoadMore={loadMore}
+          loading={loading}
+        />
       )}
       <ProTable<QueueRow>
         rowKey="uid"
@@ -264,8 +267,19 @@ function QueueDetailCell({ row }: { row: QueueRow }) {
       <Typography.Text
         style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary)' }}
       >
-        Running {row.running} · Pending {row.pending} · Inqueue {row.inqueue}
-        {row.completed > 0 && ` · Completed ${row.completed}`}
+        {intl.formatMessage({ id: 'pages.compute.phase.running' })}{' '}
+        {row.running} ·{' '}
+        {intl.formatMessage({ id: 'pages.compute.phase.pending' })}{' '}
+        {row.pending} ·{' '}
+        {intl.formatMessage({ id: 'pages.compute.phase.inqueue' })}{' '}
+        {row.inqueue}
+        {row.completed > 0 && (
+          <>
+            {' · '}
+            {intl.formatMessage({ id: 'pages.compute.phase.completed' })}{' '}
+            {row.completed}
+          </>
+        )}
       </Typography.Text>
     </Space>
   );

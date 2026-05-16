@@ -81,6 +81,19 @@ func GetGPUHour(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
+		// 60s TTL — gpu-hour is the slowest VM query (30d range can
+		// scan tens of millions of samples on a busy cluster) and the
+		// underlying value only changes meaningfully on the order of
+		// minutes. Caching server-side means a tab refreshing every
+		// 5s pays the real cost once a minute. The cache also covers
+		// the case where multiple operators open the same report at
+		// the same time.
+		cacheKey := vmCacheKey("gpu-hour", clusterID, rangeKey)
+		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
+			c.Data(http.StatusOK, "application/json", body)
+			return
+		}
+
 		vmURL, code, err := resolveVMQueryURL(gw, clusterID)
 		if err != nil {
 			if code != "" {
@@ -136,14 +149,20 @@ func GetGPUHour(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return rows[i].Hours > rows[j].Hours
 		})
 
-		c.JSON(http.StatusOK, gpuHourResponse{
+		resp := gpuHourResponse{
 			Range:       rangeKey,
 			From:        from.UTC().Format(time.RFC3339),
 			To:          now.UTC().Format(time.RFC3339),
 			GeneratedAt: now.UTC().Format(time.RFC3339),
 			Rows:        rows,
 			Total:       total,
-		})
+		}
+		body, err := sharedVMResponseCache.Put(cacheKey, resp, 60*time.Second)
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+		c.Data(http.StatusOK, "application/json", body)
 	}
 }
 

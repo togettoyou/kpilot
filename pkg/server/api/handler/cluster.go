@@ -119,6 +119,14 @@ func DeleteCluster(c *gin.Context) {
 		apiErrInternal(c, err)
 		return
 	}
+	// Drop per-cluster in-memory state so the maps don't accumulate
+	// dead keys for the lifetime of the process. Inflight callers
+	// holding semaphore slots are unaffected (they release on their
+	// own); a future cluster id collision would just lazy-rebuild
+	// these caches from a clean slate.
+	InvalidateClusterPluginResolves(id)
+	DropProxySemaphore(id)
+	sharedVMResponseCache.InvalidateCluster(id)
 	c.Status(http.StatusNoContent)
 }
 

@@ -3,7 +3,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useModel, useParams } from '@umijs/max';
 
-import { useClusterRequest } from '@/hooks/useClusterRequest';
+import { useVolcanoList } from '@/hooks/useVolcanoList';
 import { App, Button, Popconfirm, Space, Tag, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -46,11 +46,12 @@ export default function VolcanoCronJobsPage() {
     namespace: string;
   } | null>(null);
 
-  const { data, loading, error, refresh } = useClusterRequest(
-    () => listVolcanoCronJobs(clusterId!, ns),
-    [clusterId, ns],
-    { ready: !!clusterId },
-  );
+  const { items, loading, error, refresh, loadMore, hasMore, total } =
+    useVolcanoList(
+      (cont) => listVolcanoCronJobs(clusterId!, ns, { continueToken: cont }),
+      [clusterId, ns],
+      { ready: !!clusterId },
+    );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
 
@@ -58,9 +59,6 @@ export default function VolcanoCronJobsPage() {
   if (error && isResourceNotAvailable(error)) {
     return <NotInstalled clusterId={clusterId} />;
   }
-
-  const items = data?.items ?? [];
-  const truncated = !!data?.continue;
 
   const doDelete = async (record: CronJobRow) => {
     try {
@@ -198,8 +196,13 @@ export default function VolcanoCronJobsPage() {
   return (
     <div className="p-6">
       <ResourceIntro id="pages.compute.intro.cronjob" />
-      {truncated && (
-        <TruncatedBanner shown={items.length} count={items.length} />
+      {hasMore && (
+        <TruncatedBanner
+          shown={items.length}
+          total={total}
+          onLoadMore={loadMore}
+          loading={loading}
+        />
       )}
       <ProTable<CronJobRow>
         rowKey="uid"

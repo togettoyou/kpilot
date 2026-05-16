@@ -3,7 +3,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams } from '@umijs/max';
 
-import { useClusterRequest } from '@/hooks/useClusterRequest';
+import { useVolcanoList } from '@/hooks/useVolcanoList';
 import { App, Button, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -45,11 +45,12 @@ export default function VolcanoNodeShardsPage() {
   const [editingName, setEditingName] = useState<string | null>(null);
   const [describingName, setDescribingName] = useState<string | null>(null);
 
-  const { data, loading, error, refresh } = useClusterRequest(
-    () => listVolcanoNodeShards(clusterId!),
-    [clusterId],
-    { ready: !!clusterId },
-  );
+  const { items, loading, error, refresh, loadMore, hasMore, total } =
+    useVolcanoList(
+      (cont) => listVolcanoNodeShards(clusterId!, { continueToken: cont }),
+      [clusterId],
+      { ready: !!clusterId },
+    );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
 
@@ -57,9 +58,6 @@ export default function VolcanoNodeShardsPage() {
   if (error && isResourceNotAvailable(error)) {
     return <NotInstalled clusterId={clusterId} />;
   }
-
-  const items = data?.items ?? [];
-  const truncated = !!data?.continue;
 
   const doDelete = async (name: string) => {
     try {
@@ -182,8 +180,13 @@ export default function VolcanoNodeShardsPage() {
   return (
     <div className="p-6">
       <ResourceIntro id="pages.compute.intro.nodeshard" />
-      {truncated && (
-        <TruncatedBanner shown={items.length} count={items.length} />
+      {hasMore && (
+        <TruncatedBanner
+          shown={items.length}
+          total={total}
+          onLoadMore={loadMore}
+          loading={loading}
+        />
       )}
       <ProTable<NodeShardRow>
         rowKey="uid"

@@ -74,6 +74,20 @@ export default {
   // vGPU page
   'pages.compute.vgpu.kpi.nodes.healthy': '{n} healthy',
   'pages.compute.vgpu.kpi.nodes.degraded': '{n} degraded',
+  // Node / card health tags: node-level uses healthy/degraded, per-card OK/bad
+  'pages.compute.vgpu.health.healthy': 'healthy',
+  'pages.compute.vgpu.health.degraded': 'degraded',
+  'pages.compute.vgpu.health.ok': 'OK',
+  'pages.compute.vgpu.health.bad': 'bad',
+  // Shared pod-phase tags (used across Volcano Queue/Job pages)
+  'pages.compute.phase.running': 'Running',
+  'pages.compute.phase.pending': 'Pending',
+  'pages.compute.phase.inqueue': 'Inqueue',
+  'pages.compute.phase.succeeded': 'Succeeded',
+  'pages.compute.phase.completed': 'Completed',
+  'pages.compute.phase.failed': 'Failed',
+  'pages.compute.phase.terminating': 'Terminating',
+  'pages.compute.phase.unknown': 'Unknown',
   'pages.compute.vgpu.search.placeholder': 'Search pod name / namespace',
   'pages.compute.vgpu.search.empty': 'No nodes or pods matching "{q}"',
   'pages.compute.vgpu.healthBanner.title':
@@ -401,6 +415,9 @@ export default {
   // Shared: result-truncated banner for list endpoints
   'pages.compute.list.truncated':
     'Result truncated to first {n} rows. Narrow the namespace or filter for more.',
+  'pages.compute.list.truncated.withTotal':
+    'Loaded {shown} of ~{total} rows. Click to load more.',
+  'pages.compute.list.loadMore': 'Load more',
 
   // Queue columns / cell text
   'pages.compute.queue.col.name': 'Name',
@@ -1120,12 +1137,16 @@ export default {
   'pages.podLogs.search.placeholder': 'Search (grep)',
   'pages.podLogs.search.regex': 'Regex',
   'pages.podLogs.error.connection': 'WebSocket connection failed',
+  'pages.podLogs.error.closed': 'Connection closed ({code} {reason})',
+  'pages.podLogs.reconnect': 'Reconnect',
 
   // pod exec drawer
   'pages.podExec.title': 'Pod Exec',
   'pages.podExec.container': 'Container',
   'pages.podExec.reload': 'Reconnect',
+  'pages.podExec.reconnect': 'Reconnect',
   'pages.podExec.error.connection': 'WebSocket connection failed',
+  'pages.podExec.error.closed': 'Connection closed ({code} {reason})',
 
   // 404
   'pages.404.subTitle': 'Sorry, the page you visited does not exist.',

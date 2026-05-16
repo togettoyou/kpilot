@@ -1,4 +1,3 @@
-import { Line } from '@ant-design/plots';
 import { useIntl, useParams } from '@umijs/max';
 
 import { useClusterRequest } from '@/hooks/useClusterRequest';
@@ -17,12 +16,11 @@ import {
   Typography,
 } from 'antd';
 import { useThemeMode } from 'antd-style';
-import React, { useMemo, useState } from 'react';
+import React, { lazy, Suspense, useMemo, useState } from 'react';
 
 import {
   getGPUMetrics,
   type GPUMetricKey,
-  type GPUMetricSeries,
   type GPUMetricsRange,
 } from '@/services/kpilot/gpu-metrics';
 
@@ -33,6 +31,11 @@ import {
   useAutoRefresh,
 } from './shared/Layout';
 import { usageColor } from './shared/utils';
+
+// MetricChartCard pulls in @ant-design/plots (~250 KB gzip G2 runtime).
+// Lazy-load so opening any other /compute page doesn't pay for charts
+// only this one renders.
+const MetricChartCard = lazy(() => import('./GPUMonitoringChart'));
 
 // GPU monitoring — fully self-rendered (no Grafana iframe). Sister to
 // /compute/:id/vgpu: that page covers slice allocation; this covers
@@ -68,14 +71,6 @@ const METRICS: Array<{
   // Tensor active ships as a unit ratio [0,1]; scale to %.
   { key: 'tensor', titleId: 'tensor', unit: '%', unitScale: 100, yMax: 100 },
 ];
-
-// FlatPoint = one chart datum. The Line plot wants (x, y, series) tuples;
-// we project from the server's per-series structure once and memoize.
-interface FlatPoint {
-  t: number;
-  v: number;
-  series: string;
-}
 
 // dashboardColor picks the Progress gauge color band, expressed in
 // antd theme tokens so the result tracks dark/light mode. The
@@ -257,20 +252,28 @@ const GPUMonitoringPage: React.FC = () => {
               />
             </Card>
           ) : (
-            <Row gutter={[16, 16]}>
-              {METRICS.map((m) => (
-                <Col xs={24} xl={12} key={m.key}>
-                  <MetricChartCard
-                    titleId={`pages.gpuMonitoring.metric.${m.titleId}`}
-                    unit={m.unit}
-                    yMax={m.yMax}
-                    unitScale={m.unitScale}
-                    seriesRows={series[m.key] ?? []}
-                    dark={dark}
-                  />
-                </Col>
-              ))}
-            </Row>
+            <Suspense
+              fallback={
+                <div style={{ textAlign: 'center', padding: 64 }}>
+                  <Spin />
+                </div>
+              }
+            >
+              <Row gutter={[16, 16]}>
+                {METRICS.map((m) => (
+                  <Col xs={24} xl={12} key={m.key}>
+                    <MetricChartCard
+                      titleId={`pages.gpuMonitoring.metric.${m.titleId}`}
+                      unit={m.unit}
+                      yMax={m.yMax}
+                      unitScale={m.unitScale}
+                      seriesRows={series[m.key] ?? []}
+                      dark={dark}
+                    />
+                  </Col>
+                ))}
+              </Row>
+            </Suspense>
           )}
         </Space>
       </Spin>
@@ -279,132 +282,3 @@ const GPUMonitoringPage: React.FC = () => {
 };
 
 export default GPUMonitoringPage;
-
-// MetricChartCard renders one metric's series as a multi-line chart.
-// Each series gets a legend entry "<hostname> · GPU <gpu>" (or just
-// hostname if GPU index is missing — DCGM Exporter occasionally omits
-// the gpu label when scraping under MIG mode).
-function MetricChartCard({
-  titleId,
-  unit,
-  yMax,
-  unitScale,
-  seriesRows,
-  dark,
-}: {
-  titleId: string;
-  unit: string;
-  yMax?: number;
-  unitScale?: number;
-  seriesRows: GPUMetricSeries[];
-  dark: boolean;
-}) {
-  const intl = useIntl();
-
-  const flat: FlatPoint[] = useMemo(() => {
-    const scale = unitScale ?? 1;
-    const out: FlatPoint[] = [];
-    for (const row of seriesRows) {
-      const label = seriesLabel(row);
-      for (const p of row.points) {
-        out.push({ t: p.ts, v: p.value * scale, series: label });
-      }
-    }
-    return out;
-  }, [seriesRows, unitScale]);
-
-  if (flat.length === 0) {
-    return (
-      <Card
-        title={intl.formatMessage({ id: titleId })}
-        size="small"
-        styles={{ body: { padding: 16 } }}
-      >
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={intl.formatMessage({
-            id: 'pages.gpuMonitoring.chartEmpty',
-          })}
-        />
-      </Card>
-    );
-  }
-
-  return (
-    <Card
-      title={
-        <Space>
-          <Typography.Text strong>
-            {intl.formatMessage({ id: titleId })}
-          </Typography.Text>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            ({unit})
-          </Typography.Text>
-        </Space>
-      }
-      size="small"
-      styles={{ body: { padding: 16 } }}
-    >
-      <div style={{ height: 220 }}>
-        <Line
-          data={flat}
-          xField="t"
-          yField="v"
-          colorField="series"
-          // Time axis: tick label format depends on the range. For
-          // ranges shorter than a day show HH:MM, otherwise show
-          // M/D HH:MM. Plot inspects the raw ms value (cast to Date)
-          // and formats inline.
-          axis={{
-            x: {
-              labelFormatter: (val: any) => {
-                const d = new Date(typeof val === 'number' ? val : Number(val));
-                if (Number.isNaN(d.getTime())) return '';
-                const hh = String(d.getHours()).padStart(2, '0');
-                const mm = String(d.getMinutes()).padStart(2, '0');
-                return `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`;
-              },
-            },
-            y: { labelFormatter: (v: any) => fmtAxis(v) },
-          }}
-          scale={{ y: yMax ? { domainMin: 0, domainMax: yMax } : { domainMin: 0 } }}
-          legend={{ color: { itemMarker: 'circle' } }}
-          tooltip={{
-            // Title carries the formatted timestamp. Items defaults to
-            // one row per series with `series` as the label and `v` as
-            // the value — we pass `field: 'v'` plus a valueFormatter to
-            // suffix the unit. Plot then auto-binds the series name
-            // from colorField, so the tooltip row reads
-            // "host · GPU 0 — 65.3 °C".
-            title: (datum: any) => {
-              const d = new Date(datum.t);
-              return d.toLocaleString();
-            },
-            items: [
-              {
-                field: 'v',
-                valueFormatter: (v: any) => `${fmtAxis(v)} ${unit}`,
-              },
-            ],
-          }}
-          theme={dark ? 'classicDark' : 'classic'}
-          interaction={{ tooltip: { shared: true } }}
-          style={{ lineWidth: 1.5 }}
-        />
-      </div>
-    </Card>
-  );
-}
-
-function seriesLabel(row: GPUMetricSeries): string {
-  const host = row.hostname || row.uuid?.slice(-8) || '?';
-  return row.gpu ? `${host} · GPU ${row.gpu}` : host;
-}
-
-function fmtAxis(v: any): string {
-  const n = typeof v === 'number' ? v : Number(v);
-  if (!Number.isFinite(n)) return '';
-  if (Math.abs(n) >= 100) return n.toFixed(0);
-  if (Math.abs(n) >= 1) return n.toFixed(1);
-  return n.toFixed(2);
-}

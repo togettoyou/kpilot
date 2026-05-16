@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/pluginservice"
@@ -74,6 +75,22 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 			clusterID, err)
 		return
 	}
+	// Throttle: sleep between actual sends so a worker reconnect with
+	// N enabled plugins doesn't spike memory by pushing N × chart-blob
+	// into the gRPC send buffer in a tight loop. Local-chart enable
+	// commands carry the full .tgz bytes (up to ~5 MB each); 6 builtins
+	// at once is 30 MB on the wire — manageable but worth spreading.
+	// 100ms between sends keeps total replay under ~3s for any
+	// realistic plugin count while leaving steady-state idle. The
+	// `sent` flag means rows that early-`continue` don't burn the
+	// pause budget.
+	const replayPause = 100 * time.Millisecond
+	sent := false
+	maybePause := func() {
+		if sent {
+			time.Sleep(replayPause)
+		}
+	}
 	for i := range rows {
 		cp := &rows[i]
 		switch cp.Phase {
@@ -94,11 +111,13 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 				Action:  "disable",
 				CrdName: plugin.Name,
 			}
+			maybePause()
 			if err := g.SendPluginCommand(clusterID, cmd); err != nil {
 				log.Printf("[gateway] replay disable failed: cluster=%s plugin=%s err=%v",
 					clusterID, plugin.Name, err)
 				continue
 			}
+			sent = true
 			log.Printf("[gateway] replay disable: cluster=%s plugin=%s",
 				clusterID, plugin.Name)
 		case store.PluginPhasePending,
@@ -124,11 +143,13 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 					clusterID, plugin.Name, err)
 				continue
 			}
+			maybePause()
 			if err := g.SendPluginCommand(clusterID, cmd); err != nil {
 				log.Printf("[gateway] replay enable failed: cluster=%s plugin=%s err=%v",
 					clusterID, plugin.Name, err)
 				continue
 			}
+			sent = true
 			log.Printf("[gateway] replay enable: cluster=%s plugin=%s phase=%s",
 				clusterID, plugin.Name, cp.Phase)
 		}

@@ -108,6 +108,17 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
+		// 4s response cache — slightly under the typical 5s browser
+		// poll, so a single underlying VM fan-out serves every tab on
+		// the same (cluster, range) tuple. The cache is keyed pre-
+		// resolveVMQueryURL so a hit also avoids the plugin lookup
+		// + worker tunnel hop entirely.
+		cacheKey := vmCacheKey("gpu-metrics", clusterID, rangeKey)
+		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
+			c.Data(http.StatusOK, "application/json", body)
+			return
+		}
+
 		vmURL, code, err := resolveVMQueryURL(gw, clusterID)
 		if err != nil {
 			if code != "" {
@@ -201,7 +212,7 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		snapshot := buildSnapshot(out)
 
-		c.JSON(http.StatusOK, gpuMetricsResponse{
+		resp := gpuMetricsResponse{
 			Range:       rangeKey,
 			From:        from.UTC().Format(time.RFC3339),
 			To:          now.UTC().Format(time.RFC3339),
@@ -209,7 +220,13 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			StepSeconds: int(spec.step.Seconds()),
 			Snapshot:    snapshot,
 			Series:      out,
-		})
+		}
+		body, err := sharedVMResponseCache.Put(cacheKey, resp, 4*time.Second)
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+		c.Data(http.StatusOK, "application/json", body)
 	}
 }
 

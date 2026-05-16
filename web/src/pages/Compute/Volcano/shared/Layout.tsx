@@ -1,7 +1,7 @@
 import { DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { history, useIntl } from '@umijs/max';
 import { Alert, Button, Dropdown, Result, Space } from 'antd';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 // Layout helpers shared by every Volcano list page.
 //
@@ -62,16 +62,27 @@ export function NotInstalled({
 // pollingInterval is captured at hook init — changing it at runtime
 // is silently ignored. A plain setInterval driven by React state is
 // straightforward and reliable.
+//
+// Why the ref dance? useRequest hands back a fresh `refresh` function
+// reference on every render. If the effect listed `refresh` in its
+// deps, the timer would tear-down + recreate on every parent render —
+// and at typical render cadence the interval never actually fires.
+// The ref keeps the latest callback addressable while the effect's
+// deps stay limited to (ready, interval).
 export function useAutoRefresh(refresh: () => void, ready: boolean) {
   // Default off: pages should be quiet until the user opts in. Auto-
   // polling on first paint surprises users and burns API requests on
   // pages they're just glancing at.
   const [interval, setIntervalState] = React.useState<number>(0);
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
   useEffect(() => {
     if (!ready || interval <= 0) return;
-    const t = window.setInterval(refresh, interval);
+    const t = window.setInterval(() => refreshRef.current(), interval);
     return () => window.clearInterval(t);
-  }, [ready, interval, refresh]);
+  }, [ready, interval]);
   return [interval, setIntervalState] as const;
 }
 
@@ -199,27 +210,50 @@ export function ResourceIntro({ id }: { id: string }) {
 }
 
 // TruncatedBanner surfaces the server-side cap (default 500 rows) when
-// a Volcano list endpoint returned a `continue` token. We don't wire
-// cursor pagination yet — for now the banner just tells the user there
-// is more data and how to narrow the view (namespace picker / filter).
+// a Volcano list endpoint returned a `continue` token. When the page
+// uses useVolcanoList the banner gains a "load more" button that walks
+// the cursor; pages without the pagination hook can omit `onLoadMore`
+// and the banner falls back to the original informational form.
+//
+// `total` (when known) is rendered as "shown of total" so the user can
+// see how much further they have to go before clicking.
 export function TruncatedBanner({
   shown,
   count,
+  total,
+  onLoadMore,
+  loading,
 }: {
   shown: number;
   count?: number;
+  total?: number;
+  onLoadMore?: () => void;
+  loading?: boolean;
 }) {
   const intl = useIntl();
   if (!shown) return null;
+  const msg = total
+    ? intl.formatMessage(
+        { id: 'pages.compute.list.truncated.withTotal' },
+        { shown, total },
+      )
+    : intl.formatMessage(
+        { id: 'pages.compute.list.truncated' },
+        { n: count ?? shown },
+      );
   return (
     <Alert
       type="info"
       showIcon
       style={{ marginBottom: 8 }}
-      message={intl.formatMessage(
-        { id: 'pages.compute.list.truncated' },
-        { n: count ?? shown },
-      )}
+      message={msg}
+      action={
+        onLoadMore && (
+          <Button size="small" type="link" loading={loading} onClick={onLoadMore}>
+            {intl.formatMessage({ id: 'pages.compute.list.loadMore' })}
+          </Button>
+        )
+      }
     />
   );
 }

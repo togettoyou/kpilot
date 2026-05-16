@@ -137,6 +137,22 @@ export function PodExecDrawer({
       if (myKey !== sessionKey.current) return;
       setError(intl.formatMessage({ id: 'pages.podExec.error.connection' }));
     };
+    ws.onclose = (ev) => {
+      if (myKey !== sessionKey.current) return;
+      // Distinguish abnormal closes (transport drop / server crash)
+      // from clean session ends (user typed exit, container died).
+      // 1000 = normal, 1005 = no status; both are happy paths. The
+      // session-ended message printed via the tag=3 protocol frame
+      // (see onmessage) already covers the clean case.
+      if (!ev.wasClean && ev.code !== 1000 && ev.code !== 1005) {
+        setError(
+          intl.formatMessage(
+            { id: 'pages.podExec.error.closed' },
+            { code: ev.code, reason: ev.reason || '—' },
+          ),
+        );
+      }
+    };
 
     // Hoist the encoder out of the keystroke / resize callbacks — allocating
     // a new TextEncoder on every keypress is wasteful (and the spec says
@@ -258,7 +274,25 @@ export function PodExecDrawer({
           {intl.formatMessage({ id: 'pages.podExec.reload' })}
         </Button>
       </div>
-      {error && <Alert message={error} type="error" banner />}
+      {error && (
+        <Alert
+          message={error}
+          type="error"
+          banner
+          action={
+            <Button
+              size="small"
+              type="link"
+              onClick={() => {
+                setError(null);
+                setReloadKey((k) => k + 1);
+              }}
+            >
+              {intl.formatMessage({ id: 'pages.podExec.reconnect' })}
+            </Button>
+          }
+        />
+      )}
       {/* Wrap the xterm mount in a flex parent: padding lives on the wrapper
           so the terminal element sees a clean box. FitAddon rounds rows by
           line-height, and padding on the mount element itself caused the
@@ -277,3 +311,8 @@ export function PodExecDrawer({
     </Drawer>
   );
 }
+
+// Default export so React.lazy can code-split this drawer. xterm +
+// FitAddon + the bundled xterm.css are ~150 KB gzip; we only need them
+// when a user actually opens a Pod terminal.
+export default PodExecDrawer;

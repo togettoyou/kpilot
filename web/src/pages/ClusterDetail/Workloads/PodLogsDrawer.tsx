@@ -211,13 +211,26 @@ export function PodLogsDrawer({
       if (myKey !== sessionKey.current) return;
       setError(intl.formatMessage({ id: 'pages.podLogs.error.connection' }));
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       if (myKey !== sessionKey.current) return;
       // Flush any trailing partial line.
       if (pending) {
         linesRef.current.push(pending);
         pending = '';
         scheduleFlush();
+      }
+      // Surface abnormal closes (1006 = transport drop / 1011 = server
+      // error / 1012 = service restart / etc) so the user knows the
+      // stream stopped because of an issue, not because the container
+      // exited. wasClean=true with code=1000/1005 is the happy path
+      // ("pod's process exited and the server closed normally").
+      if (!ev.wasClean && ev.code !== 1000 && ev.code !== 1005) {
+        setError(
+          intl.formatMessage(
+            { id: 'pages.podLogs.error.closed' },
+            { code: ev.code, reason: ev.reason || '—' },
+          ),
+        );
       }
     };
 
@@ -438,7 +451,24 @@ export function PodLogsDrawer({
         </Space>
       </div>
       {error && (
-        <Alert message={error} type="error" banner style={{ flexShrink: 0 }} />
+        <Alert
+          message={error}
+          type="error"
+          banner
+          style={{ flexShrink: 0 }}
+          action={
+            <Button
+              size="small"
+              type="link"
+              onClick={() => {
+                setError(null);
+                setReloadKey((k) => k + 1);
+              }}
+            >
+              {intl.formatMessage({ id: 'pages.podLogs.reconnect' })}
+            </Button>
+          }
+        />
       )}
       <pre
         ref={preRef}

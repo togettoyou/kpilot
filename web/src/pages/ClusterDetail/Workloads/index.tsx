@@ -31,6 +31,8 @@ import {
 } from 'antd';
 import * as jsyaml from 'js-yaml';
 import React, {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -52,7 +54,10 @@ import {
 } from '@/services/kpilot/workload';
 import { ApplyYamlDrawer } from './ApplyYamlDrawer';
 import { DescribeDrawer } from './DescribeDrawer';
-import { PodExecDrawer } from './PodExecDrawer';
+// xterm + addons + xterm.css total ~150 KB gzip — lazy-loaded so the
+// Workloads page chunk doesn't carry the terminal runtime for users
+// who never open a Pod shell.
+const PodExecDrawer = lazy(() => import('./PodExecDrawer'));
 import { PodLogsDrawer } from './PodLogsDrawer';
 import { PodTopDrawer } from './PodTopDrawer';
 import { YamlEditor } from './YamlEditor';
@@ -944,13 +949,15 @@ export function WorkloadsContent({
         />
       )}
       {execTarget && (
-        <PodExecDrawer
-          open={!!execTarget}
-          onClose={() => setExecTarget(null)}
-          clusterId={clusterId}
-          namespace={execTarget.namespace ?? ''}
-          podName={execTarget.name}
-        />
+        <Suspense fallback={null}>
+          <PodExecDrawer
+            open={!!execTarget}
+            onClose={() => setExecTarget(null)}
+            clusterId={clusterId}
+            namespace={execTarget.namespace ?? ''}
+            podName={execTarget.name}
+          />
+        </Suspense>
       )}
       {topTarget && (
         <PodTopDrawer

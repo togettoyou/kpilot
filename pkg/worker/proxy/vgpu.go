@@ -7,6 +7,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/sync/singleflight"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -95,7 +99,23 @@ func (p *Proxy) vgpuSnapshot(ctx context.Context) *proto.ResourceResponse {
 // without saving any IO.
 type VGPUTracker struct {
 	cs kubernetes.Interface
+	// Single-flight: N concurrent server requests (e.g. multiple tabs
+	// polling at the same instant) collapse into one underlying full
+	// Nodes + Pods sweep. With ~1000 pods that's ~1.5MB on the wire per
+	// sweep, so the deduplication actively matters under load.
+	sf singleflight.Group
+	// Cache layer on top of single-flight: a successful snapshot is
+	// held for cacheTTL so the next snapshot call within that window
+	// returns instantly without touching the K8s API. cacheTTL is
+	// short enough (3s) that vGPU page rendering still feels live;
+	// long enough that the worker doesn't re-list on every browser
+	// poll tick.
+	cacheMu  sync.RWMutex
+	cached   *vgpu.Snapshot
+	cachedAt time.Time
 }
+
+const vgpuSnapshotCacheTTL = 3 * time.Second
 
 // NewVGPUTracker creates a tracker bound to one cluster's API server.
 // The typed clientset is built once and reused per Snapshot call.
@@ -107,10 +127,51 @@ func NewVGPUTracker(cfg *rest.Config) (*VGPUTracker, error) {
 	return &VGPUTracker{cs: cs}, nil
 }
 
-// Snapshot lists every Node + Pod and projects the vGPU view.
-// Errors from either list propagate up so the caller can surface a
-// meaningful "vGPU unavailable" message instead of a half-empty view.
+// Snapshot returns the latest projected vGPU view. Cached for ~3s and
+// single-flighted, so concurrent callers within a polling tick share
+// one underlying API server scan. See `snapshotLive` for the actual
+// fetch path.
 func (t *VGPUTracker) Snapshot(ctx context.Context) (*vgpu.Snapshot, error) {
+	t.cacheMu.RLock()
+	if t.cached != nil && time.Since(t.cachedAt) < vgpuSnapshotCacheTTL {
+		s := t.cached
+		t.cacheMu.RUnlock()
+		return s, nil
+	}
+	t.cacheMu.RUnlock()
+
+	v, err, _ := t.sf.Do("snapshot", func() (interface{}, error) {
+		// Re-check the cache under sf — another goroutine may have
+		// populated it while we were waiting for the flight slot.
+		t.cacheMu.RLock()
+		if t.cached != nil && time.Since(t.cachedAt) < vgpuSnapshotCacheTTL {
+			s := t.cached
+			t.cacheMu.RUnlock()
+			return s, nil
+		}
+		t.cacheMu.RUnlock()
+
+		fresh, err := t.snapshotLive(ctx)
+		if err != nil {
+			return nil, err
+		}
+		t.cacheMu.Lock()
+		t.cached = fresh
+		t.cachedAt = time.Now()
+		t.cacheMu.Unlock()
+		return fresh, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*vgpu.Snapshot), nil
+}
+
+// snapshotLive is the uncached fetch path. Lists every Node + Pod and
+// projects the vGPU view. Errors from either list propagate up so the
+// caller can surface a meaningful "vGPU unavailable" message instead
+// of a half-empty view.
+func (t *VGPUTracker) snapshotLive(ctx context.Context) (*vgpu.Snapshot, error) {
 	// Snapshot does a full Nodes + Pods sweep on every refresh. Per
 	// CLAUDE.md the eventual fix is informer-backed, but until then
 	// cap each page and walk continue tokens so very large clusters

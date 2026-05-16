@@ -167,6 +167,11 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// API uses all of them.
 		clusters.Any("/:id/proxy/:plugin/*path", handler.ProxyPlugin(gw))
 
+		// In-process observability snapshot. Auth-protected (admin-only
+		// in the single-tenant model). Returns JSON; not Prometheus text
+		// format — this is a debug surface for the human operator.
+		protected.GET("/metrics", handler.GetMetrics(gw))
+
 		// Global plugin registry
 		plugins := protected.Group("/plugins")
 		plugins.GET("", handler.ListPlugins)
