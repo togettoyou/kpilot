@@ -1,13 +1,14 @@
 import {
   CheckOutlined,
+  ExclamationCircleFilled,
   GithubOutlined,
   GlobalOutlined,
   MoonOutlined,
   SunOutlined,
 } from '@ant-design/icons';
-import { getLocale, setLocale, useRequest } from '@umijs/max';
+import { getLocale, setLocale, useIntl, useModel, useRequest } from '@umijs/max';
 import type { MenuProps } from 'antd';
-import { Button } from 'antd';
+import { Button, Tooltip } from 'antd';
 import { createStyles, useThemeMode } from 'antd-style';
 import React, { useEffect, useRef } from 'react';
 import { getVersion } from '@/services/kpilot/system';
@@ -70,6 +71,35 @@ export const VersionBadge: React.FC = () => {
     >
       {data.version}
     </span>
+  );
+};
+
+// DefaultPasswordWarning renders a small amber exclamation icon in the
+// header actions area when the server reports that ADMIN_PASSWORD is
+// still the seed value. Hover surfaces a Tooltip telling the operator
+// to rotate. Hides itself when the password is custom (the common
+// case after first-time setup).
+export const DefaultPasswordWarning: React.FC = () => {
+  const { initialState } = useModel('@@initialState');
+  const intl = useIntl();
+  if (!initialState?.currentUser?.mustRotatePassword) return null;
+  return (
+    <Tooltip title={intl.formatMessage({ id: 'pages.global.defaultPasswordWarning' })}>
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          color: '#faad14',
+          cursor: 'help',
+          fontSize: 13,
+          marginInlineEnd: 8,
+        }}
+        aria-label="default-password-warning"
+      >
+        <ExclamationCircleFilled style={{ fontSize: 16 }} />
+      </span>
+    </Tooltip>
   );
 };
 

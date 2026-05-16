@@ -18,6 +18,17 @@ const (
 	maxLoginPasswordLen = 1024
 )
 
+// adminPasswordIsDefault flags whether the deployment is still running
+// with the seed ADMIN_PASSWORD. Set once at boot from cfg; read by Login
+// + Me so the frontend can surface a rotation warning banner. Plain
+// package variable (not atomic) — written once before any handler runs.
+var adminPasswordIsDefault bool
+
+// SetAdminPasswordIsDefault is called from router setup with the bool
+// from config. Avoids threading the flag through every handler
+// constructor; pairs with SetCORSOrigins.
+func SetAdminPasswordIsDefault(v bool) { adminPasswordIsDefault = v }
+
 type loginRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
@@ -66,6 +77,11 @@ func Me() gin.HandlerFunc {
 			"data": gin.H{
 				"name":   username,
 				"access": "admin",
+				// mustRotatePassword=true tells the frontend to render
+				// the "your deployment still uses the default ADMIN_
+				// PASSWORD, rotate it" banner. Computed at boot, never
+				// changes inside a process.
+				"mustRotatePassword": adminPasswordIsDefault,
 			},
 			"success": true,
 		})

@@ -32,6 +32,16 @@ func IssueToken(secret, username string) (string, error) {
 
 func ParseToken(secret, tokenStr string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
+		// Defense-in-depth: assert the token's declared algorithm is
+		// HS256. jwt/v5 already rejects mismatched alg automatically,
+		// but pinning it here keeps the intent obvious and stops any
+		// future regression (custom SigningMethod registration, fork,
+		// library upgrade) from sneaking in an alg-confusion attack
+		// where a different verifier might accept our HMAC secret as
+		// e.g. an RSA public key.
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok || t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, jwt.ErrTokenSignatureInvalid
+		}
 		return []byte(secret), nil
 	})
 	if err != nil {

@@ -778,6 +778,8 @@ export default {
 
   'pages.layouts.userLayout.title':
     'Unified GPU + Model platform for Kubernetes',
+  'pages.global.defaultPasswordWarning':
+    'This deployment is still using the default ADMIN_PASSWORD — set a strong one via the environment before exposing it publicly.',
 
   // plugin management
   'pages.plugins.title': 'Plugin Management',

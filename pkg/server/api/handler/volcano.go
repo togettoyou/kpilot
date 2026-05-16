@@ -115,7 +115,7 @@ func ListVolcanoQueues(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=Queue", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=Queue", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -219,7 +219,7 @@ func ListVolcanoJobs(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=Job", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=Job", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -306,7 +306,7 @@ func ListVolcanoCronJobs(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=CronJob", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=CronJob", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -387,7 +387,7 @@ func ListVolcanoPodGroups(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=PodGroup", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=PodGroup", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -465,7 +465,7 @@ func ListVolcanoHyperNodes(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=HyperNode", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=HyperNode", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -551,7 +551,7 @@ func ListVolcanoJobFlows(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=JobFlow", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=JobFlow", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -632,7 +632,7 @@ func ListVolcanoJobTemplates(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=JobTemplate", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=JobTemplate", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -715,7 +715,7 @@ func ListVolcanoNumatopologies(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=Numatopology", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=Numatopology", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -805,7 +805,7 @@ func ListVolcanoNodeShards(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=NodeShard", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=NodeShard", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -907,7 +907,7 @@ func ListVolcanoColocationConfigurations(gw *gateway.GatewayServer) gin.HandlerF
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[handler] volcano CRD not available: cluster=%s kind=ColocationConfiguration", clusterID)
+				log.Printf("[volcano] CRD not available: cluster=%s kind=ColocationConfiguration", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -72,6 +73,43 @@ const proxyMaxBodyBytes = 31 * 1024 * 1024
 // Grafana's first dashboard render fans out to many JSON queries; tightened
 // later if it bites.
 const proxyTimeout = 60 * time.Second
+
+// proxyConcurrency caps in-flight HTTP proxy requests per cluster. A Grafana
+// dashboard load fans out to 30+ parallel asset requests; with multiple
+// users open the worker's outbound HTTP pool would otherwise saturate and
+// late panels stall. 20 keeps a single user under the cap while still
+// allowing real parallelism. The semaphore is per (cluster, sem instance),
+// not global, so one busy cluster can't starve others.
+const proxyConcurrency = 20
+
+// perClusterSemaphore holds bounded-channel semaphores keyed by clusterID.
+// Created lazily on first use; never reaped (a few dozen entries is the
+// practical upper bound — clusters table is small).
+var (
+	proxySemMu    sync.Mutex
+	proxySemBySys = make(map[string]chan struct{})
+)
+
+// proxyAcquire returns a release function the caller must call when its
+// proxy request returns. Blocks until a slot is free or ctx cancels;
+// returns false if ctx fired before a slot opened so the caller can
+// 503 rather than continue with an unacquired slot.
+func proxyAcquire(ctx context.Context, clusterID string) (release func(), ok bool) {
+	proxySemMu.Lock()
+	sem, has := proxySemBySys[clusterID]
+	if !has {
+		sem = make(chan struct{}, proxyConcurrency)
+		proxySemBySys[clusterID] = sem
+	}
+	proxySemMu.Unlock()
+
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, true
+	case <-ctx.Done():
+		return nil, false
+	}
+}
 
 // proxyGrafanaRole is the Grafana role KPilot's embedded session lands in.
 // Sent via X-WEBAUTH-ROLE on every request and consumed by Grafana's
@@ -276,6 +314,19 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), proxyTimeout)
 		defer cancel()
+
+		// Bound in-flight proxy requests per cluster — Grafana dashboard
+		// loads fan out to 30+ parallel asset fetches; the cap stops one
+		// user from saturating the worker's HTTP transport. Acquire
+		// fails fast on ctx cancel so the browser sees a clean 503
+		// instead of waiting the full proxyTimeout.
+		release, ok := proxyAcquire(ctx, clusterID)
+		if !ok {
+			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
+			return
+		}
+		defer release()
+
 		resp, err := gw.SendHTTPRequest(ctx, clusterID, req)
 		if err != nil {
 			log.Printf("[proxy] gateway send failed: cluster=%s plugin=%s err=%v",

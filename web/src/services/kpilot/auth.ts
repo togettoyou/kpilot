@@ -4,6 +4,10 @@ export interface CurrentUser {
   name: string;
   access: string;
   avatar?: string;
+  // True when the deployment is still running with the seed
+  // ADMIN_PASSWORD. Computed server-side at boot and propagated via
+  // /auth/me; the app shell renders a "rotate password" banner when set.
+  mustRotatePassword?: boolean;
 }
 
 export function login(params: { username: string; password: string }) {

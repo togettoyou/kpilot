@@ -1,5 +1,7 @@
 export default {
   'pages.layouts.userLayout.title': 'Kubernetes 上的 GPU + 模型一体化平台',
+  'pages.global.defaultPasswordWarning':
+    '当前使用默认 ADMIN_PASSWORD,建议在暴露到公网前在环境变量里改成强密码',
 
   // Embedded Grafana page (shared between monitoring and logging)
   'pages.embed.depState.ready': '已运行',

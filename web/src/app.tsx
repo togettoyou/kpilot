@@ -26,6 +26,7 @@ import { createPortal } from 'react-dom';
 
 import {
   AvatarDropdown,
+  DefaultPasswordWarning,
   Footer,
   GithubLink,
   LangDropdown,
@@ -38,7 +39,16 @@ import { errorConfig } from './requestErrorConfig';
 
 const loginPath = '/user/login';
 
-type CurrentUser = { name: string; access: string; avatar?: string };
+type CurrentUser = {
+  name: string;
+  access: string;
+  avatar?: string;
+  // Server-side flag set when the deployment still uses the default
+  // ADMIN_PASSWORD. The app shell renders a rotation-warning banner
+  // when set so a production deploy can't quietly run with the seed
+  // creds.
+  mustRotatePassword?: boolean;
+};
 
 export type InitialState = {
   currentUser?: CurrentUser;
@@ -603,6 +613,7 @@ export const layout: RunTimeLayoutConfig = ({
     siderWidth: initialState?.siderWidth ?? SIDER_WIDTH_DEFAULT,
     logo: '/logo.svg',
     actionsRender: () => [
+      <DefaultPasswordWarning key="pw-warn" />,
       <NamespacePicker key="ns" />,
       <VersionBadge key="version" />,
       <GithubLink key="github" />,

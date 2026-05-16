@@ -10,14 +10,25 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// DefaultAdminPassword is the fallback used when ADMIN_PASSWORD isn't
+// set in the environment. Exported so other packages can check whether
+// the deployment is still using it and surface a rotation warning to
+// the user. SECURITY: any production deployment must override this.
+const DefaultAdminPassword = "kpilot123"
+
 type Config struct {
 	HTTPAddr      string
 	GRPCAddr      string
 	DSN           string
 	AdminUsername string
 	AdminPassword string
-	JWTSecret     string
-	CORSOrigins   []string // allowed origins; empty = dev permissive mode
+	// AdminPasswordIsDefault is true when ADMIN_PASSWORD wasn't set
+	// and we fell back to DefaultAdminPassword. Handlers surface this
+	// to the frontend so the user sees a banner reminding them to
+	// rotate before exposing the deployment publicly.
+	AdminPasswordIsDefault bool
+	JWTSecret              string
+	CORSOrigins            []string // allowed origins; empty = dev permissive mode
 }
 
 func Load() *Config {
@@ -30,9 +41,11 @@ func Load() *Config {
 	}
 
 	adminPassword := envOr("ADMIN_PASSWORD", "")
+	adminPasswordIsDefault := false
 	if adminPassword == "" {
-		adminPassword = "kpilot123"
-		log.Println("[config] ADMIN_PASSWORD not set, using default: kpilot123")
+		adminPassword = DefaultAdminPassword
+		adminPasswordIsDefault = true
+		log.Printf("[config] ADMIN_PASSWORD not set, using default %q — rotate before exposing this deployment publicly", DefaultAdminPassword)
 	}
 
 	var corsOrigins []string
@@ -45,13 +58,14 @@ func Load() *Config {
 	}
 
 	return &Config{
-		HTTPAddr:      envOr("HTTP_ADDR", ":8080"),
-		GRPCAddr:      envOr("GRPC_ADDR", ":9090"),
-		DSN:           envOr("DSN", "postgres://kpilot:kpilot123@localhost:5432/kpilot?sslmode=disable"),
-		AdminUsername: envOr("ADMIN_USERNAME", "kpilot"),
-		AdminPassword: adminPassword,
-		JWTSecret:     jwtSecret,
-		CORSOrigins:   corsOrigins,
+		HTTPAddr:               envOr("HTTP_ADDR", ":8080"),
+		GRPCAddr:               envOr("GRPC_ADDR", ":9090"),
+		DSN:                    envOr("DSN", "postgres://kpilot:kpilot123@localhost:5432/kpilot?sslmode=disable"),
+		AdminUsername:          envOr("ADMIN_USERNAME", "kpilot"),
+		AdminPassword:          adminPassword,
+		AdminPasswordIsDefault: adminPasswordIsDefault,
+		JWTSecret:              jwtSecret,
+		CORSOrigins:            corsOrigins,
 	}
 }
 

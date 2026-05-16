@@ -44,6 +44,38 @@ var (
 	pluginResolveCache = make(map[string]pluginResolveEntry)
 )
 
+// pluginResolveReapInterval is how often the background reaper walks
+// the cache and evicts expired entries. Without eviction the cache grows
+// unbounded over time — deleted clusters' keys would linger forever
+// (the explicit invalidate covers plugin enable/disable but not cluster
+// removal). One minute is far below pluginResolveTTL so the window of
+// stale-but-expired entries is small; the cost is one map scan per
+// minute over what's expected to be a small map (one key per active
+// (cluster, plugin) pair).
+const pluginResolveReapInterval = time.Minute
+
+func init() {
+	go reapPluginResolveCache()
+}
+
+// reapPluginResolveCache drops entries past pluginResolveTTL on a
+// pluginResolveReapInterval ticker. Long-lived process scope; the
+// goroutine never exits, by design.
+func reapPluginResolveCache() {
+	t := time.NewTicker(pluginResolveReapInterval)
+	defer t.Stop()
+	for range t.C {
+		cutoff := time.Now().Add(-pluginResolveTTL)
+		pluginResolveMu.Lock()
+		for k, e := range pluginResolveCache {
+			if e.cachedAt.Before(cutoff) {
+				delete(pluginResolveCache, k)
+			}
+		}
+		pluginResolveMu.Unlock()
+	}
+}
+
 // resolvePluginRunning validates that the cluster exists, the plugin
 // exists, a ClusterPlugin row links them, and Phase=Running. Returns
 // the release namespace the plugin is installed into. The cache is

@@ -27,6 +27,11 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 	// handshakes — letting an attacker page hijack Grafana / Pod
 	// exec / Pod logs sessions via the browser's auto-attached cookie.
 	handler.SetCORSOrigins(cfg.CORSOrigins)
+	// Propagate the "default admin password" flag so /auth/me surfaces
+	// it to the frontend as mustRotatePassword and the user sees a
+	// rotation banner. Set once at boot — package-level setter pairs
+	// with SetCORSOrigins.
+	handler.SetAdminPasswordIsDefault(cfg.AdminPasswordIsDefault)
 
 	r.Use(func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
