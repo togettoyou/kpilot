@@ -189,7 +189,7 @@ resources:
 	{
 		Name:        "dcgm-exporter",
 		DisplayName: "NVIDIA DCGM Exporter",
-		Description: "Physical NVIDIA GPU telemetry (utilization, temperature, power, framebuffer memory, SM clock, tensor-core activity) exposed as Prometheus metrics on :9400 — the data source for the /compute/:id/gpu-monitoring dashboard. DaemonSet pattern: deploys on every node that has the right runtime; nodes without NVIDIA driver fail their probes harmlessly. Prerequisites on each GPU node: NVIDIA driver + nvidia-container-runtime (the same kit volcano-vgpu-device-plugin needs). Orthogonal to vGPU: vGPU slices the card for scheduling, DCGM reads physical-card counters — install both for the full picture.",
+		Description: "Physical NVIDIA GPU telemetry (utilization, temperature, power, FB memory, SM clock, tensor) as Prometheus metrics on :9400 — feeds /compute/:id/gpu-monitoring. DaemonSet; pods on driverless nodes fail probes harmlessly. Prereq per GPU node: NVIDIA driver + nvidia-container-runtime (same kit volcano-vgpu uses). Orthogonal to vGPU — vGPU slices for scheduling, DCGM reads physical counters; install both for the full picture.",
 		Category:    PluginCategoryMonitoring,
 		IsBuiltin:   true,
 		// Slot between kube-state-metrics (25) and Grafana (30) inside
