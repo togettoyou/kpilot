@@ -105,14 +105,11 @@ const QueueQuotaPage: React.FC = () => {
   // RefreshControl dropdown lets the user pick a cadence.
   const [interval, setInter] = useAutoRefresh(refresh, !!data);
 
-  if (error && isResourceNotAvailable(error)) {
-    return (
-      <PageContainer ghost>
-        <NotInstalled clusterId={clusterId} />
-      </PageContainer>
-    );
-  }
-
+  // IMPORTANT: every useMemo below must fire on every render — the
+  // RESOURCE_NOT_AVAILABLE branch returns later but only AFTER all
+  // hooks have been called. An early-return between hooks here used
+  // to throw "Rendered fewer hooks than expected" the first time a
+  // cluster without Volcano installed hit this page.
   const queues: QueueRow[] = data?.items ?? [];
 
   // Build a name → row map and a parent → children adjacency map.
@@ -176,6 +173,16 @@ const QueueQuotaPage: React.FC = () => {
         a.name.localeCompare(b.name),
       )
     : [];
+
+  // All hooks above. From here it's safe to conditionally return
+  // different JSX without changing the hook count.
+  if (error && isResourceNotAvailable(error)) {
+    return (
+      <PageContainer ghost>
+        <NotInstalled clusterId={clusterId} />
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer
