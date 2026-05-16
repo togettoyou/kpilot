@@ -118,6 +118,17 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// KPilot, sealos preinstall, etc.
 		clusters.GET("/:id/volcano/status", handler.GetVolcanoStatus(gw))
 
+		// Device health aggregator — reads DCGM XID / ECC / temp / FB
+		// from VictoriaMetrics through the worker tunnel and rolls them
+		// into a single alert list. RESOURCE_NOT_AVAILABLE if VM isn't
+		// running on the cluster.
+		clusters.GET("/:id/device-health", handler.GetDeviceHealth(gw))
+		// GPU-Hour billing report — VM range query integrating
+		// DCGM_FI_DEV_GPU_UTIL/100 over the requested window. Capped
+		// at 30d to match the bundled victoria-metrics-single chart's
+		// default retention.
+		clusters.GET("/:id/gpu-hour", handler.GetGPUHour(gw))
+
 		// Per-cluster plugin state (read-only registry view + enable/disable)
 		clusters.GET("/:id/plugins", handler.ListClusterPlugins)
 		clusters.POST("/:id/plugins/:name/enable", handler.EnablePlugin(gw))

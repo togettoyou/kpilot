@@ -154,6 +154,23 @@ export default [
         component: './Compute/Volcano/QueueQuota',
       },
       {
+        // Device health aggregator — DCGM XID / ECC / temp / FB-near-
+        // full alerts rolled into one severity-sorted list. Server-side
+        // PromQL against VictoriaMetrics; requires victoria-metrics +
+        // dcgm-exporter installed.
+        path: '/compute/:id/device-health',
+        component: './Compute/Volcano/DeviceHealth',
+      },
+      {
+        // GPU-Hour usage report — integrates DCGM_FI_DEV_GPU_UTIL/100
+        // over a user-selected window (1h/24h/7d/30d). v1 groups by
+        // (hostname, gpu, uuid) only — queue / namespace breakdown
+        // requires Volcano allocation snapshots persisted server-side,
+        // out of scope for P14c v1.
+        path: '/compute/:id/gpu-hour',
+        component: './Compute/Volcano/GPUHour',
+      },
+      {
         // Read-only view of volcano-scheduler-configmap → the
         // currently configured actions + plugin tiers. Editing
         // happens through the volcano plugin's helm values, not

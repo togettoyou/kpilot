@@ -703,6 +703,51 @@ export default {
   'pages.queueQuota.resource.vgpuMemory': 'vGPU memory',
   'pages.queueQuota.resource.vgpuCores': 'vGPU cores',
 
+  // Device health page (P14b)
+  'pages.deviceHealth.title': 'Device Alerts',
+  'pages.deviceHealth.notInstalled.title': 'VictoriaMetrics is not enabled',
+  'pages.deviceHealth.notInstalled.subTitle':
+    'Device alerts require querying DCGM metrics from VictoriaMetrics. Enable VictoriaMetrics and DCGM Exporter on this cluster.',
+  'pages.deviceHealth.notInstalled.action': 'Open Plugins',
+  'pages.deviceHealth.error.title': 'Failed to load device alerts',
+  'pages.deviceHealth.empty.title': 'All clear',
+  'pages.deviceHealth.empty.subTitle':
+    'No active XID errors, ECC faults, overheating or near-full framebuffer alerts.',
+  'pages.deviceHealth.severity.critical': 'Critical',
+  'pages.deviceHealth.severity.warning': 'Warning',
+  'pages.deviceHealth.severity.info': 'Info',
+  'pages.deviceHealth.kind.xidError': 'XID error',
+  'pages.deviceHealth.kind.eccUncorrect': 'Uncorrectable ECC',
+  'pages.deviceHealth.kind.overheat': 'Overheat',
+  'pages.deviceHealth.kind.fbMemoryFull': 'FB memory near full',
+  'pages.deviceHealth.col.severity': 'Severity',
+  'pages.deviceHealth.col.kind': 'Kind',
+  'pages.deviceHealth.col.hostname': 'Host',
+  'pages.deviceHealth.col.gpu': 'GPU',
+  'pages.deviceHealth.col.uuid': 'UUID',
+  'pages.deviceHealth.col.message': 'Detail',
+
+  // GPU-Hour page (P14c)
+  'pages.gpuHour.title': 'GPU-Hour Usage',
+  'pages.gpuHour.notInstalled.title': 'VictoriaMetrics is not enabled',
+  'pages.gpuHour.notInstalled.subTitle':
+    'The GPU-Hour report queries historical DCGM utilization from VictoriaMetrics. Enable VictoriaMetrics and DCGM Exporter on this cluster.',
+  'pages.gpuHour.notInstalled.action': 'Open Plugins',
+  'pages.gpuHour.error.title': 'Failed to load GPU-Hour report',
+  'pages.gpuHour.empty': 'No GPU usage recorded in the selected window.',
+  'pages.gpuHour.retentionWarning':
+    'The 30-day range approaches the default victoria-metrics-single retention. Data before the cluster started monitoring will appear empty.',
+  'pages.gpuHour.limitation':
+    'v1 aggregates per host / physical card only. Per-queue / namespace / pod breakdowns require server-side Volcano allocation snapshots — coming in a later release.',
+  'pages.gpuHour.total': 'Total GPU-Hours',
+  'pages.gpuHour.unit': 'h',
+  'pages.gpuHour.activeGPUs': 'Active GPUs',
+  'pages.gpuHour.col.hostname': 'Host',
+  'pages.gpuHour.col.gpu': 'GPU',
+  'pages.gpuHour.col.uuid': 'UUID',
+  'pages.gpuHour.col.hours': 'GPU-Hours',
+  'pages.gpuHour.col.share': 'Share',
+
   'pages.layouts.userLayout.title':
     'Unified GPU + Model platform for Kubernetes',
 

@@ -1,9 +1,11 @@
 import {
+  AlertOutlined,
   ApiOutlined,
   AppstoreAddOutlined,
   AppstoreOutlined,
   BlockOutlined,
   BorderInnerOutlined,
+  ClockCircleOutlined,
   ControlOutlined,
   DashboardOutlined,
   DatabaseOutlined,
@@ -505,6 +507,23 @@ function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
       path: `${base}/queue-quota`,
       name: 'queueQuota',
       icon: <FundOutlined />,
+    },
+    {
+      // Device health alert center — DCGM-sourced GPU faults rolled
+      // into a single sortable list. Right after queue quota — both
+      // are operator-side observation pages, both source from VM.
+      path: `${base}/device-health`,
+      name: 'deviceHealth',
+      icon: <AlertOutlined />,
+    },
+    {
+      // GPU-Hour billing report — historical hardware utilization
+      // integrated over a chosen window. Stays after device health
+      // because the typical user flow is "is anything broken right
+      // now → how was usage last week".
+      path: `${base}/gpu-hour`,
+      name: 'gpuHour',
+      icon: <ClockCircleOutlined />,
     },
     {
       // Group label only — has no path of its own. ProLayout opens

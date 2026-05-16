@@ -685,6 +685,51 @@ export default {
   'pages.queueQuota.resource.vgpuMemory': 'vGPU 显存',
   'pages.queueQuota.resource.vgpuCores': 'vGPU 算力',
 
+  // Device health page (P14b)
+  'pages.deviceHealth.title': '设备告警',
+  'pages.deviceHealth.notInstalled.title': 'VictoriaMetrics 尚未启用',
+  'pages.deviceHealth.notInstalled.subTitle':
+    '设备告警需要从 VictoriaMetrics 查询 DCGM 指标。请先启用 VictoriaMetrics 与 DCGM Exporter。',
+  'pages.deviceHealth.notInstalled.action': '前往插件管理',
+  'pages.deviceHealth.error.title': '读取设备告警失败',
+  'pages.deviceHealth.empty.title': '一切正常',
+  'pages.deviceHealth.empty.subTitle':
+    '当前未检测到 XID 错误、ECC 错误、过热或显存即将耗尽的告警',
+  'pages.deviceHealth.severity.critical': '严重',
+  'pages.deviceHealth.severity.warning': '警告',
+  'pages.deviceHealth.severity.info': '信息',
+  'pages.deviceHealth.kind.xidError': 'XID 错误',
+  'pages.deviceHealth.kind.eccUncorrect': '不可恢复 ECC',
+  'pages.deviceHealth.kind.overheat': '过热',
+  'pages.deviceHealth.kind.fbMemoryFull': '显存即将耗尽',
+  'pages.deviceHealth.col.severity': '级别',
+  'pages.deviceHealth.col.kind': '类别',
+  'pages.deviceHealth.col.hostname': '主机',
+  'pages.deviceHealth.col.gpu': 'GPU',
+  'pages.deviceHealth.col.uuid': 'UUID',
+  'pages.deviceHealth.col.message': '说明',
+
+  // GPU-Hour page (P14c)
+  'pages.gpuHour.title': 'GPU-Hour 用量',
+  'pages.gpuHour.notInstalled.title': 'VictoriaMetrics 尚未启用',
+  'pages.gpuHour.notInstalled.subTitle':
+    'GPU-Hour 报表需要从 VictoriaMetrics 查询历史 DCGM 利用率。请先启用 VictoriaMetrics 与 DCGM Exporter。',
+  'pages.gpuHour.notInstalled.action': '前往插件管理',
+  'pages.gpuHour.error.title': '读取 GPU-Hour 报表失败',
+  'pages.gpuHour.empty': '在选定窗口内没有 GPU 使用记录',
+  'pages.gpuHour.retentionWarning':
+    '30 天范围接近 victoria-metrics-single 默认保留期上限,如果集群上线不足 30 天数据会自动缺失',
+  'pages.gpuHour.limitation':
+    'v1 仅按节点 / 物理卡聚合。按 Queue / Namespace / Pod 的细分需要 server 侧持久化 Volcano 分配快照,后续版本会补上',
+  'pages.gpuHour.total': '总 GPU-Hours',
+  'pages.gpuHour.unit': 'h',
+  'pages.gpuHour.activeGPUs': '活跃 GPU 数',
+  'pages.gpuHour.col.hostname': '主机',
+  'pages.gpuHour.col.gpu': 'GPU',
+  'pages.gpuHour.col.uuid': 'UUID',
+  'pages.gpuHour.col.hours': 'GPU-Hours',
+  'pages.gpuHour.col.share': '占比',
+
 
   // plugin management
   'pages.plugins.title': '插件管理',

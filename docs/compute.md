@@ -159,7 +159,33 @@ Volcano 提供两套机制：
 - **轮询**：复用 `useAutoRefresh` + `<RefreshControl>`，default off
 - **文件**：`pages/Compute/Volcano/QueueQuota.tsx`（单文件，~480 行；`parseQuantity` inline copy 自 `OverviewCharts.tsx`，第三处出现时再下沉到 common util）
 
-## 8. 路由 + 菜单结构
+## 8. 设备告警（`/compute/:id/device-health`）
+
+把 DCGM Exporter 采集到的硬件故障信号 server 侧聚合成单一告警列表。**vGPU 视图的姊妹页**：vGPU 看切片分配状态，设备告警看硬件故障状态。
+
+- **数据流**：server `pkg/server/api/handler/device_health.go::GetDeviceHealth` 通过 `resolveVMQueryURL` 拿到 victoria-metrics 在该集群的 Service FQDN（chart 命名 `<release>-victoria-metrics-single-server.<release-ns>.svc.<cluster-domain>:8428`），通过 `gw.SendHTTPRequest` 走 worker tunnel 并发跑 4 条 PromQL 查询：
+  - `DCGM_FI_DEV_XID_ERRORS > 0` —— XID 故障（critical）
+  - `increase(DCGM_FI_DEV_ECC_DBE_VOL_TOTAL[30m]) > 0` —— 30 分钟内出现的不可恢复 ECC（critical）
+  - `DCGM_FI_DEV_GPU_TEMP > 85` —— 过热（≥90 critical，否则 warning）
+  - `(DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL) > 0.95` —— 显存即将耗尽（warning）
+- **单查询失败不阻塞**：4 条 PromQL goroutine 内 `recover` 各自的 error，失败时 log 跳过，前端只少一类告警，不空白
+- **响应 shape**：`{ alerts: [{severity, kind, hostname, instance, gpu, uuid, value, message}], generatedAt, counts: {critical, warning, info} }`，counts 服务端预算，前端 KPI 不重复 walk
+- **VM 未启用**：`resolveVMQueryURL` 检测 victoria-metrics plugin row 缺失 / 未启用 / Phase != Running，返回 `RESOURCE_NOT_AVAILABLE`；前端走 `<NotInstalled>` 引导启用
+- **页面**：`pages/Compute/Volcano/DeviceHealth.tsx` —— 3 KPI 卡（critical / warning / info 数字 + 配色）+ 严重程度 / 类别 / 主机 / GPU / UUID / 说明列的 ProTable，severity 列带 filter 多选，hostname 列点击跳 `/clusters/:id/nodes`，UUID 尾截 `…hhhhhhhh` 复制完整 UUID；空告警时绿色对勾 Empty
+- **未来扩展**：可在同一响应里合并 vGPU snapshot 的 `Card.Health=false` 与 Volcano Job event 失败聚合，结构兼容（kind 新增即可，前端 unknown kind 走 fallback）
+
+## 9. GPU-Hour 用量（`/compute/:id/gpu-hour`）
+
+历史 GPU 利用率积分报表。**v1 仅按节点 × 物理卡聚合**——按 Queue / Namespace / Pod 的细分需要 worker 周期性快照持久化到 server DB（P14c-ext，未实现），文档明示。
+
+- **数据流**：server `gpu_hour.go::GetGPUHour` 接 `?range=1h|24h|7d|30d`，跑 PromQL `avg_over_time((DCGM_FI_DEV_GPU_UTIL / 100)[<range>:<step>])` 拿到每条 (Hostname, gpu) 序列的平均利用率，乘以窗口 hours 得 GPU-Hour 值（例：4 张卡满载 1 小时 = 4.0）
+- **为什么 avg_over_time 而不是 query_range 拉点再求和**：VM 没有梯形积分，两种近似都失精度；avg_over_time 仅 1 vector sample / 序列，worker tunnel 流量小且 PromQL 内部一次扫描——把 trapezoidal pull-and-sum 留作 `//nolint:unused` stub，未来需要毫秒级精度再切换
+- **range step 表**：1h=1m / 24h=5m / 7d=15m / 30d=15m；step 太大会模糊掉短周期使用、太小会拖慢 VM
+- **30d 上限**：与 victoria-metrics-single chart 默认 retention 对齐，超过期的查询自动得 0 而非报错——前端在 30d range 时显示 retention 提示 banner
+- **响应**：`{ range, from, to, generatedAt, rows: [{hostname, instance, gpu, uuid, hours}], total }`，rows 服务端按 hours 倒序
+- **页面**：`pages/Compute/Volcano/GPUHour.tsx` —— 顶部 Radio.Group range picker + RefreshControl，下方双 Statistic（总 GPU-Hours / 活跃 GPU 数）+ ProTable 按 hours 倒序，share 列用 `<Progress size="small">` 按 topN/total 渲染占比；page 顶部固定一条「v1 聚合粒度」提示 Alert，30d range 多挂一条 retention warning
+
+## 10. 路由 + 菜单结构
 
 ```
 算力调度 (/compute)
@@ -168,6 +194,8 @@ Volcano 提供两套机制：
 ├── vGPU            (/compute/:id/vgpu)
 ├── GPU 监控        (/compute/:id/gpu-monitoring)
 ├── Queue 配额      (/compute/:id/queue-quota)
+├── 设备告警        (/compute/:id/device-health)
+├── GPU-Hour 用量   (/compute/:id/gpu-hour)
 └── 调度资源 (group)
     ├── Queue                       (/compute/:id/queues)
     ├── Job                         (/compute/:id/jobs)
@@ -183,9 +211,8 @@ Volcano 提供两套机制：
 
 `/compute/:id` redirect 到 `/overview`。
 
-## 9. 后续路线
+## 11. 后续路线
 
 | 阶段 | 内容 |
 |---|---|
-| P14b | 设备健康告警：DCGM XID / ECC 异常聚合 + vGPU `health=false` 卡片汇总通知中心，Grafana alerting 兜底 |
-| P14c | GPU-Hour 计费报表：Volcano Pod allocation × 持续时间，按 queue / namespace / 用户聚合的历史用量报表（VictoriaMetrics 查询路线 vs server 持久化路线待定） |
+| P14c-ext | GPU-Hour 按 Queue / Namespace / Pod 细分：worker 周期性快照 `volcano.sh/vgpu-*` 分配状态推送 server DB 表，配合时间维度积分；解锁租户计费视图 |
