@@ -8,6 +8,7 @@ import {
   Row,
   Space,
   Tag,
+  theme,
   Tooltip,
   Tree,
   Typography,
@@ -16,6 +17,7 @@ import type { DataNode } from 'antd/es/tree';
 import React, { useMemo } from 'react';
 
 import type { BundleData } from './Overview';
+import { parseQuantity, usageColor } from './shared/utils';
 
 const { Text } = Typography;
 
@@ -135,6 +137,7 @@ function CapacityRow({
   unit: string;
 }) {
   const intl = useIntl();
+  const { token } = theme.useToken();
   // Volcano queues can omit spec.capability — the queue is then
   // "unlimited" (capped only by physical cluster, which the overview
   // doesn't fetch). With no denominator a utilization bar would just
@@ -142,8 +145,7 @@ function CapacityRow({
   // an "unbounded · N <unit> allocated" hint on the right instead.
   const unbounded = total <= 0;
   const pct = unbounded ? 0 : Math.min(allocated / total, 1);
-  const color =
-    pct >= 0.85 ? '#ff4d4f' : pct >= 0.6 ? '#faad14' : '#52c41a';
+  const color = usageColor(pct, token);
   const overloaded = pct >= 0.85;
   return (
     <div
@@ -229,7 +231,7 @@ function CapacityRow({
                   id: 'pages.compute.overview.capacity.overloaded',
                 })}
               >
-                <ExclamationCircleFilled style={{ color: '#ff4d4f' }} />
+                <ExclamationCircleFilled style={{ color: token.colorError }} />
               </Tooltip>
             )}
           </>
@@ -538,6 +540,7 @@ function UtilCell({
   total: number;
   unit: string;
 }) {
+  const { token } = theme.useToken();
   if (total <= 0 && allocated <= 0) {
     return (
       <span style={{ color: 'var(--ant-color-text-quaternary)', fontSize: 13 }}>
@@ -547,7 +550,7 @@ function UtilCell({
   }
   const unbounded = total <= 0;
   const pct = unbounded ? 0 : Math.min(allocated / total, 1);
-  const color = pct >= 0.85 ? '#ff4d4f' : pct >= 0.6 ? '#faad14' : '#52c41a';
+  const color = usageColor(pct, token);
   const overloaded = pct >= 0.85;
   return (
     <div
@@ -610,7 +613,7 @@ function UtilCell({
       </div>
       {overloaded && (
         <ExclamationCircleFilled
-          style={{ color: '#ff4d4f', fontSize: 12, flexShrink: 0 }}
+          style={{ color: token.colorError, fontSize: 12, flexShrink: 0 }}
         />
       )}
     </div>
@@ -1293,44 +1296,4 @@ function formatNum(n: number): string {
   return Math.round(n).toString();
 }
 
-// parseQuantity is the same best-effort K8s Quantity translator used
-// in the original chart file. Handles cpu millicores (`m` suffix),
-// binary prefixes (Ki/Mi/Gi/Ti/Pi), and decimal SI prefixes (K/M/G/
-// T/P). Charts are illustrative, not balance-sheet exact.
-function parseQuantity(raw: string | undefined): number {
-  if (!raw) return 0;
-  const s = raw.trim();
-  if (!s) return 0;
-  if (s.endsWith('m')) {
-    const n = Number(s.slice(0, -1));
-    return Number.isFinite(n) ? n / 1000 : 0;
-  }
-  const binPrefixes: Record<string, number> = {
-    Ki: 1024,
-    Mi: 1024 ** 2,
-    Gi: 1024 ** 3,
-    Ti: 1024 ** 4,
-    Pi: 1024 ** 5,
-  };
-  for (const [p, mul] of Object.entries(binPrefixes)) {
-    if (s.endsWith(p)) {
-      const n = Number(s.slice(0, -p.length));
-      return Number.isFinite(n) ? n * mul : 0;
-    }
-  }
-  const decPrefixes: Record<string, number> = {
-    K: 1000,
-    M: 1000 ** 2,
-    G: 1000 ** 3,
-    T: 1000 ** 4,
-    P: 1000 ** 5,
-  };
-  for (const [p, mul] of Object.entries(decPrefixes)) {
-    if (s.endsWith(p)) {
-      const n = Number(s.slice(0, -p.length));
-      return Number.isFinite(n) ? n * mul : 0;
-    }
-  }
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
-}
+// parseQuantity lives in shared/utils.ts so QueueQuota can reuse it.

@@ -17,6 +17,7 @@ import {
   Space,
   Spin,
   Tag,
+  theme,
   Tooltip,
   Typography,
 } from 'antd';
@@ -34,6 +35,7 @@ import {
   isResourceNotAvailable,
   useAutoRefresh,
 } from './shared/Layout';
+import { parseQuantity } from './shared/utils';
 
 // QueueQuota — cluster-scoped专题页 for inspecting per-queue capacity,
 // guarantee and allocated for every resource the queue references.
@@ -419,6 +421,7 @@ function ResourceQuotaRow({
   dark: boolean;
 }) {
   const intl = useIntl();
+  const { token } = theme.useToken();
   const meta = resourceMeta(resourceKey);
 
   const allocN = parseQuantity(allocated) * meta.scale;
@@ -436,15 +439,19 @@ function ResourceQuotaRow({
   const guarPct = guarN > 0 ? clamp01(guarN / denom) : 0;
   const desPct = desN > 0 ? clamp01(desN / denom) : 0;
 
-  // Colours: alloc bar tinted red on overcommit / orange on unmet
-  // guarantee, otherwise primary blue.
+  // Colours via antd theme tokens so dark / light mode share the same
+  // semantic meaning. Track stays a flat fill (no token equivalent for
+  // "muted neutral track" — colorFillSecondary is the closest match).
   const fillColor = overcommit
-    ? '#ff4d4f'
+    ? token.colorError
     : unmetGuarantee
-      ? '#fa8c16'
-      : '#1677ff';
-  const trackColor = dark ? '#1f1f1f' : '#f0f0f0';
-  const guaranteeColor = '#52c41a';
+      ? token.colorWarning
+      : token.colorPrimary;
+  const trackColor = dark ? token.colorFillSecondary : token.colorFillTertiary;
+  const guaranteeColor = token.colorSuccess;
+  // Deserved tick: brand purple. antd's default token set has no
+  // semantic purple, so we keep this one hex literal — it's a "third
+  // distinct color" channel, not a state.
   const deservedColor = '#722ed1';
 
   const niceLabel = humanizeResourceKey(resourceKey, intl);
@@ -621,44 +628,5 @@ function fmt(v: number): string {
   return v.toPrecision(2);
 }
 
-// Inline copy of the K8s Quantity parser from OverviewCharts.tsx. The
-// function is small / pure and stays close to the only other call site,
-// so duplicating it here avoids a shared-utils file just for one
-// function. Refactor to common if a third call site appears.
-function parseQuantity(raw: string | undefined): number {
-  if (!raw) return 0;
-  const s = raw.trim();
-  if (!s) return 0;
-  if (s.endsWith('m')) {
-    const n = Number(s.slice(0, -1));
-    return Number.isFinite(n) ? n / 1000 : 0;
-  }
-  const binPrefixes: Record<string, number> = {
-    Ki: 1024,
-    Mi: 1024 ** 2,
-    Gi: 1024 ** 3,
-    Ti: 1024 ** 4,
-    Pi: 1024 ** 5,
-  };
-  for (const [p, mul] of Object.entries(binPrefixes)) {
-    if (s.endsWith(p)) {
-      const n = Number(s.slice(0, -p.length));
-      return Number.isFinite(n) ? n * mul : 0;
-    }
-  }
-  const decPrefixes: Record<string, number> = {
-    K: 1000,
-    M: 1000 ** 2,
-    G: 1000 ** 3,
-    T: 1000 ** 4,
-    P: 1000 ** 5,
-  };
-  for (const [p, mul] of Object.entries(decPrefixes)) {
-    if (s.endsWith(p)) {
-      const n = Number(s.slice(0, -p.length));
-      return Number.isFinite(n) ? n * mul : 0;
-    }
-  }
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
-}
+// parseQuantity is shared with OverviewCharts via ./shared/utils so the
+// quantity-parsing rules don't drift between Overview and QueueQuota.

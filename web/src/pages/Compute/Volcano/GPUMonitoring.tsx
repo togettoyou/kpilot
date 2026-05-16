@@ -14,6 +14,7 @@ import {
   Space,
   Spin,
   Statistic,
+  theme,
   Typography,
 } from 'antd';
 import { useThemeMode } from 'antd-style';
@@ -32,6 +33,7 @@ import {
   isResourceNotAvailable,
   useAutoRefresh,
 } from './shared/Layout';
+import { usageColor } from './shared/utils';
 
 // GPU monitoring — fully self-rendered (no Grafana iframe). Sister to
 // /compute/:id/vgpu: that page covers slice allocation; this covers
@@ -76,13 +78,15 @@ interface FlatPoint {
   series: string;
 }
 
-// dashboardColor picks the Progress gauge color band. Same thresholds
-// the vGPU page uses for slot / mem / core utilization so the platform
-// feels consistent — high = red, mid = yellow, otherwise green.
-function dashboardColor(pct: number): string {
-  if (pct >= 85) return '#ff4d4f';
-  if (pct >= 60) return '#faad14';
-  return '#52c41a';
+// dashboardColor picks the Progress gauge color band, expressed in
+// antd theme tokens so the result tracks dark/light mode. The
+// shared usageColor helper takes a [0,1] ratio; we receive [0,100]
+// percent here so divide by 100 inside.
+function dashboardColor(
+  pct: number,
+  token: { colorSuccess: string; colorWarning: string; colorError: string },
+): string {
+  return usageColor(pct / 100, token);
 }
 
 const GPUMonitoringPage: React.FC = () => {
@@ -90,6 +94,7 @@ const GPUMonitoringPage: React.FC = () => {
   const { id: clusterId = '' } = useParams<{ id: string }>();
   const { appearance } = useThemeMode();
   const dark = appearance === 'dark';
+  const { token } = theme.useToken();
 
   const [range, setRange] = useState<GPUMetricsRange>('1h');
 
@@ -188,7 +193,7 @@ const GPUMonitoringPage: React.FC = () => {
                     type="dashboard"
                     percent={Math.min(snap?.avgUtilPct ?? 0, 100)}
                     size={64}
-                    strokeColor={dashboardColor(snap?.avgUtilPct ?? 0)}
+                    strokeColor={dashboardColor(snap?.avgUtilPct ?? 0, token)}
                     format={() => ''}
                   />
                 </div>
@@ -211,7 +216,7 @@ const GPUMonitoringPage: React.FC = () => {
                     // saturates at the bundled overheat threshold.
                     percent={Math.min(((snap?.avgTempC ?? 0) / 90) * 100, 100)}
                     size={64}
-                    strokeColor={dashboardColor(((snap?.avgTempC ?? 0) / 90) * 100)}
+                    strokeColor={dashboardColor(((snap?.avgTempC ?? 0) / 90) * 100, token)}
                     format={() => `↑${(snap?.maxTempC ?? 0).toFixed(0)}`}
                   />
                 </div>

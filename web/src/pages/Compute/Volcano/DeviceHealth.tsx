@@ -19,6 +19,7 @@ import {
   Spin,
   Statistic,
   Tag,
+  theme,
   Typography,
 } from 'antd';
 import React from 'react';
@@ -34,6 +35,7 @@ import {
   isResourceNotAvailable,
   useAutoRefresh,
 } from './shared/Layout';
+import { shortUUID } from './shared/utils';
 
 // DeviceHealth — single-page aggregation of GPU hardware health
 // signals sourced from DCGM Exporter (via VictoriaMetrics through the
@@ -75,6 +77,11 @@ const KIND_MESSAGE_I18N: Record<string, string> = {
 const DeviceHealthPage: React.FC = () => {
   const intl = useIntl();
   const { id: clusterId = '' } = useParams<{ id: string }>();
+  // Resolve severity tints through the antd theme so dark and light
+  // modes show the same semantic meaning. Hard-coding hex (#ff4d4f
+  // etc.) hard-coded the light-mode tones; the warning yellow in
+  // particular reads poorly on a dark background.
+  const { token } = theme.useToken();
 
   const { data, loading, error, refresh } = useClusterRequest(
     () => getDeviceHealth(clusterId),
@@ -180,11 +187,11 @@ const DeviceHealthPage: React.FC = () => {
       ellipsis: true,
       render: (_, row) => {
         if (!row.uuid) return '-';
-        // Show last 8 chars only — full UUID is in the tooltip for
-        // copy/paste. Same convention as the vGPU page.
+        // shortUUID keeps the platform-wide convention "…<last 8>";
+        // the full UUID is recoverable via the copy button.
         return (
           <Typography.Text copyable={{ text: row.uuid }} style={{ fontSize: 12 }}>
-            …{row.uuid.slice(-8)}
+            {shortUUID(row.uuid)}
           </Typography.Text>
         );
       },
@@ -224,9 +231,9 @@ const DeviceHealthPage: React.FC = () => {
                     id: 'pages.deviceHealth.severity.critical',
                   })}
                   value={counts.critical}
-                  prefix={<AlertOutlined style={{ color: '#ff4d4f' }} />}
+                  prefix={<AlertOutlined style={{ color: token.colorError }} />}
                   valueStyle={{
-                    color: counts.critical > 0 ? '#ff4d4f' : undefined,
+                    color: counts.critical > 0 ? token.colorError : undefined,
                   }}
                 />
               </Card>
@@ -238,9 +245,9 @@ const DeviceHealthPage: React.FC = () => {
                     id: 'pages.deviceHealth.severity.warning',
                   })}
                   value={counts.warning}
-                  prefix={<WarningOutlined style={{ color: '#fa8c16' }} />}
+                  prefix={<WarningOutlined style={{ color: token.colorWarning }} />}
                   valueStyle={{
-                    color: counts.warning > 0 ? '#fa8c16' : undefined,
+                    color: counts.warning > 0 ? token.colorWarning : undefined,
                   }}
                 />
               </Card>
@@ -252,7 +259,7 @@ const DeviceHealthPage: React.FC = () => {
                     id: 'pages.deviceHealth.severity.info',
                   })}
                   value={counts.info}
-                  prefix={<InfoCircleOutlined style={{ color: '#1677ff' }} />}
+                  prefix={<InfoCircleOutlined style={{ color: token.colorPrimary }} />}
                 />
               </Card>
             </Col>
@@ -263,7 +270,7 @@ const DeviceHealthPage: React.FC = () => {
               <Empty
                 image={
                   <CheckCircleOutlined
-                    style={{ fontSize: 48, color: '#52c41a' }}
+                    style={{ fontSize: 48, color: token.colorSuccess }}
                   />
                 }
                 description={

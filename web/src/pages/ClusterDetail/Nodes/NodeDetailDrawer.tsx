@@ -13,6 +13,7 @@ import {
 import React, { useEffect } from 'react';
 
 import { getNode } from '@/services/kpilot/node';
+import { formatAge as sharedFormatAge } from '@/pages/Compute/Volcano/shared/Layout';
 
 const { Text } = Typography;
 
@@ -318,16 +319,12 @@ function nodeRoles(node: any): string[] {
   return roles;
 }
 
-function formatAge(rfc3339: string | undefined): string {
-  if (!rfc3339) return '—';
-  const t = Date.parse(rfc3339);
-  if (Number.isNaN(t)) return '—';
-  const sec = Math.floor((Date.now() - t) / 1000);
-  if (sec < 60) return `${sec}s`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
-  if (sec < 86_400) return `${Math.floor(sec / 3600)}h`;
-  return `${Math.floor(sec / 86_400)}d`;
-}
+// formatAge lives in pages/Compute/Volcano/shared/Layout so the
+// kubectl-style "5m / 3h / 2d" rendering is consistent across the
+// app. We call into it with the '—' placeholder Node-detail prefers
+// for missing timestamps.
+const formatAge = (rfc3339: string | undefined) =>
+  sharedFormatAge(rfc3339, '—');
 
 const StatusTag: React.FC<{ status: string }> = ({ status }) => {
   const parts = status.split(',').map((p) => p.trim()).filter(Boolean);

@@ -32,6 +32,7 @@ import {
   isResourceNotAvailable,
   useAutoRefresh,
 } from './shared/Layout';
+import { shortUUID } from './shared/utils';
 
 // GPUHour — historical hardware utilization report. Server integrates
 // DCGM_FI_DEV_GPU_UTIL/100 over the picked window into GPU-hours per
@@ -129,7 +130,7 @@ const GPUHourPage: React.FC = () => {
         if (!row.uuid) return '-';
         return (
           <Typography.Text copyable={{ text: row.uuid }} style={{ fontSize: 12 }}>
-            …{row.uuid.slice(-8)}
+            {shortUUID(row.uuid)}
           </Typography.Text>
         );
       },

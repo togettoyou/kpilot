@@ -105,13 +105,21 @@ export default function VolcanoOverviewPage() {
       // controller) doesn't fail the whole dashboard. Each list
       // independently degrades to an empty bucket. The
       // "all-CRDs-missing" case is already filtered out above.
+      //
+      // limit=200 (rather than the server default 500) keeps the
+      // dashboard responsive on busy clusters — the Overview charts
+      // are illustrative (top-N + counts), so capping at 200 per CRD
+      // sacrifices nothing visible while halving worst-case payload
+      // and the JSON parse on the browser side. Trauncated banner
+      // already surfaces "data was clipped" via continue tokens.
+      const overviewLimit = 200;
       const results = await Promise.allSettled([
-        listVolcanoQueues(clusterId!),
-        listVolcanoJobs(clusterId!, ns),
-        listVolcanoCronJobs(clusterId!, ns),
-        listVolcanoPodGroups(clusterId!, ns),
-        listVolcanoHyperNodes(clusterId!),
-        listVolcanoJobFlows(clusterId!, ns),
+        listVolcanoQueues(clusterId!, { limit: overviewLimit }),
+        listVolcanoJobs(clusterId!, ns, { limit: overviewLimit }),
+        listVolcanoCronJobs(clusterId!, ns, { limit: overviewLimit }),
+        listVolcanoPodGroups(clusterId!, ns, { limit: overviewLimit }),
+        listVolcanoHyperNodes(clusterId!, { limit: overviewLimit }),
+        listVolcanoJobFlows(clusterId!, ns, { limit: overviewLimit }),
       ]);
       const pick = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
         r.status === 'fulfilled' ? r.value : fallback;

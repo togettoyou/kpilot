@@ -17,6 +17,7 @@ import {
   Row,
   Space,
   Tag,
+  theme,
   Tooltip,
   Typography,
 } from 'antd';
@@ -35,6 +36,7 @@ import {
   RefreshControl,
   useAutoRefresh,
 } from './shared/Layout';
+import { shortUUID, usageColor } from './shared/utils';
 
 const { Text } = Typography;
 
@@ -236,20 +238,21 @@ function ratio(used: number, total: number): number {
 
 // Single source of truth for utilization colors across all the bars
 // on this page — matches the Overview dashboard's queue table:
-// red ≥ 85%, yellow ≥ 60%, green otherwise.
-function utilColor(r: number): string {
-  if (r >= 0.85) return '#ff4d4f';
-  if (r >= 0.6) return '#faad14';
-  return '#52c41a';
+// red ≥ 85%, yellow ≥ 60%, green otherwise. Tokens flow from the
+// theme so dark / light mode share the same semantic meaning.
+function utilColor(
+  r: number,
+  token: { colorSuccess: string; colorWarning: string; colorError: string },
+): string {
+  return usageColor(r, token);
 }
 
-// Tail-bias UUID truncation. Server-side UUIDs come from NVML and
-// share fixed prefixes (`GPU-`); operators identify cards by the
-// trailing hex. So show "…<last 8>" instead of "<first 12>…".
+// shortUuid wraps shared shortUUID with VGPU-specific empty handling
+// (renders "-" for missing UUIDs to keep table cells from collapsing).
 function shortUuid(uuid: string): string {
   if (!uuid) return '-';
   if (uuid.length <= 12) return uuid;
-  return `…${uuid.slice(-8)}`;
+  return shortUUID(uuid);
 }
 
 // nodeCores aggregates a node's per-card cores into one (used, total)
@@ -273,6 +276,7 @@ function ClusterKPIs({
   loading: boolean;
 }) {
   const intl = useIntl();
+  const { token } = theme.useToken();
 
   const totalCards = snapshot?.totalCards ?? 0;
   const totalSlots = snapshot?.totalSlots ?? 0;
@@ -424,7 +428,7 @@ function ClusterKPIs({
                     type="dashboard"
                     percent={pct}
                     size={110}
-                    strokeColor={utilColor(k.ratio)}
+                    strokeColor={utilColor(k.ratio, token)}
                     format={() => (
                       <span style={{ color: toneColor, fontSize: 20, fontWeight: 600 }}>
                         {pct}%
@@ -950,6 +954,7 @@ function UtilBar({
   asGiB?: boolean;
   percent?: boolean;
 }) {
+  const { token } = theme.useToken();
   if (total <= 0 && used <= 0) {
     return (
       <span style={{ color: 'var(--ant-color-text-quaternary)', fontSize: 13 }}>
@@ -958,7 +963,7 @@ function UtilBar({
     );
   }
   const r = ratio(used, total);
-  const color = utilColor(r);
+  const color = utilColor(r, token);
   const overloaded = r >= 0.85;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1007,7 +1012,7 @@ function UtilBar({
       </div>
       {overloaded && (
         <ExclamationCircleFilled
-          style={{ color: '#ff4d4f', fontSize: 12, flexShrink: 0 }}
+          style={{ color: token.colorError, fontSize: 12, flexShrink: 0 }}
         />
       )}
     </div>

@@ -129,9 +129,11 @@ export function RefreshControl({
 // formatAge renders a creationTimestamp into a kubectl-style age:
 // "5m", "3h", "2d". K8s itself produces these in the Table API; we
 // regenerate it client-side because the slim list endpoints return
-// the raw RFC3339 timestamp.
-export function formatAge(creationTimestamp?: string): string {
-  if (!creationTimestamp) return '';
+// the raw RFC3339 timestamp. `placeholder` is the string returned
+// when the input is missing — Volcano list pages use '' so empty
+// cells stay quiet, the Node detail drawer uses '—' for emphasis.
+export function formatAge(creationTimestamp?: string, placeholder = ''): string {
+  if (!creationTimestamp) return placeholder;
   const t = new Date(creationTimestamp).getTime();
   if (!Number.isFinite(t)) return '';
   const sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
