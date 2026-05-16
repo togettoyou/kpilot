@@ -51,7 +51,7 @@ status:
 
 | 插件             | 分类         | 阶段             | 用途                                          |
 |----------------|------------|----------------|---------------------------------------------|
-| DCGM Exporter  | monitoring | Volcano 转向 P3 | NVIDIA GPU 物理指标采集（利用率 / 温度 / 功耗 / 显存）|
+| DCGM Exporter  | monitoring | P13            | NVIDIA GPU 物理指标采集（利用率 / 温度 / 功耗 / 显存）|
 
 **已弃用**：HAMi（独立部署）—— 与 Volcano 调度器的 deviceshare 路径互斥，已从内置注册表移除。其 vGPU 能力由 volcano-vgpu-device-plugin 替代。
 

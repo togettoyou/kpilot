@@ -158,5 +158,5 @@ Volcano 提供两套机制：
 
 | 阶段 | 内容 |
 |---|---|
-| P3 | DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard 嵌入（GPU 物理卡监控）|
-| P4 | Volcano queue 配额可视化深化 + 设备健康告警 + GPU-Hour 计费报表 |
+| P13 | DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard 嵌入（GPU 物理卡监控）|
+| P14 | Volcano queue 配额可视化深化 + 设备健康告警 + GPU-Hour 计费报表 |
