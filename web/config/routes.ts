@@ -133,6 +133,15 @@ export default [
         component: './Compute/Volcano/VGPU',
       },
       {
+        // Physical GPU monitoring: embeds the bundled NVIDIA DCGM
+        // Exporter Grafana dashboard. Requires grafana + victoria-
+        // metrics for the visualization stack and dcgm-exporter for the
+        // raw counters. Sister to /vgpu — that page shows slice
+        // allocation, this page shows hardware-level health.
+        path: '/compute/:id/gpu-monitoring',
+        component: './Compute/Volcano/GPUMonitoring',
+      },
+      {
         // Read-only view of volcano-scheduler-configmap → the
         // currently configured actions + plugin tiers. Editing
         // happens through the volcano plugin's helm values, not

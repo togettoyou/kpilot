@@ -132,13 +132,24 @@ Volcano 提供两套机制：
 
 所有 Volcano Job 创建时的 task podSpec 自动注入 `schedulerName: 'volcano'`（见 `services/kpilot/volcano.ts::buildJobManifest`）。手写 YAML 的用户也得记得加，否则会被 default-scheduler 接管，绕过 Volcano 调度策略。
 
-## 6. 路由 + 菜单结构
+## 6. GPU 监控（`/compute/:id/gpu-monitoring`）
+
+物理 GPU 健康度面板。**vGPU 视图的姊妹页**：vGPU 视图看切片分配（哪张卡上有谁、占了多少 slot / 显存 / cores），GPU 监控看硬件层指标（温度 / 功耗 / 实际利用率 / framebuffer / SM clock / tensor 核心活跃度）。
+
+- **数据流**：NVIDIA DCGM Exporter 内置插件（`pkg/server/store/seed.go` 中 `dcgm-exporter` 一行，sort_order 27，chart 来源 `https://nvidia.github.io/dcgm-exporter/helm-charts`，DaemonSet 部署）→ 暴露 `:9400` 上的 Prometheus 指标 → VictoriaMetrics 按 `prometheus.io/{scrape,port}` 服务注解抓取 → Grafana 渲染面板
+- **Dashboard**：Grafana ID 12239（NVIDIA 官方 DCGM Exporter Dashboard，UID `Oxed_c6Wz`），完整 JSON 落在 `pkg/server/dashboards/builtin/nvidia-dcgm.json`，通过 `embed.go::buildGrafanaOverlay` 注入到 Grafana plugin 的 values。**JSON 预处理**：从 grafana.com 拉到的原 JSON 包含 `__inputs` / `__requires` 块（Grafana 导入向导用）和 `${DS_PROMETHEUS}` 占位符；保存前用 `jq` 把前者 `del`、把后者 `gsub` 成字面量 `VictoriaMetrics`（与 grafana 插件 default_values 里 datasource name 对齐），让文件级 provisioning 直接 load 不走 import flow
+- **页面**：`pages/Compute/Volcano/GPUMonitoring.tsx` —— 复用 `<GrafanaEmbed>`，`required=['grafana', 'victoria-metrics', 'dcgm-exporter']`，无 recommended；缺依赖时复用现有 `pages.gpuMonitoring.{missing,installing,failed}.{title,subTitle}` 文案
+- **前置条件**：每个 GPU 节点要装 **NVIDIA driver + nvidia-container-runtime**（与 volcano-vgpu-device-plugin 共用同一套基础设施）。DCGM Exporter 容器需要 `SYS_ADMIN` cap 才能读 profiling 指标（`DCGM_FI_PROF_*`），chart 默认 securityContext 已配齐
+- **节点选择**：默认无 nodeSelector —— exporter 在无 GPU 的节点上探针失败，pod 不会重新调度（无伤大雅但占 pod slot）。用 NFD / GPU Operator 的环境可在 EnableDrawer 里加 `nodeSelector.nvidia.com/gpu.present: "true"`
+
+## 7. 路由 + 菜单结构
 
 ```
 算力调度 (/compute)
 ├── Volcano 概览     (/compute/:id/overview)        ← 默认首屏
 ├── 调度策略        (/compute/:id/scheduler)
 ├── vGPU            (/compute/:id/vgpu)
+├── GPU 监控        (/compute/:id/gpu-monitoring)
 └── 调度资源 (group)
     ├── Queue                       (/compute/:id/queues)
     ├── Job                         (/compute/:id/jobs)
@@ -154,9 +165,8 @@ Volcano 提供两套机制：
 
 `/compute/:id` redirect 到 `/overview`。
 
-## 7. 后续路线
+## 8. 后续路线
 
 | 阶段 | 内容 |
 |---|---|
-| P13 | DCGM Exporter 内置插件 + Grafana NVIDIA DCGM dashboard 嵌入（GPU 物理卡监控）|
 | P14 | Volcano queue 配额可视化深化 + 设备健康告警 + GPU-Hour 计费报表 |

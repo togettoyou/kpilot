@@ -24,6 +24,9 @@ var nodeExporterFullJSON string
 //go:embed builtin/victoria-logs-explorer.json
 var victoriaLogsExplorerJSON string
 
+//go:embed builtin/nvidia-dcgm.json
+var nvidiaDCGMJSON string
+
 // dashboardKey is the chart's per-dashboard map key. Doubles as the
 // auto-generated ConfigMap suffix; keep it DNS-1123 safe.
 type dashboardKey string
@@ -31,6 +34,7 @@ type dashboardKey string
 const (
 	keyNodeExporterFull   dashboardKey = "node-exporter-full"
 	keyVictoriaLogsExplor dashboardKey = "victoria-logs-explorer"
+	keyNVIDIADCGM         dashboardKey = "nvidia-dcgm"
 )
 
 // MergeGrafanaExtras takes the user-facing values YAML and overlays the
@@ -91,6 +95,15 @@ func buildGrafanaOverlay() map[string]any {
 				},
 				string(keyVictoriaLogsExplor): map[string]any{
 					"json": victoriaLogsExplorerJSON,
+				},
+				// NVIDIA DCGM Exporter dashboard (Grafana ID 12239,
+				// UID Oxed_c6Wz). Pre-processed: __inputs / __requires
+				// import-only blocks stripped and "${DS_PROMETHEUS}"
+				// placeholders rewritten to the literal datasource name
+				// "VictoriaMetrics" so the file-provisioned dashboard
+				// loads without going through Grafana's import flow.
+				string(keyNVIDIADCGM): map[string]any{
+					"json": nvidiaDCGMJSON,
 				},
 			},
 		},

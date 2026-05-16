@@ -486,6 +486,16 @@ function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
       icon: <BorderInnerOutlined />,
     },
     {
+      // Physical GPU monitoring — DCGM Exporter scraping into the
+      // existing Grafana stack. Pairs with vGPU above: vGPU shows
+      // slice-level allocation, GPU monitoring shows hardware-level
+      // health (temp / power / utilization / mem / SM clock). Both are
+      // cluster-wide aggregates so they live next to each other.
+      path: `${base}/gpu-monitoring`,
+      name: 'gpuMonitoring',
+      icon: <LineChartOutlined />,
+    },
+    {
       // Group label only — has no path of its own. ProLayout opens
       // the section when any child route matches.
       path: `${base}/_group/resources`,

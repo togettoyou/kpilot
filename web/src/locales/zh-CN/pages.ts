@@ -641,6 +641,19 @@ export default {
     '请前往插件页查看错误详情并重新启用,或调整 values 后重试。',
   'pages.logging.recommended': '建议同时启用 {names}。',
 
+  // GPU monitoring page (deps: grafana + victoria-metrics + dcgm-exporter,
+  // dashboard: NVIDIA DCGM Exporter)
+  'pages.gpuMonitoring.missing.title': 'GPU 监控所需的内置插件尚未启用',
+  'pages.gpuMonitoring.missing.subTitle':
+    '请先启用 Grafana、VictoriaMetrics 和 NVIDIA DCGM Exporter,启用完成后此页面会自动显示 GPU 监控面板。',
+  'pages.gpuMonitoring.installing.title': 'GPU 监控所需的插件正在安装',
+  'pages.gpuMonitoring.installing.subTitle':
+    '安装一般需要 1-2 分钟,本页会自动每 5 秒刷新;完成后会自动切换到 GPU 监控面板。GPU 节点需要安装 NVIDIA 驱动与 nvidia-container-runtime。',
+  'pages.gpuMonitoring.failed.title': 'GPU 监控所需的插件安装失败',
+  'pages.gpuMonitoring.failed.subTitle':
+    '请前往插件页查看错误详情并重新启用,或调整 values 后重试。常见原因:GPU 节点缺少 NVIDIA 驱动或 nvidia-container-runtime。',
+  'pages.gpuMonitoring.recommended': '建议同时启用 {names}。',
+
 
   // plugin management
   'pages.plugins.title': '插件管理',

@@ -42,16 +42,11 @@ status:
 | VictoriaMetrics             | monitoring | repo     | 单节点 TSDB，自带 Web UI + scrape 配置                                |
 | Node Exporter               | monitoring | repo     | 节点级硬件 + OS 指标（搭 VM 用）                                       |
 | kube-state-metrics          | monitoring | repo     | K8s 对象状态指标（Deployment 副本、Pod phase、Node condition）         |
+| NVIDIA DCGM Exporter        | monitoring | repo     | 物理 GPU 指标 DaemonSet（`DCGM_FI_DEV_*`：利用率 / 温度 / 功耗 / framebuffer 显存 / SM clock / tensor 活跃度）暴露 `:9400` 上的 Prometheus 端点，驱动 `/compute/:id/gpu-monitoring` 页面。前置：每个 GPU 节点要装 NVIDIA driver + nvidia-container-runtime（与 vGPU device-plugin 同款依赖）。与 vGPU 正交：vGPU 切分用于调度，DCGM 读物理卡传感器 |
 | Grafana                     | monitoring | **oci**  | 可视化前端，反代嵌入 + 内置 dashboard + auth.proxy                     |
 | VictoriaLogs                | logging    | repo     | 日志存储 + 自带 Vector DaemonSet 采集                                |
 | Volcano                     | scheduling | repo     | Batch 调度器，gang scheduling + Queue + drf 公平共享；默认装在 `volcano-system`，默认 scheduler 配置已启 `deviceshare` 以配合 vGPU 后端 |
 | Volcano vGPU<br/>(`volcano-vgpu-device-plugin`) | scheduling | **local**| Volcano scheduler deviceshare 的后端 device-plugin（HAMi-core fork）：把物理 GPU 注册为 `volcano.sh/vgpu-{number,memory,cores}` 资源；驱动 `/compute/:id/vgpu` 实况页。display_name 缩短为 "Volcano vGPU" 适配 antd Card 单行 ellipsis；默认装在 `volcano-system`（chart 把两个 ConfigMap 也写到 release namespace，依赖 device-plugin 二进制内的 `kube-system → volcano-system` fallback 链找到 `volcano-vgpu-device-config`） |
-
-**计划新增**：
-
-| 插件             | 分类         | 阶段             | 用途                                          |
-|----------------|------------|----------------|---------------------------------------------|
-| DCGM Exporter  | monitoring | P13            | NVIDIA GPU 物理指标采集（利用率 / 温度 / 功耗 / 显存）|
 
 **已弃用**：HAMi（独立部署）—— 与 Volcano 调度器的 deviceshare 路径互斥，已从内置注册表移除。其 vGPU 能力由 volcano-vgpu-device-plugin 替代。
 

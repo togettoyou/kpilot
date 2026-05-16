@@ -187,6 +187,60 @@ resources:
 		DefaultReleaseNamespace: "kpilot-monitoring",
 	},
 	{
+		Name:        "dcgm-exporter",
+		DisplayName: "NVIDIA DCGM Exporter",
+		Description: "Physical NVIDIA GPU telemetry (utilization, temperature, power, framebuffer memory, SM clock, tensor-core activity) exposed as Prometheus metrics on :9400 — the data source for the /compute/:id/gpu-monitoring dashboard. DaemonSet pattern: deploys on every node that has the right runtime; nodes without NVIDIA driver fail their probes harmlessly. Prerequisites on each GPU node: NVIDIA driver + nvidia-container-runtime (the same kit volcano-vgpu-device-plugin needs). Orthogonal to vGPU: vGPU slices the card for scheduling, DCGM reads physical-card counters — install both for the full picture.",
+		Category:    PluginCategoryMonitoring,
+		IsBuiltin:   true,
+		// Slot between kube-state-metrics (25) and Grafana (30) inside
+		// the monitoring category — DCGM is another collector feeding the
+		// metrics pipeline, render before the visualization plugin.
+		SortOrder:      27,
+		ChartType:      ChartTypeRepo,
+		ChartRepo:      "https://nvidia.github.io/dcgm-exporter/helm-charts",
+		ChartName:      "dcgm-exporter",
+		DefaultVersion: "4.8.2",
+		// Overrides on top of chart defaults:
+		//
+		// 1. service.annotations.prometheus.io/{scrape,port}: chart
+		//    leaves Service annotations empty by default. Our bundled VM
+		//    scrape config uses keep_if_equal on the port annotation; an
+		//    explicit "9400" is required so the target gets kept (same
+		//    pattern as node-exporter at 9100, kube-state-metrics at
+		//    8080). The pod-level scrape annotations the chart comments
+		//    out in podAnnotations aren't enough — VM's relabel chain
+		//    keys off the Service-level annotation.
+		// 2. resources: chart leaves resources unset, which on a busy GPU
+		//    node can have the OOM-killer reap the exporter under
+		//    pressure. Modest requests + a 512Mi soft limit, matching
+		//    other monitoring builtins.
+		// 3. nodeSelector intentionally left empty: a "nvidia.com/gpu.
+		//    present: true" label is convention but not guaranteed (no
+		//    node-feature-discovery / GPU Operator installed on bare k3s
+		//    clusters). The DCGM exporter pod fails its readiness probe
+		//    on driver-less nodes and reschedules nowhere, which is
+		//    annoying-but-correct. Users with NFD can add their own
+		//    nodeSelector in the EnableDrawer.
+		DefaultValues: `image:
+  repository: nvcr.io/nvidia/k8s/dcgm-exporter
+  pullPolicy: IfNotPresent
+service:
+  enable: true
+  type: ClusterIP
+  port: 9400
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9400"
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+`,
+		DefaultReleaseNamespace: "kpilot-monitoring",
+	},
+	{
 		Name:        "grafana",
 		DisplayName: "Grafana",
 		Description: "Dashboards & visualization for cluster metrics. Pre-wired for KPilot reverse-proxy embedding (auth.proxy + sub-path) and with VictoriaMetrics as the default Prometheus-compatible datasource — install victoria-metrics first so Grafana finds it on first launch. Login is via the embedded session — auth.proxy auto-creates Admin users from KPilot's logged-in user. The chart's auto-generated admin password is in Secret <release>-grafana for kubectl-port-forward debugging if you ever need it.",
