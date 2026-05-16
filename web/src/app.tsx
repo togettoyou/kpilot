@@ -488,12 +488,22 @@ function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
       icon: <SettingOutlined />,
     },
     {
-      // vGPU cluster snapshot — sits between scheduler config (the
-      // policy side) and the resource browsers (the workload side)
-      // because it shows the live hardware state policies + workloads
-      // act on. Top-level rather than nested under 调度资源 because
-      // it's not a CR — it's an aggregated read across Node/Pod
-      // annotations.
+      // Queue quota deep-dive — single-queue view of capability /
+      // guarantee / allocated / deserved across every resource the
+      // queue declares. Sits right after scheduler because both are
+      // policy-side views (scheduler config defines the rules, queue
+      // quota shows how those rules play out per queue). Top-level
+      // rather than nested under 调度资源 because it's a dashboard
+      // view, not a CR list.
+      path: `${base}/queue-quota`,
+      name: 'queueQuota',
+      icon: <FundOutlined />,
+    },
+    {
+      // vGPU cluster snapshot — live hardware state that policies +
+      // workloads act on. Top-level rather than nested under 调度资
+      // 源 because it's not a CR — it's an aggregated read across
+      // Node/Pod annotations.
       path: `${base}/vgpu`,
       name: 'vgpu',
       icon: <BorderInnerOutlined />,
@@ -507,16 +517,6 @@ function buildComputeSubMenu(clusterId: string): MenuDataItem[] {
       path: `${base}/gpu-monitoring`,
       name: 'gpuMonitoring',
       icon: <LineChartOutlined />,
-    },
-    {
-      // Queue quota deep-dive — single-queue view of capability /
-      // guarantee / allocated / deserved across every resource the
-      // queue declares. Sits at the top level (not nested under 调度
-      // 资源) because it's a dashboard view, not a CR list. Right after
-      // GPU 监控 because both are observation pages.
-      path: `${base}/queue-quota`,
-      name: 'queueQuota',
-      icon: <FundOutlined />,
     },
     {
       // Device health alert center — DCGM-sourced GPU faults rolled

@@ -237,6 +237,17 @@ resources:
     memory: 128Mi
   limits:
     memory: 512Mi
+# Disable ServiceMonitor by default — the chart's default values
+# enable it, which references the monitoring.coreos.com/v1
+# ServiceMonitor CRD shipped by kube-prometheus-stack /
+# prometheus-operator. KPilot's bundled stack is VictoriaMetrics
+# (which scrapes via the prometheus.io/scrape annotation set above),
+# not prometheus-operator, so the CRD isn't installed and Helm
+# rejects the manifest with "no matches for kind ServiceMonitor".
+# Users running prometheus-operator alongside can flip this back on
+# in the EnableDrawer.
+serviceMonitor:
+  enabled: false
 `,
 		DefaultReleaseNamespace: "kpilot-monitoring",
 	},

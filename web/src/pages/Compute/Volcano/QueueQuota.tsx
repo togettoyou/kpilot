@@ -100,6 +100,20 @@ const QueueQuotaPage: React.FC = () => {
     { ready: !!clusterId },
   );
 
+  // Default to the "root" queue once data loads — Volcano always
+  // ships a root queue (it's the implicit parent of every queue
+  // without an explicit parent), and on a fresh cluster it's the
+  // only thing to look at. Picking it on first render saves the
+  // user a click; if there's no root (e.g. all queues have custom
+  // names), the Empty CTA still prompts them to select.
+  React.useEffect(() => {
+    if (selectedQueue !== null) return;
+    if (!data?.items?.length) return;
+    const rootByName = data.items.find((q) => q.name === 'root');
+    const initial = rootByName?.name ?? data.items[0]?.name;
+    if (initial) setSelectedQueue(initial);
+  }, [data, selectedQueue]);
+
   // Polling is opt-in; useAutoRefresh starts at 0 (off) and the
   // RefreshControl dropdown lets the user pick a cadence.
   const [interval, setInter] = useAutoRefresh(refresh, !!data);
