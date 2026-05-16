@@ -1,0 +1,36 @@
+@startuml
+!include <C4/C4_Container>
+
+LAYOUT_WITH_LEGEND()
+title KPilot — Container Diagram
+
+Person(operator, "Platform Operator", "Manages GPU clusters and workloads through the KPilot UI")
+
+System_Boundary(kpilot, "KPilot Control Plane") {
+    Container(ui, "Web UI", "React + UmiJS + Ant Design", "Cluster ops, Volcano scheduling, vGPU governance, GPU telemetry, plugin lifecycle")
+    Container(server, "KPilot Server", "Go, Gin, gRPC", "REST API, WebSocket fan-out, Worker registry, plugin pipeline; holds no kubeconfigs")
+    ContainerDb(db, "PostgreSQL", "GORM", "Cluster registry, plugin metadata, accounts, audit trail")
+}
+
+System_Boundary(cluster_a, "Managed Kubernetes Cluster A") {
+    Container(worker_a, "KPilot Worker", "Go, controller-runtime, Helm SDK", "Reconciles Plugin CRD, proxies K8s ops, streams logs / metrics / events")
+    Container(k8s_a, "Kubernetes API", "kube-apiserver", "Native + custom resources, RBAC enforcement")
+}
+
+System_Boundary(cluster_b, "Managed Kubernetes Cluster B") {
+    Container(worker_b, "KPilot Worker", "Go, controller-runtime, Helm SDK", "Same agent, different cluster")
+    Container(k8s_b, "Kubernetes API", "kube-apiserver", " ")
+}
+
+Rel(operator, ui, "Uses", "HTTPS")
+Rel(ui, server, "REST + WebSocket", "HTTPS / WSS")
+Rel(server, db, "Reads / writes", "SQL")
+
+Rel_U(worker_a, server, "Long-lived gRPC bidi stream\n(Worker dials in)", "gRPC / TLS")
+Rel_U(worker_b, server, "Long-lived gRPC bidi stream", "gRPC / TLS")
+
+Rel(worker_a, k8s_a, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
+Rel(worker_b, k8s_b, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
+
+SHOW_LEGEND()
+@enduml
