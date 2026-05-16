@@ -365,13 +365,19 @@ function MetricChartCard({
           scale={{ y: yMax ? { domainMin: 0, domainMax: yMax } : { domainMin: 0 } }}
           legend={{ color: { itemMarker: 'circle' } }}
           tooltip={{
+            // Title carries the formatted timestamp. Items defaults to
+            // one row per series with `series` as the label and `v` as
+            // the value — we pass `field: 'v'` plus a valueFormatter to
+            // suffix the unit. Plot then auto-binds the series name
+            // from colorField, so the tooltip row reads
+            // "host · GPU 0 — 65.3 °C".
             title: (datum: any) => {
               const d = new Date(datum.t);
               return d.toLocaleString();
             },
             items: [
               {
-                channel: 'y',
+                field: 'v',
                 valueFormatter: (v: any) => `${fmtAxis(v)} ${unit}`,
               },
             ],

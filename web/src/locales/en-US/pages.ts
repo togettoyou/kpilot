@@ -729,6 +729,14 @@ export default {
   'pages.deviceHealth.kind.eccUncorrect': 'Uncorrectable ECC',
   'pages.deviceHealth.kind.overheat': 'Overheat',
   'pages.deviceHealth.kind.fbMemoryFull': 'FB memory near full',
+  'pages.deviceHealth.message.xidError':
+    'GPU reported XID {intValue} — hardware fault, consult the NVIDIA XID catalog',
+  'pages.deviceHealth.message.eccUncorrect':
+    '{intValue} uncorrectable ECC errors in the last 30 minutes — data may be corrupted, drain the node and plan an RMA / reseat',
+  'pages.deviceHealth.message.overheat':
+    'GPU temperature {intValue}°C — investigate cooling / airflow',
+  'pages.deviceHealth.message.fbMemoryFull':
+    'Framebuffer at {pct}% — next allocation likely OOM',
   'pages.deviceHealth.col.severity': 'Severity',
   'pages.deviceHealth.col.kind': 'Kind',
   'pages.deviceHealth.col.hostname': 'Host',

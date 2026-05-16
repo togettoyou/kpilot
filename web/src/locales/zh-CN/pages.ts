@@ -712,6 +712,14 @@ export default {
   'pages.deviceHealth.kind.eccUncorrect': '不可恢复 ECC',
   'pages.deviceHealth.kind.overheat': '过热',
   'pages.deviceHealth.kind.fbMemoryFull': '显存即将耗尽',
+  'pages.deviceHealth.message.xidError':
+    'GPU 报告 XID {intValue} —— 硬件故障,请对照 NVIDIA XID 代码表诊断',
+  'pages.deviceHealth.message.eccUncorrect':
+    '最近 30 分钟出现 {intValue} 次不可恢复 ECC 错误,数据可能损坏,建议 drain 节点并安排检修',
+  'pages.deviceHealth.message.overheat':
+    'GPU 温度 {intValue}°C,检查散热与机箱风道',
+  'pages.deviceHealth.message.fbMemoryFull':
+    '显存占用 {pct}% —— 下次分配可能 OOM',
   'pages.deviceHealth.col.severity': '级别',
   'pages.deviceHealth.col.kind': '类别',
   'pages.deviceHealth.col.hostname': '主机',

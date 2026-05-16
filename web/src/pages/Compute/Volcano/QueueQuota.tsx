@@ -46,6 +46,11 @@ import {
 // back to raw-name display with parseQuantity for the value.
 const KNOWN_RESOURCES: Array<{
   key: string;
+  // Units are kept in ASCII (cores / GiB / MiB / %) so the column
+  // suffix is locale-neutral — the localized resource name to the left
+  // ("CPU" / "内存" / etc.) carries the human context. Localized
+  // singular nouns like "片" / "slice" belong in the resource label,
+  // not the unit suffix, otherwise they leak into the wrong locale.
   unit?: string;
   // valueScale lets us render memory in GiB instead of raw bytes.
   // Applied AFTER parseQuantity, so input is the parsed numeric value.
@@ -54,7 +59,9 @@ const KNOWN_RESOURCES: Array<{
   { key: 'cpu', unit: 'cores' },
   { key: 'memory', unit: 'GiB', valueScale: 1 / 1024 ** 3 },
   { key: 'nvidia.com/gpu', unit: 'cards' },
-  { key: 'volcano.sh/vgpu-number', unit: '切片' },
+  // vgpu-number's localized noun ("切片数" / "vGPU slots") is already
+  // baked into the resource label; no unit suffix needed.
+  { key: 'volcano.sh/vgpu-number' },
   { key: 'volcano.sh/vgpu-memory', unit: 'MiB' },
   { key: 'volcano.sh/vgpu-cores', unit: '%' },
 ];

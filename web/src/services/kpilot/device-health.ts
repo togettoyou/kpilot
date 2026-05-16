@@ -17,13 +17,19 @@ export type AlertKind =
 
 export interface DeviceAlert {
   severity: AlertSeverity;
+  // Unknown kinds are surfaced to the frontend as raw strings — the
+  // page falls back to "kind: value" rendering for them.
   kind: AlertKind | string;
   hostname?: string;
   instance?: string;
   gpu?: string;
   uuid?: string;
+  // Raw metric value. The page formats it according to `kind`:
+  //   xid_error           → integer XID code
+  //   ecc_uncorrectable   → integer error count
+  //   overheat            → degrees Celsius
+  //   fb_memory_near_full → unit ratio [0,1] (formatted as percentage)
   value: number;
-  message: string;
 }
 
 export interface DeviceHealthResponse {

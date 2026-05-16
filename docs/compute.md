@@ -160,7 +160,7 @@ Volcano 提供两套机制：
 单 Queue 多资源配额深化视图。**Overview 的姊妹页**：Overview 显示集群级 capability vs allocated 三资源横向条；Queue 配额页选定一个 Queue 后展开 **全部资源类型** × **四状态**（capability / guarantee / allocated / deserved）+ **子 Queue 卡片递归**。
 
 - **数据流**：复用现有 `/api/v1/clusters/:id/volcano/queues` 列表端点（list-full 已经把 spec.{capability, guarantee, deserved, priority} + status.allocated 都投影出来）；一次拉全集群队列，子树关系在前端按 `spec.parent` 重组。**无新端点**
-- **后端字段扩展**（P14a）：`pkg/server/api/handler/volcano.go::queueRow` 加 `Priority` / `Guarantee` / `Deserved` 三个字段。`spec.guarantee` 在 Volcano 里嵌套写成 `{ resource: ResourceList }`，server 端 unwrap 内层 `resource` 直接下发
+- **后端字段扩展**：`pkg/server/api/handler/volcano.go::queueRow` 加 `Priority` / `Guarantee` / `Deserved` 三个字段。`spec.guarantee` 在 Volcano 里嵌套写成 `{ resource: ResourceList }`，server 端 unwrap 内层 `resource` 直接下发
 - **页面布局**：
   - **顶部 selector**：缩进树形 option list 的 Queue Select（父子层级靠前缀 `│   ├─` 可视化，避免引入 Cascader 重组件），右侧统计「共 N 个 Queue」+ RefreshControl 间隔下拉（默认 off）
   - **主卡片**（选中 Queue 之后）：header bar 列名称 + state Tag + 父队列 Tag + priority/weight Badge + reclaimable 反向 Tag + extra 处运行/等待/排队 job 计数 Badge。body 内逐资源行：
@@ -189,7 +189,7 @@ Volcano 提供两套机制：
 
 ## 9. GPU-Hour 用量（`/compute/:id/gpu-hour`）
 
-历史 GPU 利用率积分报表。**v1 仅按节点 × 物理卡聚合**——按 Queue / Namespace / Pod 的细分需要 worker 周期性快照持久化到 server DB（P14c-ext，未实现），文档明示。
+历史 GPU 利用率积分报表。**v1 仅按节点 × 物理卡聚合**——按 Queue / Namespace / Pod 的细分需要 worker 周期性快照持久化到 server DB（见 §11 后续路线），文档明示。
 
 - **数据流**：server `gpu_hour.go::GetGPUHour` 接 `?range=1h|24h|7d|30d`，跑 PromQL `avg_over_time((DCGM_FI_DEV_GPU_UTIL / 100)[<range>:<step>])` 拿到每条 (Hostname, gpu) 序列的平均利用率，乘以窗口 hours 得 GPU-Hour 值（例：4 张卡满载 1 小时 = 4.0）
 - **为什么 avg_over_time 而不是 query_range 拉点再求和**：VM 没有梯形积分，两种近似都失精度；avg_over_time 仅 1 vector sample / 序列，worker tunnel 流量小且 PromQL 内部一次扫描——把 trapezoidal pull-and-sum 留作 `//nolint:unused` stub，未来需要毫秒级精度再切换
@@ -226,6 +226,6 @@ Volcano 提供两套机制：
 
 ## 11. 后续路线
 
-| 阶段 | 内容 |
+| 主题 | 内容 |
 |---|---|
-| P14c-ext | GPU-Hour 按 Queue / Namespace / Pod 细分：worker 周期性快照 `volcano.sh/vgpu-*` 分配状态推送 server DB 表，配合时间维度积分；解锁租户计费视图 |
+| GPU-Hour 细分 | GPU-Hour 报表按 Queue / Namespace / Pod 细分：worker 周期性快照 `volcano.sh/vgpu-*` 分配状态推送 server DB 表，配合时间维度积分；解锁租户计费视图 |

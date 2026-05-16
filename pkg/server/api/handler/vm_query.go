@@ -232,8 +232,20 @@ func queryVMRange(ctx context.Context, gw *gateway.GatewayServer, clusterID, bas
 // urlQueryEscape is a minimal RFC 3986 query-string encoder. We can't
 // use net/url because it would escape "{" / "}" / "(" which VM accepts
 // in its query strings, and the encoded result wouldn't round-trip
-// through worker proxying. Encode the bare-minimum dangerous chars
-// (=, &, +, %, #) and leave PromQL syntactic chars alone.
+// through worker proxying.
+//
+// Whitelisted (passed through unescaped): alnum, `_-.~/:[](){},!<>=*|"`.
+// The PromQL grammar uses `=` inside label matchers (`{label="value"}`);
+// the URL parser still works because only the first `=` in `?query=…`
+// is treated as the key/value separator.
+//
+// Escaped (anything else hits the percent-escape default branch):
+// `&` — would split query params on the upstream side.
+// `+` — URL parsing decodes `+` → space, so a literal `+` would silently
+//   become a space; encoded as `%2B` to keep the byte.
+// `%` `#` `?` `\` `^` — generally unsafe in query values.
+// Space — encoded as the legacy `+` form (one-byte shorter than `%20`)
+//   since VM's parser accepts both interchangeably.
 func urlQueryEscape(s string) string {
 	const hex = "0123456789ABCDEF"
 	out := make([]byte, 0, len(s))

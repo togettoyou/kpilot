@@ -91,9 +91,12 @@ const GPUHourPage: React.FC = () => {
   const total = data?.total ?? 0;
 
   // Top contributor used for the in-table progress bar's denominator.
-  // Falls back to 1 when total is 0 so the Progress doesn't divide by
-  // zero on a fresh cluster.
-  const topHours = rows.length > 0 ? rows[0].hours : 1;
+  // Server already sorts by hours desc, so rows[0] is the max. Fall
+  // back to 1 not just when the list is empty but also when the top
+  // row itself is zero — otherwise share = hours / 0 = NaN flows into
+  // every row on a fresh cluster where DCGM has reported but every
+  // GPU was idle.
+  const topHours = rows.length > 0 && rows[0].hours > 0 ? rows[0].hours : 1;
 
   const columns: ProColumns<GPUHourRow>[] = [
     {

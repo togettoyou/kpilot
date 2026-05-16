@@ -59,6 +59,17 @@ const KIND_I18N: Record<string, string> = {
   fb_memory_near_full: 'pages.deviceHealth.kind.fbMemoryFull',
 };
 
+// Message templates per kind. Sentence string lives on the frontend
+// so zh-CN / en-US render in the user's locale; the server only
+// ships kind + raw value. Each template can reference `value`,
+// `intValue` (rounded), and `pct` (value × 100, rounded) placeholders.
+const KIND_MESSAGE_I18N: Record<string, string> = {
+  xid_error: 'pages.deviceHealth.message.xidError',
+  ecc_uncorrectable: 'pages.deviceHealth.message.eccUncorrect',
+  overheat: 'pages.deviceHealth.message.overheat',
+  fb_memory_near_full: 'pages.deviceHealth.message.fbMemoryFull',
+};
+
 const DeviceHealthPage: React.FC = () => {
   const intl = useIntl();
   const { id: clusterId = '' } = useParams<{ id: string }>();
@@ -177,8 +188,8 @@ const DeviceHealthPage: React.FC = () => {
     },
     {
       title: intl.formatMessage({ id: 'pages.deviceHealth.col.message' }),
-      dataIndex: 'message',
       ellipsis: true,
+      render: (_, row) => renderAlertMessage(intl, row),
     },
   ];
 
@@ -288,3 +299,26 @@ const DeviceHealthPage: React.FC = () => {
 };
 
 export default DeviceHealthPage;
+
+// renderAlertMessage builds the table's "detail" cell from kind + raw
+// metric value via i18n. Three placeholders are supplied to every
+// template so the translator picks whichever fits — {value} for the
+// raw float, {intValue} for the rounded integer (XID code / ECC
+// count / temperature), {pct} for value × 100 rounded (FB-near-full
+// ratio expressed as a percentage). Unknown kinds fall back to
+// "kind: value" raw rendering — no crash, no English leakage.
+function renderAlertMessage(
+  intl: ReturnType<typeof useIntl>,
+  row: DeviceAlert,
+): string {
+  const id = KIND_MESSAGE_I18N[row.kind];
+  if (!id) return `${row.kind}: ${row.value}`;
+  return intl.formatMessage(
+    { id },
+    {
+      value: row.value,
+      intValue: Math.round(row.value),
+      pct: Math.round(row.value * 100),
+    },
+  );
+}

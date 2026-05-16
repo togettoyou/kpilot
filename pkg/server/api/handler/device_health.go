@@ -16,7 +16,6 @@ package handler
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"sort"
@@ -53,9 +52,15 @@ const (
 )
 
 // deviceAlert is one row in the device-health table.
+//
+// Note on rendering: the human-friendly sentence is rendered on the
+// frontend from `kind` + `value` via i18n (zh-CN / en-US), not
+// returned from the server. Adding a new kind means adding two i18n
+// entries on the frontend; unknown kinds fall back to "kind: value"
+// raw rendering.
 type deviceAlert struct {
-	Severity alertSeverity     `json:"severity"`
-	Kind     alertKind         `json:"kind"`
+	Severity alertSeverity `json:"severity"`
+	Kind     alertKind     `json:"kind"`
 	// Hostname / instance / gpu come straight from DCGM labels and
 	// double as the join keys for cross-page navigation: the frontend
 	// links to /compute/:id/vgpu filtered by hostname (when present)
@@ -65,11 +70,6 @@ type deviceAlert struct {
 	GPU      string  `json:"gpu,omitempty"`
 	UUID     string  `json:"uuid,omitempty"`
 	Value    float64 `json:"value"`
-	// Human-friendly description ("XID 79 — GPU has fallen off the bus")
-	// composed by the handler based on the kind + label values; the
-	// frontend renders this directly without further interpretation so
-	// adding a new kind doesn't require frontend i18n surgery.
-	Message string `json:"message"`
 }
 
 type deviceHealthResponse struct {
@@ -171,6 +171,11 @@ func collectDeviceAlerts(ctx context.Context, gw *gateway.GatewayServer, cluster
 		promql string
 		fn     func(s vmSeries) deviceAlert
 	}
+	// Each alert kind's lambda is now a thin label projection — no
+	// Message string, the frontend builds the sentence from kind +
+	// value via i18n. Adding a new kind = (1) add an alertKind const,
+	// (2) add a job entry here, (3) add zh-CN + en-US message
+	// templates on the frontend.
 	jobs := []job{
 		{
 			// XID errors: DCGM_FI_DEV_XID_ERRORS reports the most-recent
@@ -187,7 +192,6 @@ func collectDeviceAlerts(ctx context.Context, gw *gateway.GatewayServer, cluster
 					GPU:      s.Labels["gpu"],
 					UUID:     s.Labels["UUID"],
 					Value:    s.Value,
-					Message:  fmt.Sprintf("GPU reported XID %d — hardware fault, consult NVIDIA XID catalog", int(s.Value)),
 				}
 			},
 		},
@@ -206,7 +210,6 @@ func collectDeviceAlerts(ctx context.Context, gw *gateway.GatewayServer, cluster
 					GPU:      s.Labels["gpu"],
 					UUID:     s.Labels["UUID"],
 					Value:    s.Value,
-					Message:  fmt.Sprintf("%g uncorrectable ECC errors in the last 30 minutes — data may be corrupted, plan to drain and reseat / RMA", s.Value),
 				}
 			},
 		},
@@ -228,14 +231,14 @@ func collectDeviceAlerts(ctx context.Context, gw *gateway.GatewayServer, cluster
 					GPU:      s.Labels["gpu"],
 					UUID:     s.Labels["UUID"],
 					Value:    s.Value,
-					Message:  fmt.Sprintf("GPU temperature %.0f°C — investigate cooling / airflow", s.Value),
 				}
 			},
 		},
 		{
 			// FB memory near full — DCGM_FI_DEV_FB_USED is in MiB; pair
 			// with FB_TOTAL to get a ratio. Threshold 95% catches the
-			// case where the next allocator would OOM the job.
+			// case where the next allocator would OOM the job. Value
+			// stays a [0,1] ratio; frontend renders as percentage.
 			promql: `(DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL) > 0.95`,
 			fn: func(s vmSeries) deviceAlert {
 				return deviceAlert{
@@ -246,7 +249,6 @@ func collectDeviceAlerts(ctx context.Context, gw *gateway.GatewayServer, cluster
 					GPU:      s.Labels["gpu"],
 					UUID:     s.Labels["UUID"],
 					Value:    s.Value,
-					Message:  fmt.Sprintf("Framebuffer memory at %.0f%% — next allocation likely OOM", s.Value*100),
 				}
 			},
 		},
