@@ -16,7 +16,7 @@ Multi-cluster is the default — a single KPilot Server manages many clusters, w
 
 - **Multi-cluster GPU operations** — run a single platform team across clusters in different VPCs, regions, or clouds without touching network policies.
 - **Shared GPU tenancy** — partition each card into vGPU slices and govern allocation through Volcano queues with explicit capability / guarantee / deserved policies.
-- **GPU usage accountability** — produce GPU-Hour reports per node and per card straight from DCGM, then drill into hotspots from the same UI.
+- **GPU usage metering** — produce GPU-Hour reports per node and per card straight from DCGM, then drill into hotspots from the same UI.
 - **Self-service AI platform** *(roadmap)* — let teams deploy inference endpoints from a model catalog and run distributed fine-tuning without writing YAML.
 
 ## Key Features
@@ -67,13 +67,5 @@ Coming in upcoming releases:
 - Distributed fine-tuning on Volcano gang scheduling
 
 ## Quick Start
-
-> Coming soon.
-
-## Documentation
-
-> Coming soon.
-
-## Community
 
 > Coming soon.
