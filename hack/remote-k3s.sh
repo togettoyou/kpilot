@@ -64,6 +64,13 @@ SSH_OPTS=(
   -o ControlMaster=auto
   -o "ControlPath=$SSH_MUX_DIR/%C"
   -o ControlPersist=60s
+  # IdentityFile + IdentitiesOnly: force ssh to try ONLY our pushed
+  # key, not whatever's in ssh-agent or the default identity rotation
+  # (id_rsa → id_ecdsa → id_ed25519). Without it, a machine with N
+  # keys in ssh-agent hits MaxAuthTries before reaching the right one
+  # and falls back to password — that's why the tunnel was prompting.
+  -i "$SSH_KEY"
+  -o IdentitiesOnly=yes
 )
 
 red()    { printf '\033[31m%s\033[0m\n' "$*" >&2; }
@@ -107,24 +114,47 @@ kill_tunnel() {
 start_tunnel() {
   local host=$1
   kill_tunnel
+  # BatchMode=yes makes the tunnel fail fast on auth issues instead of
+  # blocking on a password prompt (which ssh writes to /dev/tty even
+  # when stderr is redirected — see the previous "tunnel pid=N" bug
+  # where the pid was alive but ssh was wedged at the password
+  # prompt). IdentityFile + IdentitiesOnly pin the pushed key so a
+  # multi-key ssh-agent doesn't burn auth attempts on the wrong one.
+  # </dev/null severs stdin so any prompt that does slip through
+  # closes immediately.
   nohup ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
             -o StrictHostKeyChecking=no \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -i "$SSH_KEY" \
             -p "$SSH_PORT" \
             -L "$LOCAL_PORT:127.0.0.1:6443" \
             -N "$SSH_USER@$host" \
-            >/dev/null 2>&1 &
+            </dev/null >/dev/null 2>&1 &
   local pid=$!
   echo "$pid" > "$PID_FILE"
   disown "$pid" 2>/dev/null || true
-  # Give the master a moment to settle; if it exits in the first 2s
-  # treat as "didn't come up" (auth fail, port in use, etc.).
-  sleep 2
-  if ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$PID_FILE"
-    red "tunnel didn't come up"
-    return 1
-  fi
-  green "tunnel pid=$pid"
+  # Wait for the local listener to actually accept — `kill -0` alone
+  # only checks the process exists, but BatchMode auth failure +
+  # `</dev/null` could exit silently within the sleep window. Probe
+  # the port too so we report failure on real connection refusal,
+  # not just process death.
+  local i
+  for i in 1 2 3 4 5 6 7 8; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$PID_FILE"
+      red "tunnel exited within ${i}s — check key auth (try \`ssh -i $SSH_KEY $SSH_USER@$host true\`)"
+      return 1
+    fi
+    if (exec 3<>/dev/tcp/127.0.0.1/"$LOCAL_PORT") 2>/dev/null; then
+      exec 3<&- 3>&-
+      green "tunnel pid=$pid (localhost:$LOCAL_PORT ready)"
+      return 0
+    fi
+    sleep 0.5
+  done
+  red "tunnel pid=$pid but localhost:$LOCAL_PORT didn't open within 4s"
+  return 1
 }
 
 # sed_replace_inplace performs a portable sed -i substitution. macOS BSD sed
@@ -182,22 +212,34 @@ push_key() {
   fi
   : "${REMOTE_K3S_PASSWORD:=}"
   if [[ -z "$REMOTE_K3S_PASSWORD" ]]; then
+    yellow "tip: export REMOTE_K3S_PASSWORD=... to skip this prompt on repeat runs"
     read -rsp "password for $SSH_USER@$host:$SSH_PORT: " REMOTE_K3S_PASSWORD
     echo
   fi
   step "pushing pubkey via expect"
-  if try_ssh_copy_id "$SSH_USER" "$host"; then
-    return 0
+  if ! try_ssh_copy_id "$SSH_USER" "$host"; then
+    red "could not push pubkey to $SSH_USER@$host"
+    if [[ "$SSH_USER" == "root" ]]; then
+      red "many cloud images (Tencent / GCP / AWS Ubuntu) disable root password SSH —"
+      red "  retry as the sudoer user, e.g.:  ./hack/remote-k3s.sh up ubuntu@$host"
+      red "  common defaults: ubuntu (Ubuntu / Tencent / GCP) / centos / ec2-user (AWS AL2) / admin (Debian) / opc (Oracle)"
+    else
+      red "check password is correct and that '$SSH_USER' is the right login user for this image"
+    fi
+    return 1
   fi
-  red "could not push pubkey to $SSH_USER@$host"
-  if [[ "$SSH_USER" == "root" ]]; then
-    red "many cloud images (Tencent / GCP / AWS Ubuntu) disable root password SSH —"
-    red "  retry as the sudoer user, e.g.:  ./hack/remote-k3s.sh up ubuntu@$host"
-    red "  common defaults: ubuntu (Ubuntu / Tencent / GCP) / centos / ec2-user (AWS AL2) / admin (Debian) / opc (Oracle)"
-  else
-    red "check password is correct and that '$SSH_USER' is the right login user for this image"
+  # Re-probe with BatchMode key auth using the exact key we just
+  # pushed. If this fails after a "successful" ssh-copy-id, something
+  # is rejecting the key on the remote side (sshd_config
+  # PubkeyAuthentication no, wrong authorized_keys path, perm 077,
+  # etc.) — surface clearly instead of letting the tunnel hit it
+  # next and confuse the user.
+  if ! try_keyless "$SSH_USER" "$host"; then
+    red "pubkey push reported success but key auth still fails — investigate sshd_config / ~/.ssh perms on the remote"
+    return 1
   fi
-  return 1
+  green "pubkey installed and verified for $SSH_USER@$host"
+  return 0
 }
 
 remote_ssh() {
