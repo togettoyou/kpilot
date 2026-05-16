@@ -452,11 +452,16 @@ function ResourceQuotaRow({
   const overcommit = !unbounded && allocN > capN;
   const unmetGuarantee = guarN > 0 && allocN < guarN;
 
-  // Percentages — pegged to capability when bounded; clamped to [0,1].
-  const denom = unbounded ? Math.max(allocN, guarN, desN, 1) : capN;
-  const allocPct = clamp01(allocN / denom);
-  const guarPct = guarN > 0 ? clamp01(guarN / denom) : 0;
-  const desPct = desN > 0 ? clamp01(desN / denom) : 0;
+  // Percentages — pegged to capability when bounded; the unbounded
+  // case shows an empty striped track (matching Overview's
+  // CapacityRow style) and no fill, because pegging to
+  // max(alloc,guar,des) was producing a misleading "100% full" bar
+  // even when the queue has plenty of headroom on the underlying
+  // cluster.
+  const denom = unbounded ? 1 : capN;
+  const allocPct = unbounded ? 0 : clamp01(allocN / denom);
+  const guarPct = unbounded ? 0 : guarN > 0 ? clamp01(guarN / denom) : 0;
+  const desPct = unbounded ? 0 : desN > 0 ? clamp01(desN / denom) : 0;
 
   // Colours via antd theme tokens so dark / light mode share the same
   // semantic meaning. Track stays a flat fill (no token equivalent for
@@ -528,29 +533,36 @@ function ResourceQuotaRow({
       {/* The bar itself — relative parent containing the fill plus
          absolute-positioned tick marks for guarantee and deserved.
          Custom layout because antd Progress doesn't support multi-
-         marker overlays. */}
+         marker overlays. Unbounded case borrows Overview's diagonal-
+         stripe track so the empty bar doesn't read as "0% used" — it
+         signals "there is no cap to fill" instead. */}
       <div
         style={{
           position: 'relative',
           height: 10,
-          background: trackColor,
+          background: unbounded
+            ? `repeating-linear-gradient(45deg, ${trackColor} 0 6px, transparent 6px 12px)`
+            : trackColor,
           borderRadius: 4,
           overflow: 'visible',
         }}
       >
-        {/* Allocated fill */}
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: `${allocPct * 100}%`,
-            background: fillColor,
-            borderRadius: 4,
-            transition: 'width 0.4s ease',
-          }}
-        />
+        {/* Allocated fill — hidden in unbounded mode so the striped
+           track stays clean and conveys "no ceiling" semantically. */}
+        {!unbounded && (
+          <div
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: `${allocPct * 100}%`,
+              background: fillColor,
+              borderRadius: 4,
+              transition: 'width 0.4s ease',
+            }}
+          />
+        )}
         {/* Guarantee tick — vertical green line at guarPct. Hide when
            guarantee is 0 to avoid a misleading "0%" marker. */}
         {guarN > 0 && (
