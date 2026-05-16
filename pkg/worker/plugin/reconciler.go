@@ -16,6 +16,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -91,9 +92,17 @@ var reconcileTriggerPredicate = predicate.Funcs{
 }
 
 // SetupWithManager wires the reconciler into a controller-runtime Manager.
+//
+// MaxConcurrentReconciles is 3 — Helm install/upgrade with Atomic+Wait
+// blocks per reconcile for up to 10 minutes; single-threaded (the
+// default) means two slow installs serialize, and a third just queues.
+// Three concurrent reconciles is a reasonable trade-off: enough that a
+// user enabling several plugins at once sees parallel progress, low
+// enough that disk / network / apiserver pressure stays modest.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kpilotv1alpha1.Plugin{}, builder.WithPredicates(reconcileTriggerPredicate)).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		Complete(r)
 }
 
@@ -350,7 +359,13 @@ func capMessage(s string) string {
 	if len(s) <= maxStatusMessageBytes {
 		return s
 	}
-	return s[:maxStatusMessageBytes] + "\n…(truncated)"
+	// Trim at byte boundary then sweep back to the last valid UTF-8
+	// boundary so multibyte sequences (Chinese / emoji from operator
+	// output) don't render as � on the frontend. strings.ToValidUTF8
+	// replaces any orphaned bytes with U+FFFD; the additional drop
+	// of trailing continuation bytes keeps the cut point clean.
+	clipped := strings.ToValidUTF8(s[:maxStatusMessageBytes], "")
+	return clipped + "\n…(truncated)"
 }
 
 // pickInstallPhase distinguishes a fresh install from an upgrade in the

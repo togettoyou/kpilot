@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
@@ -343,5 +344,9 @@ func capStatusMessage(s string) string {
 	if len(s) <= maxStatusMessageBytes {
 		return s
 	}
-	return s[:maxStatusMessageBytes] + "\n…(truncated)"
+	// Trim at byte boundary then sweep to the last valid UTF-8
+	// boundary — operator errors (Helm rendering, K8s API messages)
+	// often include Chinese / non-ASCII; cutting mid-sequence would
+	// surface garbage on the frontend.
+	return strings.ToValidUTF8(s[:maxStatusMessageBytes], "") + "\n…(truncated)"
 }

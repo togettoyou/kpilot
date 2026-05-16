@@ -519,7 +519,7 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// Drop any cached "namespace + Running" entry from the proxy
 		// resolver so the new release namespace / phase takes effect on
 		// the next proxied request, not after the 30s TTL expires.
-		InvalidateProxyResolve(clusterID, plugin.Name)
+		InvalidatePluginResolve(clusterID, plugin.Name)
 		c.Status(http.StatusAccepted)
 	}
 }
@@ -586,7 +586,7 @@ func DisablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		// Cached "Running" entries would otherwise let the proxy keep
 		// forwarding to a release that's about to be uninstalled.
-		InvalidateProxyResolve(clusterID, plugin.Name)
+		InvalidatePluginResolve(clusterID, plugin.Name)
 		c.Status(http.StatusAccepted)
 	}
 }

@@ -15,17 +15,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
-	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
 // vmTimeout caps a single PromQL request through the gateway. Queries
@@ -37,38 +33,21 @@ import (
 const vmTimeout = 15 * time.Second
 
 // resolveVMQueryURL returns the base URL of the cluster's VictoriaMetrics
-// /api/v1 endpoint, going through the same plugin lookup the reverse
-// proxy uses. The VM Service name follows the chart convention
-// "<release>-victoria-metrics-single-server" — the chart we ship has the
-// release name pinned to the kpilot plugin name "victoria-metrics", so the
-// FQDN is "victoria-metrics-victoria-metrics-single-server.<ns>.svc.<dom>".
+// /api/v1 endpoint, going through resolvePluginRunning (shared with the
+// reverse proxy, with a 30s TTL cache so the GPU pages don't re-issue
+// three DB queries per fan-out tick). The VM Service name follows the
+// chart convention "<release>-victoria-metrics-single-server" — the
+// chart we ship pins the release name to the kpilot plugin name
+// "victoria-metrics", so the FQDN is
+// "victoria-metrics-victoria-metrics-single-server.<ns>.svc.<dom>".
 func resolveVMQueryURL(gw *gateway.GatewayServer, clusterID string) (string, string, error) {
-	if _, err := store.GetClusterByID(clusterID); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", CodeClusterNotFound, err
-		}
-		return "", "", err
-	}
-	plugin, err := store.GetPluginByName("victoria-metrics")
+	releaseNS, code, err := resolvePluginRunning(clusterID, "victoria-metrics")
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", CodePluginNotFound, err
-		}
-		return "", "", err
-	}
-	cp, err := store.GetClusterPlugin(clusterID, plugin.ID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", CodePluginNotEnabled, err
-		}
-		return "", "", err
-	}
-	if !cp.Enabled || cp.Phase != store.PluginPhaseRunning {
-		return "", CodePluginNotRunning, fmt.Errorf("victoria-metrics not running")
+		return "", code, err
 	}
 	dom := workerClusterDomain(gw, clusterID)
 	host := fmt.Sprintf("victoria-metrics-victoria-metrics-single-server.%s.svc.%s",
-		plugin.DefaultReleaseNamespace, dom)
+		releaseNS, dom)
 	return fmt.Sprintf("http://%s:8428", host), "", nil
 }
 

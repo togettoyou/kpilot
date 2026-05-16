@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+	kexec "k8s.io/client-go/util/exec"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
@@ -140,9 +141,16 @@ func (m *ExecManager) Start(sessionID string, req *proto.ExecStartRequest) {
 
 	end := &proto.ExecEnd{}
 	if streamErr != nil && !errors.Is(streamErr, context.Canceled) {
-		// remotecommand wraps non-zero exit as exec.CodeExitError, which we
-		// don't unwrap here — the message contains the code and is good
-		// enough for the UI. Future iteration could parse exit_code out.
+		// k8s.io/client-go/util/exec wraps non-zero exits as
+		// exec.CodeExitError{Code, Err}. Unwrap to populate ExitCode so
+		// the terminal UI can render "exited with code N" cleanly
+		// instead of dumping the raw error string. Genuine connection
+		// failures (no exit code observable) just keep ExitCode=0 with
+		// the Error set.
+		var ce kexec.CodeExitError
+		if errors.As(streamErr, &ce) {
+			end.ExitCode = int32(ce.Code)
+		}
 		end.Error = streamErr.Error()
 	}
 	_ = m.tunnel.SendStreamMessage(sessionID, end)

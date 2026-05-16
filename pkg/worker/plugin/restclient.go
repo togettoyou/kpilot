@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"sync"
+
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/discovery"
@@ -16,9 +18,22 @@ import (
 // Helm's CLI normally constructs this from kubeconfig flags; we already have
 // an in-cluster (or kubeconfig-derived) *rest.Config so we wrap it directly
 // rather than re-parsing.
+//
+// The memcached discovery client and the deferred REST mapper are
+// memoized per Getter instance — Helm calls ToDiscoveryClient /
+// ToRESTMapper many times during a single install (validation, resource
+// ordering, hook resolution), and the previous fresh-each-call version
+// defeated memcached's whole purpose. Result: every install ran cluster
+// discovery 3-5×.
 type restClientGetter struct {
 	cfg       *rest.Config
 	namespace string
+
+	mu         sync.Mutex
+	disco      discovery.CachedDiscoveryInterface
+	discoErr   error
+	mapper     meta.RESTMapper
+	mapperOnce sync.Once
 }
 
 func newRESTClientGetter(cfg *rest.Config, namespace string) genericclioptions.RESTClientGetter {
@@ -33,11 +48,18 @@ func (r *restClientGetter) ToRESTConfig() (*rest.Config, error) {
 }
 
 func (r *restClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.disco != nil || r.discoErr != nil {
+		return r.disco, r.discoErr
+	}
 	dc, err := discovery.NewDiscoveryClientForConfig(r.cfg)
 	if err != nil {
+		r.discoErr = err
 		return nil, err
 	}
-	return memcached.NewMemCacheClient(dc), nil
+	r.disco = memcached.NewMemCacheClient(dc)
+	return r.disco, nil
 }
 
 func (r *restClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
@@ -45,8 +67,15 @@ func (r *restClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
 	if err != nil {
 		return nil, err
 	}
-	mapper := restmapper.NewDeferredDiscoveryRESTMapper(dc)
-	return restmapper.NewShortcutExpander(mapper, dc, nil), nil
+	// Memoize the mapper. NewDeferredDiscoveryRESTMapper does its own
+	// lazy discovery but constructing the mapper itself is non-trivial
+	// (wraps the discovery client, builds the shortcut expander chain);
+	// Helm's flows touch this many times per reconcile.
+	r.mapperOnce.Do(func() {
+		mapper := restmapper.NewDeferredDiscoveryRESTMapper(dc)
+		r.mapper = restmapper.NewShortcutExpander(mapper, dc, nil)
+	})
+	return r.mapper, nil
 }
 
 func (r *restClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {

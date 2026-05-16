@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/subtle"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -29,7 +30,11 @@ func Login(adminUser, adminPass, jwtSecret string) gin.HandlerFunc {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
-		if len(req.Username) > maxLoginUsernameLen || len(req.Password) > maxLoginPasswordLen {
+		// Codepoint count per CLAUDE.md «字段长度限制» — DB-side varchar
+		// caps are codepoint-based (PostgreSQL), so byte-counting would
+		// over-eagerly reject valid 86-character Chinese usernames.
+		if utf8.RuneCountInString(req.Username) > maxLoginUsernameLen ||
+			utf8.RuneCountInString(req.Password) > maxLoginPasswordLen {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}

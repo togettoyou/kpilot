@@ -9,16 +9,13 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"gorm.io/gorm"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
-	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
 // proxiableService is the in-cluster Service identity for a reverse-proxy-
@@ -60,85 +57,9 @@ func workerClusterDomain(gw *gateway.GatewayServer, clusterID string) string {
 	return defaultClusterDomain
 }
 
-// proxyResolveTTL is how long a (cluster, plugin) → namespace lookup is
-// reused without hitting the DB. A Grafana dashboard load fans out to 30+
-// parallel requests for assets — without caching, each one repeats the
-// same three queries (cluster + plugin + cluster_plugin row). 30s is
-// short enough that disabling a plugin in one tab kicks in within a
-// dashboard refresh in another.
-const proxyResolveTTL = 30 * time.Second
-
-// proxyResolveEntry is the cached result of validating that a plugin is
-// installed and Running on a cluster. cachedAt is checked on every
-// lookup; on miss we re-query the DB.
-type proxyResolveEntry struct {
-	releaseNS string
-	cachedAt  time.Time
-}
-
-var (
-	proxyResolveMu    sync.RWMutex
-	proxyResolveCache = make(map[string]proxyResolveEntry)
-)
-
-// resolveProxyTarget validates the cluster + plugin combo and returns the
-// release namespace, hitting the cache on the hot path. Errors are gin
-// codes ready to pass to apiErr; success returns ("", nil). On non-cached
-// paths we still re-validate Phase=Running so a freshly disabled plugin
-// stops accepting traffic within proxyResolveTTL.
-func resolveProxyTarget(clusterID, pluginName string) (releaseNS string, code string, err error) {
-	key := clusterID + "/" + pluginName
-
-	proxyResolveMu.RLock()
-	entry, ok := proxyResolveCache[key]
-	proxyResolveMu.RUnlock()
-	if ok && time.Since(entry.cachedAt) < proxyResolveTTL {
-		return entry.releaseNS, "", nil
-	}
-
-	if _, err := store.GetClusterByID(clusterID); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", CodeClusterNotFound, err
-		}
-		return "", "", err
-	}
-	plugin, err := store.GetPluginByName(pluginName)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", CodePluginNotFound, err
-		}
-		return "", "", err
-	}
-	cp, err := store.GetClusterPlugin(clusterID, plugin.ID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", CodePluginNotEnabled, err
-		}
-		return "", "", err
-	}
-	if !cp.Enabled || cp.Phase != store.PluginPhaseRunning {
-		return "", CodePluginNotRunning, fmt.Errorf("plugin not running")
-	}
-
-	releaseNS = plugin.DefaultReleaseNamespace
-	proxyResolveMu.Lock()
-	proxyResolveCache[key] = proxyResolveEntry{
-		releaseNS: releaseNS,
-		cachedAt:  time.Now(),
-	}
-	proxyResolveMu.Unlock()
-	return releaseNS, "", nil
-}
-
-// InvalidateProxyResolve drops cached lookups for a (cluster, plugin) so
-// the next proxy request re-checks DB state. Called by the plugin enable/
-// disable handlers when state changes that would affect routing.
-func InvalidateProxyResolve(clusterID, pluginName string) {
-	key := clusterID + "/" + pluginName
-	proxyResolveMu.Lock()
-	delete(proxyResolveCache, key)
-	proxyResolveMu.Unlock()
-}
+// Plugin resolve + cache + invalidation moved to plugin_resolve.go so
+// the VM-query handlers (device-health / gpu-hour / gpu-metrics) and
+// the reverse proxy share the same DB lookup + 30s TTL cache.
 
 // proxyMaxBodyBytes caps inbound request bodies forwarded through the gRPC
 // tunnel. The gRPC layer's hard ceiling is 32 MB; leave 1 MB of headroom for
@@ -252,7 +173,7 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// disabled plugin keeps serving up to 30s; we explicitly
 		// invalidate from EnablePlugin/DisablePlugin to short-circuit
 		// that for the common case.
-		releaseNS, code, err := resolveProxyTarget(clusterID, pluginName)
+		releaseNS, code, err := resolvePluginRunning(clusterID, pluginName)
 		if err != nil {
 			if code != "" {
 				status := http.StatusServiceUnavailable
