@@ -63,7 +63,9 @@ ensure_ssh_key() {
   ssh-keygen -t ed25519 -f "$SSH_KEY" -N "" -C "kpilot-remote-k3s@$(hostname -s)" >/dev/null
   green "generated $SSH_KEY (+ .pub)"
 }
-ensure_ssh_key
+# ensure_ssh_key invocation lives further down, after the color
+# helpers (yellow / green) are defined — calling it here would error
+# with "yellow: command not found".
 
 # SSH connection multiplexing: every ssh/scp call below reuses a single
 # master connection instead of opening a fresh TCP+handshake each time.
@@ -97,6 +99,12 @@ red()    { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 green()  { printf '\033[32m%s\033[0m\n' "$*"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 step()   { printf '\033[1;36m▸\033[0m %s\n' "$*"; }
+
+# Generate a local ssh key now that the color helpers exist. Every
+# command path (up / down / status / reset) eventually touches the
+# key file, so doing this unconditionally up-front saves checking
+# in each branch.
+ensure_ssh_key
 
 usage() {
   sed -n '/^#!/d;/^# remote-k3s/,/^[^#]/p' "$0" | sed '/^[^#]/d;s/^# \{0,1\}//'
