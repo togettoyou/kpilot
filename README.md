@@ -4,6 +4,17 @@
 
 [English](README.md) · [中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="docs/assets/screenshots/hero.png" alt="KPilot — cluster ops, GPU scheduling, monitoring, and plugin management in one console">
+</p>
+
+<p align="center">
+  <a href="https://github.com/togettoyou/kpilot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/togettoyou/kpilot?style=flat-square" alt="License"></a>
+  <a href="https://github.com/togettoyou/kpilot/stargazers"><img src="https://img.shields.io/github/stars/togettoyou/kpilot?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/togettoyou/kpilot/commits/main"><img src="https://img.shields.io/github/last-commit/togettoyou/kpilot?style=flat-square" alt="Last commit"></a>
+  <img src="https://img.shields.io/badge/helm-0.0.0--dev-blue?style=flat-square" alt="Helm chart">
+</p>
+
 ---
 
 ## What is KPilot
@@ -18,11 +29,7 @@ Multi-cluster is the default — a single KPilot Server manages many clusters, w
   <img src="docs/assets/architecture.en.svg" alt="KPilot architecture (C4 container diagram)" width="820">
 </p>
 
-**Server** owns the UI, the API, and durable state — cluster registry, plugin metadata, accounts. It holds no kubeconfigs; every live resource read or write is proxied through a Worker.
-
-**Worker** runs inside each managed cluster, dials the Server over a single long-lived gRPC stream, and brokers Kubernetes traffic on its behalf. The model removes inbound network requirements on the cluster side and keeps cross-cloud topology invisible to operators.
-
-Plugins ship as Helm charts and reconcile via an in-cluster CRD, with the Helm SDK executing where the cluster's RBAC actually lives.
+**Server** owns the UI, API, and durable state (cluster registry, plugin metadata, accounts) but holds no kubeconfigs. **Worker** runs inside each managed cluster, dials the Server over a single long-lived gRPC stream, and brokers every Kubernetes operation on its behalf — no inbound ports, no shared credentials, no cross-cloud divergence. Plugins ship as Helm charts and reconcile via an in-cluster CRD, executing in the cluster's own RBAC context.
 
 ## Quick Start
 
@@ -64,29 +71,32 @@ The cluster row in the Server UI transitions to Online within a few seconds. Pro
 
 ## Key Features
 
-### Cluster Management
-- Multi-cluster onboarding via a single-use token; no kubeconfig sharing
-- Live node and workload browser covering native and custom resources
-- In-browser Pod logs, terminal, and per-container CPU / memory metrics
-- Inline YAML editor with apply / describe / delete for any resource
+| | |
+|---|---|
+| **Cluster Management**<ul><li>Multi-cluster onboarding via a single-use token; no kubeconfig sharing</li><li>Live node and workload browser covering native and custom resources</li><li>In-browser Pod logs, terminal, and per-container CPU / memory metrics</li><li>Inline YAML editor with apply / describe / delete for any resource</li></ul> | **Compute Scheduling**<ul><li>Volcano gang scheduling across Queue, Job, CronJob, PodGroup, HyperNode</li><li>Fine-grained GPU sharing via volcano-vgpu-device-plugin (slot / framebuffer / SM cores)</li><li>Multi-resource queue quotas with capability, guarantee, allocated, and deserved views</li><li>Visual scheduler-policy editor for actions, tiers, and plugin parameters</li></ul> |
+| **GPU Observability**<ul><li>Per-card panels for utilization, temperature, power, framebuffer, SM clock, tensor activity</li><li>DCGM-driven GPU-Hour usage reports across 1h / 24h / 7d / 30d windows</li><li>Alerting on DCGM XID, ECC, thermal, and framebuffer-pressure conditions</li><li>vGPU view mapping every physical card to its current slice holders</li></ul> | **Plugin Management**<ul><li>Built-in Helm registry covering Volcano, DCGM Exporter, VictoriaMetrics, VictoriaLogs, Grafana, Metrics Server, kube-state-metrics</li><li>Per-cluster enable / disable / upgrade with the install log streamed live</li><li>Bring-your-own charts with per-cluster values overrides</li><li>The same plugin pipeline that powers customer workloads also bootstraps KPilot's own observability stack</li></ul> |
 
-### Compute Scheduling
-- Volcano gang scheduling across Queue, Job, CronJob, PodGroup, HyperNode
-- Fine-grained GPU sharing via volcano-vgpu-device-plugin (slot / framebuffer / SM cores)
-- Multi-resource queue quotas with capability, guarantee, allocated, and deserved views
-- Visual scheduler-policy editor for actions, tiers, and plugin parameters
+## Screenshots
 
-### GPU Observability
-- Per-card panels for utilization, temperature, power, framebuffer, SM clock, tensor activity
-- DCGM-driven GPU-Hour usage reports across 1h / 24h / 7d / 30d windows
-- Alerting on DCGM XID, ECC, thermal, and framebuffer-pressure conditions
-- vGPU view mapping every physical card to its current slice holders
+### Cluster Management — [`docs/clusters.md`](docs/clusters.md)
 
-### Plugin Management
-- Built-in Helm registry covering Volcano, DCGM Exporter, VictoriaMetrics, VictoriaLogs, Grafana, Metrics Server, kube-state-metrics
-- Per-cluster enable / disable / upgrade with the install log streamed live
-- Bring-your-own charts with per-cluster values overrides
-- The same plugin pipeline that powers customer workloads also bootstraps KPilot's own observability stack
+| | |
+|---|---|
+| <img src="docs/assets/screenshots/pod.png" alt="Pod browser with live logs and terminal" width="480"> <br/><sub>Workload browser with live logs, in-browser terminal, and per-container metrics</sub> | <img src="docs/assets/screenshots/vm.png" alt="Self-rendered cluster monitoring" width="480"> <br/><sub>Self-rendered monitoring — cluster / node / pod drill-down direct from VictoriaMetrics</sub> |
+| <img src="docs/assets/screenshots/vmlogs.png" alt="Cluster logging" width="480"> <br/><sub>Self-rendered LogsQL search with namespace + pod stream-selector helper</sub> | <img src="docs/assets/screenshots/grafana.png" alt="Embedded Grafana escape hatch" width="480"> <br/><sub>Embedded Grafana for custom dashboards and ad-hoc PromQL</sub> |
+
+### Compute Scheduling — [`docs/compute.md`](docs/compute.md)
+
+| | |
+|---|---|
+| <img src="docs/assets/screenshots/scheduler-config.png" alt="Visual scheduler policy editor" width="480"> <br/><sub>Visual scheduler-policy editor for Volcano actions, tiers, and plugin parameters</sub> | <img src="docs/assets/screenshots/scheduler-queue.png" alt="Queue quotas" width="480"> <br/><sub>Multi-resource queue quotas with capability / guarantee / allocated / deserved views</sub> |
+| <img src="docs/assets/screenshots/gpu.png" alt="vGPU view" width="480"> <br/><sub>Cluster vGPU view mapping every physical card to its current slice holders</sub> | <img src="docs/assets/screenshots/volcano-job.png" alt="Volcano Job authoring" width="480"> <br/><sub>Typed forms for Volcano Job, CronJob, Queue, PodGroup — no hand-written YAML required</sub> |
+
+### Plugin Management — [`docs/plugins.md`](docs/plugins.md)
+
+| | |
+|---|---|
+| <img src="docs/assets/screenshots/plugin.png" alt="Plugin registry" width="480"> <br/><sub>Helm-chart-driven plugin registry: enable, upgrade, and stream install logs per cluster</sub> | <sub>Plugins ship as Helm charts and reconcile via an in-cluster CRD. The same pipeline powers the built-in observability stack (VictoriaMetrics / VictoriaLogs / DCGM Exporter / Grafana) and operator-supplied charts — bring-your-own with per-cluster values overrides, install logs streamed live to the UI.</sub> |
 
 ## Roadmap — Model Serving
 
