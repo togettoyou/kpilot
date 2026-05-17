@@ -384,6 +384,25 @@ const MonitoringPage: React.FC = () => {
                 </Col>
                 <Col xs={24} xl={12}>
                   <MultiSeriesChart
+                    titleId="pages.monitoring.metric.diskIoByNode"
+                    unit="MiB/s"
+                    unitScale={1 / 1024 / 1024}
+                    series={[
+                      ...nodeSeries('diskRead').map((s) => ({
+                        ...s,
+                        name: `${s.name} ↓`,
+                      })),
+                      ...nodeSeries('diskWrite').map((s) => ({
+                        ...s,
+                        name: `${s.name} ↑`,
+                      })),
+                    ]}
+                    dark={dark}
+                    alwaysShowLegend
+                  />
+                </Col>
+                <Col xs={24} xl={12}>
+                  <MultiSeriesChart
                     titleId="pages.monitoring.metric.netByNode"
                     unit="MiB/s"
                     unitScale={1 / 1024 / 1024}

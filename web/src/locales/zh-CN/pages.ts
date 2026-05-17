@@ -677,6 +677,7 @@ export default {
   'pages.monitoring.metric.cpuByNode': '节点 CPU 利用率',
   'pages.monitoring.metric.memByNode': '节点内存利用率',
   'pages.monitoring.metric.diskByNode': '节点磁盘利用率',
+  'pages.monitoring.metric.diskIoByNode': '节点磁盘 I/O',
   'pages.monitoring.metric.netByNode': '节点网络收发',
   'pages.monitoring.metric.cpuByPod': 'Pod CPU 占用',
   'pages.monitoring.metric.memByPod': 'Pod 内存占用',

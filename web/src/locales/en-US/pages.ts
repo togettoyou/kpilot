@@ -691,6 +691,7 @@ export default {
   'pages.monitoring.metric.cpuByNode': 'CPU utilization by node',
   'pages.monitoring.metric.memByNode': 'Memory utilization by node',
   'pages.monitoring.metric.diskByNode': 'Disk utilization by node',
+  'pages.monitoring.metric.diskIoByNode': 'Disk I/O by node',
   'pages.monitoring.metric.netByNode': 'Network throughput by node',
   'pages.monitoring.metric.cpuByPod': 'CPU usage by pod',
   'pages.monitoring.metric.memByPod': 'Memory usage by pod',

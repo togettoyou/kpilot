@@ -94,6 +94,13 @@ func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			{"cpu", `100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))`},
 			{"mem", `100 * (1 - sum by (instance) (node_memory_MemAvailable_bytes) / sum by (instance) (node_memory_MemTotal_bytes))`},
 			{"disk", `100 * (1 - sum by (instance) (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}) / sum by (instance) (node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}))`},
+			// Disk I/O — operators care about read / write bandwidth
+			// separately. loop / ram devices are filtered out so
+			// kubelet image mounts don't dominate the chart; we keep
+			// dm-* (LVM-backed disks) since those carry real I/O on
+			// many production setups.
+			{"diskRead", `sum by (instance) (rate(node_disk_read_bytes_total{device!~"loop.*|ram.*"}[5m]))`},
+			{"diskWrite", `sum by (instance) (rate(node_disk_written_bytes_total{device!~"loop.*|ram.*"}[5m]))`},
 			{"netRx", `sum by (instance) (rate(node_network_receive_bytes_total{device!~"lo|veth.*"}[5m]))`},
 			{"netTx", `sum by (instance) (rate(node_network_transmit_bytes_total{device!~"lo|veth.*"}[5m]))`},
 		}
