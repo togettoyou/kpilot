@@ -30,7 +30,7 @@ Plugins ship as Helm charts and reconcile via an in-cluster CRD, with the Helm S
 
 ```bash
 helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
-  --version 0.1.0 \
+  --version 0.0.0-dev \
   --namespace kpilot-system --create-namespace \
   --set server.admin.password='<change-me>'
 ```
@@ -46,7 +46,7 @@ open http://localhost:8080
 
 ```bash
 helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
-  --version 0.1.0 \
+  --version 0.0.0-dev \
   --namespace kpilot-system --create-namespace \
   --set server.enabled=false,worker.enabled=true,postgresql.enabled=false \
   --set worker.serverAddr='kpilot-server-grpc.kpilot-system.svc:9090' \

@@ -37,7 +37,7 @@ minikube smoke tests.
 
 ```bash
 helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
-  --version 0.1.0 \
+  --version 0.0.0-dev \
   --namespace kpilot-system --create-namespace \
   --set worker.enabled=true \
   --set worker.serverAddr='kpilot-server-grpc.kpilot-system.svc:9090' \
@@ -53,7 +53,7 @@ This is the intended deployment shape.
 
 ```bash
 helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
-  --version 0.1.0 \
+  --version 0.0.0-dev \
   --namespace kpilot-system --create-namespace \
   --set server.admin.password='<rotate-me>' \
   --set server.jwtSecret='<random-64-bytes>' \
@@ -69,7 +69,7 @@ Server's gRPC endpoint, with a one-time ClusterToken from the UI:
 
 ```bash
 helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
-  --version 0.1.0 \
+  --version 0.0.0-dev \
   --namespace kpilot-system --create-namespace \
   --set server.enabled=false \
   --set worker.enabled=true \
@@ -90,7 +90,7 @@ database (RDS, CloudSQL, Crunchy, etc.):
 
 ```bash
 helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
-  --version 0.1.0 \
+  --version 0.0.0-dev \
   --namespace kpilot-system --create-namespace \
   --set postgresql.enabled=false \
   --set server.postgresql.externalDsn='postgres://kpilot:<pw>@db.example.com:5432/kpilot?sslmode=require'
@@ -139,16 +139,16 @@ kubectl -n kpilot-system delete pvc -l app.kubernetes.io/component=worker
 |---|---|---|
 | `ghcr.io/<owner>/kpilot-server` (image) | `deploy/server/Dockerfile` | `:dev` (main), `:vX.Y.Z` + `:latest` (release tag) |
 | `ghcr.io/<owner>/kpilot-worker` (image) | `deploy/worker/Dockerfile` | same |
-| `oci://ghcr.io/<owner>/charts/kpilot` (Helm) | `deploy/chart/` | `X.Y.Z` (release tag only) |
+| `oci://ghcr.io/<owner>/charts/kpilot` (Helm) | `deploy/chart/` | `0.0.0-dev` (main), `X.Y.Z` (release tag) |
 
 Images are multi-arch (linux/amd64, linux/arm64) on a distroless base.
 The Server image bakes the built frontend at `/app/web` and serves it
 as SPA static fallback when `STATIC_DIR` points there (the chart sets
 the env automatically).
 
-Helm chart releases happen on `v*` tags only — `main` pushes update
-the `:dev` images but do not republish the chart, so the OCI registry
-stays clean of unreleased versions.
+`main` pushes overwrite the `0.0.0-dev` chart channel in place so a
+rolling pre-release is always available; tagged releases produce
+immutable `X.Y.Z` chart versions.
 
 Building locally:
 
