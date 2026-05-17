@@ -39,7 +39,9 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      # default fail-fast=true: if the server image fails, cancel the
+      # in-flight worker build instead of burning the rest of the
+      # billing minutes on a doomed pipeline.
       matrix:
         component: [server, worker]
     steps:
