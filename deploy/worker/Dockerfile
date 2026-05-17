@@ -16,7 +16,7 @@ WORKDIR /work
 # no network needed and no go mod download.
 COPY go.mod go.sum ./
 COPY vendor/ ./vendor/
-COPY cmd/worker ./cmd/worker
+COPY cmd/worker/ ./cmd/worker/
 COPY pkg/ ./pkg/
 COPY proto/ ./proto/
 ARG TARGETOS

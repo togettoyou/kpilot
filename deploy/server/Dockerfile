@@ -36,7 +36,7 @@ WORKDIR /work
 # which means no network during this stage and no go mod download.
 COPY go.mod go.sum ./
 COPY vendor/ ./vendor/
-COPY cmd/server ./cmd/server
+COPY cmd/server/ ./cmd/server/
 COPY pkg/ ./pkg/
 COPY proto/ ./proto/
 ARG TARGETOS
