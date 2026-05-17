@@ -78,6 +78,16 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
+          # /tmp is writable scratch for chart packaging at boot
+          # (seed packages the bundled volcano-vgpu chart via mktemp
+          # → loader.LoadDir → chartutil.Save). Root filesystem stays
+          # read-only; only this tmpfs gets RW.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
       {{- with .Values.server.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
