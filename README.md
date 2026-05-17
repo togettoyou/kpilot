@@ -12,6 +12,51 @@ KPilot is a control plane for running GPU workloads on Kubernetes. Cluster opera
 
 Multi-cluster is the default — a single KPilot Server manages many clusters, with the in-cluster agent dialing back over gRPC. No inbound ports on the cluster side, no shared kubeconfigs, no per-cloud divergence.
 
+## Architecture
+
+<p align="center">
+  <img src="docs/assets/architecture.en.svg" alt="KPilot architecture (C4 container diagram)" width="820">
+</p>
+
+**Server** owns the UI, the API, and durable state — cluster registry, plugin metadata, accounts. It holds no kubeconfigs; every live resource read or write is proxied through a Worker.
+
+**Worker** runs inside each managed cluster, dials the Server over a single long-lived gRPC stream, and brokers Kubernetes traffic on its behalf. The model removes inbound network requirements on the cluster side and keeps cross-cloud topology invisible to operators.
+
+Plugins ship as Helm charts and reconcile via an in-cluster CRD, with the Helm SDK executing where the cluster's RBAC actually lives.
+
+## Quick Start
+
+The chart is published to GHCR as an OCI artifact — no source checkout required.
+
+**Install the Server** (control-plane cluster):
+
+```bash
+helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
+  --version 0.1.0 \
+  --namespace kpilot-system --create-namespace \
+  --set server.admin.password='<change-me>'
+```
+
+Port-forward the UI and log in with `kpilot` / `<your password>`:
+
+```bash
+kubectl -n kpilot-system port-forward svc/kpilot-server 8080:80
+open http://localhost:8080
+```
+
+**Install the Worker** (each managed cluster). Create a cluster row in the UI, copy the one-time ClusterToken, then:
+
+```bash
+helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
+  --version 0.1.0 \
+  --namespace kpilot-system --create-namespace \
+  --set server.enabled=false,worker.enabled=true,postgresql.enabled=false \
+  --set worker.serverAddr='kpilot.example.com:9090' \
+  --set worker.clusterToken='<paste-token>'
+```
+
+The cluster row in the Server UI transitions to Online within a few seconds. Production exposure (Ingress, external Postgres, image registry mirrors) is covered in [`deploy/README.md`](deploy/README.md).
+
 ## Use Cases
 
 - **Multi-cluster GPU operations** — run a single platform team across clusters in different VPCs, regions, or clouds without touching network policies.
@@ -45,18 +90,6 @@ Multi-cluster is the default — a single KPilot Server manages many clusters, w
 - Bring-your-own charts with per-cluster values overrides
 - The same plugin pipeline that powers customer workloads also bootstraps KPilot's own observability stack
 
-## Architecture
-
-<p align="center">
-  <img src="docs/assets/architecture.en.svg" alt="KPilot architecture (C4 container diagram)" width="820">
-</p>
-
-**Server** owns the UI, the API, and durable state — cluster registry, plugin metadata, accounts. It holds no kubeconfigs; every live resource read or write is proxied through a Worker.
-
-**Worker** runs inside each managed cluster, dials the Server over a single long-lived gRPC stream, and brokers Kubernetes traffic on its behalf. The model removes inbound network requirements on the cluster side and keeps cross-cloud topology invisible to operators.
-
-Plugins ship as Helm charts and reconcile via an in-cluster CRD, with the Helm SDK executing where the cluster's RBAC actually lives.
-
 ## Roadmap — Model Serving
 
 Coming in upcoming releases:
@@ -65,49 +98,3 @@ Coming in upcoming releases:
 - One-click inference deployment with a built-in chat playground
 - OpenAI-compatible routing with canary and A/B controls
 - Distributed fine-tuning on Volcano gang scheduling
-
-## Quick Start
-
-The chart at `deploy/chart/` deploys the Server, the Worker, or both.
-Images live at `ghcr.io/togettoyou/kpilot-{server,worker}`.
-
-### 1. Install the Server (control-plane cluster)
-
-```bash
-helm dependency build deploy/chart
-helm install kpilot deploy/chart \
-  --namespace kpilot-system --create-namespace \
-  --set server.admin.password='<rotate-me>'
-```
-
-This brings up the Server, a bundled Bitnami PostgreSQL, and exposes
-two ClusterIP Services (`kpilot-server` HTTP, `kpilot-server-grpc`).
-Open the UI:
-
-```bash
-kubectl -n kpilot-system port-forward svc/kpilot-server 8080:80
-open http://localhost:8080
-```
-
-Default admin credentials: `kpilot` / the password you set above.
-For production deployments, set `server.ingress.enabled=true` and
-expose the gRPC service via a LoadBalancer or gRPC-capable Ingress.
-
-### 2. Install the Worker (each managed cluster)
-
-In the Server UI, create a cluster row. The UI shows a one-time
-ClusterToken — copy it, then:
-
-```bash
-helm install kpilot-worker deploy/chart \
-  --namespace kpilot-system --create-namespace \
-  --set server.enabled=false \
-  --set worker.enabled=true \
-  --set postgresql.enabled=false \
-  --set worker.serverAddr='kpilot.example.com:9090' \
-  --set worker.clusterToken='<paste-token>'
-```
-
-The cluster row flips Online within a few seconds. See
-[`deploy/README.md`](deploy/README.md) for upgrade, uninstall, and
-external-Postgres setups.

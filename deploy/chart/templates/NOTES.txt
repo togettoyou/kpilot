@@ -37,7 +37,8 @@ The Worker dials the Server over gRPC. Check the rollout with:
   kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "kpilot.workerFullname" . }} -f
 
 Expected log lines: "tunnel: connected" → "registered cluster".
-The cluster row in the Server UI should flip Online within a few
-seconds. If it stays Offline, verify SERVER_ADDR is reachable from
-the Worker Pod and that the ClusterToken matches what the UI shows.
+The cluster row in the Server UI should transition to Online within
+a few seconds. If it stays Offline, verify SERVER_ADDR is reachable
+from the Worker Pod and that the ClusterToken matches what the UI
+shows.
 {{- end }}

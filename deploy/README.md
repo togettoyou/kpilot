@@ -13,8 +13,15 @@ deploy/
 GitHub Actions (`.github/workflows/release.yml`) builds and pushes
 both images to `ghcr.io/<owner>/kpilot-{server,worker}` on every push
 to `main` (`:dev` tag) and every `v*` tag (`:vX.Y.Z` + `:latest`).
+Tagged releases also publish the Helm chart as an OCI artifact at
+`oci://ghcr.io/<owner>/charts/kpilot`, so end users never need to
+clone this repository to install.
 
 ## Topologies
+
+All examples below use the published OCI chart. To install from a
+local checkout instead (development / customization), point
+`helm install` at `deploy/chart` and run `helm dependency build` first.
 
 ### Single-cluster (evaluation)
 
@@ -22,8 +29,8 @@ Server, Worker, and PostgreSQL all in one cluster. Useful for kind /
 minikube smoke tests.
 
 ```bash
-helm dependency build deploy/chart
-helm install kpilot deploy/chart \
+helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
+  --version 0.1.0 \
   --namespace kpilot-system --create-namespace \
   --set worker.enabled=true \
   --set worker.serverAddr='kpilot-server-grpc.kpilot-system.svc:9090' \
@@ -38,7 +45,8 @@ This is the intended deployment shape.
 (or an external one), expose the HTTP + gRPC services:
 
 ```bash
-helm install kpilot deploy/chart \
+helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
+  --version 0.1.0 \
   --namespace kpilot-system --create-namespace \
   --set server.admin.password='<rotate-me>' \
   --set server.jwtSecret='<random-64-bytes>' \
@@ -53,7 +61,8 @@ helm install kpilot deploy/chart \
 Server's gRPC endpoint, with a one-time ClusterToken from the UI:
 
 ```bash
-helm install kpilot-worker deploy/chart \
+helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
+  --version 0.1.0 \
   --namespace kpilot-system --create-namespace \
   --set server.enabled=false \
   --set worker.enabled=true \
@@ -73,7 +82,8 @@ To skip the bundled Postgres and point the Server at a managed
 database (RDS, CloudSQL, Crunchy, etc.):
 
 ```bash
-helm install kpilot deploy/chart \
+helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
+  --version 0.1.0 \
   --namespace kpilot-system --create-namespace \
   --set postgresql.enabled=false \
   --set server.postgresql.externalDsn='postgres://kpilot:<pw>@db.example.com:5432/kpilot?sslmode=require'
@@ -90,7 +100,8 @@ to `Chart.AppVersion` by default, so bumping the chart version is the
 upgrade path:
 
 ```bash
-helm upgrade kpilot deploy/chart \
+helm upgrade kpilot oci://ghcr.io/togettoyou/charts/kpilot \
+  --version 0.2.0 \
   --namespace kpilot-system \
   --reuse-values
 ```
@@ -115,17 +126,22 @@ kubectl -n kpilot-system delete pvc -l app.kubernetes.io/name=postgresql
 kubectl -n kpilot-system delete pvc -l app.kubernetes.io/component=worker
 ```
 
-## Images
+## Artifacts
 
-| Image | Source | Tags |
+| Artifact | Source | Tags |
 |---|---|---|
-| `ghcr.io/<owner>/kpilot-server` | `deploy/server/Dockerfile` | `:dev` (main), `:vX.Y.Z` + `:latest` (release tag) |
-| `ghcr.io/<owner>/kpilot-worker` | `deploy/worker/Dockerfile` | same |
+| `ghcr.io/<owner>/kpilot-server` (image) | `deploy/server/Dockerfile` | `:dev` (main), `:vX.Y.Z` + `:latest` (release tag) |
+| `ghcr.io/<owner>/kpilot-worker` (image) | `deploy/worker/Dockerfile` | same |
+| `oci://ghcr.io/<owner>/charts/kpilot` (Helm) | `deploy/chart/` | `X.Y.Z` (release tag only) |
 
-Both are multi-arch (linux/amd64, linux/arm64) and built on a
-distroless base. The Server image bakes the built frontend at
-`/app/web` and serves it as SPA static fallback when `STATIC_DIR`
-points there (the chart sets the env automatically).
+Images are multi-arch (linux/amd64, linux/arm64) on a distroless base.
+The Server image bakes the built frontend at `/app/web` and serves it
+as SPA static fallback when `STATIC_DIR` points there (the chart sets
+the env automatically).
+
+Helm chart releases happen on `v*` tags only — `main` pushes update
+the `:dev` images but do not republish the chart, so the OCI registry
+stays clean of unreleased versions.
 
 Building locally:
 
