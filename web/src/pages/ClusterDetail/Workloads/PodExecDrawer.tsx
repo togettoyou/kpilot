@@ -1,6 +1,12 @@
 import { useIntl } from '@umijs/max';
-import { FitAddon } from '@xterm/addon-fit';
-import { Terminal } from '@xterm/xterm';
+// xterm v5 (legacy `xterm` package, not @xterm/xterm v6). v6 ships with
+// a class-inheritance pattern that webpack's tree-shaker incorrectly
+// marks as "unused pure expression" and replaces with `extends null`,
+// crashing the terminal with "Super constructor null of anonymous
+// class". v5 doesn't trigger that analyzer path and is the version
+// that has years of bundler-compat in production.
+import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
 import {
   Alert,
   Button,
@@ -10,7 +16,7 @@ import {
   Tag,
   theme as antdTheme,
 } from 'antd';
-import '@xterm/xterm/css/xterm.css';
+import 'xterm/css/xterm.css';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { buildPodExecURL } from '@/services/kpilot/pod';
