@@ -77,7 +77,7 @@ server:
   corsOrigins: []
 
   ## PostgreSQL backend.
-  ## The bundled Bitnami subchart is gated by the top-level
+  ## The bundled single-pod StatefulSet is gated by the top-level
   ## `postgresql.enabled` (see bottom of this file). When that is
   ## false, set `externalDsn` here.
   postgresql:
@@ -194,27 +194,49 @@ worker:
   affinity: {}
 
 ## ---------------------------------------------------------------------
-## Bitnami postgresql subchart.
+## Bundled PostgreSQL (single-pod StatefulSet, official image).
 ##
-## `enabled` gates whether the subchart deploys at all (consumed by the
-## Chart.yaml dependency condition). Default true so a server-only
-## install works out of the box.
+## `enabled` gates the whole StatefulSet + Service + Secret block in
+## templates/postgresql.yaml. Default true so a server-only install
+## works out of the box.
 ##
 ## For worker-only deployments (server lives in a different cluster) set
 ##   --set postgresql.enabled=false
-## For server deployments wanting an external Postgres set the same and
-## fill in server.postgresql.externalDsn above.
+## For server deployments wanting HA / backups, set the same and fill
+## in `server.postgresql.externalDsn` above with a managed instance.
 ## ---------------------------------------------------------------------
 postgresql:
   enabled: true
+
+  image:
+    # Official upstream image (postgres:<tag>). Alpine variant for size;
+    # debian-flavored tags work the same way if you'd rather.
+    registry: docker.io
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+
   auth:
     username: kpilot
     password: kpilot123
     database: kpilot
-  primary:
-    persistence:
-      enabled: true
-      size: 8Gi
-  ## Keep the subchart minimal — operators wanting HA or backups should
-  ## switch to externalDsn and bring their own managed Postgres.
-  architecture: standalone
+
+  persistence:
+    # Set to false to use an emptyDir — only safe for kind / minikube
+    # smoke tests, the DB loses everything on Pod restart.
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

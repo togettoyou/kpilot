@@ -20,12 +20,10 @@ home: https://github.com/togettoyou/kpilot
 sources:
   - https://github.com/togettoyou/kpilot
 
-# Bitnami PostgreSQL — pulled in when `postgresql.enabled` is true at
-# the top level. Default is true so a server-only install works out
-# of the box; worker-only deployments must `--set postgresql.enabled=false`
-# (and server-side deployments wanting an external Postgres also).
-dependencies:
-  - name: postgresql
-    version: "15.5.x"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: postgresql.enabled
+# PostgreSQL is shipped as an in-chart StatefulSet (see
+# templates/postgresql.yaml) using the official upstream image —
+# Bitnami pulled their free images from Docker Hub in 2026 leaving the
+# `bitnami/postgresql` subchart broken (`ErrImagePull` on every install
+# of a fresh release). Gated by `postgresql.enabled` in values.yaml.
+# Operators wanting HA / backups should set `postgresql.enabled=false`
+# and point `server.postgresql.externalDsn` at a managed instance.

@@ -33,6 +33,17 @@ Naming convention:
 {{- printf "%s-worker" (include "kpilot.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/*
+postgresqlFullname is intentionally `<release>-postgresql` (NOT the
+chart-fullname-prefixed form) so it stays byte-for-byte identical to
+the Bitnami subchart's old Service name. Upgrades from Bitnami-backed
+installs continue to dial the same Service, and the DSN helper below
+doesn't need release-time conditionals.
+*/}}
+{{- define "kpilot.postgresqlFullname" -}}
+{{- printf "%s-postgresql" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "kpilot.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
@@ -69,6 +80,16 @@ app.kubernetes.io/component: worker
 app.kubernetes.io/component: worker
 {{- end -}}
 
+{{- define "kpilot.postgresql.labels" -}}
+{{ include "kpilot.labels" . }}
+app.kubernetes.io/component: postgresql
+{{- end -}}
+
+{{- define "kpilot.postgresql.selectorLabels" -}}
+{{ include "kpilot.selectorLabels" . }}
+app.kubernetes.io/component: postgresql
+{{- end -}}
+
 {{/*
 Image reference helpers — resolve component-specific overrides on top
 of the global image.* defaults. Tag falls back to .Chart.AppVersion if
@@ -91,17 +112,18 @@ matching image without an extra --set image.tag.
 {{- end -}}
 
 {{/*
-Resolved DSN for the Server. Builds the Bitnami-style URL when the
-bundled subchart is enabled, otherwise honors the user-provided
-externalDsn. Fails fast at template time if neither is set, which
-catches the most common misconfiguration.
+Resolved DSN for the Server. Builds an in-cluster URL when the
+bundled PostgreSQL StatefulSet is enabled (host = kpilot.postgresqlFullname),
+otherwise honors the user-provided externalDsn. Fails fast at
+template time if neither is set, which catches the most common
+misconfiguration.
 */}}
 {{- define "kpilot.server.dsn" -}}
 {{- if .Values.postgresql.enabled -}}
 {{- $u := .Values.postgresql.auth.username -}}
 {{- $p := .Values.postgresql.auth.password -}}
 {{- $db := .Values.postgresql.auth.database -}}
-{{- $host := printf "%s-postgresql" .Release.Name -}}
+{{- $host := include "kpilot.postgresqlFullname" . -}}
 {{- printf "postgres://%s:%s@%s:5432/%s?sslmode=disable" $u $p $host $db -}}
 {{- else if .Values.server.postgresql.externalDsn -}}
 {{- .Values.server.postgresql.externalDsn -}}

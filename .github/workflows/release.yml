@@ -141,11 +141,9 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
           APP_VERSION: ${{ steps.ver.outputs.appVersion }}
         run: |
-          # Fresh runner — `helm dependency build` reads Chart.lock but
-          # needs the source repo registered to actually resolve the
-          # subchart download URL.
-          helm repo add bitnami https://charts.bitnami.com/bitnami
-          helm dependency build deploy/chart
+          # Chart has no external subchart dependencies — PostgreSQL is
+          # inlined in templates/postgresql.yaml using the official
+          # upstream image. No `helm dependency build` needed.
           helm package deploy/chart \
             --destination /tmp/chart \
             --version "$VERSION" \

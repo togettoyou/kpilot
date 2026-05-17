@@ -28,7 +28,8 @@ immutable chart versions.
 
 All examples below use the published OCI chart. To install from a
 local checkout instead (development / customization), point
-`helm install` at `deploy/chart` and run `helm dependency build` first.
+`helm install` at `deploy/chart` directly — the chart has no external
+subchart dependencies (PostgreSQL is inlined).
 
 ### Single-cluster (evaluation)
 

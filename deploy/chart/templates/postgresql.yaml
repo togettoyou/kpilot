@@ -1,0 +1,170 @@
+{{- if .Values.postgresql.enabled }}
+{{- /*
+Single-pod PostgreSQL using the official upstream image. Replaces the
+Bitnami subchart (which Docker Hub stopped serving for free tiers in
+2026 — `bitnami/postgresql:16.4.0-debian-12-r14` etc. now 404 on pull).
+
+Scope: one StatefulSet replica, one PVC, one ClusterIP Service for
+the Server to dial. No HA / no replication / no backups — operators
+needing those should `--set postgresql.enabled=false` and point
+`server.postgresql.externalDsn` at a managed instance.
+
+The Service name is `<release>-postgresql` so the DSN helper
+(_helpers.tpl::kpilot.server.dsn) keeps its existing host string and
+upgrades from the old Bitnami-backed installs continue to point at
+the same Service name.
+*/}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "kpilot.postgresqlFullname" . }}
+  labels:
+    {{- include "kpilot.postgresql.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  # Mirrored into POSTGRES_* env on the container side. Bouncing the
+  # Pod on Secret content change is wired via the Deployment's
+  # checksum/secret annotation (server-deployment.yaml).
+  username: {{ .Values.postgresql.auth.username | quote }}
+  password: {{ .Values.postgresql.auth.password | quote }}
+  database: {{ .Values.postgresql.auth.database | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kpilot.postgresqlFullname" . }}
+  labels:
+    {{- include "kpilot.postgresql.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  # Headless not required — a single replica answers fine via a normal
+  # ClusterIP Service. Keeping it normal (not None) lets the Server's
+  # client-side load balancer pool DNS without re-resolving per query.
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP
+  selector:
+    {{- include "kpilot.postgresql.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kpilot.postgresqlFullname" . }}
+  labels:
+    {{- include "kpilot.postgresql.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "kpilot.postgresqlFullname" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kpilot.postgresql.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kpilot.postgresql.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        # postgres:alpine ships uid/gid 70 — fsGroup makes the mounted
+        # PVC writable for the process. Global chart defaults (uid
+        # 65532) belong to the Go binaries; PG needs its own.
+        fsGroup: 70
+        runAsUser: 70
+        runAsNonRoot: true
+      containers:
+        - name: postgresql
+          image: "{{ .Values.postgresql.image.registry }}/{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # PG entrypoint writes to /var/run/postgresql + /tmp at
+            # startup, so readOnlyRootFilesystem is off. Containment is
+            # via the uid/cap drop above.
+            readOnlyRootFilesystem: false
+            runAsUser: 70
+            runAsNonRoot: true
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kpilot.postgresqlFullname" . }}
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kpilot.postgresqlFullname" . }}
+                  key: password
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kpilot.postgresqlFullname" . }}
+                  key: database
+            # PG won't initdb at the volume root if it sees a `lost+found`
+            # directory there (some storage classes create one). The
+            # subpath sidesteps that quirk and keeps initdb idempotent
+            # across PVC rebinds.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "{{ .Values.postgresql.auth.username }}", "-d", "{{ .Values.postgresql.auth.database }}"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "{{ .Values.postgresql.auth.username }}", "-d", "{{ .Values.postgresql.auth.database }}"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+      {{- with .Values.postgresql.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.postgresql.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [{{ .Values.postgresql.persistence.accessMode | quote }}]
+        {{- with .Values.postgresql.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.persistence.size | quote }}
+  {{- else }}
+  # emptyDir fallback — only useful for local kind / minikube smoke
+  # tests where losing the DB on Pod restart is fine. Don't use this
+  # for anything that needs to survive.
+  template:
+    spec:
+      volumes:
+        - name: data
+          emptyDir: {}
+  {{- end }}
+{{- end }}
