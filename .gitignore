@@ -15,11 +15,17 @@
 # Test binary, built with `go test -c`
 *.test
 
-# Code coverage profiles and other test artifacts
-*.out
-coverage.*
+# Code coverage profiles and other test artifacts.
+# `coverage.*` is intentionally narrow — the original `coverage.*` rule
+# masked vendor files like x/text/language/coverage.go and broke CI.
+/coverage.out
+/coverage.html
+/coverage.txt
+/coverage.json
 *.coverprofile
 profile.cov
+*.out
+!vendor/**/*.out
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
