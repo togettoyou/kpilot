@@ -31,9 +31,23 @@ interface MultiSeriesChartProps {
   unitScale?: number;
   series: ChartSeriesInput[];
   dark: boolean;
-  /** Optional fixed height — defaults to 220. */
+  /** Optional fixed height for the chart container. When unset the
+   *  height adapts to the number of legend rows so 20-pod / many-node
+   *  charts don't truncate labels behind a 2-row legend strip. */
   height?: number;
 }
+
+// Pixel budget. Plot area stays ~200px regardless of series count,
+// the legend strip grows underneath to accommodate wrapped rows.
+const basePlotHeight = 200;
+const legendRowHeight = 22;
+const legendRowGutter = 6;
+// Rough estimate of how many legend items fit on one row given the
+// card's typical width. G2's legend wraps on overflow, but it needs
+// a tall-enough container to render the additional rows — without
+// height accommodation it just clips the overflow.
+const itemsPerLegendRow = 4;
+const maxLegendRows = 5;
 
 interface FlatPoint {
   t: number;
@@ -49,7 +63,7 @@ function MultiSeriesChart({
   unitScale,
   series,
   dark,
-  height = 220,
+  height,
 }: MultiSeriesChartProps) {
   const intl = useIntl();
 
@@ -63,6 +77,20 @@ function MultiSeriesChart({
     }
     return out;
   }, [series, unitScale]);
+
+  // Pick a chart container height that gives the wrapped legend
+  // enough room. With 10 nodes the old fixed 220px hid everything
+  // past the 2nd label; now we add a row of vertical budget per
+  // ~4 legend items, capped at maxLegendRows so a 100-pod query
+  // doesn't blow up to a screen-tall card.
+  const resolvedHeight = useMemo(() => {
+    if (typeof height === 'number') return height;
+    const rows = Math.min(
+      maxLegendRows,
+      Math.max(1, Math.ceil(series.length / itemsPerLegendRow)),
+    );
+    return basePlotHeight + rows * legendRowHeight + (rows - 1) * legendRowGutter;
+  }, [height, series.length]);
 
   const title = (
     <Space>
@@ -91,7 +119,7 @@ function MultiSeriesChart({
 
   return (
     <Card title={title} size="small" styles={{ body: { padding: 16 } }}>
-      <div style={{ height }}>
+      <div style={{ height: resolvedHeight }}>
         <Line
           data={flat}
           xField="t"
@@ -112,7 +140,18 @@ function MultiSeriesChart({
           scale={{
             y: yMax ? { domainMin: 0, domainMax: yMax } : { domainMin: 0 },
           }}
-          legend={{ color: { itemMarker: 'circle' } }}
+          // Wrap legend items so 10+ nodes / 20 pods don't get
+          // clipped behind a fixed-width strip. maxRows caps the
+          // vertical budget the wrap can claim; rowPadding adds
+          // breathing room between rows.
+          legend={{
+            color: {
+              itemMarker: 'circle',
+              autoWrap: true,
+              maxRows: maxLegendRows,
+              rowPadding: legendRowGutter,
+            },
+          }}
           tooltip={{
             title: (d: any) => new Date(d.t).toLocaleString(),
             items: [

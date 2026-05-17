@@ -213,7 +213,11 @@ const MonitoringPage: React.FC = () => {
               desktop (lg+). */}
           <Row gutter={[16, 16]}>
             <Col xs={24} sm={12} lg={6}>
-              <Card size="small" styles={{ body: { padding: 16 } }}>
+              <Card
+                size="small"
+                style={{ height: '100%' }}
+                styles={{ body: { padding: 16 } }}
+              >
                 <div className="flex items-center justify-between">
                   <Statistic
                     title={intl.formatMessage({
@@ -234,7 +238,11 @@ const MonitoringPage: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card size="small" styles={{ body: { padding: 16 } }}>
+              <Card
+                size="small"
+                style={{ height: '100%' }}
+                styles={{ body: { padding: 16 } }}
+              >
                 <div className="flex items-center justify-between">
                   <Statistic
                     title={intl.formatMessage({
@@ -271,7 +279,11 @@ const MonitoringPage: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card size="small" styles={{ body: { padding: 16 } }}>
+              <Card
+                size="small"
+                style={{ height: '100%' }}
+                styles={{ body: { padding: 16 } }}
+              >
                 <div className="flex items-center justify-between">
                   <Statistic
                     title={intl.formatMessage({
@@ -308,7 +320,11 @@ const MonitoringPage: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card size="small" styles={{ body: { padding: 16 } }}>
+              <Card
+                size="small"
+                style={{ height: '100%' }}
+                styles={{ body: { padding: 16 } }}
+              >
                 <Statistic
                   title={intl.formatMessage({ id: 'pages.monitoring.kpi.pods' })}
                   value={snap?.podsTotal ?? 0}
