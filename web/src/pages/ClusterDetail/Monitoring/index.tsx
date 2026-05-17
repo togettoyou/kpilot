@@ -205,66 +205,49 @@ const MonitoringPage: React.FC = () => {
             </Row>
           </Card>
 
-          {/* Cluster KPI strip — 4 cards same shape, same height. Each
-              uses the GPU-monitoring pattern: Statistic on the left
-              (title + big value + a single supplementary line for the
-              absolute companion), Progress.dashboard size=64 on the
-              right. Cards lay out as 2x2 on tablet (sm) and 1x4 on
-              desktop (lg+). */}
+          {/* Cluster KPI strip — 4 cards share the same grid:
+                Top:    title (small) + value (big) on the left,
+                        optional Progress.dashboard on the right.
+                Bottom: one-line secondary info (cores / GiB / phase
+                        tags), pinned to the card's bottom edge by
+                        flex justify-between so heights line up across
+                        the row even when one card has nothing to put
+                        in its bottom row. */}
           <Row gutter={[16, 16]}>
             <Col xs={24} sm={12} lg={6}>
-              <Card
-                size="small"
-                style={{ height: '100%' }}
-                styles={{ body: { padding: 16 } }}
-              >
-                <div className="flex items-center justify-between">
-                  <Statistic
-                    title={intl.formatMessage({
-                      id: 'pages.monitoring.kpi.nodes',
-                    })}
-                    value={snap?.nodesReady ?? 0}
-                    suffix={`/ ${snap?.nodesTotal ?? 0}`}
-                  />
-                  <Typography.Text
-                    type="secondary"
-                    style={{ fontSize: 12, maxWidth: 80, textAlign: 'right' }}
-                  >
-                    {intl.formatMessage({
-                      id: 'pages.monitoring.kpi.nodes.hint',
-                    })}
-                  </Typography.Text>
-                </div>
-              </Card>
+              <KPICard
+                title={intl.formatMessage({ id: 'pages.monitoring.kpi.nodes' })}
+                value={snap?.nodesReady ?? 0}
+                suffix={`/ ${snap?.nodesTotal ?? 0}`}
+                dashPct={
+                  snap?.nodesTotal
+                    ? (100 * (snap.nodesReady ?? 0)) / snap.nodesTotal
+                    : undefined
+                }
+                dashColor={
+                  snap?.nodesTotal && snap.nodesReady === snap.nodesTotal
+                    ? usageColor(0, token)
+                    : usageColor(0.9, token)
+                }
+                bottom={
+                  snap && snap.nodesTotal > 0 && snap.nodesReady < snap.nodesTotal
+                    ? intl.formatMessage(
+                        { id: 'pages.monitoring.kpi.nodes.degraded' },
+                        { n: snap.nodesTotal - snap.nodesReady },
+                      )
+                    : ''
+                }
+              />
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card
-                size="small"
-                style={{ height: '100%' }}
-                styles={{ body: { padding: 16 } }}
-              >
-                <div className="flex items-center justify-between">
-                  <Statistic
-                    title={intl.formatMessage({
-                      id: 'pages.monitoring.kpi.cpu',
-                    })}
-                    value={cpuPct}
-                    precision={1}
-                    suffix="%"
-                  />
-                  <Progress
-                    type="dashboard"
-                    percent={dash(cpuPct).pct}
-                    strokeColor={dash(cpuPct).fillColor}
-                    size={64}
-                    format={() => ''}
-                  />
-                </div>
-                <Typography.Text
-                  type="secondary"
-                  style={{ fontSize: 12, display: 'block', marginTop: 4 }}
-                >
-                  {snap?.cpuTotalCores
+              <KPICard
+                title={intl.formatMessage({ id: 'pages.monitoring.kpi.cpu' })}
+                value={cpuPct.toFixed(1)}
+                suffix="%"
+                dashPct={dash(cpuPct).pct}
+                dashColor={dash(cpuPct).fillColor}
+                bottom={
+                  snap?.cpuTotalCores
                     ? intl.formatMessage(
                         { id: 'pages.monitoring.kpi.cpu.absolute' },
                         {
@@ -274,38 +257,19 @@ const MonitoringPage: React.FC = () => {
                       )
                     : intl.formatMessage({
                         id: 'pages.monitoring.kpi.absolute.unavailable',
-                      })}
-                </Typography.Text>
-              </Card>
+                      })
+                }
+              />
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card
-                size="small"
-                style={{ height: '100%' }}
-                styles={{ body: { padding: 16 } }}
-              >
-                <div className="flex items-center justify-between">
-                  <Statistic
-                    title={intl.formatMessage({
-                      id: 'pages.monitoring.kpi.mem',
-                    })}
-                    value={memPct}
-                    precision={1}
-                    suffix="%"
-                  />
-                  <Progress
-                    type="dashboard"
-                    percent={dash(memPct).pct}
-                    strokeColor={dash(memPct).fillColor}
-                    size={64}
-                    format={() => ''}
-                  />
-                </div>
-                <Typography.Text
-                  type="secondary"
-                  style={{ fontSize: 12, display: 'block', marginTop: 4 }}
-                >
-                  {snap?.memTotalBytes
+              <KPICard
+                title={intl.formatMessage({ id: 'pages.monitoring.kpi.mem' })}
+                value={memPct.toFixed(1)}
+                suffix="%"
+                dashPct={dash(memPct).pct}
+                dashColor={dash(memPct).fillColor}
+                bottom={
+                  snap?.memTotalBytes
                     ? intl.formatMessage(
                         { id: 'pages.monitoring.kpi.mem.absolute' },
                         {
@@ -315,40 +279,32 @@ const MonitoringPage: React.FC = () => {
                       )
                     : intl.formatMessage({
                         id: 'pages.monitoring.kpi.absolute.unavailable',
-                      })}
-                </Typography.Text>
-              </Card>
+                      })
+                }
+              />
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card
-                size="small"
-                style={{ height: '100%' }}
-                styles={{ body: { padding: 16 } }}
-              >
-                <Statistic
-                  title={intl.formatMessage({ id: 'pages.monitoring.kpi.pods' })}
-                  value={snap?.podsTotal ?? 0}
-                />
-                <Space wrap size={[4, 4]} style={{ marginTop: 4 }}>
-                  {phaseEntries.length === 0 ? (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {intl.formatMessage({
-                        id: 'pages.monitoring.kpi.pods.empty',
-                      })}
-                    </Typography.Text>
+              <KPICard
+                title={intl.formatMessage({ id: 'pages.monitoring.kpi.pods' })}
+                value={snap?.podsTotal ?? 0}
+                bottom={
+                  phaseEntries.length === 0 ? (
+                    intl.formatMessage({ id: 'pages.monitoring.kpi.pods.empty' })
                   ) : (
-                    phaseEntries.map(([phase, n]) => (
-                      <Tag
-                        key={phase}
-                        color={phaseColor(phase)}
-                        style={{ marginInlineEnd: 0 }}
-                      >
-                        {phase} {n}
-                      </Tag>
-                    ))
-                  )}
-                </Space>
-              </Card>
+                    <Space size={[4, 4]} wrap>
+                      {phaseEntries.map(([phase, n]) => (
+                        <Tag
+                          key={phase}
+                          color={phaseColor(phase)}
+                          style={{ marginInlineEnd: 0 }}
+                        >
+                          {phase} {n}
+                        </Tag>
+                      ))}
+                    </Space>
+                  )
+                }
+              />
             </Col>
           </Row>
 
@@ -537,6 +493,72 @@ const MonitoringPage: React.FC = () => {
     </div>
   );
 };
+
+// KPICard is the shared shell for the 4 top-of-page metrics. Body is
+// flex-column-justify-between so the secondary line / phase tags
+// always pin to the card bottom, leaving consistent vertical
+// alignment of the title + value row across all 4 cards (heights
+// already match via style={{ height: '100%' }} on the Card itself).
+interface KPICardProps {
+  title: string;
+  value: string | number;
+  suffix?: React.ReactNode;
+  /** Dashboard percent in [0, 100]. Omit for cards without a gauge. */
+  dashPct?: number;
+  dashColor?: string;
+  /** Secondary content under the title row. String → rendered as
+   *  secondary text; ReactNode → rendered verbatim (for tag lists). */
+  bottom?: React.ReactNode;
+}
+
+function KPICard({ title, value, suffix, dashPct, dashColor, bottom }: KPICardProps) {
+  return (
+    <Card
+      size="small"
+      style={{ height: '100%' }}
+      styles={{
+        body: {
+          padding: 16,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          gap: 12,
+        },
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <Statistic title={title} value={value} suffix={suffix} />
+        {typeof dashPct === 'number' && (
+          <Progress
+            type="dashboard"
+            percent={dashPct}
+            strokeColor={dashColor}
+            size={56}
+            format={() => ''}
+          />
+        )}
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--ant-color-text-secondary)',
+          minHeight: 22,
+          lineHeight: '22px',
+        }}
+      >
+        {bottom}
+      </div>
+    </Card>
+  );
+}
 
 // formatGiB renders a byte count as a human-friendly GiB string, with
 // MiB precision when the value is small enough that GiB rounds to 0.

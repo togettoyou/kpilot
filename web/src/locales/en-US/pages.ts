@@ -667,8 +667,8 @@ export default {
   'pages.monitoring.notInstalled.subTitle':
     'Cluster monitoring reads from VictoriaMetrics. Enable it (and ideally node-exporter + kube-state-metrics) from the plugins page.',
   'pages.monitoring.notInstalled.action': 'Open Plugins',
-  'pages.monitoring.kpi.nodes': 'Nodes (ready / total)',
-  'pages.monitoring.kpi.nodes.hint': 'Ready / total',
+  'pages.monitoring.kpi.nodes': 'Nodes',
+  'pages.monitoring.kpi.nodes.degraded': '{n} not ready',
   'pages.monitoring.kpi.cpu': 'Cluster CPU utilization',
   'pages.monitoring.kpi.cpu.absolute': '{used} / {total} cores',
   'pages.monitoring.kpi.mem': 'Cluster memory utilization',

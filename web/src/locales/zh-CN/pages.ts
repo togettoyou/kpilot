@@ -654,8 +654,8 @@ export default {
   'pages.monitoring.notInstalled.subTitle':
     '集群监控从 VictoriaMetrics 查询指标。请先启用 VictoriaMetrics（建议同时启用 node-exporter 与 kube-state-metrics）。',
   'pages.monitoring.notInstalled.action': '前往插件管理',
-  'pages.monitoring.kpi.nodes': '节点（Ready / 总）',
-  'pages.monitoring.kpi.nodes.hint': '就绪节点数',
+  'pages.monitoring.kpi.nodes': '节点',
+  'pages.monitoring.kpi.nodes.degraded': '{n} 个节点未就绪',
   'pages.monitoring.kpi.cpu': '集群 CPU 利用率',
   'pages.monitoring.kpi.cpu.absolute': '{used} / {total} 核心',
   'pages.monitoring.kpi.mem': '集群内存利用率',

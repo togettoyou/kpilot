@@ -206,7 +206,11 @@ function MultiSeriesChart({
 
       {/* Scrollable HTML legend — fixed height, native overflow,
           full names. Color square matches G2's line color through
-          the shared colorByName mapping above. */}
+          the shared colorByName mapping above. Single-series
+          charts (cluster CPU / memory trends) skip the legend
+          entirely — one line + one color is self-evident, the
+          legend would just be noise. */}
+      {sortedNames.length > 1 && (
       <div
         style={{
           maxHeight: legendScrollerHeight,
@@ -278,6 +282,7 @@ function MultiSeriesChart({
           );
         })}
       </div>
+      )}
     </Card>
   );
 }
