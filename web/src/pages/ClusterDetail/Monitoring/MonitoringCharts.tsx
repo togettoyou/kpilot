@@ -1,6 +1,6 @@
 import { Line } from '@ant-design/plots';
 import { useIntl } from '@umijs/max';
-import { Card, Empty, Space, Typography } from 'antd';
+import { Card, Empty, Space, Tooltip, Typography } from 'antd';
 import React, { useMemo } from 'react';
 
 // Shared lazy-loaded chart bundle for the Monitoring page. The Line
@@ -31,34 +31,33 @@ interface MultiSeriesChartProps {
   unitScale?: number;
   series: ChartSeriesInput[];
   dark: boolean;
-  /** Optional fixed height for the chart container. When unset the
-   *  height adapts to the number of legend rows so 20-pod / many-node
-   *  charts don't truncate labels behind a 2-row legend strip. */
+  /** Optional fixed height for the plot area (default 220). The
+   *  scrollable HTML legend below adds its own height budget on top. */
   height?: number;
 }
 
-// Pixel budget. Plot area stays ~200px regardless of series count,
-// the legend strip grows underneath to accommodate wrapped rows.
-const basePlotHeight = 200;
-const legendRowHeight = 22;
-const legendRowGutter = 6;
-// itemsPerLegendRow is the realistic packing density after we
-// truncate the series name in `legendLabel` below — 2 items fit per
-// row in a half-width chart card. maxLegendRows lets the legend
-// span enough rows to render 20 series even when each one is on its
-// own line (worst case: very long ns/pod combos).
-const itemsPerLegendRow = 2;
-const maxLegendRows = 12;
+const plotHeight = 220;
+// Fixed-height scrollable legend area. With ~22px per row the user
+// always sees ~5 entries; scrolling reveals the rest. Predictable
+// card height regardless of series count (3 nodes vs 20 pods render
+// the same shape), no clipping.
+const legendScrollerHeight = 110;
 
-// legendLabel keeps the legend readable when pod / node names are
-// long. Applied via G2's labelFormatter so the underlying `series`
-// field stays intact — tooltips on hover still show the full name.
-// Cut from the start, prepend an ellipsis: pod identity lives in
-// the suffix (deployment hash + ordinal), the namespace prefix is
-// the lower-information part.
-function legendLabel(raw: string, max = 26): string {
-  if (raw.length <= max) return raw;
-  return '…' + raw.slice(raw.length - (max - 1));
+// Fixed palette so the HTML legend's color square matches the
+// chart's line color exactly. We feed this same array into G2 via
+// scale.color.range and use the same index order in the HTML
+// legend below. Picks roughly follow the antd brand palette so
+// dark + light modes both look ok.
+const seriesPalette = [
+  '#1677ff', '#52c41a', '#fa8c16', '#eb2f96',
+  '#722ed1', '#13c2c2', '#faad14', '#f5222d',
+  '#2f54eb', '#a0d911', '#fa541c', '#9254de',
+  '#08979c', '#fadb14', '#cf1322', '#1d39c4',
+  '#7cb305', '#d4380d', '#531dab', '#006d75',
+];
+
+function colorFor(index: number): string {
+  return seriesPalette[index % seriesPalette.length];
 }
 
 interface FlatPoint {
@@ -79,6 +78,23 @@ function MultiSeriesChart({
 }: MultiSeriesChartProps) {
   const intl = useIntl();
 
+  // Sort series names alphabetically so the legend order is stable
+  // across refreshes. G2 by default reorders by data appearance,
+  // which makes the legend "jump" when a series briefly drops out.
+  const sortedNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of series) set.add(s.name);
+    return [...set].sort();
+  }, [series]);
+
+  // colorByName backs both the chart line color (via scale.color
+  // domain+range) and the legend square — same index, same hex.
+  const colorByName = useMemo(() => {
+    const m = new Map<string, string>();
+    sortedNames.forEach((n, i) => m.set(n, colorFor(i)));
+    return m;
+  }, [sortedNames]);
+
   const flat: FlatPoint[] = useMemo(() => {
     const scale = unitScale ?? 1;
     const out: FlatPoint[] = [];
@@ -89,20 +105,6 @@ function MultiSeriesChart({
     }
     return out;
   }, [series, unitScale]);
-
-  // Pick a chart container height that gives the wrapped legend
-  // enough room. With 10 nodes the old fixed 220px hid everything
-  // past the 2nd label; now we add a row of vertical budget per
-  // ~4 legend items, capped at maxLegendRows so a 100-pod query
-  // doesn't blow up to a screen-tall card.
-  const resolvedHeight = useMemo(() => {
-    if (typeof height === 'number') return height;
-    const rows = Math.min(
-      maxLegendRows,
-      Math.max(1, Math.ceil(series.length / itemsPerLegendRow)),
-    );
-    return basePlotHeight + rows * legendRowHeight + (rows - 1) * legendRowGutter;
-  }, [height, series.length]);
 
   const title = (
     <Space>
@@ -129,9 +131,11 @@ function MultiSeriesChart({
     );
   }
 
+  const plotPx = typeof height === 'number' ? height : plotHeight;
+
   return (
     <Card title={title} size="small" styles={{ body: { padding: 16 } }}>
-      <div style={{ height: resolvedHeight }}>
+      <div style={{ height: plotPx }}>
         <Line
           data={flat}
           xField="t"
@@ -151,22 +155,19 @@ function MultiSeriesChart({
           }}
           scale={{
             y: yMax ? { domainMin: 0, domainMax: yMax } : { domainMin: 0 },
-          }}
-          // Wrap legend items so 10+ nodes / 20 pods don't get
-          // clipped behind a fixed-width strip. maxRows caps the
-          // vertical budget the wrap can claim; rowPadding adds
-          // breathing room between rows. labelFormatter shortens
-          // long ns/pod names just for the legend — tooltip / data
-          // still see the full name.
-          legend={{
+            // Pin every series to its assigned color. G2 would
+            // otherwise pick from its default palette in insertion
+            // order, which doesn't match the HTML legend underneath.
             color: {
-              itemMarker: 'circle',
-              autoWrap: true,
-              maxRows: maxLegendRows,
-              rowPadding: legendRowGutter,
-              labelFormatter: (val: any) => legendLabel(String(val)),
+              domain: sortedNames,
+              range: sortedNames.map((n) => colorByName.get(n)!),
             },
           }}
+          // Disable G2's built-in legend: long ns/pod names made it
+          // unscrollable and the wrap+truncate workarounds were ugly
+          // or hid content. The HTML legend below scrolls natively
+          // and shows full names.
+          legend={false}
           tooltip={{
             title: (d: any) => new Date(d.t).toLocaleString(),
             items: [
@@ -180,6 +181,59 @@ function MultiSeriesChart({
           interaction={{ tooltip: { shared: true } }}
           style={{ lineWidth: 1.5 }}
         />
+      </div>
+
+      {/* Scrollable HTML legend — fixed height, native overflow,
+          full names. Color square matches G2's line color through
+          the shared colorByName mapping above. */}
+      <div
+        style={{
+          maxHeight: legendScrollerHeight,
+          overflowY: 'auto',
+          marginTop: 8,
+          paddingRight: 4,
+          // Subtle visual seam between chart and legend so the
+          // scrollable area reads as a separate region.
+          borderTop: '1px solid var(--ant-color-split)',
+          paddingTop: 8,
+        }}
+      >
+        {sortedNames.map((name) => (
+          <div
+            key={name}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '2px 0',
+              fontSize: 12,
+              lineHeight: '18px',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                background: colorByName.get(name),
+                flexShrink: 0,
+              }}
+            />
+            <Tooltip title={name} mouseEnterDelay={0.5}>
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  color: 'var(--ant-color-text-secondary)',
+                }}
+              >
+                {name}
+              </span>
+            </Tooltip>
+          </div>
+        ))}
       </div>
     </Card>
   );
