@@ -9,12 +9,24 @@ export default defineConfig({
   hash: true,
   publicPath: '/',
   routes,
-  // esbuild's default minifier picks per-chunk helper names that
-  // collide across the many code-split chunks (10 Volcano CR pages
-  // + lazy-loaded YamlEditor / PodExecDrawer / GPUMonitoring chart).
-  // Wrapping each chunk in its own IIFE scopes the helpers so they
-  // can't conflict; utoopack surfaces a fatal error otherwise.
-  esbuildMinifyIIFE: true,
+  // Switch off esbuild for production minification, use terser. Two
+  // unrelated wins from the same lever:
+  //   1. esbuild's per-chunk helper naming collides across the many
+  //      code-split chunks (10 Volcano CR pages + lazy YamlEditor /
+  //      PodExecDrawer / GPUMonitoring chart) and utoopack rejects
+  //      the build outright. Previous workaround was
+  //      esbuildMinifyIIFE: true, but —
+  //   2. — wrapping each chunk in its own IIFE breaks the ESM live
+  //      bindings xterm relies on for its class inheritance across
+  //      chunks. `class la extends X` where X resolves to null at
+  //      class-construction time crashes the exec drawer with
+  //      "Super constructor null of la is not a constructor"
+  //      (xterm.js renderer createInstance path).
+  // Terser preserves class inheritance correctly, doesn't have the
+  // helper-name collision, and is the standard prod minifier in the
+  // React ecosystem. Build is a bit slower than esbuild but not
+  // by an interesting amount.
+  jsMinifier: 'terser',
   ignoreMomentLocale: true,
   proxy: proxy[UMI_ENV as keyof typeof proxy],
   fastRefresh: true,
