@@ -178,10 +178,31 @@ const LoggingPage: React.FC = () => {
     listWorkloads(clusterId, 'pods', pickerNs, 500, '')
       .then((res) => {
         if (cancelled) return;
-        const items = (res?.items ?? []) as Array<{ metadata?: { name?: string } }>;
-        const names = items
-          .map((it) => it.metadata?.name)
-          .filter((n): n is string => !!n)
+        // Worker requests the K8s Table representation
+        // (`application/json;as=Table`), so the response shape is
+        // `{kind:'Table', rows:[{object:{metadata:{name}}, cells}]}`
+        // — not a plain List with `.items`. Pull names from row
+        // metadata; the cells[] fallback covers Tables that ship a
+        // PartialObjectMetadata stripped to just labels.
+        const rows = (res?.rows ?? []) as Array<{
+          object?: { metadata?: { name?: string } };
+          cells?: unknown[];
+        }>;
+        const colNames = ((res?.columnDefinitions ?? []) as Array<{
+          name?: string;
+        }>).map((c) => c.name ?? '');
+        const nameIdx = colNames.indexOf('Name');
+        const names = rows
+          .map((r) => {
+            const fromMeta = r.object?.metadata?.name;
+            if (fromMeta) return fromMeta;
+            if (nameIdx >= 0) {
+              const v = r.cells?.[nameIdx];
+              if (typeof v === 'string') return v;
+            }
+            return '';
+          })
+          .filter((n) => !!n)
           .sort();
         setPodList(names);
       })
