@@ -93,25 +93,30 @@ func main() {
 		}
 		tunnelClient.SetResourceHandler(p.Handle)
 
+		// Shared in-cluster routing cache: on the first *.svc.* request
+		// we try direct DNS dial; on DNS failure we fall back to the
+		// K8s API server's service-proxy subresource and remember that
+		// for 24h. Both the HTTP and WS reverse proxies consult the
+		// same instance so they agree on the path without probing
+		// independently.
+		router := proxy.NewInClusterRouter()
+
 		// Reverse-proxy HTTP forwarder (Server → in-cluster Service for
-		// embedded plugin UIs like Grafana). For URLs whose host ends in
-		// `.svc.<cluster-domain>` (e.g. `victoria-metrics-…svc.cluster.
-		// local:8428`), the proxy routes the request through the K8s
-		// API server's Service proxy endpoint instead of direct dial —
-		// otherwise local-dev workers running outside the cluster can't
-		// resolve the in-cluster DNS name. In production (worker
-		// in-cluster) both paths work; the API-proxy path adds a small
-		// hop and accurate auth flow through the API server.
+		// embedded plugin UIs like Grafana, plus VM / VictoriaLogs
+		// PromQL / LogsQL queries from the monitoring / logging pages).
 		httpProxy := proxy.NewHTTPProxy(
 			tunnelClient.SendHTTPResponse,
 			tunnelClient.StreamContext,
 			clientset,
+			router,
 		)
 		tunnelClient.SetHTTPHandler(httpProxy.Handle)
 
 		// WebSocket reverse proxy (Grafana Live, etc.) — sibling to the
-		// HTTP forwarder. Owns one upstream WS conn per session.
-		wsMgr := proxy.NewWSManager(tunnelClient)
+		// HTTP forwarder. Owns one upstream WS conn per session. k8sCfg
+		// is needed for the service-proxy WS fallback when direct dial
+		// can't resolve cluster DNS (typical for local-dev workers).
+		wsMgr := proxy.NewWSManager(tunnelClient, k8sCfg, router)
 		tunnelClient.SetWSHandlers(wsMgr.Start, wsMgr.Frame, wsMgr.End)
 
 		logsMgr := proxy.NewLogsManager(clientset, tunnelClient)

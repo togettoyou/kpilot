@@ -2,16 +2,20 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"k8s.io/client-go/rest"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
@@ -42,6 +46,17 @@ type WSManager struct {
 
 	mu       sync.Mutex
 	sessions map[string]*wsSession
+
+	// k8sCfg + apiTLS power the service-proxy WS fallback: when direct
+	// dial fails with a DNS error, we re-dial through the API server's
+	// /api/v1/namespaces/.../services/.../proxy/ subresource using the
+	// kubeconfig credentials. nil-tolerant for tests.
+	k8sCfg *rest.Config
+	apiTLS *tls.Config
+	// router is the per-Worker cached routing decision, shared with
+	// HTTPProxy via cmd/worker/main.go. nil-tolerant; falls back to
+	// direct-dial-only.
+	router *InClusterRouter
 }
 
 // wsSessionWriteBuf is the per-session backlog of browser-originated frames
@@ -65,8 +80,12 @@ type wsSession struct {
 	closeOnce sync.Once
 }
 
-func NewWSManager(pusher WSPusher) *WSManager {
-	return &WSManager{
+func NewWSManager(
+	pusher WSPusher,
+	k8sCfg *rest.Config,
+	router *InClusterRouter,
+) *WSManager {
+	m := &WSManager{
 		pusher: pusher,
 		dialer: &websocket.Dialer{
 			HandshakeTimeout: 10 * time.Second,
@@ -78,7 +97,21 @@ func NewWSManager(pusher WSPusher) *WSManager {
 			WriteBufferSize: 32 * 1024,
 		},
 		sessions: make(map[string]*wsSession),
+		k8sCfg:   k8sCfg,
+		router:   router,
 	}
+	// Pre-compute the TLS config for service-proxy WS dials so we
+	// don't redo cert parsing on every fallback. rest.TLSConfigFor
+	// handles CAData / CAFile / client cert / InsecureSkipVerify in
+	// the same way the rest of client-go does.
+	if k8sCfg != nil {
+		if cfg, err := rest.TLSConfigFor(k8sCfg); err == nil {
+			m.apiTLS = cfg
+		} else {
+			log.Printf("[ws-proxy] tls config from rest.Config failed (service-proxy WS fallback disabled): err=%v", err)
+		}
+	}
+	return m
 }
 
 // Start opens the upstream WebSocket dial and (on success) launches the
@@ -119,7 +152,7 @@ func (m *WSManager) Start(sessionID string, req *proto.WSStartRequest) {
 	// the dial + pump goroutines immediately; otherwise they leak
 	// waiting for the upstream's own timeouts.
 	ctx, cancel := context.WithCancel(m.pusher.StreamContext())
-	conn, dialResp, err := m.dialer.DialContext(ctx, req.Url, header)
+	conn, dialResp, err := m.dial(ctx, req.Url, header)
 	if err != nil {
 		// gorilla/websocket reports any non-101 as the generic
 		// "websocket: bad handshake" — useless for diagnosis. The
@@ -298,6 +331,128 @@ func readDialBodyExcerpt(body io.ReadCloser) string {
 		return string(buf[:max]) + "...(truncated)"
 	}
 	return string(buf)
+}
+
+// dial chooses between direct DNS dial and the K8s API server's
+// service-proxy subresource based on the per-Worker routing cache.
+// Mirrors HTTPProxy.doInClusterService — see that function's comment
+// for the full state machine. nil router OR nil k8sCfg OR
+// non-in-cluster URL all collapse to plain direct dial.
+func (m *WSManager) dial(
+	ctx context.Context, rawURL string, header http.Header,
+) (*websocket.Conn, *http.Response, error) {
+	svc := parseInClusterService(rawURL)
+	if svc == nil || m.router == nil || m.k8sCfg == nil {
+		return m.dialer.DialContext(ctx, rawURL, header)
+	}
+	switch m.router.Mode() {
+	case routingDirect:
+		conn, resp, err := m.dialer.DialContext(ctx, rawURL, header)
+		if err != nil && isDNSFailure(err) {
+			log.Printf("[ws-proxy] cached direct routing hit DNS failure, demoting to service-proxy: host=%s err=%v",
+				svc.namespace+"/"+svc.name, err)
+			m.router.SetMode(routingProxy)
+			return m.dialViaServiceProxy(ctx, svc, header)
+		}
+		return conn, resp, err
+	case routingProxy:
+		return m.dialViaServiceProxy(ctx, svc, header)
+	}
+	// routingUnknown — probe by trying direct first.
+	conn, resp, err := m.dialer.DialContext(ctx, rawURL, header)
+	if err == nil {
+		log.Printf("[ws-proxy] in-cluster direct dial works, caching routing=direct (24h TTL)")
+		m.router.SetMode(routingDirect)
+		return conn, resp, nil
+	}
+	if !isDNSFailure(err) {
+		return nil, resp, err
+	}
+	log.Printf("[ws-proxy] in-cluster direct dial failed (DNS), caching routing=service-proxy (24h TTL): host=%s err=%v",
+		svc.namespace+"/"+svc.name, err)
+	m.router.SetMode(routingProxy)
+	return m.dialViaServiceProxy(ctx, svc, header)
+}
+
+// dialViaServiceProxy opens a WebSocket through the K8s API server's
+// service-proxy subresource:
+//
+//	wss://<apiserver-host>/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/<path>?<q>
+//
+// The API server upgrades the proxied request to WebSocket transparently
+// and forwards frames in both directions; from gorilla/websocket's POV
+// it's a normal wss:// upgrade against the apiserver, just with a
+// service-proxy URL path. Auth is the same Bearer token / client cert
+// that powers the rest of the worker's K8s calls — re-read from
+// BearerTokenFile on each dial so SA token rotation doesn't strand
+// long-lived workers on an expired token.
+func (m *WSManager) dialViaServiceProxy(
+	ctx context.Context, svc *inClusterService, baseHeader http.Header,
+) (*websocket.Conn, *http.Response, error) {
+	if m.apiTLS == nil {
+		return nil, nil, errors.New("service-proxy WS fallback unavailable: missing api TLS config")
+	}
+	apiURL, err := url.Parse(m.k8sCfg.Host)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse api host: %w", err)
+	}
+	wsScheme := "wss"
+	if apiURL.Scheme == "http" {
+		wsScheme = "ws"
+	}
+	path := strings.TrimPrefix(svc.path, "/")
+	target := url.URL{
+		Scheme:   wsScheme,
+		Host:     apiURL.Host,
+		Path:     fmt.Sprintf("/api/v1/namespaces/%s/services/%s:%s/proxy/%s", svc.namespace, svc.name, svc.port, path),
+		RawQuery: svc.query.Encode(),
+	}
+
+	// Inject auth. baseHeader carries any headers Server-side
+	// forwarded for the upstream Service (e.g. X-WEBAUTH-USER); we
+	// add Authorization on top so the apiserver accepts the proxy
+	// call. Clone to avoid mutating the caller's map.
+	hdr := baseHeader.Clone()
+	if hdr == nil {
+		hdr = http.Header{}
+	}
+	if tok, terr := bearerTokenFromConfig(m.k8sCfg); terr != nil {
+		return nil, nil, fmt.Errorf("read bearer token: %w", terr)
+	} else if tok != "" {
+		hdr.Set("Authorization", "Bearer "+tok)
+	}
+
+	dialer := *m.dialer // copy so the per-conn TLSClientConfig doesn't leak between dials
+	dialer.TLSClientConfig = m.apiTLS
+	return dialer.DialContext(ctx, target.String(), hdr)
+}
+
+// bearerTokenFromConfig pulls the auth token out of a rest.Config. We
+// support the two cases worker setups actually use:
+//
+//   - BearerToken set directly (kubeconfig with a token field).
+//   - BearerTokenFile pointing at the SA projected token (in-cluster
+//     deploy). Re-read every call so the rotated SA token is picked
+//     up without restarting the Worker.
+//
+// AuthProvider / ExecProvider configurations (oauth2, gcp, exec
+// plugins) aren't covered — those are uncommon for Worker installs
+// and would need their own RoundTripper-wrapped dial path.
+func bearerTokenFromConfig(c *rest.Config) (string, error) {
+	if c == nil {
+		return "", nil
+	}
+	if c.BearerToken != "" {
+		return c.BearerToken, nil
+	}
+	if c.BearerTokenFile != "" {
+		b, err := os.ReadFile(c.BearerTokenFile)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+	return "", nil
 }
 
 // truncate keeps the WS close-frame Reason inside RFC 6455's 123-byte payload

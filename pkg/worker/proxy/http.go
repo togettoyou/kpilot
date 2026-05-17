@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"k8s.io/client-go/kubernetes"
@@ -63,73 +62,11 @@ type HTTPProxy struct {
 	// local-dev workers outside the cluster). nil-tolerant — when
 	// nil, the proxy always uses direct dial.
 	clientset kubernetes.Interface
-
-	// routingMu guards the per-Worker cached decision on how to reach
-	// in-cluster Services. See routingMode below.
-	routingMu        sync.RWMutex
-	routingMode      routingMode
-	routingDecidedAt time.Time
-}
-
-// routingMode captures whether direct DNS dial works for in-cluster
-// Services on this Worker. Decided lazily on the first request whose
-// host matches *.svc.* and cached for routingCacheTTL afterwards:
-//
-//   - routingDirect: Worker can reach Services by their cluster DNS
-//     name (`<svc>.<ns>.svc.<cluster.local>:<port>`). This is the
-//     normal case when Worker runs as an in-cluster Pod.
-//   - routingProxy:  Worker can't resolve / dial Service DNS, but
-//     reaches the cluster through kubeconfig (typical for local-dev
-//     workers SSH-tunneled to a remote API server). Every request
-//     is rerouted through the K8s API server's service-proxy
-//     subresource.
-//   - routingUnknown: cache cold or expired; the next request
-//     re-probes.
-//
-// Why decide once + cache: every probe burdens kube-apiserver with
-// one extra proxy hop. Forcing the proxy path unconditionally (the
-// old behavior) routed every metric / log query through the API
-// server, which is a hot path on busy clusters. Caching the decision
-// for 24h means the in-cluster case bypasses the API server entirely
-// after the first request of the day; out-of-cluster Workers eat one
-// failed direct dial per day in exchange for the same simplicity.
-type routingMode int
-
-const (
-	routingUnknown routingMode = iota
-	routingDirect
-	routingProxy
-)
-
-// routingCacheTTL bounds how long a routing decision stays sticky.
-// 24h means a Worker that started in-cluster and survives a network
-// reconfig will re-probe at most once a day; in practice the decision
-// is stable across a Worker's lifetime so this TTL mostly exists as
-// a self-heal hatch.
-const routingCacheTTL = 24 * time.Hour
-
-// readRoutingMode returns the cached mode, or routingUnknown when the
-// cache is cold or stale.
-func (p *HTTPProxy) readRoutingMode() routingMode {
-	p.routingMu.RLock()
-	defer p.routingMu.RUnlock()
-	if p.routingMode == routingUnknown {
-		return routingUnknown
-	}
-	if time.Since(p.routingDecidedAt) >= routingCacheTTL {
-		return routingUnknown
-	}
-	return p.routingMode
-}
-
-// writeRoutingMode commits a decision into the cache. The two callers
-// (cold-probe success and direct-dial fallback) both want the same
-// "stamp it with now()" semantics.
-func (p *HTTPProxy) writeRoutingMode(m routingMode) {
-	p.routingMu.Lock()
-	p.routingMode = m
-	p.routingDecidedAt = time.Now()
-	p.routingMu.Unlock()
+	// router holds the cached "use direct dial vs service-proxy"
+	// decision; shared with the WebSocket proxy via cmd/worker/main.go
+	// so both arrive at the same answer without probing twice. May be
+	// nil in tests — in that case the proxy always uses direct dial.
+	router *InClusterRouter
 }
 
 // NewHTTPProxy builds an HTTPProxy with sensible defaults for the in-cluster
@@ -148,6 +85,7 @@ func NewHTTPProxy(
 	sendFn func(string, *proto.HTTPResponse),
 	streamCtxFn func() context.Context,
 	clientset kubernetes.Interface,
+	router *InClusterRouter,
 ) *HTTPProxy {
 	return &HTTPProxy{
 		client: &http.Client{
@@ -172,6 +110,7 @@ func NewHTTPProxy(
 		sendFn:      sendFn,
 		streamCtxFn: streamCtxFn,
 		clientset:   clientset,
+		router:      router,
 	}
 }
 
@@ -226,11 +165,12 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
 
-	// In-cluster Service URLs have two viable routings: direct DNS dial
-	// (cheap, common in-cluster case) or the K8s API server's
+	// In-cluster Service URLs have two viable routings: direct DNS
+	// dial (cheap, common in-cluster case) or the K8s API server's
 	// service-proxy subresource (works from anywhere with kubeconfig).
-	// Decide once per Worker, cache 24h. See routingMode.
-	if svc := parseInClusterService(req.Url); svc != nil && p.clientset != nil {
+	// Decision is cached per-Worker via InClusterRouter and shared
+	// with the WS proxy.
+	if svc := parseInClusterService(req.Url); svc != nil && p.clientset != nil && p.router != nil {
 		return p.doInClusterService(ctx, req, svc)
 	}
 
@@ -239,26 +179,25 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 
 // doInClusterService dispatches to the cached routing decision or
 // probes when the cache is cold. On a cold cache it tries direct DNS
-// dial first and falls back to the service-proxy path on dial-time
-// failures (DNS NXDOMAIN, connection refused), then writes whichever
-// path succeeded into the cache.
+// dial first and falls back to the service-proxy path on DNS
+// failures (NXDOMAIN / resolver timeout), then writes whichever path
+// succeeded into the cache.
 //
-// On a cached routingDirect we try direct again but, if it now fails
-// with the same dial-time error class, transparently fall back AND
-// flip the cache to routingProxy — covers the "Worker started
-// in-cluster, then got moved out" reconfig edge case without forcing
-// the operator to wait for the 24h TTL.
+// On a cached routingDirect we try direct again but, if it now hits
+// a DNS failure, transparently fall back AND flip the cache to
+// routingProxy — covers the "Worker started in-cluster, then got
+// moved out" reconfig edge case without forcing the operator to
+// wait for the 24h TTL.
 func (p *HTTPProxy) doInClusterService(
 	ctx context.Context, req *proto.HTTPRequest, svc *inClusterService,
 ) (*proto.HTTPResponse, error) {
-	mode := p.readRoutingMode()
-	switch mode {
+	switch p.router.Mode() {
 	case routingDirect:
 		resp, err := p.doDirect(ctx, req)
-		if err != nil && isDialError(err) {
-			log.Printf("[http-proxy] cached direct routing failed (dial error), demoting to service-proxy: host=%s err=%v",
+		if err != nil && isDNSFailure(err) {
+			log.Printf("[http-proxy] cached direct routing hit DNS failure, demoting to service-proxy: host=%s err=%v",
 				svc.namespace+"/"+svc.name, err)
-			p.writeRoutingMode(routingProxy)
+			p.router.SetMode(routingProxy)
 			return p.doViaServiceProxy(ctx, req, svc)
 		}
 		return resp, err
@@ -269,19 +208,19 @@ func (p *HTTPProxy) doInClusterService(
 	resp, err := p.doDirect(ctx, req)
 	if err == nil {
 		log.Printf("[http-proxy] in-cluster direct dial works, caching routing=direct (24h TTL)")
-		p.writeRoutingMode(routingDirect)
+		p.router.SetMode(routingDirect)
 		return resp, nil
 	}
-	if !isDialError(err) {
-		// Direct dial reached the upstream but the upstream errored
-		// (HTTP 5xx after the body was read, timeout post-connect,
-		// etc.). That's a real upstream problem, not a routing
-		// signal. Leave the cache cold so the next request re-probes.
+	if !isDNSFailure(err) {
+		// Direct dial reached the host but the upstream errored
+		// (Service has no endpoints, HTTP 5xx, etc.). That's a real
+		// upstream problem, not a routing signal — leave the cache
+		// cold so the next request re-probes, surface the error.
 		return nil, err
 	}
-	log.Printf("[http-proxy] in-cluster direct dial failed, caching routing=service-proxy (24h TTL): host=%s err=%v",
+	log.Printf("[http-proxy] in-cluster direct dial failed (DNS), caching routing=service-proxy (24h TTL): host=%s err=%v",
 		svc.namespace+"/"+svc.name, err)
-	p.writeRoutingMode(routingProxy)
+	p.router.SetMode(routingProxy)
 	return p.doViaServiceProxy(ctx, req, svc)
 }
 
@@ -340,31 +279,6 @@ func (p *HTTPProxy) doDirect(ctx context.Context, req *proto.HTTPRequest) (*prot
 		Headers: headers,
 		Body:    respBody,
 	}, nil
-}
-
-// isDialError detects the failure mode "couldn't reach the host at
-// all" — DNS resolution failed (NXDOMAIN), no network route, or TCP
-// connection refused / timed out. These are the signals that mean
-// "try the service-proxy path instead"; everything else (HTTP 5xx,
-// body read errors, context cancellation) is a genuine upstream issue
-// the caller should see verbatim.
-func isDialError(err error) bool {
-	if err == nil {
-		return false
-	}
-	// net.DNSError fires on NXDOMAIN, timeout during lookup, etc.
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return true
-	}
-	// net.OpError with Op="dial" wraps connect-time failures: refused,
-	// no route, host unreachable, lookup failed (the latter often
-	// surfaces here without a DNSError on the chain).
-	var opErr *net.OpError
-	if errors.As(err, &opErr) && opErr.Op == "dial" {
-		return true
-	}
-	return false
 }
 
 // inClusterService captures the K8s Service identity parsed out of a
