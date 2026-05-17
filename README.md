@@ -108,8 +108,8 @@ The cluster row in the Server UI transitions to Online within a few seconds. Pro
 
 <table width="100%">
 <tr>
-<td width="50%"><img src="docs/assets/screenshots/plugin.png" alt="Plugin registry" width="480"></td>
-<td width="50%"></td>
+<td width="50%"><img src="docs/assets/screenshots/plugin-admin.png" alt="Plugin admin" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/plugin.png" alt="Plugin install" width="480"></td>
 </tr>
 </table>
 

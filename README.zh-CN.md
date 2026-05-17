@@ -108,7 +108,8 @@ helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
 
 <table width="100%">
 <tr>
-<td width="50%"><img src="docs/assets/screenshots/plugin.png" alt="插件注册表" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/plugin-admin.png" alt="插件管理" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/plugin.png" alt="集群插件安装" width="480"></td>
 <td width="50%"></td>
 </tr>
 </table>
