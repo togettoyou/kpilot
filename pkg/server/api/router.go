@@ -225,19 +225,41 @@ func mountSPA(r *gin.Engine, dir string) {
 		log.Printf("[router] STATIC_DIR=%s but index.html not found, skipping SPA mount: err=%v", dir, err)
 		return
 	}
-	// Serve everything under the directory as static; gin walks the
-	// directory once at mount time and registers handlers per file.
-	r.Static("/assets", filepath.Join(dir, "assets"))
-	r.StaticFile("/favicon.ico", filepath.Join(dir, "favicon.ico"))
+	// Single NoRoute serves both static assets and the SPA fallback.
+	// Umi/Max emits all hashed JS/CSS chunks flat at the dist root
+	// (`/_c9fde89b.css`, `/_root-of-the-server___...js`, …) rather
+	// than under a Vite/CRA-style `/assets/` subtree, so an inflexible
+	// `r.Static("/assets", …)` mount would miss them entirely and the
+	// browser would 200-with-HTML those .js requests → silent parse
+	// failure → blank page. Walking the URL path against the dir
+	// once per request stays simple AND covers exportStatic's
+	// per-route subdirectories (`/clusters/index.html`, etc.) without
+	// pre-registering every file at boot.
 	r.NoRoute(func(c *gin.Context) {
-		// Anything starting with /api/ or /health is a real miss, not
-		// a SPA route — preserve the original 404 so HTTP clients
-		// don't get HTML where they expect JSON.
 		p := c.Request.URL.Path
+		// Real misses on the API surface stay 404 instead of being
+		// silently rewritten to index.html — HTTP clients expect JSON,
+		// not the SPA shell.
 		if strings.HasPrefix(p, "/api/") || p == "/health" {
 			c.AbortWithStatus(http.StatusNotFound)
 			return
 		}
+		// filepath.Clean drops `..` segments; defense-in-depth Rel
+		// check rejects anything that resolves outside dir. Both
+		// matter because `c.File` calls http.ServeFile which trusts
+		// the path it gets.
+		clean := filepath.Clean(p)
+		fp := filepath.Join(dir, clean)
+		if rel, err := filepath.Rel(dir, fp); err != nil || strings.HasPrefix(rel, "..") {
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+		if st, err := os.Stat(fp); err == nil && !st.IsDir() {
+			c.File(fp)
+			return
+		}
+		// Unmatched route → SPA history fallback. The client-side
+		// router takes over from here.
 		c.File(indexPath)
 	})
 	log.Printf("[router] SPA mounted: dir=%s", dir)
