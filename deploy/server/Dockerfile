@@ -12,10 +12,21 @@
 # both into a single container keeps the deployment story to one
 # Deployment + one Service per cluster.
 
-FROM --platform=$BUILDPLATFORM node:20-alpine AS web-build
+# node:24-alpine ships npm 11.x.
+#
+# We use `npm install` (not `npm ci`) on purpose: the UmiJS bundler
+# pins a few transitive deps (less-loader, ajv, postcss) at exact
+# versions while neighbour packages declare `^` ranges that resolve
+# higher. `npm install` reconciles this at install time, the way the
+# project lives locally. `npm ci` would EUSAGE because the lock
+# stores both versions but can only validate one.
+# --legacy-peer-deps mirrors the override behavior the React 19 +
+# antd v6 stack needs to coexist with older Umi plugin peer ranges.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS web-build
 WORKDIR /work
 COPY web/package.json web/package-lock.json* ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --no-audit --no-fund --legacy-peer-deps --prefer-offline
 COPY web/ ./
 RUN npm run build
 
