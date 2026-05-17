@@ -22,7 +22,7 @@ export default {
   'pages.compute.volcano.notInstalled.title': 'Volcano is not installed on this cluster',
   'pages.compute.volcano.notInstalled.subTitle':
     'Queue / Job / PodGroup are provided by the Volcano scheduler. Enable the Volcano plugin on this cluster, then come back.',
-  'pages.compute.volcano.notInstalled.action': 'Go to plugins and enable Volcano',
+  'pages.compute.volcano.notInstalled.action': 'Open Plugins',
 
   // Form / YAML dual-view shared copy
   'pages.compute.form.tab.form': 'Form',
@@ -131,7 +131,7 @@ export default {
   'pages.compute.vgpu.notInstalled.title': 'vGPU device-plugin not installed',
   'pages.compute.vgpu.notInstalled.subTitle':
     'Enable volcano-vgpu-device-plugin on this cluster to see GPU slicing data. Once the DaemonSet is ready this page populates automatically.',
-  'pages.compute.vgpu.notInstalled.action': 'Go to plugins',
+  'pages.compute.vgpu.notInstalled.action': 'Open Plugins',
 
   'pages.compute.queueForm.weight': 'Weight',
   'pages.compute.queueForm.weight.extra': 'Resources are split between queues proportional to weight; higher = preferred',
@@ -666,7 +666,7 @@ export default {
   'pages.monitoring.notInstalled.title': 'VictoriaMetrics is not enabled',
   'pages.monitoring.notInstalled.subTitle':
     'Cluster monitoring reads from VictoriaMetrics. Enable it (and ideally node-exporter + kube-state-metrics) from the plugins page.',
-  'pages.monitoring.notInstalled.action': 'Open plugins',
+  'pages.monitoring.notInstalled.action': 'Open Plugins',
   'pages.monitoring.kpi.nodes': 'Nodes (ready / total)',
   'pages.monitoring.kpi.cpu': 'Cluster CPU utilization',
   'pages.monitoring.kpi.mem': 'Cluster memory utilization',
@@ -699,7 +699,7 @@ export default {
   'pages.logging.notInstalled.title': 'VictoriaLogs is not enabled',
   'pages.logging.notInstalled.subTitle':
     'Cluster logging reads from VictoriaLogs. Enable the plugin — the chart ships a Vector DaemonSet that collects every pod log automatically.',
-  'pages.logging.notInstalled.action': 'Open plugins',
+  'pages.logging.notInstalled.action': 'Open Plugins',
   'pages.logging.query.placeholder':
     'LogsQL, e.g. {kubernetes_namespace_name="default"} | error',
   'pages.logging.range': 'Range',
@@ -716,16 +716,10 @@ export default {
   'pages.logging.error.title': 'Log query failed',
 
   // Grafana home (escape hatch).
-  'pages.grafana.missing.title': 'Grafana is not enabled',
-  'pages.grafana.missing.subTitle':
+  'pages.grafana.notInstalled.title': 'Grafana is not enabled',
+  'pages.grafana.notInstalled.subTitle':
     "KPilot's monitoring and logging pages don't require Grafana — they query the storage directly. Enable Grafana when you want custom dashboards or ad-hoc PromQL / LogsQL exploration. You'll be logged in as Admin.",
-  'pages.grafana.installing.title': 'Grafana is installing',
-  'pages.grafana.installing.subTitle':
-    "Installation usually takes 1–2 minutes; this page auto-refreshes every 5s and will switch to the Grafana home once it's ready.",
-  'pages.grafana.failed.title': 'Grafana failed to install',
-  'pages.grafana.failed.subTitle':
-    'Open the plugins page to inspect the error and re-enable, or adjust values and retry.',
-  'pages.grafana.recommended': '',
+  'pages.grafana.notInstalled.action': 'Open Plugins',
 
   // GPU monitoring page (deps: victoria-metrics + dcgm-exporter; native
   // KPilot panels, no Grafana iframe)

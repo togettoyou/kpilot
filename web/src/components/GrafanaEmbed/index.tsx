@@ -1,10 +1,4 @@
-import {
-  CheckCircleFilled,
-  ExclamationCircleOutlined,
-  ExportOutlined,
-  LoadingOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
+import { ExportOutlined } from '@ant-design/icons';
 import { history, useIntl, useParams } from '@umijs/max';
 
 import { useClusterRequest } from '@/hooks/useClusterRequest';
@@ -323,83 +317,25 @@ const GrafanaEmbed: React.FC<GrafanaEmbedConfig> = ({
     );
   }
 
-  // Sad paths
-  const buildPluginLine = (r: typeof summary.required[number]) => {
-    const icon = (() => {
-      switch (r.state) {
-        case 'ready':
-          return <CheckCircleFilled style={{ color: '#52c41a' }} />;
-        case 'installing':
-          return <LoadingOutlined style={{ color: '#1677ff' }} />;
-        case 'failed':
-          return <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />;
-        case 'missing':
-        default:
-          return <ExclamationCircleOutlined style={{ color: '#faad14' }} />;
-      }
-    })();
-    const label = intl.formatMessage({
-      id: `pages.embed.depState.${r.state}`,
-    });
-    return (
-      <div
-        key={r.name}
-        style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: 2 }}
-      >
-        {icon}
-        <span style={{ fontWeight: 500 }}>{r.name}</span>
-        <span style={{ color: 'var(--ant-color-text-secondary)' }}>—</span>
-        <span style={{ color: 'var(--ant-color-text-secondary)' }}>{label}</span>
-        {r.state === 'failed' && r.item?.message && (
-          <span
-            style={{
-              color: 'var(--ant-color-error)',
-              fontSize: 12,
-              marginLeft: 4,
-            }}
-          >
-            ({r.item.message})
-          </span>
-        )}
-      </div>
-    );
-  };
-
-  const status = summary.anyFailed ? 'error' : summary.anyInstalling ? 'info' : 'warning';
-  const phaseKey = summary.anyFailed
-    ? 'failed'
-    : summary.anyInstalling
-      ? 'installing'
-      : 'missing';
-  const titleKey = `${i18nPrefix}.${phaseKey}.title`;
-  const subTitleKey = `${i18nPrefix}.${phaseKey}.subTitle`;
-
+  // Plugin not ready — render the same shell as the shared
+  // NotInstalled component used by Compute / Monitoring / Logging
+  // pages: status="info", title + subTitle, single primary button.
+  // Differentiating missing / installing / failed states here would
+  // diverge from the rest of the product; the plugins page itself
+  // shows that detail once the user clicks through.
   return (
-    <Result
-      status={status as 'error' | 'info' | 'warning'}
-      title={intl.formatMessage({ id: titleKey })}
-      subTitle={intl.formatMessage({ id: subTitleKey })}
-      extra={[
-        <Button key="enable" type="primary" onClick={goToPlugins}>
-          {intl.formatMessage({ id: 'pages.embed.cta.goPlugins' })}
-        </Button>,
-        <Button key="refresh" icon={<ReloadOutlined />} onClick={refresh}>
-          {intl.formatMessage({ id: 'pages.embed.cta.refresh' })}
-        </Button>,
-      ]}
-    >
-      <div
-        style={{
-          background: 'var(--ant-color-fill-tertiary)',
-          padding: '16px 24px',
-          borderRadius: 8,
-          maxWidth: 520,
-          margin: '0 auto',
-        }}
-      >
-        {summary.required.map(buildPluginLine)}
-      </div>
-    </Result>
+    <div className="p-6">
+      <Result
+        status="info"
+        title={intl.formatMessage({ id: `${i18nPrefix}.notInstalled.title` })}
+        subTitle={intl.formatMessage({ id: `${i18nPrefix}.notInstalled.subTitle` })}
+        extra={
+          <Button type="primary" onClick={goToPlugins}>
+            {intl.formatMessage({ id: `${i18nPrefix}.notInstalled.action` })}
+          </Button>
+        }
+      />
+    </div>
   );
 };
 

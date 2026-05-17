@@ -15,7 +15,14 @@ import {
   Typography,
 } from 'antd';
 import { useThemeMode } from 'antd-style';
-import React, { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import React, {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import {
   isResourceNotAvailable,
@@ -99,6 +106,30 @@ const LoggingPage: React.FC = () => {
       ),
     ]);
   }, [clusterId, query, rangeMin, limit]);
+
+  // Lightweight install probe on mount — fires a tiny histogram query
+  // over the last minute. RESOURCE_NOT_AVAILABLE surfaces immediately
+  // so the page renders the shared NotInstalled hint without forcing
+  // the user to type a query first. Any other error (or success) is
+  // ignored: the page falls through to the empty query bar.
+  useEffect(() => {
+    if (!clusterId) return;
+    let cancelled = false;
+    const nowMs = Date.now();
+    logsHistogram(clusterId, {
+      query: '*',
+      from: new Date(nowMs - 60_000).toISOString(),
+      to: new Date(nowMs).toISOString(),
+    }).catch((error) => {
+      if (cancelled) return;
+      if (isResourceNotAvailable(error)) {
+        setSearch({ data: null, error, loading: false });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clusterId]);
 
   // Format the result lines once per response.
   const lines = useMemo<LogLine[]>(() => search.data?.lines ?? [], [search.data]);

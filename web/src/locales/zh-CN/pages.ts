@@ -24,7 +24,7 @@ export default {
   'pages.compute.volcano.notInstalled.title': '集群尚未安装 Volcano',
   'pages.compute.volcano.notInstalled.subTitle':
     'Queue / Job / PodGroup 等资源由 Volcano 调度器提供，请先在该集群启用 Volcano 插件后再访问。',
-  'pages.compute.volcano.notInstalled.action': '前往插件管理启用 Volcano',
+  'pages.compute.volcano.notInstalled.action': '前往插件管理',
 
   // 表单 / YAML 双视图共享文案
   'pages.compute.form.tab.form': '表单',
@@ -653,7 +653,7 @@ export default {
   'pages.monitoring.notInstalled.title': 'VictoriaMetrics 未启用',
   'pages.monitoring.notInstalled.subTitle':
     '集群监控从 VictoriaMetrics 查询指标。请先启用 VictoriaMetrics（建议同时启用 node-exporter 与 kube-state-metrics）。',
-  'pages.monitoring.notInstalled.action': '前往插件页',
+  'pages.monitoring.notInstalled.action': '前往插件管理',
   'pages.monitoring.kpi.nodes': '节点（Ready / 总）',
   'pages.monitoring.kpi.cpu': '集群 CPU 利用率',
   'pages.monitoring.kpi.mem': '集群内存利用率',
@@ -683,7 +683,7 @@ export default {
   'pages.logging.notInstalled.title': 'VictoriaLogs 未启用',
   'pages.logging.notInstalled.subTitle':
     '集群日志从 VictoriaLogs 查询。请先启用 VictoriaLogs 插件，chart 自带 Vector DaemonSet 自动采集所有 Pod 日志。',
-  'pages.logging.notInstalled.action': '前往插件页',
+  'pages.logging.notInstalled.action': '前往插件管理',
   'pages.logging.query.placeholder':
     'LogsQL，例如：{kubernetes_namespace_name="default"} | error',
   'pages.logging.range': '时间范围',
@@ -699,16 +699,10 @@ export default {
   'pages.logging.error.title': '日志查询失败',
 
   // Grafana 主页（escape hatch）
-  'pages.grafana.missing.title': 'Grafana 未启用',
-  'pages.grafana.missing.subTitle':
+  'pages.grafana.notInstalled.title': 'Grafana 未启用',
+  'pages.grafana.notInstalled.subTitle':
     'KPilot 的监控 / 日志页是自绘形态，不依赖 Grafana。需要自定义 dashboard 或临时探索 PromQL / LogsQL 时再启用 Grafana 插件，启用后会以管理员身份直接进入。',
-  'pages.grafana.installing.title': 'Grafana 正在安装',
-  'pages.grafana.installing.subTitle':
-    '安装一般需要 1-2 分钟，本页会自动每 5 秒刷新；完成后会自动切换到 Grafana 主页。',
-  'pages.grafana.failed.title': 'Grafana 安装失败',
-  'pages.grafana.failed.subTitle':
-    '请前往插件页查看错误详情并重新启用，或调整 values 后重试。',
-  'pages.grafana.recommended': '',
+  'pages.grafana.notInstalled.action': '前往插件管理',
 
   // GPU monitoring page (deps: victoria-metrics + dcgm-exporter; pure
   // custom panel rendering, no Grafana embed)
