@@ -58,6 +58,16 @@ type clusterMetricsSnapshot struct {
 	// node-exporter; expressed as percent in [0, 100].
 	CPUUtilPct float64 `json:"cpuUtilPct"`
 	MemUtilPct float64 `json:"memUtilPct"`
+	// Absolute companions for the rate fields above. "45% of 200
+	// cores" reads very differently from a flat 45% — the rate alone
+	// doesn't tell an operator whether 50% on a 4-core cluster is
+	// fine or 50% on a 400-core cluster needs attention. Zero values
+	// indicate the source metric isn't present (node-exporter
+	// missing).
+	CPUTotalCores float64 `json:"cpuTotalCores"`
+	CPUUsedCores  float64 `json:"cpuUsedCores"`
+	MemTotalBytes float64 `json:"memTotalBytes"`
+	MemUsedBytes  float64 `json:"memUsedBytes"`
 	// Pod state distribution: phase → count. Empty map when KSM is
 	// absent.
 	PodsByPhase map[string]int `json:"podsByPhase"`
@@ -140,6 +150,15 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			{"nodesTotal", `count(kube_node_info)`},
 			{"cpuUtilPct", `(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100`},
 			{"memUtilPct", `(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100`},
+			// Absolute companions. cpuTotalCores counts logical CPUs
+			// across all nodes (one idle-mode series per logical CPU).
+			// cpuUsedCores is the cluster-wide non-idle rate — it
+			// converges to "currently active cores" because each
+			// busy core ticks one second per real second.
+			{"cpuTotalCores", `count(count by (cpu, instance) (node_cpu_seconds_total{mode="idle"}))`},
+			{"cpuUsedCores", `sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))`},
+			{"memTotalBytes", `sum(node_memory_MemTotal_bytes)`},
+			{"memUsedBytes", `sum(node_memory_MemTotal_bytes) - sum(node_memory_MemAvailable_bytes)`},
 		}
 		rangeQueries := []struct {
 			key    string
@@ -223,11 +242,15 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		wg.Wait()
 
 		snap := clusterMetricsSnapshot{
-			NodesReady:  int(instants["nodesReady"]),
-			NodesTotal:  int(instants["nodesTotal"]),
-			CPUUtilPct:  instants["cpuUtilPct"],
-			MemUtilPct:  instants["memUtilPct"],
-			PodsByPhase: phases,
+			NodesReady:    int(instants["nodesReady"]),
+			NodesTotal:    int(instants["nodesTotal"]),
+			CPUUtilPct:    instants["cpuUtilPct"],
+			MemUtilPct:    instants["memUtilPct"],
+			CPUTotalCores: instants["cpuTotalCores"],
+			CPUUsedCores:  instants["cpuUsedCores"],
+			MemTotalBytes: instants["memTotalBytes"],
+			MemUsedBytes:  instants["memUsedBytes"],
+			PodsByPhase:   phases,
 		}
 		for _, n := range phases {
 			snap.PodsTotal += n

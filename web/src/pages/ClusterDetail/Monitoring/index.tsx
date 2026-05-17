@@ -3,6 +3,7 @@ import {
   Card,
   Col,
   Empty,
+  Input,
   Progress,
   Radio,
   Result,
@@ -54,6 +55,13 @@ const MonitoringPage: React.FC = () => {
   const ns = clusterId ? namespaceModel.get(clusterId).selected : '';
 
   const [range, setRange] = useState<MetricsRange>('1h');
+  // Free-text name filters for the node + pod sections. Both filters
+  // run client-side over the already-fetched series (node-metrics
+  // returns ALL nodes; pod-metrics returns the server-side top-N,
+  // capped at 100 — large clusters use the filter to narrow which
+  // pods are visible without re-fetching).
+  const [nodeFilter, setNodeFilter] = useState('');
+  const [podFilter, setPodFilter] = useState('');
 
   const cluster = useClusterRequest(
     () => getClusterMetrics(clusterId!, range),
@@ -122,17 +130,29 @@ const MonitoringPage: React.FC = () => {
     pct: Math.min(100, Math.max(0, pct)),
   });
 
-  const nodeSeries = (key: string) =>
-    (nodes.data?.series?.[key] ?? []).map((s: NodeMetricSeries) => ({
-      name: s.nodeName || s.instance,
-      points: s.points,
-    }));
+  const nodeFilterLower = nodeFilter.trim().toLowerCase();
+  const nodeSeries = (key: string) => {
+    const rows = (nodes.data?.series?.[key] ?? []).map(
+      (s: NodeMetricSeries) => ({
+        name: s.nodeName || s.instance,
+        points: s.points,
+      }),
+    );
+    if (!nodeFilterLower) return rows;
+    return rows.filter((r) => r.name.toLowerCase().includes(nodeFilterLower));
+  };
 
-  const podSeries = (key: string) =>
-    (pods.data?.series?.[key] ?? []).map((s: PodMetricSeries) => ({
-      name: `${s.namespace}/${s.pod}`,
-      points: s.points,
-    }));
+  const podFilterLower = podFilter.trim().toLowerCase();
+  const podSeries = (key: string) => {
+    const rows = (pods.data?.series?.[key] ?? []).map(
+      (s: PodMetricSeries) => ({
+        name: `${s.namespace}/${s.pod}`,
+        points: s.points,
+      }),
+    );
+    if (!podFilterLower) return rows;
+    return rows.filter((r) => r.name.toLowerCase().includes(podFilterLower));
+  };
 
   const loading = cluster.loading || nodes.loading || pods.loading;
   const dark = isDarkMode;
@@ -185,78 +205,128 @@ const MonitoringPage: React.FC = () => {
             </Row>
           </Card>
 
-          {/* Cluster KPI strip */}
+          {/* Cluster KPI strip — 4 cards same shape, same height. Each
+              uses the GPU-monitoring pattern: Statistic on the left
+              (title + big value + a single supplementary line for the
+              absolute companion), Progress.dashboard size=64 on the
+              right. Cards lay out as 2x2 on tablet (sm) and 1x4 on
+              desktop (lg+). */}
           <Row gutter={[16, 16]}>
             <Col xs={24} sm={12} lg={6}>
               <Card size="small" styles={{ body: { padding: 16 } }}>
-                <Statistic
-                  title={intl.formatMessage({ id: 'pages.monitoring.kpi.nodes' })}
-                  value={snap?.nodesReady ?? 0}
-                  suffix={`/ ${snap?.nodesTotal ?? 0}`}
-                />
+                <div className="flex items-center justify-between">
+                  <Statistic
+                    title={intl.formatMessage({
+                      id: 'pages.monitoring.kpi.nodes',
+                    })}
+                    value={snap?.nodesReady ?? 0}
+                    suffix={`/ ${snap?.nodesTotal ?? 0}`}
+                  />
+                  <Typography.Text
+                    type="secondary"
+                    style={{ fontSize: 12, maxWidth: 80, textAlign: 'right' }}
+                  >
+                    {intl.formatMessage({
+                      id: 'pages.monitoring.kpi.nodes.hint',
+                    })}
+                  </Typography.Text>
+                </div>
               </Card>
             </Col>
             <Col xs={24} sm={12} lg={6}>
               <Card size="small" styles={{ body: { padding: 16 } }}>
-                <div style={{ textAlign: 'center' }}>
-                  <Typography.Text
-                    type="secondary"
-                    style={{ fontSize: 12, display: 'block', marginBottom: 8 }}
-                  >
-                    {intl.formatMessage({ id: 'pages.monitoring.kpi.cpu' })}
-                  </Typography.Text>
+                <div className="flex items-center justify-between">
+                  <Statistic
+                    title={intl.formatMessage({
+                      id: 'pages.monitoring.kpi.cpu',
+                    })}
+                    value={cpuPct}
+                    precision={1}
+                    suffix="%"
+                  />
                   <Progress
                     type="dashboard"
                     percent={dash(cpuPct).pct}
                     strokeColor={dash(cpuPct).fillColor}
-                    size={120}
-                    format={(p) => `${(p ?? 0).toFixed(1)}%`}
+                    size={64}
+                    format={() => ''}
                   />
                 </div>
+                <Typography.Text
+                  type="secondary"
+                  style={{ fontSize: 12, display: 'block', marginTop: 4 }}
+                >
+                  {snap?.cpuTotalCores
+                    ? intl.formatMessage(
+                        { id: 'pages.monitoring.kpi.cpu.absolute' },
+                        {
+                          used: (snap.cpuUsedCores ?? 0).toFixed(1),
+                          total: Math.round(snap.cpuTotalCores),
+                        },
+                      )
+                    : intl.formatMessage({
+                        id: 'pages.monitoring.kpi.absolute.unavailable',
+                      })}
+                </Typography.Text>
               </Card>
             </Col>
             <Col xs={24} sm={12} lg={6}>
               <Card size="small" styles={{ body: { padding: 16 } }}>
-                <div style={{ textAlign: 'center' }}>
-                  <Typography.Text
-                    type="secondary"
-                    style={{ fontSize: 12, display: 'block', marginBottom: 8 }}
-                  >
-                    {intl.formatMessage({ id: 'pages.monitoring.kpi.mem' })}
-                  </Typography.Text>
+                <div className="flex items-center justify-between">
+                  <Statistic
+                    title={intl.formatMessage({
+                      id: 'pages.monitoring.kpi.mem',
+                    })}
+                    value={memPct}
+                    precision={1}
+                    suffix="%"
+                  />
                   <Progress
                     type="dashboard"
                     percent={dash(memPct).pct}
                     strokeColor={dash(memPct).fillColor}
-                    size={120}
-                    format={(p) => `${(p ?? 0).toFixed(1)}%`}
+                    size={64}
+                    format={() => ''}
                   />
                 </div>
+                <Typography.Text
+                  type="secondary"
+                  style={{ fontSize: 12, display: 'block', marginTop: 4 }}
+                >
+                  {snap?.memTotalBytes
+                    ? intl.formatMessage(
+                        { id: 'pages.monitoring.kpi.mem.absolute' },
+                        {
+                          used: formatGiB(snap.memUsedBytes ?? 0),
+                          total: formatGiB(snap.memTotalBytes),
+                        },
+                      )
+                    : intl.formatMessage({
+                        id: 'pages.monitoring.kpi.absolute.unavailable',
+                      })}
+                </Typography.Text>
               </Card>
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card
-                size="small"
-                styles={{ body: { padding: 16 } }}
-                title={
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {intl.formatMessage({ id: 'pages.monitoring.kpi.pods' })}
-                    <Typography.Text strong style={{ marginLeft: 8 }}>
-                      {snap?.podsTotal ?? 0}
-                    </Typography.Text>
-                  </Typography.Text>
-                }
-              >
-                <Space wrap>
+              <Card size="small" styles={{ body: { padding: 16 } }}>
+                <Statistic
+                  title={intl.formatMessage({ id: 'pages.monitoring.kpi.pods' })}
+                  value={snap?.podsTotal ?? 0}
+                />
+                <Space wrap size={[4, 4]} style={{ marginTop: 4 }}>
                   {phaseEntries.length === 0 ? (
-                    <Typography.Text type="secondary">
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       {intl.formatMessage({
                         id: 'pages.monitoring.kpi.pods.empty',
                       })}
                     </Typography.Text>
                   ) : (
                     phaseEntries.map(([phase, n]) => (
-                      <Tag key={phase} color={phaseColor(phase)}>
+                      <Tag
+                        key={phase}
+                        color={phaseColor(phase)}
+                        style={{ marginInlineEnd: 0 }}
+                      >
                         {phase} {n}
                       </Tag>
                     ))
@@ -293,6 +363,18 @@ const MonitoringPage: React.FC = () => {
           {/* Node-level panels */}
           <Card
             title={intl.formatMessage({ id: 'pages.monitoring.section.nodes' })}
+            extra={
+              <Input.Search
+                allowClear
+                size="small"
+                style={{ width: 220 }}
+                placeholder={intl.formatMessage({
+                  id: 'pages.monitoring.filter.node.placeholder',
+                })}
+                value={nodeFilter}
+                onChange={(e) => setNodeFilter(e.target.value)}
+              />
+            }
             size="small"
             styles={{ body: { padding: 16 } }}
           >
@@ -347,7 +429,9 @@ const MonitoringPage: React.FC = () => {
             </Suspense>
           </Card>
 
-          {/* Pod-level panels */}
+          {/* Pod-level panels — server filters by namespace (driven by
+              the global picker, empty = all NSes), client-side
+              text filter narrows by pod name on the returned top-N. */}
           <Card
             title={
               <Space>
@@ -364,6 +448,18 @@ const MonitoringPage: React.FC = () => {
                   </Typography.Text>
                 )}
               </Space>
+            }
+            extra={
+              <Input.Search
+                allowClear
+                size="small"
+                style={{ width: 220 }}
+                placeholder={intl.formatMessage({
+                  id: 'pages.monitoring.filter.pod.placeholder',
+                })}
+                value={podFilter}
+                onChange={(e) => setPodFilter(e.target.value)}
+              />
             }
             size="small"
             styles={{ body: { padding: 16 } }}
@@ -425,6 +521,20 @@ const MonitoringPage: React.FC = () => {
     </div>
   );
 };
+
+// formatGiB renders a byte count as a human-friendly GiB string, with
+// MiB precision when the value is small enough that GiB rounds to 0.
+// Used by the KPI absolute-memory hint.
+function formatGiB(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0';
+  const gib = bytes / 1024 / 1024 / 1024;
+  if (gib >= 100) return gib.toFixed(0);
+  if (gib >= 10) return gib.toFixed(1);
+  if (gib >= 1) return gib.toFixed(2);
+  // Sub-GiB clusters (tiny kind / minikube setups) — show MiB.
+  const mib = bytes / 1024 / 1024;
+  return `${mib.toFixed(0)} MiB`;
+}
 
 function phaseColor(phase: string): string {
   switch (phase) {

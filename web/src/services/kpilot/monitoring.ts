@@ -12,6 +12,14 @@ export interface ClusterMetricsSnapshot {
   nodesTotal: number;
   cpuUtilPct: number;
   memUtilPct: number;
+  // Absolute values backing the rate fields above — a 45% number
+  // reads very differently depending on whether it's 45% of 4 cores
+  // or 45% of 400. Zero indicates the source metric isn't present
+  // (node-exporter missing); UI then shows just the rate.
+  cpuTotalCores: number;
+  cpuUsedCores: number;
+  memTotalBytes: number;
+  memUsedBytes: number;
   podsByPhase: Record<string, number>;
   podsTotal: number;
 }
