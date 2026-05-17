@@ -1,0 +1,21 @@
+# GitHub Linguist overrides — keep the language stats representative
+# of what we actually maintain.
+
+# vendor/ holds the pinned Go dependency tree (created by `go mod
+# vendor`). Linguist's default rules ignore vendor directories; we
+# flip the flag back so the Go footprint isn't artificially shrunk
+# in the repo's language breakdown.
+vendor/** linguist-vendored=false
+
+# Generated protobuf stubs are real Go code but not human-authored.
+# Mark them as generated so Linguist excludes them from stats and
+# diff views collapse them by default.
+pkg/common/proto/*.pb.go linguist-generated=true
+
+# Built frontend bundle — not source.
+web/dist/** linguist-generated=true
+
+# i18n catalogs are mostly translated strings, not engineering code.
+# Counting them inflates the TypeScript share without reflecting
+# meaningful work.
+web/src/locales/**/pages.ts linguist-detectable=false

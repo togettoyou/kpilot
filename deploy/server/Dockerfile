@@ -21,18 +21,17 @@ RUN npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS go-build
 WORKDIR /work
-# Pre-resolve modules so source edits don't bust the dep cache.
+# Vendored dependencies — `go build` auto-uses vendor/ when present,
+# which means no network during this stage and no go mod download.
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
-# Bring in only what the server build needs. proto/ is required because
-# go build pulls in generated stubs transitively.
+COPY vendor/ ./vendor/
 COPY cmd/server ./cmd/server
 COPY pkg/ ./pkg/
 COPY proto/ ./proto/
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
     -o /work/server ./cmd/server
