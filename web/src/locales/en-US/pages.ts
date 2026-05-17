@@ -658,31 +658,74 @@ export default {
   'pages.models.landing.routing.desc':
     'OpenAI-compatible gateway: route by model param, support canary / A/B',
 
-  // monitoring page (deps: grafana + victoria-metrics, dashboard: NodeExporterFull)
-  'pages.monitoring.missing.title': 'Monitoring plugins are not enabled yet',
-  'pages.monitoring.missing.subTitle':
-    'Enable Grafana and VictoriaMetrics on this cluster — the dashboard will load here automatically once they finish installing.',
-  'pages.monitoring.installing.title': 'Monitoring plugins are installing',
-  'pages.monitoring.installing.subTitle':
-    "Installation usually takes 1–2 minutes; this page auto-refreshes every 5s and will switch to the dashboard once it's ready.",
-  'pages.monitoring.failed.title': 'Monitoring plugins failed to install',
-  'pages.monitoring.failed.subTitle':
-    'Open the plugins page to inspect the error and re-enable, or adjust values and retry.',
-  'pages.monitoring.recommended':
-    'Consider also enabling {names} for richer node-level metrics.',
+  // monitoring page — self-rendered. Hard dep: victoria-metrics.
+  // Soft deps: node-exporter / kube-state-metrics (each missing
+  // dependency just leaves the matching panels empty).
+  'pages.monitoring.title': 'Cluster Monitoring',
+  'pages.monitoring.generatedAt': 'Updated {ts}',
+  'pages.monitoring.notInstalled.title': 'VictoriaMetrics is not enabled',
+  'pages.monitoring.notInstalled.subTitle':
+    'Cluster monitoring reads from VictoriaMetrics. Enable it (and ideally node-exporter + kube-state-metrics) from the plugins page.',
+  'pages.monitoring.notInstalled.action': 'Open plugins',
+  'pages.monitoring.kpi.nodes': 'Nodes (ready / total)',
+  'pages.monitoring.kpi.cpu': 'Cluster CPU utilization',
+  'pages.monitoring.kpi.mem': 'Cluster memory utilization',
+  'pages.monitoring.kpi.pods': 'Pods',
+  'pages.monitoring.kpi.pods.empty':
+    'kube-state-metrics not enabled; pod phase data unavailable',
+  'pages.monitoring.section.nodes': 'Nodes',
+  'pages.monitoring.section.pods': 'Pods',
+  'pages.monitoring.section.pods.allNs': 'All namespaces',
+  'pages.monitoring.section.pods.empty':
+    'No pod metrics in this window. Verify cAdvisor / kubelet scraping is healthy.',
+  'pages.monitoring.chart.clusterCpu': 'Cluster CPU utilization',
+  'pages.monitoring.chart.clusterMem': 'Cluster memory utilization',
+  'pages.monitoring.metric.cpu': 'CPU',
+  'pages.monitoring.metric.mem': 'Memory',
+  'pages.monitoring.metric.cpuByNode': 'CPU utilization by node',
+  'pages.monitoring.metric.memByNode': 'Memory utilization by node',
+  'pages.monitoring.metric.diskByNode': 'Disk utilization by node',
+  'pages.monitoring.metric.netByNode': 'Network throughput by node',
+  'pages.monitoring.metric.cpuByPod': 'CPU usage by pod',
+  'pages.monitoring.metric.memByPod': 'Memory usage by pod',
+  'pages.monitoring.topN': 'top 20',
+  'pages.monitoring.chartEmpty': 'No data in the selected window',
+  'pages.monitoring.error.title': 'Metrics query failed',
 
-  // logging page (deps: grafana + victoria-logs, dashboard: VictoriaLogs Explorer K8S)
-  'pages.logging.missing.title': 'Logging plugins are not enabled yet',
-  'pages.logging.missing.subTitle':
-    'Enable Grafana and VictoriaLogs on this cluster — the dashboard will load here automatically once they finish installing.',
-  'pages.logging.installing.title': 'Logging plugins are installing',
-  'pages.logging.installing.subTitle':
-    "Installation usually takes 1–2 minutes; this page auto-refreshes every 5s and will switch to the dashboard once it's ready.",
-  'pages.logging.failed.title': 'Logging plugins failed to install',
-  'pages.logging.failed.subTitle':
+  // logging page — self-rendered, depends on victoria-logs. The chart
+  // we ship turns on Vector DaemonSet by default so logs flow with
+  // zero extra plugins.
+  'pages.logging.title': 'Cluster Logs',
+  'pages.logging.notInstalled.title': 'VictoriaLogs is not enabled',
+  'pages.logging.notInstalled.subTitle':
+    'Cluster logging reads from VictoriaLogs. Enable the plugin — the chart ships a Vector DaemonSet that collects every pod log automatically.',
+  'pages.logging.notInstalled.action': 'Open plugins',
+  'pages.logging.query.placeholder':
+    'LogsQL, e.g. {kubernetes_namespace_name="default"} | error',
+  'pages.logging.range': 'Range',
+  'pages.logging.limit': 'Limit',
+  'pages.logging.search': 'Search',
+  'pages.logging.histogram.title': 'Volume over time',
+  'pages.logging.histogram.total': '{n} matches',
+  'pages.logging.histogram.empty': 'No matches in this window',
+  'pages.logging.results.title': 'Results',
+  'pages.logging.results.count': '{n} rows',
+  'pages.logging.results.empty': 'No matching log lines',
+  'pages.logging.truncated':
+    'Showing the first {n} matches. Narrow the query or shorten the time window for precise results.',
+  'pages.logging.error.title': 'Log query failed',
+
+  // Grafana home (escape hatch).
+  'pages.grafana.missing.title': 'Grafana is not enabled',
+  'pages.grafana.missing.subTitle':
+    "KPilot's monitoring and logging pages don't require Grafana — they query the storage directly. Enable Grafana when you want custom dashboards or ad-hoc PromQL / LogsQL exploration. You'll be logged in as Admin.",
+  'pages.grafana.installing.title': 'Grafana is installing',
+  'pages.grafana.installing.subTitle':
+    "Installation usually takes 1–2 minutes; this page auto-refreshes every 5s and will switch to the Grafana home once it's ready.",
+  'pages.grafana.failed.title': 'Grafana failed to install',
+  'pages.grafana.failed.subTitle':
     'Open the plugins page to inspect the error and re-enable, or adjust values and retry.',
-  'pages.logging.recommended':
-    'Consider also enabling {names}.',
+  'pages.grafana.recommended': '',
 
   // GPU monitoring page (deps: victoria-metrics + dcgm-exporter; native
   // KPilot panels, no Grafana iframe)

@@ -646,30 +646,69 @@ export default {
   'pages.models.landing.routing.title': '模型路由',
   'pages.models.landing.routing.desc': 'OpenAI 兼容网关，按 model 参数路由到不同后端，支持灰度 / A/B',
 
-  // monitoring page (deps: grafana + victoria-metrics, dashboard: NodeExporterFull)
-  'pages.monitoring.missing.title': '监控所需的内置插件尚未启用',
-  'pages.monitoring.missing.subTitle':
-    '请先启用 Grafana 与 VictoriaMetrics,启用完成后此页面会自动显示监控面板。',
-  'pages.monitoring.installing.title': '监控所需的插件正在安装',
-  'pages.monitoring.installing.subTitle':
-    '安装一般需要 1-2 分钟,本页会自动每 5 秒刷新;完成后会自动切换到监控面板。',
-  'pages.monitoring.failed.title': '监控所需的插件安装失败',
-  'pages.monitoring.failed.subTitle':
-    '请前往插件页查看错误详情并重新启用,或调整 values 后重试。',
-  'pages.monitoring.recommended':
-    '建议同时启用 {names},可获得更完整的节点级监控指标。',
+  // monitoring page — 自绘，依赖 victoria-metrics（硬）+ node-exporter
+  // / kube-state-metrics（软：缺哪个就对应面板空）
+  'pages.monitoring.title': '集群监控',
+  'pages.monitoring.generatedAt': '更新于 {ts}',
+  'pages.monitoring.notInstalled.title': 'VictoriaMetrics 未启用',
+  'pages.monitoring.notInstalled.subTitle':
+    '集群监控从 VictoriaMetrics 查询指标。请先启用 VictoriaMetrics（建议同时启用 node-exporter 与 kube-state-metrics）。',
+  'pages.monitoring.notInstalled.action': '前往插件页',
+  'pages.monitoring.kpi.nodes': '节点（Ready / 总）',
+  'pages.monitoring.kpi.cpu': '集群 CPU 利用率',
+  'pages.monitoring.kpi.mem': '集群内存利用率',
+  'pages.monitoring.kpi.pods': 'Pods',
+  'pages.monitoring.kpi.pods.empty': 'kube-state-metrics 未启用，无 Pod 状态数据',
+  'pages.monitoring.section.nodes': '节点',
+  'pages.monitoring.section.pods': 'Pod',
+  'pages.monitoring.section.pods.allNs': '所有命名空间',
+  'pages.monitoring.section.pods.empty':
+    '无 Pod 指标数据；请检查 cAdvisor / kubelet 抓取是否正常',
+  'pages.monitoring.chart.clusterCpu': '集群 CPU 利用率',
+  'pages.monitoring.chart.clusterMem': '集群内存利用率',
+  'pages.monitoring.metric.cpu': 'CPU',
+  'pages.monitoring.metric.mem': '内存',
+  'pages.monitoring.metric.cpuByNode': '节点 CPU 利用率',
+  'pages.monitoring.metric.memByNode': '节点内存利用率',
+  'pages.monitoring.metric.diskByNode': '节点磁盘利用率',
+  'pages.monitoring.metric.netByNode': '节点网络收发',
+  'pages.monitoring.metric.cpuByPod': 'Pod CPU 占用',
+  'pages.monitoring.metric.memByPod': 'Pod 内存占用',
+  'pages.monitoring.topN': '前 20',
+  'pages.monitoring.chartEmpty': '所选窗口内暂无数据',
+  'pages.monitoring.error.title': '指标查询失败',
 
-  // logging page (deps: grafana + victoria-logs, dashboard: VictoriaLogs Explorer K8S)
-  'pages.logging.missing.title': '日志所需的内置插件尚未启用',
-  'pages.logging.missing.subTitle':
-    '请先启用 Grafana 与 VictoriaLogs,启用完成后此页面会自动显示日志面板。',
-  'pages.logging.installing.title': '日志所需的插件正在安装',
-  'pages.logging.installing.subTitle':
-    '安装一般需要 1-2 分钟,本页会自动每 5 秒刷新;完成后会自动切换到日志面板。',
-  'pages.logging.failed.title': '日志所需的插件安装失败',
-  'pages.logging.failed.subTitle':
-    '请前往插件页查看错误详情并重新启用,或调整 values 后重试。',
-  'pages.logging.recommended': '建议同时启用 {names}。',
+  // logging page — 自绘，依赖 victoria-logs；chart 自带 Vector 采集
+  'pages.logging.title': '集群日志',
+  'pages.logging.notInstalled.title': 'VictoriaLogs 未启用',
+  'pages.logging.notInstalled.subTitle':
+    '集群日志从 VictoriaLogs 查询。请先启用 VictoriaLogs 插件，chart 自带 Vector DaemonSet 自动采集所有 Pod 日志。',
+  'pages.logging.notInstalled.action': '前往插件页',
+  'pages.logging.query.placeholder':
+    'LogsQL，例如：{kubernetes_namespace_name="default"} | error',
+  'pages.logging.range': '时间范围',
+  'pages.logging.limit': '行数',
+  'pages.logging.search': '搜索',
+  'pages.logging.histogram.title': '匹配量随时间分布',
+  'pages.logging.histogram.total': '共 {n} 条',
+  'pages.logging.histogram.empty': '所选窗口内无匹配',
+  'pages.logging.results.title': '结果',
+  'pages.logging.results.count': '{n} 条',
+  'pages.logging.results.empty': '无匹配的日志条目',
+  'pages.logging.truncated': '结果已截断到前 {n} 条；调整查询或缩小窗口以获取更精确的结果',
+  'pages.logging.error.title': '日志查询失败',
+
+  // Grafana 主页（escape hatch）
+  'pages.grafana.missing.title': 'Grafana 未启用',
+  'pages.grafana.missing.subTitle':
+    'KPilot 的监控 / 日志页是自绘形态，不依赖 Grafana。需要自定义 dashboard 或临时探索 PromQL / LogsQL 时再启用 Grafana 插件，启用后会以管理员身份直接进入。',
+  'pages.grafana.installing.title': 'Grafana 正在安装',
+  'pages.grafana.installing.subTitle':
+    '安装一般需要 1-2 分钟，本页会自动每 5 秒刷新；完成后会自动切换到 Grafana 主页。',
+  'pages.grafana.failed.title': 'Grafana 安装失败',
+  'pages.grafana.failed.subTitle':
+    '请前往插件页查看错误详情并重新启用，或调整 values 后重试。',
+  'pages.grafana.recommended': '',
 
   // GPU monitoring page (deps: victoria-metrics + dcgm-exporter; pure
   // custom panel rendering, no Grafana embed)

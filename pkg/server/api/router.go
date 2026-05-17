@@ -151,6 +151,20 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// default retention.
 		clusters.GET("/:id/gpu-hour", handler.GetGPUHour(gw))
 
+		// Cluster Management → Monitoring page. Three handlers split
+		// by drill-down level (cluster / node / pod) so the frontend
+		// can poll each at its own cadence and degrade individually
+		// when an exporter is missing.
+		clusters.GET("/:id/cluster-metrics", handler.GetClusterMetrics(gw))
+		clusters.GET("/:id/node-metrics", handler.GetNodeMetrics(gw))
+		clusters.GET("/:id/pod-metrics", handler.GetPodMetrics(gw))
+
+		// Cluster Management → Logging page. Search (limited line
+		// pull) + histogram (binned counts), both LogsQL through the
+		// worker tunnel.
+		clusters.GET("/:id/logs/search", handler.GetLogsSearch(gw))
+		clusters.GET("/:id/logs/histogram", handler.GetLogsHistogram(gw))
+
 		// Per-cluster plugin state (read-only registry view + enable/disable)
 		clusters.GET("/:id/plugins", handler.ListClusterPlugins)
 		clusters.POST("/:id/plugins/:name/enable", handler.EnablePlugin(gw))

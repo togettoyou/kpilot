@@ -75,6 +75,7 @@ export default {
   'menu.clusters.plugins': 'Plugins',
   'menu.clusters.monitoring': 'Monitoring',
   'menu.clusters.logging': 'Logging',
+  'menu.clusters.grafana': 'Grafana',
 
   // Compute platform sider — injected when a cluster is selected under
   // /compute/:id/*.

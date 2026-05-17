@@ -466,6 +466,16 @@ function buildClusterSubMenu(clusterId: string): MenuDataItem[] {
       name: 'logging',
       icon: <FileTextOutlined />,
     },
+    {
+      // Grafana home — always present in the sider, the page itself
+      // renders an in-product NotInstalled placeholder when the
+      // grafana plugin isn't running. Sits last because the curated
+      // Monitoring / Logging pages above are the primary surfaces;
+      // Grafana is the "I want to do something else" door.
+      path: `${base}/grafana`,
+      name: 'grafana',
+      icon: <DashboardOutlined />,
+    },
   ];
 }
 

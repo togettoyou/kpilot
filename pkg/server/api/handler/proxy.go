@@ -130,14 +130,17 @@ func proxyAcquire(ctx context.Context, clusterID string) (release func(), ok boo
 	}
 }
 
-// proxyGrafanaRole is the Grafana role KPilot's embedded session lands in.
-// Sent via X-WEBAUTH-ROLE on every request and consumed by Grafana's
-// auth.proxy `headers = Role:X-WEBAUTH-ROLE` config. Hardcoded here because
-// the embed is consumption-only — anyone who genuinely needs to edit can
-// use the admin password from Secret <release>-grafana to log in directly.
-// "Viewer" is the safe default; "Editor" or "Admin" if we ever need a
-// per-user mapping.
-const proxyGrafanaRole = "Viewer"
+// proxyGrafanaRole is the Grafana role KPilot's embedded session lands
+// in. Sent via X-WEBAUTH-ROLE on every request and consumed by Grafana's
+// auth.proxy `headers = Role:X-WEBAUTH-ROLE` config.
+//
+// Admin because the only entry point now is the dedicated
+// /clusters/:id/grafana page, positioned as the "do whatever you want
+// in Grafana" escape hatch. Curated viewing lives on KPilot's own
+// Monitoring / Logging pages, which don't go through this proxy at all.
+// Until KPilot grows multi-user, every login is the platform admin and
+// expects to author dashboards / datasources / alerts directly.
+const proxyGrafanaRole = "Admin"
 
 // hopByHopHeadersServer mirrors the Worker-side list. Keep them in sync —
 // each side must strip these on egress so the underlying transport doesn't

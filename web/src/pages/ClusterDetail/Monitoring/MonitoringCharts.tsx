@@ -1,0 +1,143 @@
+import { Line } from '@ant-design/plots';
+import { useIntl } from '@umijs/max';
+import { Card, Empty, Space, Typography } from 'antd';
+import React, { useMemo } from 'react';
+
+// Shared lazy-loaded chart bundle for the Monitoring page. The Line
+// component pulls in the full @ant-design/plots G2 runtime (~250 KB
+// gzip); GPUMonitoring already does this dance — we follow the same
+// pattern so the cluster main route doesn't get any heavier when this
+// chart is added.
+
+interface TimePoint {
+  ts: number;
+  value: number;
+}
+
+export interface ChartSeriesInput {
+  /** Stable name shown in the legend. */
+  name: string;
+  points: TimePoint[];
+}
+
+interface MultiSeriesChartProps {
+  titleId: string;
+  unit: string;
+  /** Stable suffix appended to the title (e.g. "(top 20)"). */
+  titleSuffix?: string;
+  /** Override Y-axis ceiling. Defaults to auto-fit. */
+  yMax?: number;
+  /** Multiplier applied at draw time (e.g. 1/1024/1024/1024 for GiB). */
+  unitScale?: number;
+  series: ChartSeriesInput[];
+  dark: boolean;
+  /** Optional fixed height — defaults to 220. */
+  height?: number;
+}
+
+interface FlatPoint {
+  t: number;
+  v: number;
+  series: string;
+}
+
+function MultiSeriesChart({
+  titleId,
+  unit,
+  titleSuffix,
+  yMax,
+  unitScale,
+  series,
+  dark,
+  height = 220,
+}: MultiSeriesChartProps) {
+  const intl = useIntl();
+
+  const flat: FlatPoint[] = useMemo(() => {
+    const scale = unitScale ?? 1;
+    const out: FlatPoint[] = [];
+    for (const row of series) {
+      for (const p of row.points) {
+        out.push({ t: p.ts, v: p.value * scale, series: row.name });
+      }
+    }
+    return out;
+  }, [series, unitScale]);
+
+  const title = (
+    <Space>
+      <Typography.Text strong>
+        {intl.formatMessage({ id: titleId })}
+      </Typography.Text>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        ({unit})
+        {titleSuffix && ` ${titleSuffix}`}
+      </Typography.Text>
+    </Space>
+  );
+
+  if (flat.length === 0) {
+    return (
+      <Card title={title} size="small" styles={{ body: { padding: 16 } }}>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={intl.formatMessage({
+            id: 'pages.monitoring.chartEmpty',
+          })}
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <Card title={title} size="small" styles={{ body: { padding: 16 } }}>
+      <div style={{ height }}>
+        <Line
+          data={flat}
+          xField="t"
+          yField="v"
+          colorField="series"
+          axis={{
+            x: {
+              labelFormatter: (val: any) => {
+                const d = new Date(typeof val === 'number' ? val : Number(val));
+                if (Number.isNaN(d.getTime())) return '';
+                const hh = String(d.getHours()).padStart(2, '0');
+                const mm = String(d.getMinutes()).padStart(2, '0');
+                return `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`;
+              },
+            },
+            y: { labelFormatter: (v: any) => fmtAxis(v) },
+          }}
+          scale={{
+            y: yMax ? { domainMin: 0, domainMax: yMax } : { domainMin: 0 },
+          }}
+          legend={{ color: { itemMarker: 'circle' } }}
+          tooltip={{
+            title: (d: any) => new Date(d.t).toLocaleString(),
+            items: [
+              {
+                field: 'v',
+                valueFormatter: (v: any) => `${fmtAxis(v)} ${unit}`,
+              },
+            ],
+          }}
+          theme={dark ? 'classicDark' : 'classic'}
+          interaction={{ tooltip: { shared: true } }}
+          style={{ lineWidth: 1.5 }}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function fmtAxis(v: any): string {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return '';
+  if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  if (Math.abs(n) >= 100) return n.toFixed(0);
+  if (Math.abs(n) >= 1) return n.toFixed(1);
+  return n.toFixed(2);
+}
+
+export default MultiSeriesChart;

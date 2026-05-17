@@ -76,6 +76,7 @@ export default {
   'menu.clusters.plugins': '插件',
   'menu.clusters.monitoring': '监控',
   'menu.clusters.logging': '日志',
+  'menu.clusters.grafana': 'Grafana',
 
   // Compute platform sider — injected when a cluster is selected under
   // /compute/:id/*. P5b will add GPU monitoring as a sibling.

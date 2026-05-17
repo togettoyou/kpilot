@@ -247,8 +247,16 @@ const GrafanaEmbed: React.FC<GrafanaEmbedConfig> = ({
     // open-in-new-tab button) is plenty of chrome for the embedded view;
     // Grafana's own header is mostly redundant with KPilot's. The new-tab
     // URL drops kiosk so the standalone view stays fully featured.
-    const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/d/${dashboardUID}/?theme=${grafanaTheme}&kiosk=1`;
-    const fullscreenURL = `/api/v1/clusters/${clusterId}/proxy/grafana/d/${dashboardUID}/?theme=${grafanaTheme}`;
+    //
+    // Empty dashboardUID = land on the Grafana home page instead of a
+    // specific dashboard. The Grafana page (/clusters/:id/grafana) uses
+    // that mode as an escape hatch into the full Grafana UI, with the
+    // user logged in as Admin via auth.proxy — also drop kiosk in this
+    // mode so the user gets Grafana's own navigation.
+    const subPath = dashboardUID ? `d/${dashboardUID}/` : '';
+    const kiosk = dashboardUID ? '&kiosk=1' : '';
+    const grafanaURL = `/api/v1/clusters/${clusterId}/proxy/grafana/${subPath}?theme=${grafanaTheme}${kiosk}`;
+    const fullscreenURL = `/api/v1/clusters/${clusterId}/proxy/grafana/${subPath}?theme=${grafanaTheme}`;
     return (
       <div
         ref={wrapperRef}

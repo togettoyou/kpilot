@@ -52,6 +52,15 @@ export default [
         path: '/clusters/:id/logging',
         component: './ClusterDetail/Logging/index',
       },
+      {
+        // Grafana home — escape hatch into the bundled Grafana when
+        // the user wants ad-hoc PromQL / LogsQL exploration or
+        // custom dashboards. The Monitoring and Logging pages above
+        // already draw their own panels; this is the "anything else"
+        // entry point. Requires the grafana plugin to be enabled.
+        path: '/clusters/:id/grafana',
+        component: './ClusterDetail/Grafana/index',
+      },
     ],
   },
   // ─── 算力调度 — Volcano-centric batch scheduling platform ─────────────
