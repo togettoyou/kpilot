@@ -80,23 +80,38 @@ The cluster row in the Server UI transitions to Online within a few seconds. Pro
 
 ### Cluster Management — [`docs/clusters.md`](docs/clusters.md)
 
-| | |
-|---|---|
-| <img src="docs/assets/screenshots/pod.png" alt="Pod browser with live logs and terminal" width="480"> <br/><sub>Workload browser with live logs, in-browser terminal, and per-container metrics</sub> | <img src="docs/assets/screenshots/vm.png" alt="Self-rendered cluster monitoring" width="480"> <br/><sub>Self-rendered monitoring — cluster / node / pod drill-down direct from VictoriaMetrics</sub> |
-| <img src="docs/assets/screenshots/vmlogs.png" alt="Cluster logging" width="480"> <br/><sub>Self-rendered LogsQL search with namespace + pod stream-selector helper</sub> | <img src="docs/assets/screenshots/grafana.png" alt="Embedded Grafana escape hatch" width="480"> <br/><sub>Embedded Grafana for custom dashboards and ad-hoc PromQL</sub> |
+<table width="100%">
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/pod.png" alt="Pod browser with live logs and terminal" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/vm.png" alt="Self-rendered cluster monitoring" width="480"></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/vmlogs.png" alt="Cluster logging" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/grafana.png" alt="Embedded Grafana escape hatch" width="480"></td>
+</tr>
+</table>
 
 ### Compute Scheduling — [`docs/compute.md`](docs/compute.md)
 
-| | |
-|---|---|
-| <img src="docs/assets/screenshots/scheduler-config.png" alt="Visual scheduler policy editor" width="480"> <br/><sub>Visual scheduler-policy editor for Volcano actions, tiers, and plugin parameters</sub> | <img src="docs/assets/screenshots/scheduler-queue.png" alt="Queue quotas" width="480"> <br/><sub>Multi-resource queue quotas with capability / guarantee / allocated / deserved views</sub> |
-| <img src="docs/assets/screenshots/gpu.png" alt="vGPU view" width="480"> <br/><sub>Cluster vGPU view mapping every physical card to its current slice holders</sub> | <img src="docs/assets/screenshots/volcano-job.png" alt="Volcano Job authoring" width="480"> <br/><sub>Typed forms for Volcano Job, CronJob, Queue, PodGroup — no hand-written YAML required</sub> |
+<table width="100%">
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/scheduler-config.png" alt="Visual scheduler policy editor" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/scheduler-queue.png" alt="Queue quotas" width="480"></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/gpu.png" alt="vGPU view" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/volcano-job.png" alt="Volcano Job authoring" width="480"></td>
+</tr>
+</table>
 
 ### Plugin Management — [`docs/plugins.md`](docs/plugins.md)
 
-| | |
-|---|---|
-| <img src="docs/assets/screenshots/plugin.png" alt="Plugin registry" width="480"> <br/><sub>Helm-chart-driven plugin registry: enable, upgrade, and stream install logs per cluster</sub> | <sub>Plugins ship as Helm charts and reconcile via an in-cluster CRD. The same pipeline powers the built-in observability stack (VictoriaMetrics / VictoriaLogs / DCGM Exporter / Grafana) and operator-supplied charts — bring-your-own with per-cluster values overrides, install logs streamed live to the UI.</sub> |
+<table width="100%">
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/plugin.png" alt="Plugin registry" width="480"></td>
+<td width="50%"></td>
+</tr>
+</table>
 
 ## Roadmap — Model Serving
 

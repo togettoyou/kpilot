@@ -80,23 +80,38 @@ helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
 
 ### 集群管理 —— [`docs/clusters.md`](docs/clusters.md)
 
-| | |
-|---|---|
-| <img src="docs/assets/screenshots/pod.png" alt="工作负载浏览 + 日志 / 终端" width="480"> <br/><sub>工作负载浏览，浏览器内调取 Pod 日志、终端、按容器查看 CPU / 内存即时指标</sub> | <img src="docs/assets/screenshots/vm.png" alt="自绘集群监控" width="480"> <br/><sub>自绘监控 —— 直接对接 VictoriaMetrics 的集群 / 节点 / Pod 三级下钻</sub> |
-| <img src="docs/assets/screenshots/vmlogs.png" alt="自绘集群日志" width="480"> <br/><sub>自绘 LogsQL 搜索，命名空间 + Pod 自动构造 stream selector</sub> | <img src="docs/assets/screenshots/grafana.png" alt="Grafana 兜底" width="480"> <br/><sub>嵌入式 Grafana，留给自定义看板与即席 PromQL</sub> |
+<table width="100%">
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/pod.png" alt="工作负载浏览 + 日志 / 终端" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/vm.png" alt="自绘集群监控" width="480"></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/vmlogs.png" alt="自绘集群日志" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/grafana.png" alt="Grafana 兜底" width="480"></td>
+</tr>
+</table>
 
 ### 算力调度 —— [`docs/compute.md`](docs/compute.md)
 
-| | |
-|---|---|
-| <img src="docs/assets/screenshots/scheduler-config.png" alt="调度策略编辑器" width="480"> <br/><sub>调度策略可视化编辑器，Volcano actions / tier / plugin 参数全字段提示</sub> | <img src="docs/assets/screenshots/scheduler-queue.png" alt="队列配额" width="480"> <br/><sub>多资源队列配额：capability / guarantee / allocated / deserved 四维拆解</sub> |
-| <img src="docs/assets/screenshots/gpu.png" alt="vGPU 视图" width="480"> <br/><sub>集群 vGPU 视图，每张物理卡按当前持有切片的 Pod 聚合展示</sub> | <img src="docs/assets/screenshots/volcano-job.png" alt="Volcano Job 表单" width="480"> <br/><sub>Volcano Job / CronJob / Queue / PodGroup 类型化表单 —— 无需手写 YAML</sub> |
+<table width="100%">
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/scheduler-config.png" alt="调度策略编辑器" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/scheduler-queue.png" alt="队列配额" width="480"></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/gpu.png" alt="vGPU 视图" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/volcano-job.png" alt="Volcano Job 表单" width="480"></td>
+</tr>
+</table>
 
 ### 插件管理 —— [`docs/plugins.md`](docs/plugins.md)
 
-| | |
-|---|---|
-| <img src="docs/assets/screenshots/plugin.png" alt="插件注册表" width="480"> <br/><sub>Helm chart 驱动的插件注册表：按集群启用 / 升级 / 禁用，安装日志实时回传</sub> | <sub>插件统一以 Helm chart 形态分发、通过集群内 CRD 协调，同一条流水线既装 KPilot 自带的可观测性栈（VictoriaMetrics / VictoriaLogs / DCGM Exporter / Grafana），也装运维方自定义的 chart —— 支持按集群覆盖 values，安装过程实时回传 UI。</sub> |
+<table width="100%">
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/plugin.png" alt="插件注册表" width="480"></td>
+<td width="50%"></td>
+</tr>
+</table>
 
 ## 演进路线 —— 模型服务
 
