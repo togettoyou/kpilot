@@ -101,7 +101,7 @@ kpilot/
 │   ├── worker/
 │   │   ├── apis/v1alpha1/   # Plugin CRD Go 类型 + DeepCopy
 │   │   ├── plugin/          # Plugin CRD reconciler + Helm SDK + chart cache + manager
-│   │   ├── proxy/           # K8s 资源代理（list/get/apply/update/patch/delete/describe）+ LogsManager + ExecManager + HTTPProxy（in-cluster `*.svc.*` URL 自动改走 K8s API server 的 service-proxy 端点,生产 + 本地调试都通）+ WSManager + VGPUTracker（解析 Volcano vGPU annotation）
+│   │   ├── proxy/           # K8s 资源代理（list/get/apply/update/patch/delete/describe）+ LogsManager + ExecManager + HTTPProxy（in-cluster `*.svc.*` URL 优先直连 dial，dial 失败 fallback 到 K8s API service-proxy；决策按 24h TTL 缓存到 Worker 进程，生产路径完全绕过 API server）+ WSManager + VGPUTracker（解析 Volcano vGPU annotation）
 │   │   ├── config/          # Worker 环境变量
 │   │   └── tunnel/          # gRPC Client（注册、心跳、消息分发）
 │   └── common/

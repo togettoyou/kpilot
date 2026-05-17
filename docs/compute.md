@@ -146,7 +146,7 @@ Volcano 提供两套机制：
   - **snapshot** 服务端预算：activeGPUs / avgTempC / maxTempC / totalPowerW / avgUtilPct / fbUsedMiB / fbTotalMiB / fbUsagePct / avgTensorActPct，取每条 series 最右点 reduce，前端 KPI 不重复 walk
   - range step 表：1h=30s / 24h=5m / 7d=30m / 30d=2h（比 GPU-Hour 的 step 粗一档；line chart 没必要保留 30s 粒度走 30 天）
 - **VM 查询共享层**：`pkg/server/api/handler/vm_query.go` 抽出 `resolveVMQueryURL` / `queryVM` / `queryVMRange` / `urlQueryEscape`，DeviceHealth / GPUHour / GPUMetrics 三个 handler 共用
-- **worker 自动路由 in-cluster Service URL**：worker `pkg/worker/proxy/http.go` 检测 host 匹配 `*.svc.*` 时,改走 K8s API server 的 service proxy 端点(`/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/<path>`)而不是直接 dial。生产部署(worker 跑集群里)+ 本地 dev(worker 跨 kubeconfig/SSH tunnel 拿不到 cluster.local DNS)都能通,不需要给 server 端配置不同 URL 形态
+- **worker 自动路由 in-cluster Service URL**：worker `pkg/worker/proxy/http.go` 检测 host 匹配 `*.svc.*` 时按 routingMode 缓存的决策派发。冷缓存或 TTL 过期时（默认 24h）下一次请求先尝试直连 DNS dial；dial-time 错误（DNS NXDOMAIN / connection refused / no route）触发 fallback 到 K8s API server 的 service proxy 端点（`/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/<path>`），并把决策写回缓存。生产里 Worker 在集群内 → 第一次请求后所有后续 in-cluster 流量直连 Service，**不再走 API server**；本地 dev（Worker 跨 kubeconfig/SSH tunnel 拿不到 cluster.local DNS）→ 第一次请求后缓存翻成 service-proxy，后续都走 API server 兜底。决策按 Worker 进程缓存、无 Server 配置成本
 - **页面**：`pages/Compute/Volcano/GPUMonitoring.tsx` ——
   - 顶部 Radio.Group range picker + RefreshControl（default off）
   - 4 KPI 卡：activeGPUs / 平均利用率（`Progress.dashboard` + 阈值配色） / 平均温度（dashboard，max 90℃ 标 ↑）/ 总功耗 + 显存占用混合卡
