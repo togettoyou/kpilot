@@ -141,6 +141,10 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
           APP_VERSION: ${{ steps.ver.outputs.appVersion }}
         run: |
+          # Fresh runner — `helm dependency build` reads Chart.lock but
+          # needs the source repo registered to actually resolve the
+          # subchart download URL.
+          helm repo add bitnami https://charts.bitnami.com/bitnami
           helm dependency build deploy/chart
           helm package deploy/chart \
             --destination /tmp/chart \
