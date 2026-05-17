@@ -43,7 +43,7 @@ status:
 | Node Exporter               | monitoring | repo     | 节点级硬件 + OS 指标（搭 VM 用）                                       |
 | kube-state-metrics          | monitoring | repo     | K8s 对象状态指标（Deployment 副本、Pod phase、Node condition）         |
 | NVIDIA DCGM Exporter        | monitoring | repo     | 物理 GPU 指标 DaemonSet（`DCGM_FI_DEV_*`：利用率 / 温度 / 功耗 / framebuffer 显存 / SM clock / tensor 活跃度）暴露 `:9400` 上的 Prometheus 端点。**算力调度平台直接通过 server-side PromQL 自绘三个页**（`/compute/:id/gpu-monitoring` 自绘图表 + `/device-health` 告警 + `/gpu-hour` 计费报表），**不通过 Grafana** —— Grafana 仅服务于集群管理的通用监控。前置：每个 GPU 节点要装 NVIDIA driver + nvidia-container-runtime（与 vGPU device-plugin 同款依赖）。**默认 values 关掉 `serviceMonitor.enabled`**：chart 默认会创建 `monitoring.coreos.com/v1 ServiceMonitor`,需要 prometheus-operator CRD;KPilot 走 VictoriaMetrics + `prometheus.io/scrape` 注解,装 ServiceMonitor 反而让 Helm install 失败 |
-| Grafana                     | monitoring | **oci**  | 可视化前端，反代嵌入 + 内置 dashboard + auth.proxy。**定位**：仅供「集群管理」通用监控页（NodeExporterFull / VictoriaLogs Explorer）使用；算力调度平台所有 GPU/Volcano 可视化页都是自绘 |
+| Grafana                     | monitoring | **oci**  | 可视化前端，反代嵌入 + 内置 dashboard + auth.proxy。**定位**：集群管理的 `/clusters/:id/grafana` escape hatch（power user 自定义 dashboard / datasource / alert）；集群监控 + 日志 + 算力调度 GPU/Volcano 所有可视化页都已改自绘，不嵌 Grafana |
 | VictoriaLogs                | logging    | repo     | 日志存储 + 自带 Vector DaemonSet 采集                                |
 | Volcano                     | scheduling | repo     | Batch 调度器，gang scheduling + Queue + drf 公平共享；默认装在 `volcano-system`，默认 scheduler 配置已启 `deviceshare` 以配合 vGPU 后端 |
 | Volcano vGPU<br/>(`volcano-vgpu-device-plugin`) | scheduling | **local**| Volcano scheduler deviceshare 的后端 device-plugin（HAMi-core fork）：把物理 GPU 注册为 `volcano.sh/vgpu-{number,memory,cores}` 资源；驱动 `/compute/:id/vgpu` 实况页。display_name 缩短为 "Volcano vGPU" 适配 antd Card 单行 ellipsis；默认装在 `volcano-system`（chart 把两个 ConfigMap 也写到 release namespace，依赖 device-plugin 二进制内的 `kube-system → volcano-system` fallback 链找到 `volcano-vgpu-device-config`） |
@@ -105,7 +105,7 @@ status:
 
 ## Server 侧 values 占位符
 
-`pkg/server/gateway/plugin.go::expandKPilotVars`——插件启用前，Server 替换 values YAML 中的 `${KPILOT_*}` token。token 名匹配 `[A-Z0-9_]+`（regex 强制大写）。
+`pkg/server/pluginservice/command.go::expandKPilotVars`——插件启用前，Server 替换 values YAML 中的 `${KPILOT_*}` token。token 名匹配 `[A-Z0-9_]+`（regex 强制大写）。
 
 | Token                       | 含义                                                                                                       |
 |-----------------------------|----------------------------------------------------------------------------------------------------------|

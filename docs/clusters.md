@@ -108,23 +108,71 @@ Scoped action 端点的安全模式：
 - 点击「启用」打开 drawer，可改 `version` 与 `values`；命名空间不可改（详见 [docs/plugins.md](plugins.md)）
 - 详细启用机制见 [docs/plugins.md](plugins.md)
 
-## 5. 监控 / 日志（`/clusters/:id/monitoring` `/clusters/:id/logging`）
+## 5. 监控 / 日志 / Grafana（`/clusters/:id/{monitoring,logging,grafana}`）
 
-- 共享 `web/src/components/GrafanaEmbed/`，区别只在依赖列表 + dashboard UID + i18n 前缀
-- **依赖检查**：拉 `/api/v1/clusters/:id/plugins`，按 phase 分四桶（ready / installing / failed / missing）。allReady → 渲染 iframe；其他状态显示 antd `Result`，installing 期间每 5s 自动 poll
-- **iframe URL**：`/api/v1/clusters/:id/proxy/grafana/d/<dashboardUID>/?theme=light|dark`
+集群管理平台的可观测性三件套。两个**完全自绘**（监控 + 日志，直接打 VM / VictoriaLogs PromQL/LogsQL），一个 Grafana 反代兜底（escape hatch）。算力调度平台的 GPU / Volcano 相关页面同样走自绘形态；Grafana iframe 只保留给"power user 自定义任意 dashboard / datasource / alert"这个场景。
+
+### 5.1 监控（`/clusters/:id/monitoring`）
+
+自绘，**不嵌 Grafana**。三层下钻：集群 KPI / 节点级趋势 / Pod 级 top-N。硬依赖 `victoria-metrics`；`node-exporter` / `kube-state-metrics` / `cAdvisor (via kubelet)` 是软依赖，相应面板缺指标时走 Empty 状态，不阻塞页面。
+
+- **后端四套端点**（`pkg/server/api/handler/{cluster,node,pod}_metrics.go` + `pod_health.go`）：
+  - `GET /cluster-metrics?range=1h|24h|7d|30d` —— Snapshot（cpu/mem 百分比 + 绝对核数 / 字节 + nodesReady/Total + podsByPhase + podsTotal + **podsPending**）+ trend series（cluster cpu / mem / **pendingPods**）
+  - `GET /node-metrics?range=...` —— 每节点 series：cpu / mem / disk% / **disk read/write 字节** / **diskReadOps / diskWriteOps** / net rx tx / **loadPerCore** / **netErrors** / **inodeUtil** / **tcpRetrans**
+  - `GET /pod-metrics?range=...&namespace=...&limit=20` —— top-N pod series：cpu cores / mem bytes / net rx tx / **cpuThrottle %** / **fsRead / fsWrite** / **memLimitRatio %**
+  - `GET /pod-health?namespace=...&limit=10` —— top-N 重启 / OOM 数表（`kube_pod_container_status_restarts_total` + `container_oom_events_total` 两路 PromQL 并发，按 (ns, pod) 合并，行=0 的 pod filter 掉）
+- **共享层**：`pkg/server/api/handler/vm_query.go`（`resolveVMQueryURL` + `queryVM`/`queryVMRange`）与 GPU 监控 / GPU-Hour / 设备健康同源；`vm_cache.go` 4s TTL response cache 跨这几个 handler 共用，cache key 用 `tag + clusterID + 子键` 防碰撞
+- **VM 未启用**：`resolveVMQueryURL` 返回 `RESOURCE_NOT_AVAILABLE` → 前端走共享 `<NotInstalled>`
+- **页面布局**（`pages/ClusterDetail/Monitoring/index.tsx`）：
+  - 顶部 range picker（1h/24h/7d/30d）+ RefreshControl
+  - **4 KPI 卡**（共享 `KPICard` 容器，flex-column-justify-between body 保证 4 张卡等高）：节点就绪 / 集群 CPU 利用率（+ 绝对核数）/ 集群内存（+ GiB）/ Pod 数（按 phase 拆分 + Pending 数字 Tag）。每张卡 `Progress.dashboard` 环形仪表盘，配色按通用阈值
+  - **集群趋势区**：CPU / 内存 / Pending Pod 三张时序图
+  - **Pod 健康表**：top-10 重启 / OOM 一表，无异常时走 Empty
+  - **节点区**：节点名搜索框（客户端筛选）+ 10 张图（cpu/mem/disk% + disk I/O + IOPS + net + load/core + net errors + inode + TCP retrans）
+  - **Pod 区**：**本地命名空间 picker**（不连全局 `useModel('namespace')`，进页面默认全部 ns）+ pod 名搜索框（**只匹配 pod 部分**，ns/pod 前缀作为 legend 区分）+ 6 张图（cpu/mem/net + cpuThrottle/mem-limit ratio/fs read+write）
+- **首次加载占位**：早返回小 Spin 锚在页面顶部 48px 处，**不**用 body-spanning Spin（否则在长页面纵向居中要滚屏才看到）。data 到了之后单卡 loading + RefreshControl 自带 indicator 接力
+- **chart 组件**：`MonitoringCharts.tsx` 走 `React.lazy`，`@ant-design/plots` G2 runtime 不污染 cluster-detail 主 bundle。Legend 是自绘 HTML（scrollable + click-toggle + 配色 pin），不用 G2 自带 legend（many-series 时 G2 内置布局会截断到前 5 个）
+
+### 5.2 日志（`/clusters/:id/logging`）
+
+自绘 LogsQL 搜索 UI，**不嵌 Grafana**。硬依赖 `victoria-logs`；chart 自带 Vector DaemonSet 收集所有 Pod 日志，零额外插件。
+
+- **后端两条端点**（`pkg/server/api/handler/logs.go`）：
+  - `GET /logs/search?query=...&from=...&to=...&limit=...` —— 匹配的日志行（默认 200，cap 1000）
+  - `GET /logs/histogram?query=...&from=...&to=...` —— 时间桶 count，桶宽 = `(to-from)/50` 自适应
+  - **空 query**：后端默认转 `*`（=全部），与前端"留空 = 全部日志"一致；用户不用记得敲星号
+- **VL 未启用 / install 探测**：mount 时跑一个 60s 窗口的小直方图探测 RESOURCE_NOT_AVAILABLE，命中就走 `<NotInstalled>`，用户不用先敲 query 才知道未启用
+- **页面布局**（`pages/ClusterDetail/Logging/index.tsx`）：
+  - **顶部 LogsQL 输入框**：留空 = 全部，placeholder 给示例。按 Enter 或点搜索触发
+  - **命名空间 + Pod 选择器**：**本地 state**（不连全局 namespace model），自动构建 LogsQL stream selector 并**回填到输入框**（用户能继续在末尾加管道过滤如 `| error`）。字段名用 `kubernetes.pod_namespace` / `kubernetes.pod_name`，与 Vector kubernetes_logs source 默认 schema + 内置 dashboard JSON 同款。Pod 列表来自 `/workloads/pods`，**注意它返回 K8s Table 表示**（`rows[].object.metadata.name`），不是 List with `.items`
+  - **range** preset：5m / 15m / 1h / 6h / 24h
+  - **行数 limit**：默认 200，cap 1000
+  - **直方图**：上方一张 Vector + 总数 caption（`LoggingHistogram.tsx` lazy load）
+  - **结果列表**：每行带 timestamp + namespace Tag + pod Tag + container Tag + message，等宽字体，垂直滚动 600px
+
+### 5.3 Grafana 兜底（`/clusters/:id/grafana`）
+
+定位：power user 想直接进 Grafana 做任何事（自定义 dashboard / datasource / alert / 插件管理）的逃生通道。集群监控 / 日志走自绘页，普通用户用不到这个页。
+
+- **iframe 反代**：浏览器看到 `/clusters/:id/grafana` 内嵌 iframe，src 指向 `/api/v1/clusters/:id/proxy/grafana/?theme=light|dark`。HTTP / WebSocket 请求都经 `pkg/server/api/handler/proxy.go` 走 worker tunnel
+- **认证链**：浏览器 JWT → Server JWT middleware → `resolveUsername(c)` 提取用户名 → 反代时 inject `X-WEBAUTH-USER: <username>` + `X-WEBAUTH-ROLE: Admin` → Grafana auth.proxy 自动建账号 + 每请求重新读取角色。**`auth.proxy.headers: "Role:X-WEBAUTH-ROLE"` 是关键**：缺这行 Grafana 静默忽略 ROLE header，所有人卡在新建账号默认的 Viewer。`auto_assign_org_role: Admin` 是兜底新建账号也直接落 Admin，两道一致
 - **主题同步**：KPilot 切主题 → effect 读 `iframe.contentWindow.location.href`（同源） → 改 `?theme=` 参数 → 写回 `iframe.src`
-- **滚动隔离**：iframe 内部 document（同源）的 `documentElement` 和 `body` 注入 `overscroll-behavior: contain`
-- **Worker 反代后端**（`pkg/server/api/handler/proxy.go`）：HTTP 请求/响应走 `SendHTTPRequest`，WebSocket 走 `OpenStream`（复用 Pod logs/exec 的 Stream 框架）。`proxiableServices` map 是反代白名单（目前只 grafana）
-- **认证链**：浏览器带 KPilot JWT → Server JWT middleware 验证 → `resolveUsername(c)` 提取用户名 → 反代时 inject `X-WEBAUTH-USER` → Grafana auth.proxy 自动建用户登录（`auto_sign_up=true`，role=Viewer 只读）
-- **`proxyResolveCache`**（30s TTL）：缓存 `(cluster, plugin) → (release_namespace, Phase=Running)`，避免每个反代请求都 3 次 DB 查
-- **Grafana 配置要点**（`pkg/server/store/seed.go::Grafana`）：
-  - `auth.proxy` 启用 + auto_sign_up + Viewer 角色
+- **滚动隔离**：iframe 内 document 注入 `overscroll-behavior: contain`
+- **`pluginResolveCache`**（30s TTL）：缓存 `(cluster, plugin) → release_namespace`，避免每个反代请求都 3 次 DB 查
+- **Worker 反代**（`pkg/worker/proxy/http.go` + `ws.go`）：
+  - `InClusterRouter` 24h TTL 缓存"直连 DNS dial / fallback K8s API service-proxy"决策。HTTP 与 WS 共用此 cache。Worker 在集群内 → 首请求后所有后续 in-cluster 流量直连 Service；本地 dev（worker 跨 kubeconfig/SSH tunnel）→ 缓存翻成 service-proxy，全后续走 apiserver 兜底
+  - **service-proxy 回退踩过的两个坑**（已修）：
+    1. client-go REST helper `rest.RESTClient.Do().Raw()` 只暴露 status + body，**所有上游 header 都吞掉**（Content-Type / Set-Cookie / Location 等）。前端表现：浏览器拿到 Grafana 响应没有 Content-Type → 当 octet-stream → 把 gzip 过的 HTML body 当 `.gz` 弹下载。修法：换成 `rest.HTTPClientFor` 构造的 `http.Client` + 手动 `http.Request`，正常 round-trip + 转发完整 header；同时 strip 浏览器的 `Accept-Encoding` 让 Go transport 自动解压
+    2. K8s apiserver service-proxy transport（`apimachinery/pkg/util/proxy/transport.go`）**改写 text/html 响应 body**——给每个 URL 属性（`<base href>` / `<script src>` / `<link href>` 等）prepend `/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy`。K8s 写死的行为（为 `kubectl proxy --address` 工作模式服务），**没有 opt-out**。前端表现：base href 变成 `<apiserver-prefix><grafana-root-url>`，浏览器去加载 `/api/v1/namespaces/.../proxy/public/build/...`，kpilot 不路由 → "failed to load application files"。修法：worker 收响应后 `bytes.ReplaceAll(body, prefix, nil)` 反向擦掉前缀（仅 text/html，避免误伤 JSON / 二进制）
+  - **Location 头不主动 strip**：apiserver 也改写 Location 头，但 Go 的 `http.Client` 默认 follow 重定向最多 10 跳，3xx 响应不会暴露给上游 —— 实际触发不到这条路径。结构上是缺陷，运行时被 Go transport 兜住
+- **Grafana 配置要点**（`pkg/server/store/seed.go`，Grafana plugin row 的 `DefaultValues`）：
+  - `auth.proxy` 启用 + `header_name: X-WEBAUTH-USER` + **`headers: "Role:X-WEBAUTH-ROLE"`**（必须） + `auto_sign_up=true`
+  - `users.auto_assign_org_role: Admin`（与每请求 ROLE header 一致）
   - `serve_from_sub_path=true` + 相对 root_url 带 `${KPILOT_CLUSTER_ID}` 占位符
   - `[security] allow_embedding=true`
   - `[live] allowed_origins="*"` 让 Grafana Live WS 接受 KPilot 域 Origin
-  - 预配 VictoriaMetrics（type=prometheus）+ VictoriaLogs（type=`victoriametrics-logs-datasource`，自动从 grafana.com 装 plugin）
-- **dashboard UID**：monitoring=`rYdddlPWk`（NodeExporterFull）、logging=`g6mvjz`（VL Explorer K8S）
+  - 预配 VictoriaMetrics（type=prometheus）+ VictoriaLogs（type=`victoriametrics-logs-datasource`，自动从 grafana.com 装 plugin）数据源 + 内置 dashboard overlay（`pkg/server/dashboards/`，NodeExporterFull / VL Explorer）
+- **改 grafana.ini 生效**：seed.go 里的 DefaultValues 改了之后，**需要在插件管理页禁用再重新启用 Grafana**（或改 values_override 触发 Helm upgrade），ConfigMap 重写 → Pod 重启才能让新配置生效
 
 ## 集群详情导航（动态菜单）
 

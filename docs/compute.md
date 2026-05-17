@@ -136,7 +136,7 @@ Volcano 提供两套机制：
 
 物理 GPU 健康度面板。**完全自绘 —— 不嵌入 Grafana**。GPU 视图的姊妹页：GPU 视图看切片分配（哪张卡上有谁、占了多少 slot / 显存 / cores），GPU 监控看硬件层指标（温度 / 功耗 / 实际利用率 / framebuffer / SM clock / tensor 核心活跃度）。
 
-> 定位说明：算力调度平台所有可视化页全部自实现、Volcano 专用形态；Grafana 嵌入只保留给「集群管理」做通用监控（NodeExporterFull / VictoriaLogs Explorer）。这样升级 dashboard JSON / 调整面板布局 / 加 Volcano 联动 drill-down 不需要绕 Grafana。
+> 定位说明：KPilot 内置可视化页全部自绘 —— 集群监控 / 集群日志 / 算力调度的 GPU 监控 / GPU 告警 / GPU-Hour 都直接打 VM / VL 自实现 UI。Grafana 嵌入只保留作为「集群管理」的 `/clusters/:id/grafana` escape hatch（power user 自定义 dashboard / datasource / alert）。这样升级 dashboard JSON / 调整面板布局 / 加联动 drill-down 不需要绕 Grafana。
 
 - **数据流**：NVIDIA DCGM Exporter 内置插件（`pkg/server/store/seed.go` 中 `dcgm-exporter` 一行，sort_order 27，chart 来源 `https://nvidia.github.io/dcgm-exporter/helm-charts`，DaemonSet 部署）→ 暴露 `:9400` 上的 Prometheus 指标 → VictoriaMetrics 按 `prometheus.io/{scrape,port}` 服务注解抓取 → server `pkg/server/api/handler/gpu_metrics.go::GetGPUMetrics` 通过 `gw.SendHTTPRequest` 走 worker tunnel 并发跑 6 条 PromQL 范围查询 → 前端 `<Line>` 图表渲染
 - **后端 `/api/v1/clusters/:id/gpu-metrics?range=1h|24h|7d|30d`**：
