@@ -120,6 +120,48 @@ func GetPodMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 				`topk(%d, sum by (namespace, pod) (container_memory_working_set_bytes{container!="",container!="POD"%s}))`,
 				limit, nsFilter,
 			)},
+			// Per-pod network throughput. cAdvisor reports per-
+			// container; sum to pod, topk to keep the chart legible.
+			// loopback / lo isn't filtered here because cAdvisor only
+			// reports the pod's veth — the upstream side already.
+			{"netRx", fmt.Sprintf(
+				`topk(%d, sum by (namespace, pod) (rate(container_network_receive_bytes_total{pod!=""%s}[5m])))`,
+				limit, nsFilter,
+			)},
+			{"netTx", fmt.Sprintf(
+				`topk(%d, sum by (namespace, pod) (rate(container_network_transmit_bytes_total{pod!=""%s}[5m])))`,
+				limit, nsFilter,
+			)},
+			// CPU throttling % — fraction of CFS periods in which the
+			// container's CPU limit fired. The classic "invisible" pod
+			// signal: CPU usage looks healthy because the limit is the
+			// ceiling. Value is a percentage 0..100; tens of percent is
+			// already worth investigating.
+			{"cpuThrottle", fmt.Sprintf(
+				`topk(%d, 100 * sum by (namespace, pod) (rate(container_cpu_cfs_throttled_periods_total{container!="",container!="POD"%s}[5m])) / (sum by (namespace, pod) (rate(container_cpu_cfs_periods_total{container!="",container!="POD"%s}[5m])) > 0))`,
+				limit, nsFilter, nsFilter,
+			)},
+			// Pod-level filesystem I/O. cAdvisor reports per-container;
+			// sum to pod. Mirrors the node disk I/O panels so an
+			// operator can chase "node disk is hot, which pod?" without
+			// leaving the page.
+			{"fsRead", fmt.Sprintf(
+				`topk(%d, sum by (namespace, pod) (rate(container_fs_reads_bytes_total{container!="",container!="POD"%s}[5m])))`,
+				limit, nsFilter,
+			)},
+			{"fsWrite", fmt.Sprintf(
+				`topk(%d, sum by (namespace, pod) (rate(container_fs_writes_bytes_total{container!="",container!="POD"%s}[5m])))`,
+				limit, nsFilter,
+			)},
+			// Memory headroom = working set / memory limit. Filter on
+			// the aggregated limit > 0 so pods without a limit (which
+			// would divide by zero) drop out — they can't be near a
+			// ceiling that doesn't exist. >80% is the "imminent OOM"
+			// band.
+			{"memLimitRatio", fmt.Sprintf(
+				`topk(%d, 100 * sum by (namespace, pod) (container_memory_working_set_bytes{container!="",container!="POD"%s}) / (sum by (namespace, pod) (container_spec_memory_limit_bytes{container!="",container!="POD"%s}) > 0))`,
+				limit, nsFilter, nsFilter,
+			)},
 		}
 
 		var (

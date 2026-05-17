@@ -149,7 +149,7 @@ function MultiSeriesChart({
   const upstreamEmpty = series.every((s) => s.points.length === 0);
   if (upstreamEmpty) {
     return (
-      <Card title={title} size="small" styles={{ body: { padding: 16 } }}>
+      <Card title={title} size="small" style={{ height: '100%' }} styles={{ body: { padding: 16 } }}>
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={intl.formatMessage({
@@ -163,7 +163,7 @@ function MultiSeriesChart({
   const plotPx = typeof height === 'number' ? height : plotHeight;
 
   return (
-    <Card title={title} size="small" styles={{ body: { padding: 16 } }}>
+    <Card title={title} size="small" style={{ height: '100%' }} styles={{ body: { padding: 16 } }}>
       <div style={{ height: plotPx }}>
         <Line
           data={flat}

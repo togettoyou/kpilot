@@ -158,6 +158,10 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		clusters.GET("/:id/cluster-metrics", handler.GetClusterMetrics(gw))
 		clusters.GET("/:id/node-metrics", handler.GetNodeMetrics(gw))
 		clusters.GET("/:id/pod-metrics", handler.GetPodMetrics(gw))
+		// Pod health snapshot — restart + OOM counts as a top-N
+		// table. Counter semantics; separate from /pod-metrics's
+		// rate-style range queries.
+		clusters.GET("/:id/pod-health", handler.GetPodHealth(gw))
 
 		// Cluster Management → Logging page. Search (limited line
 		// pull) + histogram (binned counts), both LogsQL through the

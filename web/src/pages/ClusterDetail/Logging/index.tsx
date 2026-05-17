@@ -9,6 +9,7 @@ import {
   Input,
   Result,
   Row,
+  Select,
   Space,
   Spin,
   Tag,
@@ -35,6 +36,7 @@ import {
   type LogSearchResponse,
   searchLogs,
 } from '@/services/kpilot/logs';
+import { listNamespaces, listWorkloads } from '@/services/kpilot/workload';
 
 // Heavy chart split off to keep the cluster-detail bundle lean.
 const LoggingHistogram = lazy(() => import('./LoggingHistogram'));
@@ -53,14 +55,46 @@ const RANGE_PRESETS: Array<{ label: string; minutes: number }> = [
 // the search fire in parallel against two server handlers; the user
 // hits 「搜索」 (or presses Enter in the query box) to issue a new
 // request.
+// LogsQL stream-selector keys emitted by Vector's kubernetes_logs source
+// (the source the chart we ship turns on by default). Dots in field
+// names are valid LogsQL — referenced as-is, no escaping.
+const FIELD_NS = 'kubernetes.pod_namespace';
+const FIELD_POD = 'kubernetes.pod_name';
+
+// composeStreamSelector turns the dropdown selection into a LogsQL stream
+// selector like `{kubernetes.pod_namespace="default", kubernetes.pod_name="x"}`.
+// Empty inputs mean "no filter" — return an empty string so the caller
+// can compose with whatever else.
+function composeStreamSelector(ns: string, pod: string): string {
+  const parts: string[] = [];
+  if (ns) parts.push(`${FIELD_NS}="${ns}"`);
+  if (pod) parts.push(`${FIELD_POD}="${pod}"`);
+  if (parts.length === 0) return '';
+  return `{${parts.join(', ')}}`;
+}
+
 const LoggingPage: React.FC = () => {
   const intl = useIntl();
   const { id: clusterId } = useParams<{ id: string }>();
   const { isDarkMode } = useThemeMode();
 
-  const [query, setQuery] = useState('*');
+  // Empty default — the backend treats "" as "*" so a fresh page can
+  // hit Search and see all logs in the window. Removes the magic
+  // asterisk users had to know to wipe before typing.
+  const [query, setQuery] = useState('');
   const [rangeMin, setRangeMin] = useState(60);
   const [limit, setLimit] = useState(200);
+
+  // Structured pickers — convenience layer that auto-builds a LogsQL
+  // stream selector and back-fills it into the input. The input
+  // remains source-of-truth; once the user edits it manually the
+  // pickers don't reach back in.
+  const [pickerNs, setPickerNs] = useState('');
+  const [pickerPod, setPickerPod] = useState('');
+  const [nsList, setNsList] = useState<string[]>([]);
+  const [nsLoading, setNsLoading] = useState(false);
+  const [podList, setPodList] = useState<string[]>([]);
+  const [podLoading, setPodLoading] = useState(false);
   // submitted{Query,Range,Limit,Anchor} = the params backing the
   // currently-displayed results. We update them on submit so editing
   // the query doesn't immediately reflow the chart underneath.
@@ -85,6 +119,8 @@ const LoggingPage: React.FC = () => {
 
   const runQuery = useCallback(async () => {
     if (!clusterId) return;
+    // Empty input → ask for everything. Backend mirrors this default
+    // so the server-side LogsQL parser sees `*` even on first load.
     const q = query.trim() || '*';
     const nowMs = Date.now();
     const to = new Date(nowMs).toISOString();
@@ -106,6 +142,71 @@ const LoggingPage: React.FC = () => {
       ),
     ]);
   }, [clusterId, query, rangeMin, limit]);
+
+  // Fetch the namespace list once per cluster for the structured
+  // picker. Same pattern as Monitoring page — local state, not the
+  // global namespace model.
+  useEffect(() => {
+    if (!clusterId) return;
+    let cancelled = false;
+    setNsLoading(true);
+    listNamespaces(clusterId)
+      .then((list) => {
+        if (!cancelled) setNsList(list ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setNsList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setNsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clusterId]);
+
+  // Pods list depends on the picked namespace. Reset and refetch
+  // whenever ns changes. Cluster-wide pod listing (ns="") is skipped
+  // — large clusters would balloon the dropdown — so a user has to
+  // pick a namespace before the pod picker becomes useful.
+  useEffect(() => {
+    setPickerPod('');
+    setPodList([]);
+    if (!clusterId || !pickerNs) return;
+    let cancelled = false;
+    setPodLoading(true);
+    listWorkloads(clusterId, 'pods', pickerNs, 500, '')
+      .then((res) => {
+        if (cancelled) return;
+        const items = (res?.items ?? []) as Array<{ metadata?: { name?: string } }>;
+        const names = items
+          .map((it) => it.metadata?.name)
+          .filter((n): n is string => !!n)
+          .sort();
+        setPodList(names);
+      })
+      .catch(() => {
+        if (!cancelled) setPodList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPodLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clusterId, pickerNs]);
+
+  // Auto-build the LogsQL selector into the input whenever the
+  // structured picker changes. We REPLACE the input — keeping the
+  // picker authoritative on its own values. Anything the user typed
+  // manually after the last picker change is dropped on the next
+  // change, which is the same trade-off Grafana's explore makes when
+  // a label-filter chip is added.
+  const onPickerChange = (nextNs: string, nextPod: string) => {
+    setPickerNs(nextNs);
+    setPickerPod(nextPod);
+    setQuery(composeStreamSelector(nextNs, nextPod));
+  };
 
   // Lightweight install probe on mount — fires a tiny histogram query
   // over the last minute. RESOURCE_NOT_AVAILABLE surfaces immediately
@@ -163,6 +264,65 @@ const LoggingPage: React.FC = () => {
               })}
               allowClear
             />
+            {/* Structured pickers — auto-build a LogsQL stream selector
+                from namespace + pod and back-fill the input above. Pod
+                list is scoped to the picked namespace; picking nothing
+                clears the selector and the input. */}
+            <Row gutter={[12, 12]} align="middle" wrap>
+              <Col>
+                <Typography.Text type="secondary">
+                  {intl.formatMessage({ id: 'pages.logging.picker.namespace' })}
+                </Typography.Text>
+              </Col>
+              <Col>
+                <Select
+                  size="small"
+                  style={{ width: 200 }}
+                  allowClear
+                  showSearch
+                  loading={nsLoading}
+                  placeholder={intl.formatMessage({
+                    id: 'pages.logging.picker.namespace.placeholder',
+                  })}
+                  value={pickerNs || undefined}
+                  onChange={(v) => onPickerChange(v ?? '', '')}
+                  options={nsList.map((n) => ({ label: n, value: n }))}
+                  filterOption={(input, opt) =>
+                    (opt?.label as string)
+                      ?.toLowerCase()
+                      .includes(input.trim().toLowerCase())
+                  }
+                />
+              </Col>
+              <Col>
+                <Typography.Text type="secondary">
+                  {intl.formatMessage({ id: 'pages.logging.picker.pod' })}
+                </Typography.Text>
+              </Col>
+              <Col>
+                <Select
+                  size="small"
+                  style={{ width: 280 }}
+                  allowClear
+                  showSearch
+                  loading={podLoading}
+                  disabled={!pickerNs}
+                  placeholder={intl.formatMessage({
+                    id: pickerNs
+                      ? 'pages.logging.picker.pod.placeholder'
+                      : 'pages.logging.picker.pod.pickNsFirst',
+                  })}
+                  value={pickerPod || undefined}
+                  onChange={(v) => onPickerChange(pickerNs, v ?? '')}
+                  options={podList.map((n) => ({ label: n, value: n }))}
+                  filterOption={(input, opt) =>
+                    (opt?.label as string)
+                      ?.toLowerCase()
+                      .includes(input.trim().toLowerCase())
+                  }
+                />
+              </Col>
+            </Row>
             <Row gutter={[12, 12]} align="middle" wrap>
               <Col>
                 <Typography.Text type="secondary">

@@ -74,6 +74,10 @@ type clusterMetricsSnapshot struct {
 	// PodsTotal is the sum of PodsByPhase — handed back pre-summed so
 	// the frontend doesn't redo the work.
 	PodsTotal int `json:"podsTotal"`
+	// PodsPending is broken out of the phase map for the KPI card —
+	// scheduling backlog is a top-of-page operational signal worth
+	// surfacing without needing to read the tag list.
+	PodsPending int `json:"podsPending"`
 }
 
 type clusterMetricsSeries struct {
@@ -168,6 +172,10 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			// trend chart under the KPI strip.
 			{"cpu", `(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100`},
 			{"mem", `(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100`},
+			// Pending pod count over time — backlog trending up means
+			// scheduling is stuck (PVC binding, taint mismatch,
+			// resource shortage). Flat at 0 is the healthy steady state.
+			{"pendingPods", `count(kube_pod_status_phase{phase="Pending"}) or vector(0)`},
 		}
 
 		var (
@@ -255,6 +263,7 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		for _, n := range phases {
 			snap.PodsTotal += n
 		}
+		snap.PodsPending = phases["Pending"]
 		// Clamp negatives — PromQL can return tiny negative rates for
 		// gauges in flaky conditions; gauges in the UI don't like them.
 		if snap.CPUUtilPct < 0 {

@@ -22,6 +22,7 @@ export interface ClusterMetricsSnapshot {
   memUsedBytes: number;
   podsByPhase: Record<string, number>;
   podsTotal: number;
+  podsPending: number;
 }
 
 export interface ClusterMetricsPoint {
@@ -87,6 +88,33 @@ export interface PodMetricsResponse {
   stepSeconds: number;
   namespace?: string;
   series: Record<string, PodMetricSeries[]>;
+}
+
+export interface PodHealthRow {
+  namespace: string;
+  pod: string;
+  restarts: number;
+  ooms: number;
+}
+
+export interface PodHealthResponse {
+  generatedAt: string;
+  namespace?: string;
+  rows: PodHealthRow[];
+}
+
+export function getPodHealth(
+  clusterId: string,
+  namespace?: string,
+  limit?: number,
+) {
+  const params: Record<string, string | number> = {};
+  if (namespace) params.namespace = namespace;
+  if (typeof limit === 'number' && limit > 0) params.limit = limit;
+  return request<PodHealthResponse>(
+    `/api/v1/clusters/${clusterId}/pod-health`,
+    { method: 'GET', params },
+  );
 }
 
 export function getPodMetrics(

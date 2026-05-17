@@ -87,11 +87,11 @@ func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 		clusterID := c.Param("id")
 		query := c.Query("query")
 		if query == "" {
-			// LogsQL requires a query; an empty string matches
-			// nothing — return a friendlier 400 rather than confusing
-			// the user with an empty result set.
-			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
-			return
+			// Empty query == "everything in the window". The frontend
+			// presents an empty search box as "all logs"; mirroring
+			// that here keeps the API forgiving and matches LogsQL's
+			// own catch-all syntax.
+			query = "*"
 		}
 		from, to, limit, ok := parseTimeWindow(c)
 		if !ok {
@@ -163,8 +163,7 @@ func GetLogsHistogram(gw *gateway.GatewayServer) gin.HandlerFunc {
 		clusterID := c.Param("id")
 		query := c.Query("query")
 		if query == "" {
-			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
-			return
+			query = "*"
 		}
 		from, to, _, ok := parseTimeWindow(c)
 		if !ok {

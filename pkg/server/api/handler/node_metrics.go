@@ -109,6 +109,23 @@ func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			{"diskWriteOps", `sum by (instance) (rate(node_disk_writes_completed_total{device!~"loop.*|ram.*"}[5m]))`},
 			{"netRx", `sum by (instance) (rate(node_network_receive_bytes_total{device!~"lo|veth.*"}[5m]))`},
 			{"netTx", `sum by (instance) (rate(node_network_transmit_bytes_total{device!~"lo|veth.*"}[5m]))`},
+			// Load average normalized by core count — 1.0 means "all
+			// cores busy + nothing waiting", >1 is queue forming.
+			// Pair with CPU utilization: CPU 60% + load 3.0 on an
+			// 8-core box means most of the time is spent waiting on
+			// I/O, not on CPU.
+			{"loadPerCore", `node_load1 / on(instance) group_left() count by (instance) (count by (cpu, instance) (node_cpu_seconds_total{mode="idle"}))`},
+			// Network errors + drops summed across all non-lo / non-veth
+			// devices. Trending up = link degradation; sustained > 0
+			// typically warrants kicking the NIC / kernel driver.
+			{"netErrors", `sum by (instance) (rate(node_network_receive_errs_total{device!~"lo|veth.*"}[5m]) + rate(node_network_transmit_errs_total{device!~"lo|veth.*"}[5m]))`},
+			// Filesystem inode utilization. 1B small files can exhaust
+			// inodes while byte usage stays low — orthogonal to disk%
+			// and a classic ops blind spot.
+			{"inodeUtil", `100 * (1 - sum by (instance) (node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"}) / sum by (instance) (node_filesystem_files{fstype!~"tmpfs|overlay|squashfs"}))`},
+			// TCP retransmits rate. Earlier-than-errs/drops signal of
+			// network trouble; healthy clusters are usually << 1/s.
+			{"tcpRetrans", `rate(node_netstat_Tcp_RetransSegs[5m])`},
 		}
 
 		var (

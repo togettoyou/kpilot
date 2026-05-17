@@ -1,4 +1,4 @@
-import { useIntl, useModel, useParams } from '@umijs/max';
+import { useIntl, useParams } from '@umijs/max';
 import {
   Card,
   Col,
@@ -8,6 +8,7 @@ import {
   Radio,
   Result,
   Row,
+  Select,
   Space,
   Spin,
   Statistic,
@@ -16,17 +17,20 @@ import {
   Typography,
 } from 'antd';
 import { useThemeMode } from 'antd-style';
-import React, { lazy, Suspense, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 
 import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   getClusterMetrics,
   getNodeMetrics,
+  getPodHealth,
   getPodMetrics,
   type MetricsRange,
   type NodeMetricSeries,
+  type PodHealthRow,
   type PodMetricSeries,
 } from '@/services/kpilot/monitoring';
+import { listNamespaces } from '@/services/kpilot/workload';
 import {
   isResourceNotAvailable,
   NotInstalled,
@@ -51,17 +55,47 @@ const MonitoringPage: React.FC = () => {
   const { id: clusterId } = useParams<{ id: string }>();
   const { isDarkMode } = useThemeMode();
   const { token } = theme.useToken();
-  const namespaceModel = useModel('namespace');
-  const ns = clusterId ? namespaceModel.get(clusterId).selected : '';
 
   const [range, setRange] = useState<MetricsRange>('1h');
+  // Pod-scope namespace picker — deliberately NOT wired to the global
+  // namespace model used by Workloads. The monitoring view starts with
+  // "all namespaces" every time so a returning operator gets the
+  // cluster-wide picture by default; switching is a per-visit choice
+  // for drill-down.
+  const [podNs, setPodNs] = useState('');
+  const [nsList, setNsList] = useState<string[]>([]);
+  const [nsLoading, setNsLoading] = useState(false);
   // Free-text name filters for the node + pod sections. Both filters
   // run client-side over the already-fetched series (node-metrics
   // returns ALL nodes; pod-metrics returns the server-side top-N,
   // capped at 100 — large clusters use the filter to narrow which
-  // pods are visible without re-fetching).
+  // pods are visible without re-fetching). Pod filter matches the
+  // pod name only (namespace is already a hard server-side filter).
   const [nodeFilter, setNodeFilter] = useState('');
   const [podFilter, setPodFilter] = useState('');
+
+  // Fetch the namespace list once per cluster for the pod-scope picker.
+  // Not using the namespace model: that one persists state across
+  // navigation (deliberate for Workloads). Here we want fresh local
+  // state.
+  useEffect(() => {
+    if (!clusterId) return;
+    let cancelled = false;
+    setNsLoading(true);
+    listNamespaces(clusterId)
+      .then((list) => {
+        if (!cancelled) setNsList(list ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setNsList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setNsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clusterId]);
 
   const cluster = useClusterRequest(
     () => getClusterMetrics(clusterId!, range),
@@ -74,8 +108,16 @@ const MonitoringPage: React.FC = () => {
     { ready: !!clusterId },
   );
   const pods = useClusterRequest(
-    () => getPodMetrics(clusterId!, range, ns, 20),
-    [clusterId, range, ns],
+    () => getPodMetrics(clusterId!, range, podNs, 20),
+    [clusterId, range, podNs],
+    { ready: !!clusterId },
+  );
+  // Pod health (restart + OOM) is range-independent — counters are
+  // current values. Refetches on the pod-scope namespace so the table
+  // tracks the same scope as the chart panels below.
+  const podHealth = useClusterRequest(
+    () => getPodHealth(clusterId!, podNs, 10),
+    [clusterId, podNs],
     { ready: !!clusterId },
   );
 
@@ -83,6 +125,7 @@ const MonitoringPage: React.FC = () => {
     cluster.refresh();
     nodes.refresh();
     pods.refresh();
+    podHealth.refresh();
   };
   const [interval, setIntervalMs] = useAutoRefresh(refresh, !!clusterId);
 
@@ -110,6 +153,15 @@ const MonitoringPage: React.FC = () => {
     ],
     [cluster.data, intl],
   );
+  const pendingPodsSeries = useMemo(
+    () => [
+      {
+        name: intl.formatMessage({ id: 'pages.monitoring.metric.pendingPods' }),
+        points: cluster.data?.series?.pendingPods?.points ?? [],
+      },
+    ],
+    [cluster.data, intl],
+  );
 
   if (!clusterId) return null;
   if (cluster.error && isResourceNotAvailable(cluster.error)) {
@@ -120,6 +172,20 @@ const MonitoringPage: React.FC = () => {
         subTitleId="pages.monitoring.notInstalled.subTitle"
         actionId="pages.monitoring.notInstalled.action"
       />
+    );
+  }
+  // First-load placeholder. Without this, the body-spanning Spin
+  // ended up at the vertical center of a tall (mostly-empty) page —
+  // operators had to scroll past two viewports of skeleton Cards to
+  // see that the page was still loading. A small spinner anchored to
+  // the top of the page is visible immediately. After data lands we
+  // never show this overlay again; per-Card loading + the refresh
+  // button cover incremental refetches.
+  if (!cluster.data && !cluster.error) {
+    return (
+      <div className="p-6" style={{ textAlign: 'center' }}>
+        <Spin size="large" style={{ marginTop: 48 }} />
+      </div>
     );
   }
 
@@ -143,15 +209,19 @@ const MonitoringPage: React.FC = () => {
   };
 
   const podFilterLower = podFilter.trim().toLowerCase();
+  // Series name keeps the namespace prefix so multi-NS views can tell
+  // pods apart in the legend, but the filter only matches the pod
+  // portion — namespace scoping is the picker's job.
   const podSeries = (key: string) => {
     const rows = (pods.data?.series?.[key] ?? []).map(
       (s: PodMetricSeries) => ({
         name: `${s.namespace}/${s.pod}`,
+        pod: s.pod,
         points: s.points,
       }),
     );
     if (!podFilterLower) return rows;
-    return rows.filter((r) => r.name.toLowerCase().includes(podFilterLower));
+    return rows.filter((r) => r.pod.toLowerCase().includes(podFilterLower));
   };
 
   const loading = cluster.loading || nodes.loading || pods.loading;
@@ -164,9 +234,8 @@ const MonitoringPage: React.FC = () => {
 
   return (
     <div className="p-6">
-      <Spin spinning={loading && !cluster.data}>
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {/* Header — range picker + refresh */}
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {/* Header — range picker + refresh */}
           <Card size="small" styles={{ body: { padding: '8px 16px' } }}>
             <Row justify="space-between" align="middle" wrap>
               <Col>
@@ -292,15 +361,29 @@ const MonitoringPage: React.FC = () => {
                     intl.formatMessage({ id: 'pages.monitoring.kpi.pods.empty' })
                   ) : (
                     <Space size={[4, 4]} wrap>
-                      {phaseEntries.map(([phase, n]) => (
-                        <Tag
-                          key={phase}
-                          color={phaseColor(phase)}
-                          style={{ marginInlineEnd: 0 }}
-                        >
-                          {phase} {n}
+                      {/* Always emphasize Pending — it's the operational
+                          signal that something is stuck waiting to
+                          schedule, drives a different remediation
+                          path than the rest. */}
+                      {(snap?.podsPending ?? 0) > 0 && (
+                        <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                          {intl.formatMessage(
+                            { id: 'pages.monitoring.kpi.pods.pending' },
+                            { n: snap?.podsPending ?? 0 },
+                          )}
                         </Tag>
-                      ))}
+                      )}
+                      {phaseEntries
+                        .filter(([phase]) => phase !== 'Pending')
+                        .map(([phase, n]) => (
+                          <Tag
+                            key={phase}
+                            color={phaseColor(phase)}
+                            style={{ marginInlineEnd: 0 }}
+                          >
+                            {phase} {n}
+                          </Tag>
+                        ))}
                     </Space>
                   )
                 }
@@ -329,8 +412,83 @@ const MonitoringPage: React.FC = () => {
                   dark={dark}
                 />
               </Col>
+              <Col xs={24} xl={12}>
+                <MultiSeriesChart
+                  titleId="pages.monitoring.chart.pendingPods"
+                  unit=""
+                  series={pendingPodsSeries}
+                  dark={dark}
+                />
+              </Col>
             </Row>
           </Suspense>
+
+          {/* Pod health — Restart + OOM top-N. Counter values, not
+              rates: presented as a table, not a chart. Empty section
+              when no problematic pods exist (every healthy cluster). */}
+          <Card
+            title={intl.formatMessage({ id: 'pages.monitoring.section.podHealth' })}
+            size="small"
+            styles={{ body: { padding: 16 } }}
+          >
+            {podHealth.data && podHealth.data.rows.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={intl.formatMessage({
+                  id: 'pages.monitoring.podHealth.empty',
+                })}
+              />
+            ) : (
+              <table style={{ width: '100%', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ color: 'var(--ant-color-text-secondary)', textAlign: 'left' }}>
+                    <th style={{ padding: '6px 8px', fontWeight: 500 }}>
+                      {intl.formatMessage({ id: 'pages.monitoring.podHealth.col.pod' })}
+                    </th>
+                    <th style={{ padding: '6px 8px', fontWeight: 500, textAlign: 'right', width: 120 }}>
+                      {intl.formatMessage({ id: 'pages.monitoring.podHealth.col.restarts' })}
+                    </th>
+                    <th style={{ padding: '6px 8px', fontWeight: 500, textAlign: 'right', width: 120 }}>
+                      {intl.formatMessage({ id: 'pages.monitoring.podHealth.col.ooms' })}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(podHealth.data?.rows ?? []).map((r: PodHealthRow) => (
+                    <tr
+                      key={`${r.namespace}/${r.pod}`}
+                      style={{ borderTop: '1px solid var(--ant-color-split)' }}
+                    >
+                      <td style={{ padding: '6px 8px' }}>
+                        <Tag style={{ marginInlineEnd: 6 }}>{r.namespace}</Tag>
+                        <span>{r.pod}</span>
+                      </td>
+                      <td
+                        style={{
+                          padding: '6px 8px',
+                          textAlign: 'right',
+                          color: r.restarts > 0 ? 'var(--ant-color-warning)' : undefined,
+                          fontWeight: r.restarts > 0 ? 500 : 400,
+                        }}
+                      >
+                        {r.restarts}
+                      </td>
+                      <td
+                        style={{
+                          padding: '6px 8px',
+                          textAlign: 'right',
+                          color: r.ooms > 0 ? 'var(--ant-color-error)' : undefined,
+                          fontWeight: r.ooms > 0 ? 500 : 400,
+                        }}
+                      >
+                        {r.ooms}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
 
           {/* Node-level panels */}
           <Card
@@ -438,41 +596,83 @@ const MonitoringPage: React.FC = () => {
                     alwaysShowLegend
                   />
                 </Col>
+                <Col xs={24} xl={12}>
+                  <MultiSeriesChart
+                    titleId="pages.monitoring.metric.loadByNode"
+                    unit=""
+                    series={nodeSeries('loadPerCore')}
+                    dark={dark}
+                    alwaysShowLegend
+                  />
+                </Col>
+                <Col xs={24} xl={12}>
+                  <MultiSeriesChart
+                    titleId="pages.monitoring.metric.netErrorsByNode"
+                    unit="errs/s"
+                    series={nodeSeries('netErrors')}
+                    dark={dark}
+                    alwaysShowLegend
+                  />
+                </Col>
+                <Col xs={24} xl={12}>
+                  <MultiSeriesChart
+                    titleId="pages.monitoring.metric.inodeByNode"
+                    unit="%"
+                    yMax={100}
+                    series={nodeSeries('inodeUtil')}
+                    dark={dark}
+                    alwaysShowLegend
+                  />
+                </Col>
+                <Col xs={24} xl={12}>
+                  <MultiSeriesChart
+                    titleId="pages.monitoring.metric.tcpRetransByNode"
+                    unit="segs/s"
+                    series={nodeSeries('tcpRetrans')}
+                    dark={dark}
+                    alwaysShowLegend
+                  />
+                </Col>
               </Row>
             </Suspense>
           </Card>
 
-          {/* Pod-level panels — server filters by namespace (driven by
-              the global picker, empty = all NSes), client-side
-              text filter narrows by pod name on the returned top-N. */}
+          {/* Pod-level panels — local namespace picker (deliberately
+              not the global one) drives server-side scoping; text
+              filter narrows the returned top-N by pod name only. */}
           <Card
-            title={
-              <Space>
-                <span>
-                  {intl.formatMessage({ id: 'pages.monitoring.section.pods' })}
-                </span>
-                {ns ? (
-                  <Tag>{ns}</Tag>
-                ) : (
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {intl.formatMessage({
-                      id: 'pages.monitoring.section.pods.allNs',
-                    })}
-                  </Typography.Text>
-                )}
-              </Space>
-            }
+            title={intl.formatMessage({ id: 'pages.monitoring.section.pods' })}
             extra={
-              <Input.Search
-                allowClear
-                size="small"
-                style={{ width: 220 }}
-                placeholder={intl.formatMessage({
-                  id: 'pages.monitoring.filter.pod.placeholder',
-                })}
-                value={podFilter}
-                onChange={(e) => setPodFilter(e.target.value)}
-              />
+              <Space>
+                <Select
+                  size="small"
+                  style={{ width: 200 }}
+                  allowClear
+                  showSearch
+                  loading={nsLoading}
+                  placeholder={intl.formatMessage({
+                    id: 'pages.monitoring.filter.namespace.placeholder',
+                  })}
+                  value={podNs || undefined}
+                  onChange={(v) => setPodNs(v ?? '')}
+                  options={nsList.map((n) => ({ label: n, value: n }))}
+                  filterOption={(input, opt) =>
+                    (opt?.label as string)
+                      ?.toLowerCase()
+                      .includes(input.trim().toLowerCase())
+                  }
+                />
+                <Input.Search
+                  allowClear
+                  size="small"
+                  style={{ width: 200 }}
+                  placeholder={intl.formatMessage({
+                    id: 'pages.monitoring.filter.pod.placeholder',
+                  })}
+                  value={podFilter}
+                  onChange={(e) => setPodFilter(e.target.value)}
+                />
+              </Space>
             }
             size="small"
             styles={{ body: { padding: 16 } }}
@@ -514,6 +714,82 @@ const MonitoringPage: React.FC = () => {
                       alwaysShowLegend
                     />
                   </Col>
+                  <Col xs={24} xl={12}>
+                    <MultiSeriesChart
+                      titleId="pages.monitoring.metric.netRxByPod"
+                      unit="MiB/s"
+                      unitScale={1 / 1024 / 1024}
+                      titleSuffix={intl.formatMessage({
+                        id: 'pages.monitoring.topN',
+                      })}
+                      series={podSeries('netRx')}
+                      dark={dark}
+                      alwaysShowLegend
+                    />
+                  </Col>
+                  <Col xs={24} xl={12}>
+                    <MultiSeriesChart
+                      titleId="pages.monitoring.metric.netTxByPod"
+                      unit="MiB/s"
+                      unitScale={1 / 1024 / 1024}
+                      titleSuffix={intl.formatMessage({
+                        id: 'pages.monitoring.topN',
+                      })}
+                      series={podSeries('netTx')}
+                      dark={dark}
+                      alwaysShowLegend
+                    />
+                  </Col>
+                  <Col xs={24} xl={12}>
+                    <MultiSeriesChart
+                      titleId="pages.monitoring.metric.cpuThrottleByPod"
+                      unit="%"
+                      titleSuffix={intl.formatMessage({
+                        id: 'pages.monitoring.topN',
+                      })}
+                      series={podSeries('cpuThrottle')}
+                      dark={dark}
+                      alwaysShowLegend
+                    />
+                  </Col>
+                  <Col xs={24} xl={12}>
+                    <MultiSeriesChart
+                      titleId="pages.monitoring.metric.memLimitRatioByPod"
+                      unit="%"
+                      titleSuffix={intl.formatMessage({
+                        id: 'pages.monitoring.topN',
+                      })}
+                      series={podSeries('memLimitRatio')}
+                      dark={dark}
+                      alwaysShowLegend
+                    />
+                  </Col>
+                  <Col xs={24} xl={12}>
+                    <MultiSeriesChart
+                      titleId="pages.monitoring.metric.fsReadByPod"
+                      unit="MiB/s"
+                      unitScale={1 / 1024 / 1024}
+                      titleSuffix={intl.formatMessage({
+                        id: 'pages.monitoring.topN',
+                      })}
+                      series={podSeries('fsRead')}
+                      dark={dark}
+                      alwaysShowLegend
+                    />
+                  </Col>
+                  <Col xs={24} xl={12}>
+                    <MultiSeriesChart
+                      titleId="pages.monitoring.metric.fsWriteByPod"
+                      unit="MiB/s"
+                      unitScale={1 / 1024 / 1024}
+                      titleSuffix={intl.formatMessage({
+                        id: 'pages.monitoring.topN',
+                      })}
+                      series={podSeries('fsWrite')}
+                      dark={dark}
+                      alwaysShowLegend
+                    />
+                  </Col>
                 </Row>
               </Suspense>
             )}
@@ -531,8 +807,7 @@ const MonitoringPage: React.FC = () => {
               )}
             />
           )}
-        </Space>
-      </Spin>
+      </Space>
     </div>
   );
 };
