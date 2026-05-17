@@ -247,15 +247,19 @@ func upsertClusterPluginStatusOn(db *gorm.DB, clusterID string, pluginID uint, p
 }
 
 // PersistClusterPluginStatusIfActive atomically reads the row, applies
-// the "don't downgrade a user-disabled row to a non-Uninstalling phase"
+// the "don't downgrade a user-disabled row to a stale enable-side phase"
 // predicate, and upserts the new state — all inside one DB transaction
 // so a concurrent EnablePlugin can't slip in between the read and the
 // write and have its row clobbered by a late status echo from the
 // previous Disable.
 //
-// `phase == Uninstalling` is the legal transitional phase during a
-// disable in progress — that one is allowed through even when the row
-// has `enabled=false` already.
+// While the row has `enabled=false` we allow Uninstalling AND Failed
+// through: the Worker's reconciler legitimately emits both during a
+// disable in progress (Uninstalling = mid-flight, Failed = uninstall
+// actually failed and the user needs to see the reason). Everything
+// else (Running / Installing / Pending / Upgrading) is a stale echo
+// from a previous enable cycle and gets dropped — its caller would
+// have re-set Uninstalling already if a fresh disable is in progress.
 //
 // Returns (skipped=true, nil) when the predicate filtered the update
 // out so callers can log "echo ignored" if they want. (false, nil) on
@@ -265,7 +269,8 @@ func PersistClusterPluginStatusIfActive(clusterID string, pluginID uint, phase P
 		var existing ClusterPlugin
 		err := tx.Where("cluster_id = ? AND plugin_id = ?", clusterID, pluginID).
 			First(&existing).Error
-		if err == nil && !existing.Enabled && phase != PluginPhaseUninstalling {
+		if err == nil && !existing.Enabled &&
+			phase != PluginPhaseUninstalling && phase != PluginPhaseFailed {
 			skipped = true
 			return nil
 		}

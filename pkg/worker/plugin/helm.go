@@ -375,15 +375,39 @@ func (h *HelmRunner) InstallOrUpgrade(
 
 // Uninstall removes the release. If the release doesn't exist, returns nil
 // (idempotent; matches `helm uninstall --wait` behavior with no release).
+//
+// Defensive probe: action.Uninstall on a release that was manually removed
+// behaves in two distinct ways depending on how the manual removal was
+// done. Plain `helm uninstall <r>` deletes every history Secret — the
+// next Uninstall hits driver.ErrReleaseNotFound (wrapped) and we map it
+// to nil via isReleaseNotFound. But `helm uninstall <r> --keep-history`
+// (and a handful of "release in pending-uninstall / superseded state"
+// scenarios) leave a history Secret whose status is StatusUninstalled;
+// action.Uninstall then returns errors.Errorf("the release named %q is
+// already uninstalled", ...) — a plain string error that does NOT wrap
+// driver.ErrReleaseNotFound. Treating that as a real failure flips
+// the reconciler into Failed → markFailed → 30s requeue → Uninstalling
+// → markFailed loop, which combined with the Server's
+// PersistClusterPluginStatusIfActive predicate filter on Failed-during-
+// disable manifests as "stuck on Uninstalling forever" in the UI.
+//
+// We probe with action.Get first and short-circuit when the release is
+// effectively absent (truly missing, or already in StatusUninstalled).
 func (h *HelmRunner) Uninstall(releaseName, namespace string, logger Logger) error {
 	cfg, err := h.newConfiguration(namespace, logger)
 	if err != nil {
 		return err
 	}
+	if rel, getErr := action.NewGet(cfg).Run(releaseName); getErr != nil {
+		if isReleaseNotFound(getErr) {
+			return nil
+		}
+		return fmt.Errorf("probe release: %w", getErr)
+	} else if rel != nil && rel.Info != nil && rel.Info.Status == release.StatusUninstalled {
+		return nil
+	}
 	uninst := action.NewUninstall(cfg)
 	if _, err := uninst.Run(releaseName); err != nil {
-		// Helm's "release not found" is the no-op case; everything else is
-		// a real error.
 		if isReleaseNotFound(err) {
 			return nil
 		}
