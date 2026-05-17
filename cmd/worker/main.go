@@ -107,7 +107,7 @@ func main() {
 		httpProxy := proxy.NewHTTPProxy(
 			tunnelClient.SendHTTPResponse,
 			tunnelClient.StreamContext,
-			clientset,
+			k8sCfg,
 			router,
 		)
 		tunnelClient.SetHTTPHandler(httpProxy.Handle)

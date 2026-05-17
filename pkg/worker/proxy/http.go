@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
@@ -56,12 +56,18 @@ type HTTPProxy struct {
 	// disconnects, in-flight upstream HTTP requests get cancelled
 	// instead of hanging on their 60 s timeout. nil-tolerant for tests.
 	streamCtxFn func() context.Context
-	// clientset is used to route in-cluster Service URLs through the
-	// K8s API server's `/api/v1/namespaces/.../services/.../proxy/`
-	// endpoint when direct DNS dial would fail (the common case for
-	// local-dev workers outside the cluster). nil-tolerant — when
-	// nil, the proxy always uses direct dial.
-	clientset kubernetes.Interface
+	// k8sCfg + apiClient power the service-proxy HTTP fallback. We
+	// dispatch via a normal http.Client (rather than client-go's REST
+	// helpers) so we get the upstream's full response headers —
+	// Content-Type / Content-Encoding / Set-Cookie / Location are all
+	// required for an embedded UI like Grafana to render correctly.
+	// rest.HTTPClientFor wires bearer-token auth + TLS, matching the
+	// rest of the worker's K8s calls. nil-tolerant for tests.
+	k8sCfg    *rest.Config
+	apiClient *http.Client
+	// apiHost is the parsed apiserver host (scheme + authority) used
+	// to build service-proxy URLs without re-parsing per request.
+	apiHost *url.URL
 	// router holds the cached "use direct dial vs service-proxy"
 	// decision; shared with the WebSocket proxy via cmd/worker/main.go
 	// so both arrive at the same answer without probing twice. May be
@@ -75,7 +81,7 @@ type HTTPProxy struct {
 // tunnel client's SendHTTPResponse; streamCtxFn should be
 // tunnel.Client.StreamContext so request ctx tracks tunnel lifetime.
 //
-// clientset (optional, nil-tolerant) enables routing for URLs whose host
+// k8sCfg (optional, nil-tolerant) enables routing for URLs whose host
 // ends in `.svc.*` — those go through the K8s API server's service
 // proxy instead of direct TCP dial, so the worker can reach in-cluster
 // Services without resolving `cluster.local` DNS itself. Required for
@@ -84,10 +90,10 @@ type HTTPProxy struct {
 func NewHTTPProxy(
 	sendFn func(string, *proto.HTTPResponse),
 	streamCtxFn func() context.Context,
-	clientset kubernetes.Interface,
+	k8sCfg *rest.Config,
 	router *InClusterRouter,
 ) *HTTPProxy {
-	return &HTTPProxy{
+	p := &HTTPProxy{
 		client: &http.Client{
 			Transport: &http.Transport{
 				DialContext: (&net.Dialer{
@@ -109,9 +115,33 @@ func NewHTTPProxy(
 		},
 		sendFn:      sendFn,
 		streamCtxFn: streamCtxFn,
-		clientset:   clientset,
+		k8sCfg:      k8sCfg,
 		router:      router,
 	}
+	// Pre-build the apiserver-bound client once. rest.HTTPClientFor
+	// wraps the underlying transport with bearer-token auth + TLS
+	// using the same rest.Config that the rest of client-go uses, so
+	// SA token rotation works transparently (NewCachedFileTokenSource
+	// re-reads BearerTokenFile every 5 min). If config parsing fails
+	// we log + leave apiClient nil; doInClusterService will then skip
+	// the fallback and return the direct-dial error to the caller.
+	if k8sCfg != nil {
+		hostURL, err := url.Parse(k8sCfg.Host)
+		if err != nil {
+			log.Printf("[http-proxy] parse api host failed (service-proxy fallback disabled): host=%s err=%v", k8sCfg.Host, err)
+		} else if cli, err := rest.HTTPClientFor(k8sCfg); err != nil {
+			log.Printf("[http-proxy] build api http client failed (service-proxy fallback disabled): err=%v", err)
+		} else {
+			// Per-request ctx already enforces 60 s; the client itself
+			// shouldn't add an extra timeout (it would shadow the ctx
+			// cancel signal the tunnel uses to interrupt in-flight
+			// requests on disconnect).
+			cli.Timeout = 60 * time.Second
+			p.apiClient = cli
+			p.apiHost = hostURL
+		}
+	}
+	return p
 }
 
 // hopByHopHeaders are the connection-control headers we must NOT forward.
@@ -170,7 +200,7 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 	// service-proxy subresource (works from anywhere with kubeconfig).
 	// Decision is cached per-Worker via InClusterRouter and shared
 	// with the WS proxy.
-	if svc := parseInClusterService(req.Url); svc != nil && p.clientset != nil && p.router != nil {
+	if svc := parseInClusterService(req.Url); svc != nil && p.apiClient != nil && p.router != nil {
 		return p.doInClusterService(ctx, req, svc)
 	}
 
@@ -344,90 +374,145 @@ func parseInClusterService(rawURL string) *inClusterService {
 
 // doViaServiceProxy issues the proxied request through the K8s API
 // server's `/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/...`
-// endpoint. Auth + transport come from the K8s clientset's REST
-// client, so the worker doesn't need direct network reachability
-// to the in-cluster Service — only to the API server.
+// endpoint. Auth + TLS come from the rest.HTTPClientFor-built client
+// (cached on p.apiClient) so the worker doesn't need direct network
+// reachability to the in-cluster Service — only to the API server.
+//
+// We dispatch a normal http.Request (rather than client-go's REST
+// Request helper) so the full upstream http.Response is available.
+// Content-Type / Content-Encoding / Set-Cookie all need to reach the
+// browser unmodified for an embedded UI like Grafana to render —
+// rest.Request.Do().Raw() exposes only ContentType + status, dropping
+// every other header.
 //
 // Trade-offs vs direct dial: rate-limited by API server, larger
 // per-request overhead, but works from anywhere a kubeconfig works.
-// Body forwarding is straightforward for the JSON / GET workloads
-// that need this path (VM PromQL queries). Streaming protocols
-// (Grafana Live, large file uploads) should still go through the
-// direct WS path or be routed differently.
 func (p *HTTPProxy) doViaServiceProxy(
 	ctx context.Context,
 	req *proto.HTTPRequest,
 	svc *inClusterService,
 ) (*proto.HTTPResponse, error) {
-	rest := p.clientset.CoreV1().RESTClient()
-	// Verb maps directly: GET/POST/PUT/etc. K8s REST client supports
-	// arbitrary verbs via `Verb(method)`.
-	//
-	// .Suffix expects URL-path segments (it splits on "/" and encodes
-	// each one). The path is split into segments because passing the
-	// whole "/api/v1/query_range" string as one segment used to URL-
-	// encode the "?" boundary into the path. Splitting on "/" + a
-	// separate Param() loop for the query keeps the request shape
-	// what the API server's service-proxy expects.
-	r := rest.Verb(strings.ToUpper(req.Method)).
-		Namespace(svc.namespace).
-		Resource("services").
-		Name(svc.name + ":" + svc.port).
-		SubResource("proxy")
-	for _, seg := range strings.Split(strings.TrimPrefix(svc.path, "/"), "/") {
-		if seg == "" {
-			continue
-		}
-		r = r.Suffix(seg)
+	if p.apiClient == nil || p.apiHost == nil {
+		return nil, errors.New("service-proxy fallback unavailable: no api client")
 	}
-	for k, values := range svc.query {
-		for _, v := range values {
-			r = r.Param(k, v)
-		}
+	target := url.URL{
+		Scheme:   p.apiHost.Scheme,
+		Host:     p.apiHost.Host,
+		Path:     fmt.Sprintf("/api/v1/namespaces/%s/services/%s:%s/proxy%s", svc.namespace, svc.name, svc.port, ensureLeadingSlash(svc.path)),
+		RawQuery: svc.query.Encode(),
 	}
+	var body io.Reader
 	if len(req.Body) > 0 {
-		r = r.Body(bytes.NewReader(req.Body))
+		body = bytes.NewReader(req.Body)
+	}
+	hreq, err := http.NewRequestWithContext(ctx, strings.ToUpper(req.Method), target.String(), body)
+	if err != nil {
+		return nil, fmt.Errorf("build svc-proxy request: %w", err)
 	}
 	// Replay non-hop-by-hop headers. Host / Content-Length / Cookie
 	// don't make sense through the API proxy (it manages those for
-	// us), so just forward Content-Type / Accept / etc.
+	// us). Authorization is stripped too — rest.HTTPClientFor's
+	// transport sets the apiserver bearer token; forwarding the
+	// browser's would either be empty or wrong for the apiserver.
 	for _, h := range req.Headers {
-		if _, hop := hopByHopHeaders[http.CanonicalHeaderKey(h.Name)]; hop {
+		canon := http.CanonicalHeaderKey(h.Name)
+		if _, hop := hopByHopHeaders[canon]; hop {
 			continue
 		}
-		switch http.CanonicalHeaderKey(h.Name) {
-		case "Host", "Cookie", "Content-Length":
+		switch canon {
+		case "Host", "Cookie", "Content-Length", "Authorization":
+			continue
+		case "Accept-Encoding":
+			// Strip the browser's Accept-Encoding so Go's transport
+			// is free to negotiate gzip itself. The transport then
+			// transparently decompresses the response body and strips
+			// Content-Encoding from the headers, so we forward
+			// plaintext bytes + plaintext Content-Type to the server.
+			// Leaving the browser's encoding through would suppress
+			// the auto-decompress path → compressed body + no
+			// Content-Encoding header reaching the browser → "save
+			// as .gz".
 			continue
 		}
-		r = r.SetHeader(h.Name, h.Value)
+		hreq.Header.Add(h.Name, h.Value)
 	}
 
-	// Use Stream() rather than Do() — Do() turns non-2xx responses
-	// from the service-proxy endpoint into a generic
-	// "the server rejected our request for an unknown reason" error
-	// that throws away the actual upstream body. Stream() gives us
-	// the raw bytes for ANY status code, so we can forward the real
-	// VM/Grafana response to the browser even on 4xx/5xx.
-	res := r.Do(ctx)
-	var status int
-	res.StatusCode(&status)
-	body, err := res.Raw()
-	if err != nil && status == 0 {
-		// Real transport error — no upstream response was even
-		// received. Surface verbatim so the dispatch log shows what
-		// went wrong (RBAC / connection refused / etc.).
+	hresp, err := p.apiClient.Do(hreq)
+	if err != nil {
 		return nil, fmt.Errorf("svc-proxy dispatch: %w", err)
 	}
-	if int64(len(body)) > proxyMaxRespBytes {
+	defer hresp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(hresp.Body, proxyMaxRespBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("svc-proxy read body: %w", err)
+	}
+	if int64(len(respBody)) > proxyMaxRespBytes {
 		return nil, fmt.Errorf("upstream body exceeds %d bytes", proxyMaxRespBytes)
 	}
-	if status == 0 {
-		// API server's proxy sets status on success but Raw() can
-		// return without populating it on some error paths.
-		status = http.StatusOK
+
+	// The K8s apiserver service-proxy transport
+	// (apimachinery/pkg/util/proxy/transport.go) rewrites text/html
+	// response bodies — every URL-valued attribute (<base href>,
+	// <script src>, <link href>, <a href>, …) gets the apiserver's
+	// service-proxy path prepended. Without undoing it, Grafana's
+	// index.html sends the browser hunting for
+	// `/api/v1/namespaces/.../services/.../proxy/public/build/…`
+	// which our top-level proxy doesn't route → "failed to load
+	// application files". Same trick the apiserver uses for the
+	// Location header; we reverse it by string-replacing the prefix
+	// out of HTML and (defensively) text/css bodies. Limited to
+	// content types apiserver actually rewrites so we don't touch
+	// binary blobs.
+	if isContentTypeRewritten(hresp.Header.Get("Content-Type")) {
+		prefix := fmt.Sprintf("/api/v1/namespaces/%s/services/%s:%s/proxy",
+			svc.namespace, svc.name, svc.port)
+		respBody = bytes.ReplaceAll(respBody, []byte(prefix), nil)
+	}
+
+	headers := make([]*proto.HTTPHeader, 0, len(hresp.Header))
+	for name, values := range hresp.Header {
+		if _, hop := hopByHopHeaders[name]; hop {
+			continue
+		}
+		if name == "Content-Length" {
+			continue
+		}
+		for _, v := range values {
+			headers = append(headers, &proto.HTTPHeader{Name: name, Value: v})
+		}
 	}
 	return &proto.HTTPResponse{
-		Status: int32(status),
-		Body:   body,
+		Status:  int32(hresp.StatusCode),
+		Headers: headers,
+		Body:    respBody,
 	}, nil
+}
+
+// isContentTypeRewritten reports whether the apiserver service-proxy
+// rewrites URLs inside a body with this Content-Type. Upstream only
+// rewrites `text/html` today (see apimachinery transport.go), but
+// guarding by the type prefix means we won't strip prefixes out of
+// JSON / binary asset bodies that happen to contain a colon-port-
+// like substring.
+func isContentTypeRewritten(ct string) bool {
+	if ct == "" {
+		return false
+	}
+	// Trim charset / boundary params: "text/html; charset=utf-8".
+	if i := strings.IndexByte(ct, ';'); i >= 0 {
+		ct = ct[:i]
+	}
+	ct = strings.TrimSpace(strings.ToLower(ct))
+	return ct == "text/html"
+}
+
+func ensureLeadingSlash(p string) string {
+	if p == "" {
+		return "/"
+	}
+	if p[0] != '/' {
+		return "/" + p
+	}
+	return p
 }
