@@ -34,6 +34,13 @@ interface MultiSeriesChartProps {
   /** Optional fixed height for the plot area (default 220). The
    *  scrollable HTML legend below adds its own height budget on top. */
   height?: number;
+  /** Force the legend to render even when there's only one series.
+   *  Default skips the legend for single-series charts (cluster CPU
+   *  / memory trends — the series name is the cluster itself,
+   *  conveyed by the title already). Set true for node- and pod-
+   *  level charts: a single-node / single-pod result still benefits
+   *  from showing WHICH node or pod the line belongs to. */
+  alwaysShowLegend?: boolean;
 }
 
 const plotHeight = 220;
@@ -75,6 +82,7 @@ function MultiSeriesChart({
   series,
   dark,
   height,
+  alwaysShowLegend = false,
 }: MultiSeriesChartProps) {
   const intl = useIntl();
 
@@ -206,11 +214,11 @@ function MultiSeriesChart({
 
       {/* Scrollable HTML legend — fixed height, native overflow,
           full names. Color square matches G2's line color through
-          the shared colorByName mapping above. Single-series
-          charts (cluster CPU / memory trends) skip the legend
-          entirely — one line + one color is self-evident, the
-          legend would just be noise. */}
-      {sortedNames.length > 1 && (
+          the shared colorByName mapping above. Cluster-trend
+          charts (single synthetic series) skip the legend by
+          default; node / pod charts opt in via alwaysShowLegend
+          so a single-node cluster still sees the node name. */}
+      {(alwaysShowLegend || sortedNames.length > 1) && (
       <div
         style={{
           maxHeight: legendScrollerHeight,

@@ -359,6 +359,7 @@ const MonitoringPage: React.FC = () => {
                     yMax={100}
                     series={nodeSeries('cpu')}
                     dark={dark}
+                    alwaysShowLegend
                   />
                 </Col>
                 <Col xs={24} xl={12}>
@@ -368,6 +369,7 @@ const MonitoringPage: React.FC = () => {
                     yMax={100}
                     series={nodeSeries('mem')}
                     dark={dark}
+                    alwaysShowLegend
                   />
                 </Col>
                 <Col xs={24} xl={12}>
@@ -377,6 +379,7 @@ const MonitoringPage: React.FC = () => {
                     yMax={100}
                     series={nodeSeries('disk')}
                     dark={dark}
+                    alwaysShowLegend
                   />
                 </Col>
                 <Col xs={24} xl={12}>
@@ -395,6 +398,7 @@ const MonitoringPage: React.FC = () => {
                       })),
                     ]}
                     dark={dark}
+                    alwaysShowLegend
                   />
                 </Col>
               </Row>
@@ -457,6 +461,7 @@ const MonitoringPage: React.FC = () => {
                       })}
                       series={podSeries('cpu')}
                       dark={dark}
+                      alwaysShowLegend
                     />
                   </Col>
                   <Col xs={24} xl={12}>
@@ -469,6 +474,7 @@ const MonitoringPage: React.FC = () => {
                       })}
                       series={podSeries('mem')}
                       dark={dark}
+                      alwaysShowLegend
                     />
                   </Col>
                 </Row>
