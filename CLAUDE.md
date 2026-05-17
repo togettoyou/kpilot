@@ -177,7 +177,7 @@ web/src/
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `SERVER_ADDR` | `localhost:9090` | Server gRPC 地址（Worker 视角） |
+| `SERVER_ADDR` | `localhost:9090` | Server gRPC 地址（Worker 视角）。支持三种格式：裸 `host:port`（明文）/ `grpc://host[:port]`（明文，默认 80）/ `grpcs://host[:port]`（TLS，默认 443，适用于走 HTTPS ingress 暴露 gRPC 的场景） |
 | `CLUSTER_TOKEN` | 空 | 必填，集群创建时 UI 一次性展示的 token |
 | `DATA_DIR` | `/var/lib/kpilot` | 持久化根目录。`charts/` 放 Helm chart .tgz cache，`helm/` 放 Helm 仓库配置 + cache |
 | `CLUSTER_DOMAIN` | `cluster.local` | K8s 集群 DNS 域。register 时上报给 Server，反代构 FQDN 时用 |

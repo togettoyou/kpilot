@@ -2,18 +2,66 @@ package tunnel
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
+
+// resolveServerAddr accepts a SERVER_ADDR in either bare host:port form
+// (legacy, plaintext) or with an explicit URL scheme — grpcs:// / https://
+// for TLS, grpc:// / http:// for plaintext — and returns a gRPC target
+// plus matching transport credentials. Without this, passing something
+// like grpcs://example.com straight into grpc.NewClient triggers a
+// "produced zero addresses" name-resolver error because no built-in
+// resolver knows the grpcs:// scheme.
+func resolveServerAddr(addr string) (string, credentials.TransportCredentials, error) {
+	if !strings.Contains(addr, "://") {
+		return addr, insecure.NewCredentials(), nil
+	}
+	u, err := url.Parse(addr)
+	if err != nil {
+		return "", nil, fmt.Errorf("parse SERVER_ADDR %q: %w", addr, err)
+	}
+	if u.Host == "" {
+		return "", nil, fmt.Errorf("SERVER_ADDR %q has no host", addr)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := u.Host
+	tlsEnabled := false
+	defaultPort := ""
+	switch scheme {
+	case "grpcs", "https":
+		tlsEnabled, defaultPort = true, "443"
+	case "grpc", "http":
+		tlsEnabled, defaultPort = false, "80"
+	default:
+		return "", nil, fmt.Errorf("SERVER_ADDR %q has unsupported scheme %q (use grpcs://, grpc://, or bare host:port)", addr, u.Scheme)
+	}
+	if _, _, err := net.SplitHostPort(host); err != nil {
+		host = net.JoinHostPort(host, defaultPort)
+	}
+	if !tlsEnabled {
+		return host, insecure.NewCredentials(), nil
+	}
+	serverName, _, err := net.SplitHostPort(host)
+	if err != nil {
+		serverName = host
+	}
+	return host, credentials.NewTLS(&tls.Config{ServerName: serverName}), nil
+}
 
 const (
 	reconnectBaseDelay = 3 * time.Second
@@ -347,8 +395,12 @@ func (c *Client) Run(ctx context.Context) error {
 }
 
 func (c *Client) connect(ctx context.Context) error {
-	conn, err := grpc.NewClient(c.serverAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	target, transportCreds, err := resolveServerAddr(c.serverAddr)
+	if err != nil {
+		return err
+	}
+	conn, err := grpc.NewClient(target,
+		grpc.WithTransportCredentials(transportCreds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                20 * time.Second,
 			Timeout:             10 * time.Second,
