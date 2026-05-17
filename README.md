@@ -26,8 +26,6 @@ Plugins ship as Helm charts and reconcile via an in-cluster CRD, with the Helm S
 
 ## Quick Start
 
-The chart is published to GHCR as an OCI artifact — no source checkout required.
-
 **Install the Server** (control-plane cluster):
 
 ```bash
@@ -51,7 +49,7 @@ helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
   --version 0.1.0 \
   --namespace kpilot-system --create-namespace \
   --set server.enabled=false,worker.enabled=true,postgresql.enabled=false \
-  --set worker.serverAddr='kpilot.example.com:9090' \
+  --set worker.serverAddr='kpilot-server-grpc.kpilot-system.svc:9090' \
   --set worker.clusterToken='<paste-token>'
 ```
 
