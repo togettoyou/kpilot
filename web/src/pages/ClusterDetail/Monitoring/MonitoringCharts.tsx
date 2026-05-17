@@ -1,7 +1,7 @@
 import { Line } from '@ant-design/plots';
 import { useIntl } from '@umijs/max';
 import { Card, Empty, Space, Tooltip, Typography } from 'antd';
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 // Shared lazy-loaded chart bundle for the Monitoring page. The Line
 // component pulls in the full @ant-design/plots G2 runtime (~250 KB
@@ -95,16 +95,32 @@ function MultiSeriesChart({
     return m;
   }, [sortedNames]);
 
+  // Hidden set tracks legend toggles — clicking a row hides that
+  // series from the chart; clicking again restores it. Persisted in
+  // component state so re-renders don't reset the user's choice.
+  // Kept as a Set<string> so toggle is O(1) and we don't depend on
+  // array order.
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const toggleHidden = useCallback((name: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
   const flat: FlatPoint[] = useMemo(() => {
     const scale = unitScale ?? 1;
     const out: FlatPoint[] = [];
     for (const row of series) {
+      if (hidden.has(row.name)) continue;
       for (const p of row.points) {
         out.push({ t: p.ts, v: p.value * scale, series: row.name });
       }
     }
     return out;
-  }, [series, unitScale]);
+  }, [series, unitScale, hidden]);
 
   const title = (
     <Space>
@@ -118,7 +134,12 @@ function MultiSeriesChart({
     </Space>
   );
 
-  if (flat.length === 0) {
+  // Empty-state branch: only when the upstream data truly has no
+  // points, not when the user filtered everything out via the legend.
+  // Hiding every series should still show the legend so the user can
+  // toggle one back on; we just render an empty plot area in that case.
+  const upstreamEmpty = series.every((s) => s.points.length === 0);
+  if (upstreamEmpty) {
     return (
       <Card title={title} size="small" styles={{ body: { padding: 16 } }}>
         <Empty
@@ -198,42 +219,64 @@ function MultiSeriesChart({
           paddingTop: 8,
         }}
       >
-        {sortedNames.map((name) => (
-          <div
-            key={name}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '2px 0',
-              fontSize: 12,
-              lineHeight: '18px',
-            }}
-          >
-            <span
-              style={{
-                display: 'inline-block',
-                width: 10,
-                height: 10,
-                borderRadius: '50%',
-                background: colorByName.get(name),
-                flexShrink: 0,
+        {sortedNames.map((name) => {
+          const isHidden = hidden.has(name);
+          const color = colorByName.get(name);
+          return (
+            <div
+              key={name}
+              role="button"
+              tabIndex={0}
+              onClick={() => toggleHidden(name)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  toggleHidden(name);
+                }
               }}
-            />
-            <Tooltip title={name} mouseEnterDelay={0.5}>
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '2px 0',
+                fontSize: 12,
+                lineHeight: '18px',
+                cursor: 'pointer',
+                userSelect: 'none',
+                opacity: isHidden ? 0.4 : 1,
+              }}
+            >
               <span
                 style={{
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  color: 'var(--ant-color-text-secondary)',
+                  display: 'inline-block',
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  // Hidden series: hollow ring of the same color so
+                  // the user still sees which series the row belongs
+                  // to. Visible: filled.
+                  background: isHidden ? 'transparent' : color,
+                  border: isHidden ? `2px solid ${color}` : 'none',
+                  boxSizing: 'border-box',
+                  flexShrink: 0,
                 }}
-              >
-                {name}
-              </span>
-            </Tooltip>
-          </div>
-        ))}
+              />
+              <Tooltip title={name} mouseEnterDelay={0.5}>
+                <span
+                  style={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    textDecoration: isHidden ? 'line-through' : 'none',
+                    color: 'var(--ant-color-text-secondary)',
+                  }}
+                >
+                  {name}
+                </span>
+              </Tooltip>
+            </div>
+          );
+        })}
       </div>
     </Card>
   );
