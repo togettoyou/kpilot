@@ -98,10 +98,18 @@ export async function getInitialState(): Promise<InitialState> {
       const msg = await queryCurrentUser();
       return msg.data;
     } catch {
+      // requestErrorConfig's 401 handler may have already replaced
+      // history to `${loginPath}?redirect=<original>`. If so, reading
+      // location now and replacing again wraps the redirect query in
+      // another layer of encoding, leaving the user on a login URL
+      // whose redirect= points back at /user/login itself — the first
+      // click after login then navigates to the login page again.
       const { pathname, search, hash } = history.location;
-      history.replace(
-        `${loginPath}?redirect=${encodeURIComponent(pathname + search + hash)}`,
-      );
+      if (!pathname.startsWith(loginPath)) {
+        history.replace(
+          `${loginPath}?redirect=${encodeURIComponent(pathname + search + hash)}`,
+        );
+      }
     }
     return undefined;
   };

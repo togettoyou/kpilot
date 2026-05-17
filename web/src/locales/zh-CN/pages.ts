@@ -964,6 +964,7 @@ export default {
   'pages.login.submit': '登录',
   'pages.login.error.incorrect': '用户名或密码错误',
   'pages.login.error.failed': '登录失败，请重试',
+  'pages.login.defaults.hint': '当前部署仍在使用默认凭据：{username} / {password}，登录后请尽快修改。',
 
   // clusters
   'pages.clusters.title': '集群管理',

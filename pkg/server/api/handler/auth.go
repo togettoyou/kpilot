@@ -70,6 +70,27 @@ func Login(adminUser, adminPass, jwtSecret string) gin.HandlerFunc {
 	}
 }
 
+// Defaults is a public (no-auth) endpoint that tells the login page
+// whether the deployment is still running with the seed ADMIN_PASSWORD.
+// When yes, it returns the configured username and the seed password
+// so the UI can render a "default credentials" hint — convenient for
+// fresh installs / demos. Once the operator rotates the password the
+// flag flips and the endpoint stops returning credentials, so the hint
+// disappears in production deployments without any extra config.
+func Defaults(adminUser, adminPass string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !adminPasswordIsDefault {
+			c.JSON(http.StatusOK, gin.H{"usingDefaults": false})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"usingDefaults": true,
+			"username":      adminUser,
+			"password":      adminPass,
+		})
+	}
+}
+
 func Me() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		username, _ := c.Get("username")

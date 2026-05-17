@@ -27,3 +27,18 @@ export function currentUser() {
 export function logout() {
   return request('/api/v1/auth/logout', { method: 'POST' });
 }
+
+// AuthDefaults reflects whether the server is still running with the
+// seed ADMIN_PASSWORD. When true, the login page renders a hint with
+// the credentials so first-time users / demo deployments can sign in
+// without reading the docs. Once rotated, `usingDefaults` flips to
+// false and `username` / `password` are omitted.
+export interface AuthDefaults {
+  usingDefaults: boolean;
+  username?: string;
+  password?: string;
+}
+
+export function authDefaults() {
+  return request<AuthDefaults>('/api/v1/auth/defaults', { method: 'GET' });
+}

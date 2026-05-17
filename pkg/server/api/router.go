@@ -69,6 +69,9 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		auth.POST("/login", handler.Login(cfg.AdminUsername, cfg.AdminPassword, cfg.JWTSecret))
 		auth.POST("/logout", handler.Logout())
 		auth.GET("/me", middleware.Auth(cfg.JWTSecret), handler.Me())
+		// Public: lets the login page show a seed-credentials hint when
+		// the deployment hasn't rotated ADMIN_PASSWORD yet.
+		auth.GET("/defaults", handler.Defaults(cfg.AdminUsername, cfg.AdminPassword))
 	}
 
 	protected := api.Group("", middleware.Auth(cfg.JWTSecret))

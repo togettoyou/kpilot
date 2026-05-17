@@ -994,6 +994,7 @@ export default {
   'pages.login.submit': 'Login',
   'pages.login.error.incorrect': 'Incorrect username or password',
   'pages.login.error.failed': 'Login failed, please try again',
+  'pages.login.defaults.hint': 'This deployment still uses the default credentials: {username} / {password}. Please rotate the password after signing in.',
 
   // clusters
   'pages.clusters.title': 'Clusters',
