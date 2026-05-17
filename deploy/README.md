@@ -10,12 +10,19 @@ deploy/
 └── worker/Dockerfile     # Multi-stage build for the Worker image
 ```
 
-GitHub Actions (`.github/workflows/release.yml`) builds and pushes
-both images to `ghcr.io/<owner>/kpilot-{server,worker}` on every push
-to `main` (`:dev` tag) and every `v*` tag (`:vX.Y.Z` + `:latest`).
-Tagged releases also publish the Helm chart as an OCI artifact at
-`oci://ghcr.io/<owner>/charts/kpilot`, so end users never need to
-clone this repository to install.
+GitHub Actions (`.github/workflows/release.yml`) ships every build
+to GHCR:
+
+| Trigger | Images | Chart |
+|---|---|---|
+| push to `main` | `:dev` | `0.0.0-dev` (app=dev, in-place overwrite) |
+| `v*` tag | `:vX.Y.Z` + `:latest` | `X.Y.Z` (app=X.Y.Z) |
+| manual dispatch | `:<input>` | `<input>` |
+
+The `0.0.0-dev` chart channel tracks the head of `main` and is
+overwritten on every push — handy for testing the latest unreleased
+build (`helm install --version 0.0.0-dev`). Tagged releases produce
+immutable chart versions.
 
 ## Topologies
 
