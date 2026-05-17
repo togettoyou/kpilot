@@ -43,27 +43,58 @@ type HelmRunner struct {
 }
 
 func NewHelmRunner(cfg *rest.Config, dataDir string) *HelmRunner {
-	settings := cli.New()
-	// cli.New respects HELM_REPOSITORY_CONFIG / HELM_REPOSITORY_CACHE
-	// from the environment. When the operator hasn't set them, point
-	// Helm's repo state at the kpilot data dir so it lands on the
-	// same PVC as the chart cache — operators mount one volume and
-	// everything persistent goes there.
+	// Helm has TWO independent ways to find its state, and we need to
+	// satisfy both:
+	//
+	// 1. cli.EnvSettings struct fields (RepositoryConfig, RepositoryCache,
+	//    etc.) — read by action.Pull / Install when it cares to look.
+	// 2. helmpath.* package-level globals — read by repo.NewChartRepository
+	//    which Pull calls INTERNALLY for `--repo` URL resolution and which
+	//    silently IGNORES the struct fields. These resolve from env vars
+	//    in this order: HELM_*_HOME → XDG_CACHE_HOME/HOME → os.UserCacheDir().
+	//
+	// On a distroless nonroot image with readOnlyRootFilesystem, the
+	// default os.UserCacheDir() resolves to `/home/nonroot/.cache` which
+	// doesn't exist and can't be created. Result: `helm pull --repo`
+	// fails on the very first chart with
+	//   "looks like <repo> is not a valid chart repository:
+	//    open /home/nonroot/.cache/helm/repository/<hash>-index.yaml:
+	//    no such file or directory"
+	// (OCI pulls are unaffected because they bypass repo index entirely.)
+	//
+	// Fix: export HELM_CACHE_HOME / HELM_CONFIG_HOME / HELM_DATA_HOME
+	// pointing under DataDir BEFORE calling cli.New(), so both paths
+	// agree and both resolve to our writable PVC mount.
 	if dataDir != "" {
 		helmHome := filepath.Join(dataDir, "helm")
-		if os.Getenv("HELM_REPOSITORY_CONFIG") == "" {
-			settings.RepositoryConfig = filepath.Join(helmHome, "repositories.yaml")
+		cacheHome := filepath.Join(helmHome, "cache")
+		configHome := filepath.Join(helmHome, "config")
+		dataHome := filepath.Join(helmHome, "data")
+		if os.Getenv("HELM_CACHE_HOME") == "" {
+			_ = os.Setenv("HELM_CACHE_HOME", cacheHome)
 		}
-		if os.Getenv("HELM_REPOSITORY_CACHE") == "" {
-			settings.RepositoryCache = filepath.Join(helmHome, "cache")
+		if os.Getenv("HELM_CONFIG_HOME") == "" {
+			_ = os.Setenv("HELM_CONFIG_HOME", configHome)
 		}
-		// MkdirAll is best-effort: if the path is read-only (dev
-		// machine without write access to /var/lib/kpilot), Helm will
-		// surface the resulting EACCES at install time, where it's
-		// actionable.
-		_ = os.MkdirAll(filepath.Dir(settings.RepositoryConfig), 0o755)
-		_ = os.MkdirAll(settings.RepositoryCache, 0o755)
+		if os.Getenv("HELM_DATA_HOME") == "" {
+			_ = os.Setenv("HELM_DATA_HOME", dataHome)
+		}
+		// Pre-create the subdirs Helm assumes exist. NewChartRepository
+		// will fail to write a fresh index.yaml into a non-existent
+		// directory — Helm only creates the parent on `helm repo add`,
+		// not on the implicit add that Pull does for `--repo` URLs.
+		// MkdirAll is best-effort: dev machines without write access
+		// surface EACCES at install time, where it's actionable.
+		_ = os.MkdirAll(filepath.Join(cacheHome, "repository"), 0o755)
+		_ = os.MkdirAll(configHome, 0o755)
+		_ = os.MkdirAll(dataHome, 0o755)
 	}
+	settings := cli.New()
+	// Belt-and-suspenders: even with the env vars set, an operator-
+	// supplied HELM_REPOSITORY_CONFIG / HELM_REPOSITORY_CACHE wins
+	// because cli.New() honors them directly. cli.New() already wired
+	// them via the env above when those weren't set; nothing else to
+	// do here.
 	// One registry client process-wide. Helm's OCI flow requires this on
 	// action.Configuration; without it, action.Install of an oci:// chart
 	// returns "registry client is not initialized". We only support
