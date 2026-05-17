@@ -42,12 +42,24 @@ interface MultiSeriesChartProps {
 const basePlotHeight = 200;
 const legendRowHeight = 22;
 const legendRowGutter = 6;
-// Rough estimate of how many legend items fit on one row given the
-// card's typical width. G2's legend wraps on overflow, but it needs
-// a tall-enough container to render the additional rows — without
-// height accommodation it just clips the overflow.
-const itemsPerLegendRow = 4;
-const maxLegendRows = 5;
+// itemsPerLegendRow is the realistic packing density after we
+// truncate the series name in `legendLabel` below — 2 items fit per
+// row in a half-width chart card. maxLegendRows lets the legend
+// span enough rows to render 20 series even when each one is on its
+// own line (worst case: very long ns/pod combos).
+const itemsPerLegendRow = 2;
+const maxLegendRows = 12;
+
+// legendLabel keeps the legend readable when pod / node names are
+// long. Applied via G2's labelFormatter so the underlying `series`
+// field stays intact — tooltips on hover still show the full name.
+// Cut from the start, prepend an ellipsis: pod identity lives in
+// the suffix (deployment hash + ordinal), the namespace prefix is
+// the lower-information part.
+function legendLabel(raw: string, max = 26): string {
+  if (raw.length <= max) return raw;
+  return '…' + raw.slice(raw.length - (max - 1));
+}
 
 interface FlatPoint {
   t: number;
@@ -143,13 +155,16 @@ function MultiSeriesChart({
           // Wrap legend items so 10+ nodes / 20 pods don't get
           // clipped behind a fixed-width strip. maxRows caps the
           // vertical budget the wrap can claim; rowPadding adds
-          // breathing room between rows.
+          // breathing room between rows. labelFormatter shortens
+          // long ns/pod names just for the legend — tooltip / data
+          // still see the full name.
           legend={{
             color: {
               itemMarker: 'circle',
               autoWrap: true,
               maxRows: maxLegendRows,
               rowPadding: legendRowGutter,
+              labelFormatter: (val: any) => legendLabel(String(val)),
             },
           }}
           tooltip={{
