@@ -101,6 +101,12 @@ func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			// many production setups.
 			{"diskRead", `sum by (instance) (rate(node_disk_read_bytes_total{device!~"loop.*|ram.*"}[5m]))`},
 			{"diskWrite", `sum by (instance) (rate(node_disk_written_bytes_total{device!~"loop.*|ram.*"}[5m]))`},
+			// IOPS (operations / sec) is the latency-correlated signal
+			// — a workload can saturate IOPS budget while throughput
+			// stays low (random small reads on a SATA SSD, say). Same
+			// device filter as the bandwidth pair above.
+			{"diskReadOps", `sum by (instance) (rate(node_disk_reads_completed_total{device!~"loop.*|ram.*"}[5m]))`},
+			{"diskWriteOps", `sum by (instance) (rate(node_disk_writes_completed_total{device!~"loop.*|ram.*"}[5m]))`},
 			{"netRx", `sum by (instance) (rate(node_network_receive_bytes_total{device!~"lo|veth.*"}[5m]))`},
 			{"netTx", `sum by (instance) (rate(node_network_transmit_bytes_total{device!~"lo|veth.*"}[5m]))`},
 		}
