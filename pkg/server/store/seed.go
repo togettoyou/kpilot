@@ -388,14 +388,14 @@ grafana.ini:
     serve_from_sub_path: true
     root_url: "/api/v1/clusters/${KPILOT_CLUSTER_ID}/proxy/grafana/"
   users:
-    # Auto-created users from auth.proxy land as Viewer — they can open
-    # bundled dashboards and panels but can't add datasources, edit
-    # dashboards, or change Grafana settings. KPilot's own pages are
-    # the supported way to manage configuration; the embedded Grafana
-    # is for consumption only. If a user genuinely needs to author
-    # dashboards, the chart-generated admin password in Secret
-    # <release>-grafana is the escape hatch.
-    auto_assign_org_role: Viewer
+    # The dedicated /clusters/:id/grafana page is the "do whatever you
+    # want in Grafana" escape hatch — authoring dashboards, datasources,
+    # alerts, plugin installs — so the auth.proxy-created user needs to
+    # land as Admin, matching how single-tenant KPilot positions itself.
+    # The headers map under auth.proxy also re-applies the role on every
+    # request, so old accounts originally created as Viewer get upgraded
+    # the moment the new config lands.
+    auto_assign_org_role: Admin
     # Follow the OS / browser dark-mode preference. "system" makes
     # Grafana watch prefers-color-scheme at runtime and flip its theme
     # without an iframe reload, so it tracks day/night automatically.
@@ -410,6 +410,13 @@ grafana.ini:
     header_name: X-WEBAUTH-USER
     header_property: username
     auto_sign_up: true
+    # Grafana re-reads the role from this header on every request, so
+    # KPilot's per-request X-WEBAUTH-ROLE: Admin (see proxy.go) wins
+    # over whatever role the account got at first sign-up. Without
+    # this headers line Grafana silently ignores the role header and
+    # the user stays stuck on users.auto_assign_org_role — exactly
+    # the bug that left old installs on Viewer.
+    headers: "Role:X-WEBAUTH-ROLE"
   live:
     # Grafana Live's WebSocket endpoint (used by realtime panels) checks
     # the browser's Origin header against the request's same-origin by
