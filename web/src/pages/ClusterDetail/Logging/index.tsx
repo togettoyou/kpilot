@@ -61,7 +61,6 @@ const LoggingPage: React.FC = () => {
     query: string;
     rangeMin: number;
     limit: number;
-    anchor: number;
   } | null>(null);
 
   // 加载状态 + 数据;两个请求是手动触发的 useState fetch,而不是
@@ -80,10 +79,10 @@ const LoggingPage: React.FC = () => {
   const runQuery = useCallback(async () => {
     if (!clusterId) return;
     const q = query.trim() || '*';
-    const anchor = Date.now();
-    const to = new Date(anchor).toISOString();
-    const from = new Date(anchor - rangeMin * 60_000).toISOString();
-    setSubmitted({ query: q, rangeMin, limit, anchor });
+    const nowMs = Date.now();
+    const to = new Date(nowMs).toISOString();
+    const from = new Date(nowMs - rangeMin * 60_000).toISOString();
+    setSubmitted({ query: q, rangeMin, limit });
 
     setSearch({ data: null, error: null, loading: true });
     setHisto({ data: null, loading: true });

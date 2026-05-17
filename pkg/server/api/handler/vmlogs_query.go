@@ -77,10 +77,15 @@ func queryVMLogs(
 	if limit <= 0 {
 		limit = 200
 	}
+	// VL parses bare integers as seconds-since-epoch (suffix "ns"/"us"/
+	// "ms" needed for sub-second resolution). UnixNano() without a
+	// suffix sends a number ~10^9 too large — VL would interpret it as
+	// far-future seconds and return zero matches. queryVMLogsHistogram
+	// uses Unix() correctly; align here.
 	u := fmt.Sprintf("%s/select/logsql/query?query=%s&start=%d&end=%d&limit=%d",
 		baseURL,
 		urlQueryEscape(query),
-		from.UnixNano(), to.UnixNano(),
+		from.Unix(), to.Unix(),
 		limit,
 	)
 	resp, err := gw.SendHTTPRequest(ctx, clusterID, &proto.HTTPRequest{
