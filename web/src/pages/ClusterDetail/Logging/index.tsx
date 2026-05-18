@@ -30,6 +30,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { Virtuoso } from 'react-virtuoso';
@@ -139,10 +140,19 @@ const LoggingPage: React.FC = () => {
     preset: '1h',
   });
   const [limit, setLimit] = useState(200);
-  // Histogram is open by default (operators want the volume curve as
-  // their primary "is this query hitting?" signal). Toggle in the
-  // title hides it when the user wants more room for the results list.
-  const [showHistogram, setShowHistogram] = useState(true);
+  // Histogram is collapsed by default — gives the results region the
+  // most vertical room out of the box. The title row still shows the
+  // total-matches count so the "is this query hitting?" signal is
+  // visible without opening the chart; toggle to expand on demand.
+  const [showHistogram, setShowHistogram] = useState(false);
+  // Measure the actual available viewport height after mount. The old
+  // static calc(100vh - 56px) didn't account for ProLayout's content
+  // padding so the page overflowed by a few pixels, producing an outer
+  // scrollbar even before the first search. Same pattern GrafanaEmbed
+  // uses — getBoundingClientRect().top gives the exact top offset that
+  // 100vh - top fills.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [containerHeight, setContainerHeight] = useState<number | null>(null);
   // Fullscreen / "max" mode for the results — hides the entire query
   // bar + histogram and gives the log list the whole viewport. Useful
   // when scrolling through a large result set or projecting on a
@@ -323,6 +333,66 @@ const LoggingPage: React.FC = () => {
   // Format the result lines once per response.
   const lines = useMemo<LogLine[]>(() => search.data?.lines ?? [], [search.data]);
 
+  // Wrapper height = viewport - wrapper.top - footer.height - (gap
+  // between wrapper bottom and footer top). The gap is a CONSTANT
+  // determined by ProLayout's content padding / margins, but it isn't
+  // a stable selector we can hardcode — measure it directly as
+  // (footer.top - wrapper.bottom). The gap stays the same whether
+  // the wrapper is too tall (footer pushed below viewport) or
+  // perfectly sized, so a single measurement converges. rAF-throttled
+  // to survive sider-drag's body-ResizeObserver spam.
+  //
+  // Previous attempts that subtracted document overflow on top of
+  // footer.offsetHeight double-counted (overflow already contained
+  // the footer's height) and the wrapper shrank by 2 × footer + gap
+  // — the page looked roughly right but the convergence flipped on
+  // each tick. This formula is closed-form: every term is a constant
+  // of the layout, no feedback loop.
+  useEffect(() => {
+    let pending = 0;
+    const measure = () => {
+      pending = 0;
+      const el = wrapperRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      // Footer renders as <div className="kpilot-footer"> via
+      // app.tsx's footerRender → Footer component. ProLayout doesn't
+      // wrap footerRender output in an .ant-layout-footer, so we
+      // tagged Footer with a stable class instead.
+      const footer = document.querySelector<HTMLElement>('.kpilot-footer');
+      if (!footer) {
+        // No footer (login page etc) — just fill to viewport bottom.
+        const h = Math.max(0, Math.floor(window.innerHeight - rect.top));
+        setContainerHeight((prev) => (prev === h ? prev : h));
+        return;
+      }
+      const footerRect = footer.getBoundingClientRect();
+      // Gap between wrapper bottom and footer top is the constant we
+      // can't enumerate (content-area padding, layout margins, etc.).
+      // Works even when the footer is currently pushed below viewport
+      // because the gap is independent of where each element ends up.
+      const gap = footerRect.top - rect.bottom;
+      const h = Math.max(
+        0,
+        Math.floor(window.innerHeight - rect.top - footerRect.height - gap),
+      );
+      setContainerHeight((prev) => (prev === h ? prev : h));
+    };
+    const schedule = () => {
+      if (pending) return;
+      pending = requestAnimationFrame(measure);
+    };
+    schedule();
+    window.addEventListener('resize', schedule);
+    const ro = new ResizeObserver(schedule);
+    ro.observe(document.body);
+    return () => {
+      if (pending) cancelAnimationFrame(pending);
+      window.removeEventListener('resize', schedule);
+      ro.disconnect();
+    };
+  }, []);
+
   // Esc exits fullscreen — global keydown listener while fullscreen
   // is active. Skips if user is typing in the query input (Esc would
   // otherwise blur via antd Input which the user probably wants for
@@ -372,14 +442,14 @@ const LoggingPage: React.FC = () => {
 
   return (
     // Grafana-style fixed-viewport layout. Outer flex column locked to
-    // viewport height eliminates the nested-scroll mess the old
-    // `<div p-6>` + `<Space>` + `maxHeight: 600 overflow: auto`
-    // version had — top sections stay put, only the results list scrolls,
-    // mouse wheel always has one obvious target. 56px matches ProLayout's
-    // header height (same offset GrafanaEmbed uses).
+    // the wrapper's actual available height (measured via ResizeObserver
+    // above) so ProLayout's content padding never produces an outer
+    // scrollbar. The static `calc(100vh - 56px)` fallback covers the
+    // first render before the measure useEffect runs.
     <div
+      ref={wrapperRef}
       style={{
-        height: 'calc(100vh - 56px)',
+        height: containerHeight != null ? containerHeight : 'calc(100vh - 56px)',
         display: 'flex',
         flexDirection: 'column',
         padding: 12,
