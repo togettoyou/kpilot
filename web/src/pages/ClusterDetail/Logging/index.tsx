@@ -1,10 +1,17 @@
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import {
+  DownloadOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import { useIntl, useParams } from '@umijs/max';
 import {
   Alert,
   Button,
   Card,
   Col,
+  Dropdown,
   Empty,
   Input,
   Result,
@@ -13,6 +20,7 @@ import {
   Space,
   Spin,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import { useThemeMode } from 'antd-style';
@@ -50,6 +58,48 @@ const LoggingHistogram = lazy(() => import('./LoggingHistogram'));
 // has no hard limit, but beyond 10k lines browser DOM rendering becomes
 // the bottleneck; if you really need more, narrow the search.
 const LIMIT_CAP = 10000;
+
+// triggerDownload pipes a string blob into a browser download. Pure
+// client-side — the log lines are already in memory, no second server
+// round-trip needed. Revokes the object URL after the synthetic click
+// to free the blob; the click is dispatched synchronously so the URL
+// is still resolvable when the browser starts the download.
+function triggerDownload(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Defer revoke so Firefox / Safari finish queuing the download.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// formatTxt renders the lines as one human-readable row each. Mirrors
+// the on-screen layout: `<time>  [ns/pod/container]  <message>`.
+// Synchronous string build — at 10k × ~200 bytes/row = ~2 MiB, well
+// under any "too slow" threshold.
+function formatTxt(lines: LogLine[]): string {
+  return lines
+    .map((ln) => {
+      const ts = ln.time;
+      const tags = [ln.namespace, ln.pod, ln.container]
+        .filter(Boolean)
+        .join('/');
+      const prefix = tags ? `${ts}\t[${tags}]\t` : `${ts}\t`;
+      return prefix + (ln.message ?? '');
+    })
+    .join('\n');
+}
+
+// formatNdjson — one JSON object per line, the canonical shape for
+// downstream log processing tools (jq, vector, etc.). Keeps the full
+// `fields` map intact, unlike the TXT projection.
+function formatNdjson(lines: LogLine[]): string {
+  return lines.map((ln) => JSON.stringify(ln)).join('\n');
+}
 
 // /clusters/:id/logging — self-rendered search UI for VictoriaLogs.
 // Three pieces visible above the fold: the query bar (LogsQL string),
@@ -89,12 +139,15 @@ const LoggingPage: React.FC = () => {
     preset: '1h',
   });
   const [limit, setLimit] = useState(200);
-  // Histogram is collapsed by default — most log searches start by
-  // scanning the results list, not the volume curve. Toggle in the
-  // Card title opens it on demand. Total count stays visible in the
-  // title regardless so the "M results in window" signal is always
-  // there.
-  const [showHistogram, setShowHistogram] = useState(false);
+  // Histogram is open by default (operators want the volume curve as
+  // their primary "is this query hitting?" signal). Toggle in the
+  // title hides it when the user wants more room for the results list.
+  const [showHistogram, setShowHistogram] = useState(true);
+  // Fullscreen / "max" mode for the results — hides the entire query
+  // bar + histogram and gives the log list the whole viewport. Useful
+  // when scrolling through a large result set or projecting on a
+  // big screen. Esc exits.
+  const [fullscreen, setFullscreen] = useState(false);
 
   // Structured pickers — convenience layer that auto-builds a LogsQL
   // stream selector and back-fills it into the input. The input
@@ -270,6 +323,41 @@ const LoggingPage: React.FC = () => {
   // Format the result lines once per response.
   const lines = useMemo<LogLine[]>(() => search.data?.lines ?? [], [search.data]);
 
+  // Esc exits fullscreen — global keydown listener while fullscreen
+  // is active. Skips if user is typing in the query input (Esc would
+  // otherwise blur via antd Input which the user probably wants for
+  // dismissing the cursor, not the layout).
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        const target = e.target as HTMLElement | null;
+        const tag = target?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        setFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
+
+  // Build the export menu (TXT / NDJSON). Filename includes the
+  // cluster id + a timestamp so multi-cluster operators don't end up
+  // with overwritten downloads.
+  const onExport = useCallback(
+    (format: 'txt' | 'ndjson') => {
+      if (!lines.length) return;
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const ext = format === 'txt' ? 'log' : 'ndjson';
+      const filename = `kpilot-logs-${clusterId}-${ts}.${ext}`;
+      const content =
+        format === 'txt' ? formatTxt(lines) : formatNdjson(lines);
+      const mime = format === 'txt' ? 'text/plain' : 'application/x-ndjson';
+      triggerDownload(filename, content, mime);
+    },
+    [clusterId, lines],
+  );
+
   if (!clusterId) return null;
   if (search.error && isResourceNotAvailable(search.error)) {
     return (
@@ -299,6 +387,7 @@ const LoggingPage: React.FC = () => {
         overflow: 'hidden',
       }}
     >
+      {!fullscreen && (
       <Space direction="vertical" size={8} style={{ width: '100%', flexShrink: 0 }}>
         {/* Query bar */}
         <Card size="small" styles={{ body: { padding: 16 } }}>
@@ -498,6 +587,7 @@ const LoggingPage: React.FC = () => {
           />
         )}
       </Space>
+      )}
 
       {/* Results list — owns the only scroll context on the page. Card
           flexes to fill remaining viewport; Virtuoso virtualises the
@@ -522,6 +612,60 @@ const LoggingPage: React.FC = () => {
                 )}
               </Typography.Text>
               {search.loading && <Spin size="small" />}
+            </Space>
+          }
+          extra={
+            <Space size={4}>
+              <Dropdown
+                disabled={!lines.length}
+                menu={{
+                  items: [
+                    {
+                      key: 'txt',
+                      label: intl.formatMessage({
+                        id: 'pages.logging.export.txt',
+                      }),
+                      onClick: () => onExport('txt'),
+                    },
+                    {
+                      key: 'ndjson',
+                      label: intl.formatMessage({
+                        id: 'pages.logging.export.ndjson',
+                      }),
+                      onClick: () => onExport('ndjson'),
+                    },
+                  ],
+                }}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<DownloadOutlined />}
+                  disabled={!lines.length}
+                >
+                  {intl.formatMessage({ id: 'pages.logging.export' })}
+                </Button>
+              </Dropdown>
+              <Tooltip
+                title={intl.formatMessage({
+                  id: fullscreen
+                    ? 'pages.logging.fullscreen.exit'
+                    : 'pages.logging.fullscreen.enter',
+                })}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  icon={
+                    fullscreen ? (
+                      <FullscreenExitOutlined />
+                    ) : (
+                      <FullscreenOutlined />
+                    )
+                  }
+                  onClick={() => setFullscreen((v) => !v)}
+                />
+              </Tooltip>
             </Space>
           }
           styles={{

@@ -15,7 +15,7 @@ interface LoggingHistogramProps {
   height?: number;
 }
 
-function LoggingHistogram({ points, dark, height = 80 }: LoggingHistogramProps) {
+function LoggingHistogram({ points, dark, height = 140 }: LoggingHistogramProps) {
   const intl = useIntl();
   const data = useMemo(
     () => points.map((p) => ({ t: p.ts, count: p.count })),
