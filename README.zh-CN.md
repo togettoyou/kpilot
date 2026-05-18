@@ -5,10 +5,6 @@
 [English](README.md) · [中文](README.zh-CN.md)
 
 <p align="center">
-  <img src="docs/assets/screenshots/hero.png" alt="KPilot —— 集群运维、GPU 调度、可观测性、插件管理一站式控制台">
-</p>
-
-<p align="center">
   <a href="https://github.com/togettoyou/kpilot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/togettoyou/kpilot?style=flat-square" alt="License"></a>
   <a href="https://github.com/togettoyou/kpilot/stargazers"><img src="https://img.shields.io/github/stars/togettoyou/kpilot?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/togettoyou/kpilot/commits/main"><img src="https://img.shields.io/github/last-commit/togettoyou/kpilot?style=flat-square" alt="Last commit"></a>
