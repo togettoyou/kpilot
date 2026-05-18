@@ -374,27 +374,30 @@ func (c *Client) SendResourceResponse(requestID string, resp *proto.ResourceResp
 func (c *Client) Run(ctx context.Context) error {
 	delay := reconnectBaseDelay
 	for {
-		if err := c.connect(ctx); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			if errors.Is(err, ErrTokenRejected) {
-				return err
-			}
-			log.Printf("[tunnel] disconnected: %v, retry in %s", err, delay)
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(delay):
-			}
-			delay = min(delay*2, reconnectMaxDelay)
-		} else {
-			delay = reconnectBaseDelay
+		// Reset backoff once Register succeeds so a long-lived connection that
+		// eventually drops retries from base delay, not from wherever the prior
+		// failure streak left off.
+		err := c.connect(ctx, func() { delay = reconnectBaseDelay })
+		if err == nil {
+			continue
 		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		if errors.Is(err, ErrTokenRejected) {
+			return err
+		}
+		log.Printf("[tunnel] disconnected: %v, retry in %s", err, delay)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(delay):
+		}
+		delay = min(delay*2, reconnectMaxDelay)
 	}
 }
 
-func (c *Client) connect(ctx context.Context) error {
+func (c *Client) connect(ctx context.Context, onConnected func()) error {
 	target, transportCreds, err := resolveServerAddr(c.serverAddr)
 	if err != nil {
 		return err
@@ -453,6 +456,9 @@ func (c *Client) connect(ctx context.Context) error {
 		return fmt.Errorf("%w: %s", ErrTokenRejected, msg)
 	}
 	log.Printf("[tunnel] registered: cluster=%s", regAck.RegisterAck.ClusterId)
+	if onConnected != nil {
+		onConnected()
+	}
 
 	c.mu.Lock()
 	c.stream = stream
