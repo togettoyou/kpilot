@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/common/volcano"
 )
 
@@ -53,7 +52,7 @@ const (
 //   - ConfigMap list errors → log, return Installed=true with empty
 //     namespace. Scheduler page renders a "found Volcano but couldn't
 //     locate config" hint rather than blanking out.
-func (p *Proxy) volcanoStatus(ctx context.Context) *proto.ResourceResponse {
+func (p *Proxy) volcanoStatus(ctx context.Context) *ResourceResponse {
 	status := volcano.Status{}
 
 	_, err := p.mapper.RESTMapping(
@@ -110,10 +109,10 @@ func (p *Proxy) volcanoStatus(ctx context.Context) *proto.ResourceResponse {
 	return marshalStatus(status)
 }
 
-func marshalStatus(s volcano.Status) *proto.ResourceResponse {
+func marshalStatus(s volcano.Status) *ResourceResponse {
 	data, err := json.Marshal(s)
 	if err != nil {
 		return fail("marshal volcano status: " + err.Error())
 	}
-	return &proto.ResourceResponse{Success: true, Data: data}
+	return &ResourceResponse{Success: true, Data: data}
 }

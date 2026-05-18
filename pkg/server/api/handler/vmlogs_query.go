@@ -22,15 +22,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
-// vmlogsTimeout caps a single LogsQL request. VL responses can be large
-// when the user searches broad time ranges; the per-request handler
-// guards size separately. 30s lets a 24h scan of a busy cluster
-// finish without holding the browser indefinitely.
-const vmlogsTimeout = 30 * time.Second
+// vmlogsTimeout caps a single LogsQL request. VL `query=*&limit=1000`
+// over a busy cluster's 1h window can legitimately take 30–60s; with
+// chunked transport the response body no longer starves Heartbeat
+// during transit, so the budget can be generous without operational
+// risk. 5 min is far longer than any UI-driven workflow would wait,
+// but it lets ad-hoc full-text searches over wide ranges complete
+// instead of failing the first time someone tries.
+const vmlogsTimeout = 5 * time.Minute
 
 // resolveVMLogsURL returns the base URL of the cluster's VictoriaLogs
 // HTTP API. The chart we ship pins the release name to the kpilot
@@ -88,9 +90,9 @@ func queryVMLogs(
 		from.Unix(), to.Unix(),
 		limit,
 	)
-	resp, err := gw.SendHTTPRequest(ctx, clusterID, &proto.HTTPRequest{
+	resp, err := gw.SendHTTPRequest(ctx, clusterID, &gateway.HTTPRequest{
 		Method: http.MethodGet,
-		Url:    u,
+		URL:    u,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("send VL query: %w", err)
@@ -195,9 +197,9 @@ func queryVMLogsHistogram(
 		from.Unix(), to.Unix(),
 		urlQueryEscape(step.String()),
 	)
-	resp, err := gw.SendHTTPRequest(ctx, clusterID, &proto.HTTPRequest{
+	resp, err := gw.SendHTTPRequest(ctx, clusterID, &gateway.HTTPRequest{
 		Method: http.MethodGet,
-		Url:    u,
+		URL:    u,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("send VL histogram query: %w", err)

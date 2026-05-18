@@ -20,17 +20,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
 // vmTimeout caps a single PromQL request through the gateway. Queries
 // against the bundled victoria-metrics-single chart return in tens of
-// milliseconds on healthy clusters; a hard 15s cap turns hung VM into
-// a 504 instead of holding the browser. Pages that fan out multiple
-// queries in parallel still fit inside the page's overall read
-// deadline.
-const vmTimeout = 15 * time.Second
+// milliseconds on healthy clusters; 60s leaves headroom for legitimate
+// long-range queries (1h step over a busy cluster's full retention)
+// without holding the browser indefinitely. Chunked transport means
+// large response bodies no longer threaten Heartbeat liveness, so the
+// budget can be generous.
+const vmTimeout = 60 * time.Second
 
 // resolveVMQueryURL returns the base URL of the cluster's VictoriaMetrics
 // /api/v1 endpoint, going through resolvePluginRunning (shared with the
@@ -77,9 +77,9 @@ type vmRangePoint struct {
 // envelope. Returns the parsed series; non-vector result types raise.
 func queryVM(ctx context.Context, gw *gateway.GatewayServer, clusterID, baseURL, promql string) ([]vmSeries, error) {
 	q := fmt.Sprintf("%s/api/v1/query?query=%s", baseURL, urlQueryEscape(promql))
-	resp, err := gw.SendHTTPRequest(ctx, clusterID, &proto.HTTPRequest{
+	resp, err := gw.SendHTTPRequest(ctx, clusterID, &gateway.HTTPRequest{
 		Method: http.MethodGet,
-		Url:    q,
+		URL:    q,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("send VM query: %w", err)
@@ -138,9 +138,9 @@ func queryVMRange(ctx context.Context, gw *gateway.GatewayServer, clusterID, bas
 		urlQueryEscape(promql),
 		from.Unix(), to.Unix(), int(step.Seconds()),
 	)
-	resp, err := gw.SendHTTPRequest(ctx, clusterID, &proto.HTTPRequest{
+	resp, err := gw.SendHTTPRequest(ctx, clusterID, &gateway.HTTPRequest{
 		Method: http.MethodGet,
-		Url:    q,
+		URL:    q,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("send VM range query: %w", err)

@@ -10,41 +10,60 @@ service PilotService {
 }
 
 // ─── Worker → Server ─────────────────────────────────────────────────────────
+//
+// All large-payload messages (HTTPResponse body, ResourceResponse data) are
+// transported as a 3-frame sequence keyed by request_id:
+//
+//   *Start  → small metadata frame (status, headers, success/error, ...)
+//   BodyChunk → 0 or more body chunks (≤256 KiB each)
+//   BodyEnd → terminator (carries body-read error if any)
+//
+// This guarantees no single Send call holds the stream's sendMu for more than
+// a few ms, so high-priority control messages (Heartbeat, RegisterAck,
+// PluginStatus, *Cancel) can always interleave between data chunks.
 
 message WorkerMessage {
   // Empty for one-off pushes (PluginStatusPush, Heartbeat).
-  // For Resource: matches the request_id of the originating ResourceRequest.
-  // For Logs/Exec: session_id (stable across all messages of the same session).
+  // For *Start / BodyChunk / BodyEnd: routing key; receiver dispatches
+  // chunks to the accumulator opened by the preceding *Start.
+  // For Logs/Exec/WS: session_id (stable across all messages of the same session).
   string request_id = 1;
   oneof payload {
-    RegisterRequest    register        = 10;
-    HeartbeatRequest   heartbeat       = 11;
-    // tag 20 was NodeListPush — removed when nodes moved to Table API proxy.
-    ResourceResponse   resource_resp   = 30;
-    PluginStatusPush   plugin_status   = 40;
+    RegisterRequest        register             = 10;
+    HeartbeatRequest       heartbeat            = 11;
+    // tag 20 reserved — was NodeListPush.
+    // tag 30 reserved — was unary ResourceResponse with bytes data.
+    ResourceResponseStart  resource_resp_start  = 31;
+    PluginStatusPush       plugin_status        = 40;
 
     // Plugin install / upgrade log streaming. Worker pushes one chunk
     // per Helm log line + key reconciler milestones; PluginLogEnd
-    // closes the session and carries the final outcome. Tagged by
-    // crd_name (matches PluginStatusPush.crd_name) so the Server can
-    // route to the right per-(cluster, plugin) ring buffer.
-    PluginLogChunk     plugin_log      = 41;
-    PluginLogEnd       plugin_log_end  = 42;
+    // closes the session and carries the final outcome.
+    PluginLogChunk         plugin_log           = 41;
+    PluginLogEnd           plugin_log_end       = 42;
 
     // Streaming sessions (logs / exec)
-    LogsChunk          logs_chunk      = 50;
-    LogsEnd            logs_end        = 51;
-    ExecOutput         exec_output     = 60;
-    ExecEnd            exec_end        = 61;
+    LogsChunk              logs_chunk           = 50;
+    LogsEnd                logs_end             = 51;
+    ExecOutput             exec_output          = 60;
+    ExecEnd                exec_end             = 61;
 
-    // Reverse-proxy HTTP (request-response, body up to 32 MB).
-    HTTPResponse       http_resp       = 70;
+    // tag 70 reserved — was unary HTTPResponse with bytes body.
+    HTTPResponseStart      http_resp_start      = 71;
 
     // Reverse-proxy WebSocket (bidirectional streaming session).
-    // request_id is the session id (same envelope as logs/exec).
-    WSFrame            ws_frame_recv   = 80;
-    WSEnd              ws_end_recv     = 81;
+    WSFrame                ws_frame_recv        = 80;
+    WSEnd                  ws_end_recv          = 81;
+
+    // Generic body streaming frames. Dispatched per request_id to the
+    // accumulator previously opened by *Start (HTTP response body or
+    // ResourceResponse data — receiver knows which from the *Start kind).
+    BodyChunk              body_chunk           = 90;
+    BodyEnd                body_end             = 91;
   }
+
+  reserved 20, 30, 70;
+  reserved "node_list", "resource_resp", "http_resp";
 }
 
 message RegisterRequest {
@@ -62,11 +81,14 @@ message HeartbeatRequest {
   int64 timestamp = 1; // unix seconds
 }
 
-message ResourceResponse {
-  string request_id = 1;
-  bool   success    = 2;
-  string error      = 3;
-  bytes  data       = 4; // JSON 编码的 K8s 资源对象
+// ResourceResponseStart opens a chunked ResourceResponse — receiver collects
+// subsequent BodyChunk frames into the data buffer and finalizes on BodyEnd.
+// For empty responses (delete, apply-with-no-return), send Start + BodyEnd
+// with zero chunks. For error responses, set error and send Start + BodyEnd
+// with zero chunks.
+message ResourceResponseStart {
+  bool   success = 1;
+  string error   = 2;
 }
 
 message PluginStatusPush {
@@ -101,10 +123,7 @@ message PluginLogChunk {
   string message  = 4;
 }
 
-// PluginLogEnd terminates a log session. After Server sees this, the
-// per-(cluster, plugin) ring buffer keeps replaying its contents for
-// the TTL window, then evicts. Subscribers reading the buffer also
-// see this frame and render the final outcome.
+// PluginLogEnd terminates a log session.
 message PluginLogEnd {
   string crd_name = 1;
   bool   success  = 2;
@@ -119,30 +138,38 @@ message PluginLogEnd {
 message ServerMessage {
   string request_id = 1;
   oneof payload {
-    RegisterAck     register_ack     = 10;
-    ResourceRequest resource_req     = 20;
-    PluginCommand   plugin_cmd       = 30;
+    RegisterAck            register_ack         = 10;
+    // tag 20 reserved — was unary ResourceRequest with bytes body.
+    ResourceRequestStart   resource_req_start   = 21;
+    // tag 30 reserved — was unary PluginCommand with embedded chart blob.
+    PluginCommandStart     plugin_cmd_start     = 31;
 
     // Streaming sessions (logs / exec)
-    LogsStartRequest  logs_start    = 40;
-    LogsCancelRequest logs_cancel   = 41;
-    ExecStartRequest  exec_start    = 50;
-    ExecStdin         exec_stdin    = 51;
-    ExecResize        exec_resize   = 52;
-    ExecCancelRequest exec_cancel   = 53;
+    LogsStartRequest       logs_start           = 40;
+    LogsCancelRequest      logs_cancel          = 41;
+    ExecStartRequest       exec_start           = 50;
+    ExecStdin              exec_stdin           = 51;
+    ExecResize             exec_resize          = 52;
+    ExecCancelRequest      exec_cancel          = 53;
 
-    // Reverse-proxy HTTP — Server forwards a browser request to an
-    // in-cluster Service (Grafana, VL vmui, …); Worker writes back via
-    // HTTPResponse.
-    HTTPRequest       http_req      = 60;
+    // tag 60 reserved — was unary HTTPRequest with bytes body.
+    HTTPRequestStart       http_req_start       = 61;
 
-    // Reverse-proxy WebSocket. ws_start opens the upstream dial; ws_frame
-    // streams browser → upstream frames until the browser-side or upstream
-    // side closes; ws_end_send is sent by Server when the browser closes.
-    WSStartRequest    ws_start      = 70;
-    WSFrame           ws_frame_send = 71;
-    WSEnd             ws_end_send   = 72;
+    // Reverse-proxy WebSocket.
+    WSStartRequest         ws_start             = 70;
+    WSFrame                ws_frame_send        = 71;
+    WSEnd                  ws_end_send          = 72;
+
+    // Generic body streaming frames. Dispatched per request_id to the
+    // accumulator previously opened by *Start (HTTP request body,
+    // ResourceRequest body, or PluginCommand chart blob — receiver knows
+    // which from the *Start kind).
+    BodyChunk              body_chunk           = 90;
+    BodyEnd                body_end             = 91;
   }
+
+  reserved 20, 30, 60;
+  reserved "resource_req", "plugin_cmd", "http_req";
 }
 
 message RegisterAck {
@@ -151,32 +178,37 @@ message RegisterAck {
   string message    = 3;
 }
 
-message ResourceRequest {
-  string action    = 1; // list / get / apply / delete
-  string group     = 2; // apps / "" / ...
-  string version   = 3; // v1 / v1beta1 / ...
-  string kind      = 4; // Deployment / Pod / Service / ...
-  string namespace = 5; // 空表示 cluster-scoped
-  string name      = 6; // list 时为空
-  bytes  body      = 7; // apply 时为 JSON manifest
+// ResourceRequestStart opens a chunked ResourceRequest. Same field set as the
+// old ResourceRequest minus the body bytes — body (apply/update/patch JSON)
+// flows in subsequent BodyChunk frames. Requests with no body (list/get/delete)
+// still send BodyEnd with zero chunks to signal "ready to dispatch".
+message ResourceRequestStart {
+  string action    = 1; // list / get / apply / update / patch / delete / describe / list-full
+  string group     = 2;
+  string version   = 3;
+  string kind      = 4;
+  string namespace = 5; // empty = cluster-scoped
+  string name      = 6; // empty for list
 
-  // list 分页：0 表示不限制，非空 continue_token 表示取下一页
-  int64  limit          = 8;
-  string continue_token = 9;
+  // list pagination: 0 = unbounded; non-empty continue_token = next page
+  int64  limit          = 7;
+  string continue_token = 8;
 }
 
-message PluginCommand {
+// PluginCommandStart opens a PluginCommand. Chart blob (when ChartSourceMeta.
+// has_blob is true) flows in subsequent BodyChunk frames; Worker collects
+// + verifies sha256 + caches before dispatching.
+message PluginCommandStart {
   // "enable" → install or upgrade the Helm release driven by `spec`.
   // "disable" → uninstall the release; `spec` may be nil.
-  string action   = 1;
+  string action      = 1;
 
-  // The CRD metadata.name — matches the registry plugin's name. Stable
-  // identifier for the lifetime of the plugin on this cluster.
-  string crd_name = 2;
+  // CRD metadata.name — matches the registry plugin's name.
+  string crd_name    = 2;
 
   // Only meaningful when action="enable". Server fills it from the registry
   // entry merged with the per-cluster overrides (values, version, namespace).
-  PluginSpec spec = 3;
+  PluginSpec spec    = 3;
 }
 
 message PluginSpec {
@@ -193,7 +225,9 @@ message PluginSpec {
 message ChartSource {
   // "repo" → pulled by Helm from chart_repo at install time.
   // "local" → Worker reads from /var/lib/kpilot/charts/<sha256>.tgz which is
-  // populated by the `blob` field on the FIRST PluginCommand of this sha.
+  // populated by streaming BodyChunk frames on the FIRST PluginCommand
+  // referencing this sha. Subsequent commands with cached sha skip the
+  // blob (has_blob = false).
   string type    = 1;
   // type=repo
   string repo    = 2;
@@ -203,9 +237,13 @@ message ChartSource {
   string version = 4;
   // type=local
   string sha256  = 5;
-  // Only present on initial enable until Worker confirms the cache hit.
-  // Worker writes blob to disk by sha256 then verifies the digest.
-  bytes  blob    = 6;
+  // type=local: when true, BodyChunk + BodyEnd frames carry the .tgz bytes
+  // following the PluginCommandStart. When false, Worker is expected to
+  // have it cached on disk by sha256 (and will fall back to PluginStatusPush
+  // "Failed: missing chart blob" if not, prompting Server to resend).
+  bool   has_blob = 6;
+  reserved 7;
+  reserved "blob"; // was bytes blob, now streamed via BodyChunk
 }
 
 // ─── Pod Logs (streaming) ────────────────────────────────────────────────────
@@ -263,7 +301,17 @@ message ExecEnd {
   string error     = 2;
 }
 
-// ─── HTTP reverse proxy (request-response) ───────────────────────────────────
+// ─── HTTP reverse proxy (request-response, chunked) ──────────────────────────
+//
+// Both directions are 3-frame sequences:
+//
+//   Server → Worker:  HTTPRequestStart  + BodyChunk* + BodyEnd
+//   Worker → Server:  HTTPResponseStart + BodyChunk* + BodyEnd
+//
+// Chunked transport keeps each Send call small (≤256 KiB) so the stream's
+// sendMu releases quickly between frames, letting Heartbeat / control
+// messages always interleave. Bodies that fit in one chunk still send
+// Start + Chunk + End — uniform path is simpler than special-casing.
 
 // HTTPHeader is one (Name, Value) pair. Repeated entries with the same name
 // are allowed (e.g. Set-Cookie) and preserve order on the wire.
@@ -272,79 +320,66 @@ message HTTPHeader {
   string value = 2;
 }
 
-message HTTPRequest {
+message HTTPRequestStart {
   // HTTP method (GET / POST / PUT / DELETE / PATCH / HEAD / OPTIONS).
   string method = 1;
 
   // Absolute URL of the in-cluster Service the Worker should forward to.
-  // Server resolves this from the plugin name + the ClusterPlugin's
-  // release namespace (e.g. http://grafana.kpilot-monitoring.svc:80).
-  // Includes the path being requested AND the query string, e.g.
-  //   http://grafana.kpilot-monitoring.svc:80/login?redirect=/d/abc
-  // The Worker doesn't need to know which plugin this is — it just hits
-  // the URL.
   string url = 2;
 
-  // Request headers (Host is rewritten by the Worker to match url's host;
-  // X-WEBAUTH-USER is injected by the Server before sending so Grafana's
-  // auth.proxy module accepts the request).
+  // Request headers (Host is rewritten by the Worker to match url's host).
   repeated HTTPHeader headers = 3;
-
-  // Request body. Empty for GET/HEAD. Capped at 32 MB by the gRPC
-  // message-size limit shared with chart blobs.
-  bytes body = 4;
 }
 
-message HTTPResponse {
+message HTTPResponseStart {
   // Status code from the upstream Service. 502 if the Worker couldn't
   // reach the Service at all (DNS/connect/timeout); the `error` field
-  // carries the underlying reason in that case so Server can log it.
+  // carries the underlying reason in that case.
   int32 status = 1;
 
   repeated HTTPHeader headers = 2;
-  bytes body = 3;
 
   // Empty on success (any HTTP status). Set when the Worker failed to
-  // dispatch the request (couldn't dial, timeout, etc.) — Server returns
-  // 502 with this message so the embedded UI shows something useful.
-  string error = 4;
+  // dispatch the request before it could read any body bytes. When set,
+  // BodyEnd follows with zero chunks.
+  string error = 3;
+}
+
+// ─── Generic body streaming frames ───────────────────────────────────────────
+
+// BodyChunk carries a slice of body bytes for any of the chunked request /
+// response kinds. Receiver dispatches per request_id to the accumulator
+// opened by the matching *Start. Empty data on a BodyChunk is technically
+// legal but senders avoid it.
+message BodyChunk {
+  bytes data = 1;
+}
+
+// BodyEnd terminates a chunked body stream. error is empty on clean EOF /
+// successful completion; non-empty when the sender failed partway through
+// reading the upstream body (e.g. upstream connection reset mid-response).
+// Receiver should surface the error to the original caller in that case.
+message BodyEnd {
+  string error = 1;
 }
 
 // ─── WebSocket reverse proxy (streaming session) ─────────────────────────────
-//
-// session_id (the envelope's request_id) ties all messages of one WS exchange
-// together — same pattern as Pod logs / exec. Lifecycle:
-//   Server → Worker:   WSStartRequest (open upstream dial)
-//   Worker → Server:   WSEnd (carrying error)        if dial failed
-//                      OR start streaming WSFrame both directions
-//   Either side:       WSFrame (forward a frame)
-//   Either side:       WSEnd  (clean or abnormal close)
-//
-// A close from one side closes the other; the gateway/manager guarantees
-// the session map entry is dropped on the first WSEnd.
 
 message WSStartRequest {
-  // Absolute upstream URL. Server builds this from the same plugin →
-  // Service mapping the HTTP proxy uses, with scheme rewritten to ws://.
   string url = 1;
-  // Headers to replay (Origin / Sec-WebSocket-Protocol / Cookie / the
-  // injected X-WEBAUTH-USER, etc.). Hop-by-hop headers + KPilot-owned
-  // cookies are filtered Server-side just like the HTTP path.
   repeated HTTPHeader headers = 2;
 }
 
 message WSFrame {
-  // RFC 6455 opcodes that we forward as-is to the other side.
-  // We only care about 1 (text), 2 (binary). Control frames (close/
-  // ping/pong) are handled by the WS library on each leg, not forwarded.
+  // RFC 6455 opcodes. We forward 1 (text), 2 (binary). Control frames
+  // (close/ping/pong) are handled by the WS library on each leg.
+  // Worker / Server split frames larger than wsMaxFrameBytes into multiple
+  // WSFrame messages so a single Send stays small.
   int32 opcode = 1;
   bytes data   = 2;
 }
 
 message WSEnd {
-  // RFC 6455 close code, e.g. 1000 (Normal), 1006 (Abnormal). 0 if the
-  // close was triggered by the local side (transport / context cancel)
-  // before the peer sent a close frame.
   int32  code   = 1;
   string reason = 2;
 }

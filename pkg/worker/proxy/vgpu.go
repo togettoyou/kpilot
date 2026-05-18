@@ -17,7 +17,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/common/vgpu"
 )
 
@@ -75,7 +74,7 @@ const (
 // vgpuSnapshot bridges the proxy's gRPC interface to VGPUTracker.
 // Wire shape: success → resp.Data is the JSON-encoded vgpu.Snapshot;
 // failure → resp.Success=false with the error message.
-func (p *Proxy) vgpuSnapshot(ctx context.Context) *proto.ResourceResponse {
+func (p *Proxy) vgpuSnapshot(ctx context.Context) *ResourceResponse {
 	if p.vgpu == nil {
 		return fail("vgpu tracker unavailable")
 	}
@@ -90,7 +89,7 @@ func (p *Proxy) vgpuSnapshot(ctx context.Context) *proto.ResourceResponse {
 	log.Printf("[vgpu] snapshot: nodes=%d cards=%d slots=%d/%d memory=%d/%d",
 		len(snap.Nodes), snap.TotalCards, snap.UsedSlots, snap.TotalSlots,
 		snap.UsedMemory, snap.TotalMemory)
-	return &proto.ResourceResponse{Success: true, Data: data}
+	return &ResourceResponse{Success: true, Data: data}
 }
 
 // VGPUTracker builds vGPU snapshots on demand. Stateless across calls —

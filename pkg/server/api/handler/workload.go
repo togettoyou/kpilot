@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	apimacyaml "k8s.io/apimachinery/pkg/util/yaml"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
@@ -172,7 +171,7 @@ func ListWorkloads(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list",
 			Group:         gvk.group,
 			Version:       gvk.version,
@@ -214,7 +213,7 @@ func GetWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:    "get",
 			Group:     gvk.group,
 			Version:   gvk.version,
@@ -267,7 +266,7 @@ func ApplyWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:    "update",
 			Group:     gvk.group,
 			Version:   gvk.version,
@@ -468,7 +467,7 @@ func applyOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID strin
 	cctx, cancel := context.WithTimeout(ctx, writeWorkerTimeout)
 	defer cancel()
 
-	resp, err := gw.SendResourceRequest(cctx, clusterID, &proto.ResourceRequest{
+	resp, err := gw.SendResourceRequest(cctx, clusterID, &gateway.ResourceRequest{
 		Action:    "apply",
 		Group:     gvk.Group,
 		Version:   gvk.Version,
@@ -503,7 +502,7 @@ func deleteOneDoc(ctx context.Context, gw *gateway.GatewayServer, clusterID stri
 	cctx, cancel := context.WithTimeout(ctx, writeWorkerTimeout)
 	defer cancel()
 
-	resp, err := gw.SendResourceRequest(cctx, clusterID, &proto.ResourceRequest{
+	resp, err := gw.SendResourceRequest(cctx, clusterID, &gateway.ResourceRequest{
 		Action:    "delete",
 		Group:     gvk.Group,
 		Version:   gvk.Version,
@@ -541,7 +540,7 @@ func DescribeWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:    "describe",
 			Group:     gvk.group,
 			Version:   gvk.version,
@@ -580,7 +579,7 @@ func DeleteWorkload(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:    "delete",
 			Group:     gvk.group,
 			Version:   gvk.version,
@@ -611,7 +610,7 @@ func ListNamespaces(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:  "list",
 			Version: "v1",
 			Kind:    "Namespace",
@@ -703,7 +702,7 @@ func CordonNode(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:  "patch",
 			Group:   "",
 			Version: "v1",

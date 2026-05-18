@@ -16,7 +16,18 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
+	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
 )
+
+// HTTPResponse is the worker-side internal result shape for one
+// reverse-proxy HTTP call. Body bytes are chunked onto the gRPC stream
+// by tunnel.SendHTTPResponse so heartbeats never get starved.
+type HTTPResponse struct {
+	Status  int32
+	Headers []*proto.HTTPHeader
+	Body    []byte
+	Error   string
+}
 
 // schemeOf returns the lower-cased URL scheme. ok=false on parse failure
 // so callers can reject malformed input cleanly. Used by both the HTTP
@@ -50,7 +61,7 @@ const proxyMaxRespBytes = 31 * 1024 * 1024
 // WebSocket, that goes through the streaming proxy in Step C, not here.
 type HTTPProxy struct {
 	client *http.Client
-	sendFn func(requestID string, resp *proto.HTTPResponse)
+	sendFn func(requestID string, resp *HTTPResponse)
 	// streamCtxFn returns the tunnel's current stream context, so each
 	// proxied request can derive its ctx from it. When the tunnel
 	// disconnects, in-flight upstream HTTP requests get cancelled
@@ -88,7 +99,7 @@ type HTTPProxy struct {
 // local-dev workers that talk to a remote cluster via kubeconfig +
 // SSH tunnel.
 func NewHTTPProxy(
-	sendFn func(string, *proto.HTTPResponse),
+	sendFn func(string, *HTTPResponse),
 	streamCtxFn func() context.Context,
 	k8sCfg *rest.Config,
 	router *InClusterRouter,
@@ -109,9 +120,12 @@ func NewHTTPProxy(
 				// we can read the whole body in one call before forwarding.
 				DisableCompression: false,
 			},
-			// Hard ceiling per request. Step C (WebSocket) will use a
-			// separate dispatch path with no overall timeout.
-			Timeout: 60 * time.Second,
+			// Hard ceiling per request. Aligns with the server-side
+			// proxyTimeout (5 min) so a slow Grafana render or large
+			// VL search can complete instead of timing out at the
+			// worker first. WebSocket uses a separate dispatch path
+			// with no overall timeout.
+			Timeout: 5 * time.Minute,
 		},
 		sendFn:      sendFn,
 		streamCtxFn: streamCtxFn,
@@ -136,7 +150,7 @@ func NewHTTPProxy(
 			// shouldn't add an extra timeout (it would shadow the ctx
 			// cancel signal the tunnel uses to interrupt in-flight
 			// requests on disconnect).
-			cli.Timeout = 60 * time.Second
+			cli.Timeout = 5 * time.Minute
 			p.apiClient = cli
 			p.apiHost = hostURL
 		}
@@ -160,11 +174,11 @@ var hopByHopHeaders = map[string]struct{}{
 
 // Handle is the tunnel HTTP handler. Always replies, even on error — Server
 // is blocked waiting for HTTPResponse and would time out otherwise.
-func (p *HTTPProxy) Handle(requestID string, req *proto.HTTPRequest) {
+func (p *HTTPProxy) Handle(requestID string, req *tunnel.HTTPRequest) {
 	resp, err := p.do(req)
 	if err != nil {
-		log.Printf("[http-proxy] dispatch failed: url=%s err=%v", req.Url, err)
-		p.sendFn(requestID, &proto.HTTPResponse{
+		log.Printf("[http-proxy] dispatch failed: url=%s err=%v", req.URL, err)
+		p.sendFn(requestID, &HTTPResponse{
 			Status: http.StatusBadGateway,
 			Error:  err.Error(),
 		})
@@ -173,16 +187,16 @@ func (p *HTTPProxy) Handle(requestID string, req *proto.HTTPRequest) {
 	p.sendFn(requestID, resp)
 }
 
-func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
-	if req.Method == "" || req.Url == "" {
+func (p *HTTPProxy) do(req *tunnel.HTTPRequest) (*HTTPResponse, error) {
+	if req.Method == "" || req.URL == "" {
 		return nil, errors.New("method and url are required")
 	}
 	// Defense-in-depth: Server constructs the URL today (FQDN of the
 	// in-cluster Service), but if that ever regresses to passing user
 	// input through, we don't want this proxy to start dispatching
 	// file:// or unix:// requests. Restrict to http(s) explicitly.
-	if scheme, ok := schemeOf(req.Url); !ok || (scheme != "http" && scheme != "https") {
-		return nil, fmt.Errorf("unsupported url scheme: %s", req.Url)
+	if scheme, ok := schemeOf(req.URL); !ok || (scheme != "http" && scheme != "https") {
+		return nil, fmt.Errorf("unsupported url scheme: %s", req.URL)
 	}
 
 	// Parent on the tunnel's stream ctx so a disconnect immediately
@@ -192,7 +206,7 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 	if p.streamCtxFn != nil {
 		parent = p.streamCtxFn()
 	}
-	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 
 	// In-cluster Service URLs have two viable routings: direct DNS
@@ -200,7 +214,7 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 	// service-proxy subresource (works from anywhere with kubeconfig).
 	// Decision is cached per-Worker via InClusterRouter and shared
 	// with the WS proxy.
-	if svc := parseInClusterService(req.Url); svc != nil && p.apiClient != nil && p.router != nil {
+	if svc := parseInClusterService(req.URL); svc != nil && p.apiClient != nil && p.router != nil {
 		return p.doInClusterService(ctx, req, svc)
 	}
 
@@ -219,8 +233,8 @@ func (p *HTTPProxy) do(req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
 // moved out" reconfig edge case without forcing the operator to
 // wait for the 24h TTL.
 func (p *HTTPProxy) doInClusterService(
-	ctx context.Context, req *proto.HTTPRequest, svc *inClusterService,
-) (*proto.HTTPResponse, error) {
+	ctx context.Context, req *tunnel.HTTPRequest, svc *inClusterService,
+) (*HTTPResponse, error) {
 	switch p.router.Mode() {
 	case routingDirect:
 		resp, err := p.doDirect(ctx, req)
@@ -257,12 +271,12 @@ func (p *HTTPProxy) doInClusterService(
 // doDirect runs the standard net/http path with no service-proxy
 // indirection. Extracted from do() so doInClusterService can reuse it
 // for the "try direct first" probe.
-func (p *HTTPProxy) doDirect(ctx context.Context, req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
+func (p *HTTPProxy) doDirect(ctx context.Context, req *tunnel.HTTPRequest) (*HTTPResponse, error) {
 	var body io.Reader
 	if len(req.Body) > 0 {
 		body = bytes.NewReader(req.Body)
 	}
-	hreq, err := http.NewRequestWithContext(ctx, req.Method, req.Url, body)
+	hreq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, body)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
@@ -304,7 +318,7 @@ func (p *HTTPProxy) doDirect(ctx context.Context, req *proto.HTTPRequest) (*prot
 			headers = append(headers, &proto.HTTPHeader{Name: name, Value: v})
 		}
 	}
-	return &proto.HTTPResponse{
+	return &HTTPResponse{
 		Status:  int32(hresp.StatusCode),
 		Headers: headers,
 		Body:    respBody,
@@ -389,9 +403,9 @@ func parseInClusterService(rawURL string) *inClusterService {
 // per-request overhead, but works from anywhere a kubeconfig works.
 func (p *HTTPProxy) doViaServiceProxy(
 	ctx context.Context,
-	req *proto.HTTPRequest,
+	req *tunnel.HTTPRequest,
 	svc *inClusterService,
-) (*proto.HTTPResponse, error) {
+) (*HTTPResponse, error) {
 	if p.apiClient == nil || p.apiHost == nil {
 		return nil, errors.New("service-proxy fallback unavailable: no api client")
 	}
@@ -482,7 +496,7 @@ func (p *HTTPProxy) doViaServiceProxy(
 			headers = append(headers, &proto.HTTPHeader{Name: name, Value: v})
 		}
 	}
-	return &proto.HTTPResponse{
+	return &HTTPResponse{
 		Status:  int32(hresp.StatusCode),
 		Headers: headers,
 		Body:    respBody,

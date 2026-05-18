@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
@@ -32,7 +31,7 @@ func TopPod(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:    "get",
 			Group:     "metrics.k8s.io",
 			Version:   "v1beta1",

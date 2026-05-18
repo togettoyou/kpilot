@@ -9,8 +9,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	pb "github.com/togettoyou/kpilot/pkg/common/proto"
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
+	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
 )
 
 // fieldManagerName scopes Server-Side Apply operations from the manager.
@@ -37,7 +37,7 @@ func NewManager(c client.Client, cache *ChartCache, push StatusPusher) *Manager 
 // Handle is wired into tunnel.Client as the PluginCommand handler. It
 // returns nil on every successful translation; reconciler-level errors
 // flow back via PluginStatusPush, not from here.
-func (m *Manager) Handle(ctx context.Context, cmd *pb.PluginCommand) error {
+func (m *Manager) Handle(ctx context.Context, cmd *tunnel.PluginCommand) error {
 	switch cmd.Action {
 	case "enable":
 		return m.handleEnable(ctx, cmd)
@@ -48,7 +48,7 @@ func (m *Manager) Handle(ctx context.Context, cmd *pb.PluginCommand) error {
 	}
 }
 
-func (m *Manager) handleEnable(ctx context.Context, cmd *pb.PluginCommand) error {
+func (m *Manager) handleEnable(ctx context.Context, cmd *tunnel.PluginCommand) error {
 	if cmd.Spec == nil {
 		return fmt.Errorf("enable command without spec")
 	}
@@ -57,11 +57,13 @@ func (m *Manager) handleEnable(ctx context.Context, cmd *pb.PluginCommand) error
 	// never observes a CRD pointing at a missing cache entry on the
 	// happy path. (The cache-miss recovery path in reconciler.go handles
 	// the case where this Worker pod restarted between command and
-	// reconcile.)
+	// reconcile.) Blob bytes arrive via chunked transport (PluginCommandStart
+	// followed by BodyChunk frames) and are reassembled into cmd.ChartBlob
+	// before this handler runs.
 	if cmd.Spec.Chart != nil &&
 		kpilotv1alpha1.ChartType(cmd.Spec.Chart.Type) == kpilotv1alpha1.ChartTypeLocal &&
-		len(cmd.Spec.Chart.Blob) > 0 {
-		if err := m.Cache.Put(cmd.Spec.Chart.Sha256, cmd.Spec.Chart.Blob); err != nil {
+		len(cmd.ChartBlob) > 0 {
+		if err := m.Cache.Put(cmd.Spec.Chart.Sha256, cmd.ChartBlob); err != nil {
 			return fmt.Errorf("cache chart: %w", err)
 		}
 	}
@@ -78,7 +80,7 @@ func (m *Manager) handleEnable(ctx context.Context, cmd *pb.PluginCommand) error
 	)
 }
 
-func (m *Manager) handleDisable(ctx context.Context, cmd *pb.PluginCommand) error {
+func (m *Manager) handleDisable(ctx context.Context, cmd *tunnel.PluginCommand) error {
 	var p kpilotv1alpha1.Plugin
 	err := m.Client.Get(ctx, client.ObjectKey{Name: cmd.CrdName}, &p)
 	if apierrors.IsNotFound(err) {
@@ -106,7 +108,7 @@ func (m *Manager) handleDisable(ctx context.Context, cmd *pb.PluginCommand) erro
 // buildPluginCRD converts a PluginSpec wire message into a fresh CRD
 // object. It does NOT include any state (status, finalizers, resource
 // version) — those are owned by the cluster.
-func buildPluginCRD(cmd *pb.PluginCommand) *kpilotv1alpha1.Plugin {
+func buildPluginCRD(cmd *tunnel.PluginCommand) *kpilotv1alpha1.Plugin {
 	spec := cmd.Spec
 	chart := kpilotv1alpha1.ChartSource{}
 	if spec.Chart != nil {

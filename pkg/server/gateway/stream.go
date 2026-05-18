@@ -68,10 +68,9 @@ func (s *Stream) SessionID() string { return s.sessionID }
 func (s *Stream) Recv() <-chan *proto.WorkerMessage { return s.msgCh }
 
 // Send forwards a payload to the worker, automatically tagging request_id
-// with this session's id. Concurrent calls are serialized via the worker's
-// sendMu. Accepts any of the streaming-related inner message types
-// (LogsStartRequest, LogsCancelRequest, ExecStartRequest, ExecStdin,
-// ExecResize, ExecCancelRequest) — the wrapper oneof is added here.
+// with this session's id. Goes through the worker's prioritySender slow
+// lane — fully serialised, but each Send is small (stream messages don't
+// carry large bodies) so Heartbeat never starves.
 func (s *Stream) Send(payload any) error {
 	s.closeMu.Lock()
 	if s.closed {
@@ -106,9 +105,10 @@ func (s *Stream) Send(payload any) error {
 		return fmt.Errorf("unsupported stream payload type: %T", payload)
 	}
 
-	s.worker.sendMu.Lock()
-	defer s.worker.sendMu.Unlock()
-	return s.worker.Stream.Send(msg)
+	if s.worker.sender == nil {
+		return fmt.Errorf("worker sender not ready")
+	}
+	return s.worker.sender.sendSlow(s.worker.Stream.Context(), msg)
 }
 
 // Close unregisters the session and closes the inbound channel. Idempotent.

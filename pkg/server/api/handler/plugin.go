@@ -14,8 +14,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+	"github.com/togettoyou/kpilot/pkg/server/pluginservice"
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
@@ -565,7 +565,7 @@ func DisablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		cmd := &proto.PluginCommand{
+		cmd := &pluginservice.Command{
 			Action:  "disable",
 			CrdName: plugin.Name,
 		}

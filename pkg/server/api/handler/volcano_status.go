@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/common/volcano"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
@@ -36,7 +35,7 @@ func GetVolcanoStatus(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action: "volcano-status",
 		})
 		if err != nil {

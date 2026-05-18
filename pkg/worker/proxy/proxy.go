@@ -21,8 +21,17 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/describe"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
+	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
 )
+
+// ResourceResponse is the worker-side internal result shape for one
+// K8s operation. The tunnel chunks it onto the wire (Start + body
+// chunks + End) so a large list-full payload doesn't starve Heartbeat.
+type ResourceResponse struct {
+	Success bool
+	Error   string
+	Data    []byte
+}
 
 const (
 	// writeOpTimeout caps mutating operations (apply / update / patch /
@@ -54,7 +63,7 @@ type Proxy struct {
 	httpClient *http.Client // reused for Table API list requests
 	dyn        dynamic.Interface
 	mapper     apimeta.RESTMapper
-	sendFn     func(requestID string, resp *proto.ResourceResponse)
+	sendFn     func(requestID string, resp *ResourceResponse)
 	// vgpu projects Volcano vGPU annotations into a slim snapshot.
 	// Nil when the worker can't reach the typed clientset (unlikely
 	// in practice — same cfg already drives `dyn`). vGPU requests
@@ -93,7 +102,7 @@ func (p *Proxy) resourceClient(mapping *apimeta.RESTMapping, namespace string) (
 func New(
 	cfg *rest.Config,
 	mapper apimeta.RESTMapper,
-	sendFn func(string, *proto.ResourceResponse),
+	sendFn func(string, *ResourceResponse),
 ) (*Proxy, error) {
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
@@ -126,7 +135,7 @@ func New(
 
 // Handle satisfies the tunnel.Client.SetResourceHandler signature.
 // It runs in its own goroutine per request.
-func (p *Proxy) Handle(requestID string, req *proto.ResourceRequest) {
+func (p *Proxy) Handle(requestID string, req *tunnel.ResourceRequest) {
 	timeout := readOpTimeout
 	switch req.Action {
 	case "apply", "update", "patch", "delete":
@@ -138,7 +147,7 @@ func (p *Proxy) Handle(requestID string, req *proto.ResourceRequest) {
 	p.sendFn(requestID, resp)
 }
 
-func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.ResourceResponse {
+func (p *Proxy) execute(ctx context.Context, req *tunnel.ResourceRequest) *ResourceResponse {
 	// Cluster-level synthetic queries don't carry a GVK — handle them
 	// before RESTMapping so empty Group/Version/Kind doesn't trip the
 	// mapper. Today: vgpu-snapshot + volcano-status. Future: anything
@@ -198,7 +207,7 @@ func (p *Proxy) execute(ctx context.Context, req *proto.ResourceRequest) *proto.
 // listTable uses the K8s Table API (same as kubectl default display).
 // The API server computes display cells server-side; only cell values and
 // object metadata are returned — spec/status are NOT transferred.
-func (p *Proxy) listTable(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, limit int64, continueToken string) *proto.ResourceResponse {
+func (p *Proxy) listTable(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, limit int64, continueToken string) *ResourceResponse {
 	gv := mapping.Resource.GroupVersion()
 
 	var apiPrefix string
@@ -247,7 +256,7 @@ func (p *Proxy) listTable(ctx context.Context, mapping *apimeta.RESTMapping, nam
 		return fail(fmt.Sprintf("K8s API %d: %s", resp.StatusCode, string(data)))
 	}
 
-	return &proto.ResourceResponse{Success: true, Data: data}
+	return &ResourceResponse{Success: true, Data: data}
 }
 
 // listFull returns the full unstructured object list for a GVK in one
@@ -263,7 +272,7 @@ func (p *Proxy) listFull(
 	namespace string,
 	limit int64,
 	continueToken string,
-) *proto.ResourceResponse {
+) *ResourceResponse {
 	opts := metav1.ListOptions{}
 	if limit > 0 {
 		opts.Limit = limit
@@ -310,7 +319,7 @@ func stripManagedFields(obj *unstructured.Unstructured) {
 	delete(meta, "managedFields")
 }
 
-func (p *Proxy) get(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {
+func (p *Proxy) get(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string) *ResourceResponse {
 	if name == "" {
 		return fail("name is required for get")
 	}
@@ -322,7 +331,7 @@ func (p *Proxy) get(ctx context.Context, mapping *apimeta.RESTMapping, namespace
 	return marshal(result)
 }
 
-func (p *Proxy) apply(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string, body []byte) *proto.ResourceResponse {
+func (p *Proxy) apply(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string, body []byte) *ResourceResponse {
 	if name == "" {
 		return fail("name is required for apply")
 	}
@@ -351,7 +360,7 @@ func (p *Proxy) apply(ctx context.Context, mapping *apimeta.RESTMapping, namespa
 // Used by ApplyWorkload (per-row Edit YAML). Apply YAML drawer keeps SSA
 // because that's `kubectl apply` semantics — declarative, idempotent,
 // no resourceVersion needed (intentional for drift-correcting workflows).
-func (p *Proxy) update(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, body []byte) *proto.ResourceResponse {
+func (p *Proxy) update(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, body []byte) *ResourceResponse {
 	if !json.Valid(body) {
 		return fail("invalid body: not valid JSON")
 	}
@@ -377,7 +386,7 @@ func (p *Proxy) update(ctx context.Context, mapping *apimeta.RESTMapping, namesp
 // extra fields through. This is intentionally a separate action
 // from `apply` (SSA) and `update` (full PUT) because both of those
 // would let the body specify arbitrary fields.
-func (p *Proxy) patch(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string, body []byte) *proto.ResourceResponse {
+func (p *Proxy) patch(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string, body []byte) *ResourceResponse {
 	if name == "" {
 		return fail("name is required for patch")
 	}
@@ -411,7 +420,7 @@ func (p *Proxy) patch(ctx context.Context, mapping *apimeta.RESTMapping, namespa
 // Named return + deferred recover so a panic inside kubectl's describer
 // (historically possible on malformed unstructured shapes) becomes a
 // failed ResourceResponse instead of crashing the Worker process.
-func (p *Proxy) describe(mapping *apimeta.RESTMapping, namespace, name string) (resp *proto.ResourceResponse) {
+func (p *Proxy) describe(mapping *apimeta.RESTMapping, namespace, name string) (resp *ResourceResponse) {
 	if name == "" {
 		return fail("name is required for describe")
 	}
@@ -431,10 +440,10 @@ func (p *Proxy) describe(mapping *apimeta.RESTMapping, namespace, name string) (
 	if err != nil {
 		return fail(err.Error())
 	}
-	return &proto.ResourceResponse{Success: true, Data: []byte(output)}
+	return &ResourceResponse{Success: true, Data: []byte(output)}
 }
 
-func (p *Proxy) delete(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string) *proto.ResourceResponse {
+func (p *Proxy) delete(ctx context.Context, mapping *apimeta.RESTMapping, namespace, name string) *ResourceResponse {
 	if name == "" {
 		return fail("name is required for delete")
 	}
@@ -442,18 +451,18 @@ func (p *Proxy) delete(ctx context.Context, mapping *apimeta.RESTMapping, namesp
 	if err := ri.Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 		return fail(err.Error())
 	}
-	return &proto.ResourceResponse{Success: true}
+	return &ResourceResponse{Success: true}
 }
 
-func marshal(v interface{}) *proto.ResourceResponse {
+func marshal(v interface{}) *ResourceResponse {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return fail(err.Error())
 	}
-	return &proto.ResourceResponse{Success: true, Data: data}
+	return &ResourceResponse{Success: true, Data: data}
 }
 
-func fail(msg string) *proto.ResourceResponse {
+func fail(msg string) *ResourceResponse {
 	log.Printf("[proxy] resource op failed: err=%v", msg)
-	return &proto.ResourceResponse{Success: false, Error: msg}
+	return &ResourceResponse{Success: false, Error: msg}
 }

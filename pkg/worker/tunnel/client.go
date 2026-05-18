@@ -23,10 +23,7 @@ import (
 // resolveServerAddr accepts a SERVER_ADDR in either bare host:port form
 // (legacy, plaintext) or with an explicit URL scheme — grpcs:// / https://
 // for TLS, grpc:// / http:// for plaintext — and returns a gRPC target
-// plus matching transport credentials. Without this, passing something
-// like grpcs://example.com straight into grpc.NewClient triggers a
-// "produced zero addresses" name-resolver error because no built-in
-// resolver knows the grpcs:// scheme.
+// plus matching transport credentials.
 func resolveServerAddr(addr string) (string, credentials.TransportCredentials, error) {
 	if !strings.Contains(addr, "://") {
 		return addr, insecure.NewCredentials(), nil
@@ -70,79 +67,75 @@ const (
 	connectTimeout     = 15 * time.Second
 	workerVersion      = "v0.1.0"
 
-	// gRPC client message-size cap. Must mirror the Server's 32 MB ceiling
-	// so Worker can receive plugin chart blobs (up to 16 MB) and large
-	// Table API responses without ResourceExhausted. Default is 4 MB.
-	maxGRPCMessageSize = 32 * 1024 * 1024
+	// maxGRPCMessageSize caps any single gRPC message. After chunked
+	// transport (see chunked.go) the largest single message is a
+	// BodyChunk (256 KiB) + envelope overhead, so this ceiling is the
+	// safety margin for legacy small messages and edge cases.
+	maxGRPCMessageSize = 64 * 1024 * 1024
+
+	// initialWindowSize bumps gRPC HTTP/2 stream/connection flow-control
+	// windows from the 64 KiB default to 4 MiB. Each window-exhaust →
+	// WINDOW_UPDATE round-trip costs one RTT; at default windows a
+	// 1 MiB body chunk on a 50 ms-RTT link wastes ~50 ms × 16 ≈ 800 ms
+	// in flow-control alone. 4 MiB lets a full BodyChunk slip through
+	// without flow-control stalls.
+	initialWindowSize     = 4 * 1024 * 1024
+	initialConnWindowSize = 4 * 1024 * 1024
 )
 
 // ErrTokenRejected is returned when the server explicitly rejects the cluster
-// token. This is a fatal condition — retrying is pointless until the token is
-// reconfigured, so the worker should exit.
+// token. Fatal — retrying is pointless until reconfigured.
 var ErrTokenRejected = errors.New("token rejected by server")
 
 type Client struct {
 	serverAddr      string
 	clusterToken    string
-	clusterDomain   string // K8s DNS suffix reported to Server on register
-	resourceHandler func(requestID string, req *proto.ResourceRequest)
-
-	// pluginHandler is invoked (in a new goroutine) when the Server pushes
-	// a PluginCommand. The handler is expected to translate it into CRD
-	// operations on the local cluster; reconciliation happens via the
-	// controller-runtime watch loop, not here.
-	pluginHandler func(cmd *proto.PluginCommand) error
+	clusterDomain   string
+	resourceHandler func(requestID string, req *ResourceRequest)
+	pluginHandler   func(cmd *PluginCommand) error
 
 	// Streaming session handlers — invoked when the corresponding ServerMessage
-	// payload arrives. The handler is responsible for spawning its own
-	// goroutine for long-lived sessions; this dispatcher only routes.
+	// payload arrives. Start handlers spawn their own goroutine; small-frame
+	// handlers (stdin/resize/cancel/frame/end) must hand off quickly.
 	logsStartHandler  func(sessionID string, req *proto.LogsStartRequest)
 	logsCancelHandler func(sessionID string)
 	execStartHandler  func(sessionID string, req *proto.ExecStartRequest)
 	execStdinHandler  func(sessionID string, data []byte)
 	execResizeHandler func(sessionID string, cols, rows uint32)
 	execCancelHandler func(sessionID string)
+	httpHandler       func(requestID string, req *HTTPRequest)
+	wsStartHandler    func(sessionID string, req *proto.WSStartRequest)
+	wsFrameHandler    func(sessionID string, frame *proto.WSFrame)
+	wsEndHandler      func(sessionID string, end *proto.WSEnd)
 
-	// httpHandler is invoked (in a new goroutine) when Server forwards a
-	// reverse-proxy HTTP request. The handler should perform the HTTP call
-	// to the in-cluster Service and reply via SendHTTPResponse.
-	httpHandler func(requestID string, req *proto.HTTPRequest)
+	// senderMu guards `sender` swap on reconnect. The sender itself is
+	// goroutine-safe via its own channel send semantics.
+	senderMu sync.RWMutex
+	sender   *prioritySender
 
-	// WebSocket reverse-proxy handlers. Same dispatch contract as the
-	// streaming session handlers above: Start runs in its own goroutine
-	// (owns the upstream dial + bidirectional pump), Frame/End run on
-	// the dispatcher and must hand off quickly.
-	wsStartHandler func(sessionID string, req *proto.WSStartRequest)
-	wsFrameHandler func(sessionID string, frame *proto.WSFrame)
-	wsEndHandler   func(sessionID string, end *proto.WSEnd)
+	// rxAsm collects per-request_id inbound chunks (HTTPRequest /
+	// ResourceRequest / PluginCommand bodies) until BodyEnd fires the
+	// registered handler with the fully assembled message.
+	rxAsm *rxAssemblers
 
-	mu     sync.Mutex
-	sendMu sync.Mutex // serializes concurrent Send calls on the active stream
-	stream proto.PilotService_ConnectClient
-
-	// streamCtx is bound to the *current* gRPC stream's lifetime — cancelled
-	// when connect() returns (any reason: server closed, network gone,
-	// reconnect about to start). Long-lived per-session goroutines (Pod
-	// logs, exec, ws-proxy) derive their own context from StreamContext()
-	// so they tear down promptly on disconnect instead of waiting for
-	// the next failed Send to notice.
+	// streamCtx is bound to the *current* gRPC stream's lifetime.
+	// Cancelled when connect() returns (any reason). Long-lived
+	// per-session goroutines (Pod logs, exec, ws-proxy) derive their
+	// own context from StreamContext() so they tear down promptly on
+	// disconnect.
 	streamCtxMu     sync.RWMutex
 	streamCtx       context.Context
 	streamCtxCancel context.CancelFunc
 }
 
-// StreamContext returns a context tied to the current gRPC stream. When
-// the worker disconnects (or before a connection is established) the
-// returned context is cancelled — callers using it as the parent for
-// per-session work get notified the moment the tunnel is gone, instead
-// of relying on stream-Send errors to surface the loss.
+// StreamContext returns a context tied to the current gRPC stream.
+// Cancelled when the worker disconnects (or before a connection is
+// established).
 func (c *Client) StreamContext() context.Context {
 	c.streamCtxMu.RLock()
 	ctx := c.streamCtx
 	c.streamCtxMu.RUnlock()
 	if ctx == nil {
-		// Pre-connect / between reconnects: hand back an already-cancelled
-		// context so callers don't have to special-case nil.
 		dead, cancel := context.WithCancel(context.Background())
 		cancel()
 		return dead
@@ -150,45 +143,47 @@ func (c *Client) StreamContext() context.Context {
 	return ctx
 }
 
+func (c *Client) currentSender() *prioritySender {
+	c.senderMu.RLock()
+	s := c.sender
+	c.senderMu.RUnlock()
+	return s
+}
+
 func NewClient(serverAddr, clusterToken, clusterDomain string) *Client {
 	return &Client{
 		serverAddr:    serverAddr,
 		clusterToken:  clusterToken,
 		clusterDomain: clusterDomain,
+		rxAsm:         newRxAssemblers(),
 	}
 }
 
-// SetResourceHandler registers a callback invoked (in a new goroutine) when
-// the Server sends a ResourceRequest. Used by the P3 proxy layer.
-func (c *Client) SetResourceHandler(fn func(requestID string, req *proto.ResourceRequest)) {
+// SetResourceHandler registers the callback invoked once a complete
+// ResourceRequest (Start + body chunks + End) has arrived. Runs in its
+// own goroutine.
+func (c *Client) SetResourceHandler(fn func(requestID string, req *ResourceRequest)) {
 	c.resourceHandler = fn
 }
 
-// SetHTTPHandler registers a callback invoked (in a new goroutine) when the
-// Server forwards a reverse-proxy HTTP request to an in-cluster Service.
-func (c *Client) SetHTTPHandler(fn func(requestID string, req *proto.HTTPRequest)) {
+// SetHTTPHandler registers the callback invoked once a complete
+// HTTPRequest has arrived. Runs in its own goroutine.
+func (c *Client) SetHTTPHandler(fn func(requestID string, req *HTTPRequest)) {
 	c.httpHandler = fn
 }
 
-// SendHTTPResponse writes the HTTP response back to Server. Counterpart to
-// SetHTTPHandler; the requestID echoes the originating HTTPRequest's wire
-// request_id so Server can route it to the waiting handler.
-func (c *Client) SendHTTPResponse(requestID string, resp *proto.HTTPResponse) {
-	c.mu.Lock()
-	s := c.stream
-	c.mu.Unlock()
-	if s == nil {
-		return
+// SendHTTPResponse splits the reverse-proxy response across
+// HTTPResponseStart + BodyChunk* + BodyEnd frames. All frames go on the
+// slow lane so Heartbeat is never blocked. Best-effort — silently drops
+// if the tunnel is down (Server will surface "worker disconnected" to
+// the caller).
+func (c *Client) SendHTTPResponse(requestID string, status int32, headers []*proto.HTTPHeader, body []byte, errMsg string) {
+	if err := c.sendChunkedHTTPResponse(c.StreamContext(), requestID, status, headers, body, errMsg); err != nil {
+		log.Printf("[tunnel] http response send failed: request=%s err=%v", requestID, err)
 	}
-	_ = c.safeSend(s, &proto.WorkerMessage{
-		RequestId: requestID,
-		Payload:   &proto.WorkerMessage_HttpResp{HttpResp: resp},
-	})
 }
 
-// SetWSHandlers wires up the reverse-proxy WebSocket dispatch. Mirrors
-// SetStreamHandlers' contract: Start owns the session lifetime; Frame/End
-// only forward inbound bytes/close frames to the owning session quickly.
+// SetWSHandlers wires up the reverse-proxy WebSocket dispatch.
 func (c *Client) SetWSHandlers(
 	start func(sessionID string, req *proto.WSStartRequest),
 	frame func(sessionID string, frame *proto.WSFrame),
@@ -199,75 +194,57 @@ func (c *Client) SetWSHandlers(
 	c.wsEndHandler = end
 }
 
-// SendStreamMessage forwards a worker → server WebSocket frame for the
-// reverse-proxy session, tagged with the given session id. Reuses the
-// existing safeSend serialization on the client stream.
+// SendWSFrame forwards a worker → server WebSocket frame for the
+// reverse-proxy session.
 func (c *Client) SendWSFrame(sessionID string, frame *proto.WSFrame) error {
-	c.mu.Lock()
-	s := c.stream
-	c.mu.Unlock()
+	s := c.currentSender()
 	if s == nil {
 		return fmt.Errorf("not connected")
 	}
-	return c.safeSend(s, &proto.WorkerMessage{
+	return s.sendSlow(c.StreamContext(), &proto.WorkerMessage{
 		RequestId: sessionID,
 		Payload:   &proto.WorkerMessage_WsFrameRecv{WsFrameRecv: frame},
 	})
 }
 
-// SendWSEnd notifies the Server that the upstream WS closed (or the local
-// pump errored). Idempotent at the manager level — the manager guards
-// against double-end.
+// SendWSEnd notifies the Server that the upstream WS closed.
 func (c *Client) SendWSEnd(sessionID string, end *proto.WSEnd) error {
-	c.mu.Lock()
-	s := c.stream
-	c.mu.Unlock()
+	s := c.currentSender()
 	if s == nil {
 		return fmt.Errorf("not connected")
 	}
-	return c.safeSend(s, &proto.WorkerMessage{
+	return s.sendSlow(c.StreamContext(), &proto.WorkerMessage{
 		RequestId: sessionID,
 		Payload:   &proto.WorkerMessage_WsEndRecv{WsEndRecv: end},
 	})
 }
 
-// SetPluginHandler registers a callback invoked (in a new goroutine) when
-// the Server sends a PluginCommand. Errors returned from the handler are
-// logged but not propagated — the reconciler reports per-release outcomes
-// via PluginStatusPush, which is the canonical channel for status.
-func (c *Client) SetPluginHandler(fn func(cmd *proto.PluginCommand) error) {
+// SetPluginHandler registers the callback invoked once a complete
+// PluginCommand has arrived (Start + optional chart blob + End).
+func (c *Client) SetPluginHandler(fn func(cmd *PluginCommand) error) {
 	c.pluginHandler = fn
 }
 
-// PushPluginStatus emits a PluginStatusPush message back to the Server
-// from the reconciler. Safe to call from any goroutine — the underlying
-// stream Send is serialized via sendMu.
+// PushPluginStatus emits a PluginStatusPush message back to the Server.
 func (c *Client) PushPluginStatus(crdName string, st *proto.PluginStatusPush) {
-	c.mu.Lock()
-	s := c.stream
-	c.mu.Unlock()
+	s := c.currentSender()
 	if s == nil {
 		return
 	}
 	st.CrdName = crdName
-	_ = c.safeSend(s, &proto.WorkerMessage{
+	_ = s.sendSlow(c.StreamContext(), &proto.WorkerMessage{
 		Payload: &proto.WorkerMessage_PluginStatus{PluginStatus: st},
 	})
 }
 
 // PushPluginLog forwards one line of install / upgrade / uninstall
-// progress for the given plugin to the Server. Best-effort: if the
-// tunnel is down, we silently drop — the next reconcile will produce
-// fresh log lines, and the user can't see partial progress when
-// disconnected anyway. Safe to call from any goroutine.
+// progress.
 func (c *Client) PushPluginLog(crdName, level, message string, ts int64) {
-	c.mu.Lock()
-	s := c.stream
-	c.mu.Unlock()
+	s := c.currentSender()
 	if s == nil {
 		return
 	}
-	_ = c.safeSend(s, &proto.WorkerMessage{
+	_ = s.sendSlow(c.StreamContext(), &proto.WorkerMessage{
 		Payload: &proto.WorkerMessage_PluginLog{PluginLog: &proto.PluginLogChunk{
 			CrdName: crdName,
 			Level:   level,
@@ -278,17 +255,12 @@ func (c *Client) PushPluginLog(crdName, level, message string, ts int64) {
 }
 
 // PushPluginLogEnd closes the log session for a plugin reconcile.
-// After Server sees this, the per-(cluster, plugin) ring buffer keeps
-// holding the lines for the TTL window so a UI tab opened late still
-// sees the outcome.
 func (c *Client) PushPluginLogEnd(crdName string, success bool, summary string) {
-	c.mu.Lock()
-	s := c.stream
-	c.mu.Unlock()
+	s := c.currentSender()
 	if s == nil {
 		return
 	}
-	_ = c.safeSend(s, &proto.WorkerMessage{
+	_ = s.sendSlow(c.StreamContext(), &proto.WorkerMessage{
 		Payload: &proto.WorkerMessage_PluginLogEnd{PluginLogEnd: &proto.PluginLogEnd{
 			CrdName: crdName,
 			Success: success,
@@ -297,12 +269,8 @@ func (c *Client) PushPluginLogEnd(crdName string, success bool, summary string) 
 	})
 }
 
-// SetStreamHandlers registers callbacks for streaming sessions (Pod logs and
-// Exec). Start handlers are invoked in a new goroutine — they own the
-// session's lifetime and must consume their own follow-up frames (stdin,
-// resize, cancel) by storing the sessionID and reading from a shared map.
-// Stdin/resize/cancel handlers run on the dispatcher goroutine and should
-// only forward the data to the owning session quickly.
+// SetStreamHandlers registers callbacks for streaming sessions (Pod logs
+// and Exec).
 func (c *Client) SetStreamHandlers(
 	logsStart func(sessionID string, req *proto.LogsStartRequest),
 	logsCancel func(sessionID string),
@@ -322,9 +290,7 @@ func (c *Client) SetStreamHandlers(
 // SendStreamMessage forwards a worker → server stream frame (LogsChunk,
 // LogsEnd, ExecOutput, ExecEnd) tagged with the given session id.
 func (c *Client) SendStreamMessage(sessionID string, payload any) error {
-	c.mu.Lock()
-	s := c.stream
-	c.mu.Unlock()
+	s := c.currentSender()
 	if s == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -342,41 +308,24 @@ func (c *Client) SendStreamMessage(sessionID string, payload any) error {
 	default:
 		return fmt.Errorf("unsupported stream payload type: %T", payload)
 	}
-	return c.safeSend(s, msg)
-}
-
-// safeSend serializes concurrent Send calls; gRPC streams are not thread-safe for Send.
-func (c *Client) safeSend(s proto.PilotService_ConnectClient, msg *proto.WorkerMessage) error {
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
-	return s.Send(msg)
+	return s.sendSlow(c.StreamContext(), msg)
 }
 
 // SendResourceResponse sends a ResourceResponse back to the Server after
-// the proxy has finished executing a K8s operation.
-func (c *Client) SendResourceResponse(requestID string, resp *proto.ResourceResponse) {
-	c.mu.Lock()
-	s := c.stream
-	c.mu.Unlock()
-	if s == nil {
-		return
+// the proxy has finished executing a K8s operation. data is the JSON
+// payload (chunked over the wire).
+func (c *Client) SendResourceResponse(requestID string, success bool, errMsg string, data []byte) {
+	if err := c.sendChunkedResourceResponse(c.StreamContext(), requestID, success, errMsg, data); err != nil {
+		log.Printf("[tunnel] resource response send failed: request=%s err=%v", requestID, err)
 	}
-	_ = c.safeSend(s, &proto.WorkerMessage{
-		RequestId: requestID,
-		Payload: &proto.WorkerMessage_ResourceResp{
-			ResourceResp: resp,
-		},
-	})
 }
 
 // Run blocks and reconnects automatically. Returns ErrTokenRejected on fatal
-// token rejection; callers should exit the process.
+// token rejection.
 func (c *Client) Run(ctx context.Context) error {
 	delay := reconnectBaseDelay
 	for {
-		// Reset backoff once Register succeeds so a long-lived connection that
-		// eventually drops retries from base delay, not from wherever the prior
-		// failure streak left off.
+		// Reset backoff once Register succeeds.
 		err := c.connect(ctx, func() { delay = reconnectBaseDelay })
 		if err == nil {
 			continue
@@ -412,6 +361,8 @@ func (c *Client) connect(ctx context.Context, onConnected func()) error {
 		grpc.WithConnectParams(grpc.ConnectParams{
 			MinConnectTimeout: connectTimeout,
 		}),
+		grpc.WithInitialWindowSize(initialWindowSize),
+		grpc.WithInitialConnWindowSize(initialConnWindowSize),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxGRPCMessageSize),
 			grpc.MaxCallSendMsgSize(maxGRPCMessageSize),
@@ -428,8 +379,9 @@ func (c *Client) connect(ctx context.Context, onConnected func()) error {
 		return err
 	}
 
-	// 发送 Register
-	if err = c.safeSend(stream, &proto.WorkerMessage{
+	// Register goes synchronously on the raw stream before the sender
+	// goroutine starts (no other goroutine is touching Send yet).
+	if err = stream.Send(&proto.WorkerMessage{
 		Payload: &proto.WorkerMessage_Register{
 			Register: &proto.RegisterRequest{
 				ClusterToken:  c.clusterToken,
@@ -441,7 +393,7 @@ func (c *Client) connect(ctx context.Context, onConnected func()) error {
 		return err
 	}
 
-	// 等待 RegisterAck
+	// Wait for RegisterAck before exposing the stream to anyone else.
 	ack, err := stream.Recv()
 	if err != nil {
 		return err
@@ -460,31 +412,37 @@ func (c *Client) connect(ctx context.Context, onConnected func()) error {
 		onConnected()
 	}
 
-	c.mu.Lock()
-	c.stream = stream
-	c.mu.Unlock()
-
-	// streamCtx is parented to the Run() ctx so a Worker shutdown (SIGTERM)
-	// also tears it down — but cancelling on connect() exit is the primary
-	// signal. Both heartbeat and per-session goroutines (logs / exec / ws)
-	// derive from this so they exit promptly when the stream dies, instead
-	// of waiting for their next Send to fail.
+	// streamCtx is parented to the Run() ctx so SIGTERM also tears it
+	// down. Cancelling on connect() exit is the primary signal — heartbeat,
+	// sender, per-session goroutines all derive from this.
 	streamCtx, streamCtxCancel := context.WithCancel(ctx)
 	c.streamCtxMu.Lock()
 	c.streamCtx, c.streamCtxCancel = streamCtx, streamCtxCancel
 	c.streamCtxMu.Unlock()
 
+	// Spin up the prioritySender on this stream. All future Send calls go
+	// through it. Sender exits when streamCtx cancels (deferred below).
+	sender := newPrioritySender()
+	c.senderMu.Lock()
+	c.sender = sender
+	c.senderMu.Unlock()
+	senderErrCh := make(chan error, 1)
+	go func() { senderErrCh <- sender.run(streamCtx, stream) }()
+
 	defer func() {
-		c.mu.Lock()
-		c.stream = nil
-		c.mu.Unlock()
-		c.streamCtxMu.Lock()
 		streamCtxCancel()
+		c.senderMu.Lock()
+		c.sender = nil
+		c.senderMu.Unlock()
+		c.streamCtxMu.Lock()
 		c.streamCtx, c.streamCtxCancel = nil, nil
 		c.streamCtxMu.Unlock()
+		// Drop any half-assembled inbound requests so reconnect starts
+		// from a clean slate.
+		c.rxAsm.reset()
 	}()
 
-	go c.heartbeat(streamCtx, stream)
+	go c.heartbeat(streamCtx)
 
 	for {
 		msg, err := stream.Recv()
@@ -495,7 +453,10 @@ func (c *Client) connect(ctx context.Context, onConnected func()) error {
 	}
 }
 
-func (c *Client) heartbeat(ctx context.Context, stream proto.PilotService_ConnectClient) {
+// heartbeat fires every heartbeatInterval, sending via the FAST lane so
+// data-plane chunks never starve it. If the sender lane is closed (stream
+// dying) the send returns ErrSenderClosed and the loop exits via ctx.Done.
+func (c *Client) heartbeat(ctx context.Context) {
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 	for {
@@ -503,7 +464,11 @@ func (c *Client) heartbeat(ctx context.Context, stream proto.PilotService_Connec
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := c.safeSend(stream, &proto.WorkerMessage{
+			s := c.currentSender()
+			if s == nil {
+				return
+			}
+			if err := s.sendFast(ctx, &proto.WorkerMessage{
 				Payload: &proto.WorkerMessage_Heartbeat{
 					Heartbeat: &proto.HeartbeatRequest{
 						Timestamp: time.Now().Unix(),
@@ -518,18 +483,20 @@ func (c *Client) heartbeat(ctx context.Context, stream proto.PilotService_Connec
 
 func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 	switch p := msg.Payload.(type) {
-	case *proto.ServerMessage_ResourceReq:
-		if c.resourceHandler != nil {
-			go c.resourceHandler(msg.RequestId, p.ResourceReq)
-		}
-	case *proto.ServerMessage_PluginCmd:
-		if c.pluginHandler != nil {
-			go func(cmd *proto.PluginCommand) {
-				if err := c.pluginHandler(cmd); err != nil {
-					log.Printf("[tunnel] plugin handler: action=%s name=%s err=%v",
-						cmd.Action, cmd.CrdName, err)
-				}
-			}(p.PluginCmd)
+	case *proto.ServerMessage_ResourceReqStart:
+		// Open an accumulator; ResourceRequest body (if any) arrives in
+		// following BodyChunk frames, BodyEnd dispatches the handler.
+		c.rxAsm.open(msg.RequestId, kindResource, p.ResourceReqStart)
+	case *proto.ServerMessage_PluginCmdStart:
+		c.rxAsm.open(msg.RequestId, kindPlugin, p.PluginCmdStart)
+	case *proto.ServerMessage_HttpReqStart:
+		c.rxAsm.open(msg.RequestId, kindHTTP, p.HttpReqStart)
+	case *proto.ServerMessage_BodyChunk:
+		c.rxAsm.appendChunk(msg.RequestId, p.BodyChunk.Data)
+	case *proto.ServerMessage_BodyEnd:
+		asm := c.rxAsm.finalize(msg.RequestId, p.BodyEnd.Error)
+		if asm != nil {
+			c.dispatchAssembled(msg.RequestId, asm)
 		}
 	case *proto.ServerMessage_LogsStart:
 		if c.logsStartHandler != nil {
@@ -555,10 +522,6 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 		if c.execCancelHandler != nil {
 			c.execCancelHandler(msg.RequestId)
 		}
-	case *proto.ServerMessage_HttpReq:
-		if c.httpHandler != nil {
-			go c.httpHandler(msg.RequestId, p.HttpReq)
-		}
 	case *proto.ServerMessage_WsStart:
 		if c.wsStartHandler != nil {
 			go c.wsStartHandler(msg.RequestId, p.WsStart)
@@ -571,6 +534,60 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 		if c.wsEndHandler != nil {
 			c.wsEndHandler(msg.RequestId, p.WsEndSend)
 		}
+	}
+}
+
+// dispatchAssembled hands a fully-assembled chunked request to its
+// registered handler. Runs each handler in a fresh goroutine so the
+// recv-dispatch loop never blocks.
+func (c *Client) dispatchAssembled(requestID string, asm *inboundAssembler) {
+	switch asm.kind {
+	case kindHTTP:
+		start := asm.start.(*proto.HTTPRequestStart)
+		if c.httpHandler == nil {
+			return
+		}
+		req := &HTTPRequest{
+			Method:  start.Method,
+			URL:     start.Url,
+			Headers: start.Headers,
+			Body:    asm.body,
+		}
+		go c.httpHandler(requestID, req)
+	case kindResource:
+		start := asm.start.(*proto.ResourceRequestStart)
+		if c.resourceHandler == nil {
+			return
+		}
+		req := &ResourceRequest{
+			Action:        start.Action,
+			Group:         start.Group,
+			Version:       start.Version,
+			Kind:          start.Kind,
+			Namespace:     start.Namespace,
+			Name:          start.Name,
+			Body:          asm.body,
+			Limit:         start.Limit,
+			ContinueToken: start.ContinueToken,
+		}
+		go c.resourceHandler(requestID, req)
+	case kindPlugin:
+		start := asm.start.(*proto.PluginCommandStart)
+		if c.pluginHandler == nil {
+			return
+		}
+		cmd := &PluginCommand{
+			Action:    start.Action,
+			CrdName:   start.CrdName,
+			Spec:      start.Spec,
+			ChartBlob: asm.body,
+		}
+		go func() {
+			if err := c.pluginHandler(cmd); err != nil {
+				log.Printf("[tunnel] plugin handler: action=%s name=%s err=%v",
+					cmd.Action, cmd.CrdName, err)
+			}
+		}()
 	}
 }
 

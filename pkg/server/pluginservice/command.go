@@ -36,6 +36,19 @@ type ClusterDomainResolver interface {
 	ClusterDomain(clusterID string) string
 }
 
+// Command is the server-side internal representation of a plugin command
+// ready to be transported to the Worker. Blob is the chart .tgz bytes
+// (only set for local-chart enables when the Worker doesn't already
+// have it cached by sha256); the gateway streams it as BodyChunk frames
+// rather than inlining into the wire message, so a 50 MiB chart enable
+// can't starve Heartbeat on a slow uplink.
+type Command struct {
+	Action  string
+	CrdName string
+	Spec    *proto.PluginSpec
+	Blob    []byte
+}
+
 // builtinPluginGrafanaName matches the seed entry's Name field. Used
 // as the dispatch key for plugin-specific spec rewrites (e.g. baking
 // the dashboards we ship into Grafana's values payload).
@@ -75,14 +88,15 @@ func expandKPilotVars(values string, vars map[string]string) string {
 // here ensures placeholder expansion + chart blob lookup happen once
 // with the same rules from every call site.
 //
-// For local-chart plugins the .tgz blob bytes are inlined — the Worker
+// For local-chart plugins the .tgz blob bytes are carried in Command.Blob
+// — the gateway streams them as BodyChunk frames to the Worker, which
 // writes them to its chart cache by sha256 so subsequent commands can
-// omit `blob`.
+// omit the blob.
 //
 // `resolver` provides the connected worker's cluster_domain so the
 // ${KPILOT_CLUSTER_DOMAIN} placeholder can resolve. Nil resolver (or a
 // resolver that returns "") falls back to "cluster.local".
-func BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, resolver ClusterDomainResolver) (*proto.PluginCommand, error) {
+func BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, resolver ClusterDomainResolver) (*Command, error) {
 	values := cp.ValuesOverride
 	if values == "" {
 		values = p.DefaultValues
@@ -143,6 +157,7 @@ func BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, resolver Clust
 		Name:    p.ChartName,
 		Version: version,
 	}
+	var blobBytes []byte
 	switch p.ChartType {
 	case store.ChartTypeRepo, store.ChartTypeOCI:
 		// OCI plugins reuse chart_repo for the full oci:// URL.
@@ -156,9 +171,12 @@ func BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, resolver Clust
 			return nil, err
 		}
 		chart.Sha256 = blob.SHA256
-		chart.Blob = blob.Content
+		blobBytes = blob.Content
+		// HasBlob is set by the gateway right before send so the wire
+		// flag stays consistent with whether BodyChunk frames will
+		// actually follow.
 	}
-	return &proto.PluginCommand{
+	return &Command{
 		Action:  "enable",
 		CrdName: p.Name,
 		Spec: &proto.PluginSpec{
@@ -169,5 +187,6 @@ func BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, resolver Clust
 			ReleaseNamespace: releaseNS,
 			Values:           values,
 		},
+		Blob: blobBytes,
 	}, nil
 }

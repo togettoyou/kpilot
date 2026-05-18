@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/common/vgpu"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
@@ -42,7 +41,7 @@ func GetVGPUSnapshot(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action: "vgpu-snapshot",
 		})
 		if err != nil {

@@ -70,9 +70,10 @@ const proxyMaxBodyBytes = 31 * 1024 * 1024
 
 // proxyTimeout is the upper bound on a single proxied HTTP exchange end-to-end
 // (Server reads body → Worker dispatches → response returns). Generous because
-// Grafana's first dashboard render fans out to many JSON queries; tightened
-// later if it bites.
-const proxyTimeout = 60 * time.Second
+// Grafana's first dashboard render fans out to many JSON queries plus image
+// renders that can take 10–30s individually. Chunked transport keeps heartbeat
+// independent of data plane, so a long render no longer threatens liveness.
+const proxyTimeout = 5 * time.Minute
 
 // proxyConcurrency caps in-flight HTTP proxy requests per cluster. A Grafana
 // dashboard load fans out to 30+ parallel asset requests; with multiple
@@ -327,9 +328,9 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		headers = append(headers, &proto.HTTPHeader{Name: "X-WEBAUTH-USER", Value: resolveUsername(c)})
 		headers = append(headers, &proto.HTTPHeader{Name: "X-WEBAUTH-ROLE", Value: proxyGrafanaRole})
 
-		req := &proto.HTTPRequest{
+		req := &gateway.HTTPRequest{
 			Method:  c.Request.Method,
-			Url:     target,
+			URL:     target,
 			Headers: headers,
 			Body:    body,
 		}

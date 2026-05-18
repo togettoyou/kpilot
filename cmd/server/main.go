@@ -4,7 +4,10 @@ import (
 	"log"
 	"net"
 
+	"time"
+
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/api"
@@ -24,15 +27,35 @@ func main() {
 		log.Fatalf("reset cluster status: %v", err)
 	}
 
-	// gRPC server
+	// gRPC server. Liveness is enforced via HTTP/2 keepalive PINGs at the
+	// transport layer (not via the application-level Heartbeat message),
+	// so a long data-plane burst on the stream can never starve the
+	// liveness signal. MinTime gates the worker's allowed ping cadence;
+	// 5s leaves headroom over the worker's 20s ping interval.
+	const (
+		grpcMaxMsgSize   = 64 << 20 // 64 MiB — accommodates large chart blobs assembled from chunks.
+		grpcInitialWnd   = 4 << 20  // 4 MiB stream flow-control window — see worker tunnel for rationale.
+		grpcInitialConn  = 4 << 20  // 4 MiB connection flow-control window.
+	)
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
 		log.Fatalf("grpc listen %s: %v", cfg.GRPCAddr, err)
 	}
-	const grpcMaxMsgSize = 32 << 20 // 32 MB — large clusters can have big Table API responses
 	grpcSrv := grpc.NewServer(
 		grpc.MaxRecvMsgSize(grpcMaxMsgSize),
 		grpc.MaxSendMsgSize(grpcMaxMsgSize),
+		grpc.InitialWindowSize(grpcInitialWnd),
+		grpc.InitialConnWindowSize(grpcInitialConn),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			// Send a PING every 20s if no other traffic; drop the
+			// connection if no ACK in 10s. Mirrors the worker side.
+			Time:    20 * time.Second,
+			Timeout: 10 * time.Second,
+		}),
 	)
 	gw := gateway.NewGatewayServer()
 	proto.RegisterPilotServiceServer(grpcSrv, gw)

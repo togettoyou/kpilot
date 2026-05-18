@@ -15,11 +15,6 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
-const (
-	heartbeatTimeout       = 35 * time.Second // worker 每 10s 发一次心跳，3 次未收到即判定离线
-	heartbeatCheckInterval = 10 * time.Second
-)
-
 // ConnectedWorker represents a live Worker connection.
 type ConnectedWorker struct {
 	ClusterID string
@@ -28,17 +23,29 @@ type ConnectedWorker struct {
 	// FQDN of the in-cluster Service it forwards to.
 	ClusterDomain string
 	Stream        proto.PilotService_ConnectServer
+
 	// lastSeenNS holds the unix-nano timestamp of the most recent
-	// heartbeat. Read from the heartbeat-check ticker on Connect's
-	// goroutine, written from the recv goroutine — atomic access is
-	// required to avoid a torn read of time.Time (two-word struct).
+	// Heartbeat. Kept as a debug counter only — application heartbeat
+	// is NOT used for liveness judgment anymore. Liveness now flows
+	// from gRPC HTTP/2 keepalive PINGs via stream.Context().Done(),
+	// which can't be starved by application data on the same stream.
 	lastSeenNS atomic.Int64
+
 	cancelOnce sync.Once
 	done       chan struct{}
-	sendMu     sync.Mutex // serializes concurrent Send calls; gRPC streams are not thread-safe for Send
+
+	// sender owns the single Send-caller goroutine on this stream.
+	// Producers call sender.sendSlow/sendFast; the sender drains a
+	// fast lane before slow so future high-priority frames (if any)
+	// never starve. Created in Connect; nil after disconnect.
+	sender *prioritySender
+
+	// rxAsm accumulates per-request_id inbound chunks (HTTPResponseStart
+	// + BodyChunk* + BodyEnd, or ResourceResponseStart + chunks).
+	rxAsm *rxAccumulators
 }
 
-func (w *ConnectedWorker) markSeen()    { w.lastSeenNS.Store(time.Now().UnixNano()) }
+func (w *ConnectedWorker) markSeen() { w.lastSeenNS.Store(time.Now().UnixNano()) }
 func (w *ConnectedWorker) lastSeen() time.Time {
 	return time.Unix(0, w.lastSeenNS.Load())
 }
@@ -49,19 +56,16 @@ type GatewayServer struct {
 	mu      sync.RWMutex
 	workers map[string]*ConnectedWorker
 
-	// pendingMu guards the pending request-response map used by P3.
+	// pendingMu guards the pending ResourceRequest response map.
 	pendingMu sync.Mutex
-	pending   map[string]chan *proto.ResourceResponse
+	pending   map[string]chan *ResourceResponse
 
 	// pendingHTTPMu guards request-response for the reverse-proxy
-	// (Server → Worker → in-cluster Service). Separate from pending
-	// so a slow HTTP forward can't head-of-line a list/get on the same
-	// gateway.
+	// (Server → Worker → in-cluster Service).
 	pendingHTTPMu sync.Mutex
-	pendingHTTP   map[string]chan *proto.HTTPResponse
+	pendingHTTP   map[string]chan *HTTPResponse
 
-	// streamMu guards active streaming sessions (Pod logs / Exec).
-	// Keyed by session_id (which is sent as request_id on the wire).
+	// streamMu guards active streaming sessions (Pod logs / Exec / WS).
 	streamMu sync.Mutex
 	streams  map[string]*Stream
 
@@ -74,8 +78,8 @@ type GatewayServer struct {
 func NewGatewayServer() *GatewayServer {
 	g := &GatewayServer{
 		workers:           make(map[string]*ConnectedWorker),
-		pending:           make(map[string]chan *proto.ResourceResponse),
-		pendingHTTP:       make(map[string]chan *proto.HTTPResponse),
+		pending:           make(map[string]chan *ResourceResponse),
+		pendingHTTP:       make(map[string]chan *HTTPResponse),
 		streams:           make(map[string]*Stream),
 		pluginLogSessions: make(map[string]*pluginLogSession),
 	}
@@ -109,25 +113,25 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 	}
 
 	// Reject if another worker is already connected for this cluster.
-	// Take-over (kick the old, register the new) was tried first and
-	// regressed: with worker auto-reconnect, two concurrently-alive
-	// workers using the same token kicked each other in a tight loop.
-	// Rejection lets the incumbent keep its slot; if the incumbent is
-	// actually dead, the heartbeat timeout (~35s) frees the slot and
-	// the next reconnect attempt by the (legitimate) replacement wins.
-	//
-	// Check + claim under one Lock (not RLock-then-Lock) so two
-	// simultaneous registers with the same token can't both pass an
-	// "occupied=false" snapshot and have the second silently overwrite
-	// the first — that would orphan the first worker's stream while
-	// the gateway map still routed messages to it.
+	// Same rationale as before: take-over loops on auto-reconnect when
+	// two clients share a token. Heartbeat timeout used to free the
+	// slot — now stream.Context().Done() (driven by gRPC keepalive)
+	// does, on a similar ~30s window.
+	// Build the worker + sender BEFORE publishing to g.workers, so
+	// concurrent HTTP handlers never see a worker with sender=nil.
+	streamCtx, streamCtxCancel := context.WithCancel(stream.Context())
+	defer streamCtxCancel()
+	sender := newPrioritySender()
 	worker := &ConnectedWorker{
 		ClusterID:     cluster.ID,
 		ClusterDomain: reg.Register.ClusterDomain,
 		Stream:        stream,
 		done:          make(chan struct{}),
+		rxAsm:         newRxAccumulators(),
+		sender:        sender,
 	}
 	worker.markSeen()
+
 	g.mu.Lock()
 	if _, occupied := g.workers[cluster.ID]; occupied {
 		g.mu.Unlock()
@@ -145,19 +149,21 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 	}
 	g.workers[cluster.ID] = worker
 	g.mu.Unlock()
-	// Cluster row → online (best-effort; a DB blip here doesn't unwind
-	// the connection — the next status push or restart will fix it).
 	if err := store.UpdateClusterStatus(cluster.ID, store.ClusterStatusOnline); err != nil {
 		log.Printf("[gateway] update cluster online failed: cluster=%s err=%v", cluster.ID, err)
 	}
 	defer g.unregister(worker)
 
-	// Wrap with sendMu: once the worker is registered in g.workers above,
-	// any HTTP handler can grab it and call SendResourceRequest concurrently
-	// with this RegisterAck Send. gRPC stream Send is not concurrency-safe;
-	// without sendMu the two writes can interleave on the wire.
-	worker.sendMu.Lock()
-	err = stream.Send(&proto.ServerMessage{
+	// Start the sender goroutine. Producers calling sendSlow / sendFast
+	// before this goroutine starts simply block in the channel send
+	// until the sender drains the first frame — order is preserved.
+	senderDone := make(chan error, 1)
+	go func() { senderDone <- sender.run(streamCtx, stream) }()
+
+	// RegisterAck goes via the sender like everything else, so any other
+	// frames a producer queued (e.g. a fast incoming HTTP request that
+	// landed before RegisterAck) come out in FIFO order.
+	if err := sender.sendSlow(streamCtx, &proto.ServerMessage{
 		RequestId: msg.RequestId,
 		Payload: &proto.ServerMessage_RegisterAck{
 			RegisterAck: &proto.RegisterAck{
@@ -166,25 +172,15 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 				Message:   "registered",
 			},
 		},
-	})
-	worker.sendMu.Unlock()
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 
 	log.Printf("[gateway] worker connected: cluster=%s", cluster.ID)
 
 	// Reconcile-on-reconnect: replay any plugin commands the previous
-	// worker session may have lost. Without this, a Disable / Enable
-	// click that landed while the worker was being restarted gets
-	// stranded — UI sits forever at Uninstalling / Pending while the
-	// new worker has no idea the user wanted anything. Run in a
-	// goroutine so a slow replay doesn't block this connection's
-	// recv loop from starting.
+	// worker session may have lost.
 	go g.replayPendingPluginCommands(cluster.ID)
-
-	timer := time.NewTicker(heartbeatCheckInterval)
-	defer timer.Stop()
 
 	recvErr := make(chan error, 1)
 	go func() {
@@ -198,15 +194,25 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 		}
 	}()
 
+	// Liveness now flows from the gRPC stream context (driven by HTTP/2
+	// keepalive PINGs configured on the server). The old
+	// "lastSeen > 35s" check is gone — it was prone to false positives
+	// when a long data-plane response held the sendMu and starved the
+	// application Heartbeat. The PING path can't be starved that way
+	// because it lives at the HTTP/2 connection layer, below stream-
+	// level send serialisation.
 	for {
 		select {
 		case err := <-recvErr:
 			return err
-		case <-timer.C:
-			if time.Since(worker.lastSeen()) > heartbeatTimeout {
-				log.Printf("[gateway] worker heartbeat timeout: cluster=%s", cluster.ID)
-				return nil
+		case err := <-senderDone:
+			// Sender goroutine bailed — Stream.Send returned an error
+			// (peer-side close or transport issue). Surface as the
+			// disconnect cause.
+			if err == nil {
+				err = io.EOF
 			}
+			return err
 		case <-stream.Context().Done():
 			return stream.Context().Err()
 		case <-worker.done:
@@ -219,6 +225,8 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.WorkerMessage) {
 	switch p := msg.Payload.(type) {
 	case *proto.WorkerMessage_Heartbeat:
+		// Kept for observability (debug snapshot exposes lastSeen),
+		// no longer used for liveness — gRPC keepalive owns that.
 		w.markSeen()
 	case *proto.WorkerMessage_PluginStatus:
 		g.handlePluginStatus(w, p.PluginStatus)
@@ -226,45 +234,85 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 		g.recordPluginLog(w.ClusterID, p.PluginLog)
 	case *proto.WorkerMessage_PluginLogEnd:
 		g.recordPluginLogEnd(w.ClusterID, p.PluginLogEnd)
-	case *proto.WorkerMessage_ResourceResp:
-		resp := p.ResourceResp
-		g.pendingMu.Lock()
-		ch, ok := g.pending[msg.RequestId]
-		g.pendingMu.Unlock()
-		if ok {
-			// Non-blocking send: channel is buffered size 1, so on the happy
-			// path this is a no-wait. If the requester already gave up (ctx
-			// cancelled before delete) the buffer might still be empty but
-			// the receiver's gone — fall through silently rather than block
-			// the gateway's recv loop on a duplicate or stale response.
-			select {
-			case ch <- resp:
-			default:
-			}
-		}
+
+	// Chunked inbound responses: HTTPResponse / ResourceResponse arrive as
+	// *Start → BodyChunk* → BodyEnd. The accumulator holds per-request_id
+	// state until BodyEnd; only then do we deliver to the pending channel.
+	case *proto.WorkerMessage_HttpRespStart:
+		w.rxAsm.open(msg.RequestId, rxKindHTTP, p.HttpRespStart)
+	case *proto.WorkerMessage_ResourceRespStart:
+		w.rxAsm.open(msg.RequestId, rxKindResource, p.ResourceRespStart)
+	case *proto.WorkerMessage_BodyChunk:
+		w.rxAsm.appendChunk(msg.RequestId, p.BodyChunk.Data)
+	case *proto.WorkerMessage_BodyEnd:
+		g.finalizeChunkedResponse(w, msg.RequestId, p.BodyEnd.Error)
+
 	case *proto.WorkerMessage_LogsChunk, *proto.WorkerMessage_LogsEnd,
 		*proto.WorkerMessage_ExecOutput, *proto.WorkerMessage_ExecEnd,
 		*proto.WorkerMessage_WsFrameRecv, *proto.WorkerMessage_WsEndRecv:
 		g.routeStreamMessage(msg)
-	case *proto.WorkerMessage_HttpResp:
-		g.pendingHTTPMu.Lock()
-		ch, ok := g.pendingHTTP[msg.RequestId]
-		g.pendingHTTPMu.Unlock()
-		if ok {
-			// Same non-blocking pattern as ResourceResp — buffered chan
-			// of size 1, late/duplicate frames silently dropped if the
-			// caller already moved on.
-			select {
-			case ch <- p.HttpResp:
-			default:
-			}
-		}
+
 	default:
 		// Unknown oneof variant — almost certainly a Worker built from a
 		// newer proto. Log so a missing handler doesn't silently swallow
 		// new functionality.
 		log.Printf("[gateway] unhandled worker message variant: cluster=%s payload=%T",
 			w.ClusterID, msg.Payload)
+	}
+}
+
+// finalizeChunkedResponse picks the assembled response out of the per-worker
+// accumulator and delivers it to the pending channel registered by the
+// originating SendHTTPRequest / SendResourceRequest call.
+func (g *GatewayServer) finalizeChunkedResponse(w *ConnectedWorker, requestID, endErr string) {
+	asm := w.rxAsm.finalize(requestID)
+	if asm == nil {
+		// Orphan End — caller already gave up. Silently drop.
+		return
+	}
+	switch asm.kind {
+	case rxKindHTTP:
+		start := asm.start.(*proto.HTTPResponseStart)
+		resp := &HTTPResponse{
+			Status:  start.Status,
+			Headers: start.Headers,
+			Body:    asm.body,
+			Error:   start.Error,
+		}
+		if endErr != "" && resp.Error == "" {
+			// Worker hit an upstream body-read error mid-stream — surface
+			// it so the caller gets a 502 rather than a truncated payload.
+			resp.Error = endErr
+		}
+		g.pendingHTTPMu.Lock()
+		ch, ok := g.pendingHTTP[requestID]
+		g.pendingHTTPMu.Unlock()
+		if ok {
+			select {
+			case ch <- resp:
+			default:
+			}
+		}
+	case rxKindResource:
+		start := asm.start.(*proto.ResourceResponseStart)
+		resp := &ResourceResponse{
+			Success: start.Success,
+			Error:   start.Error,
+			Data:    asm.body,
+		}
+		if endErr != "" && resp.Error == "" {
+			resp.Error = endErr
+			resp.Success = false
+		}
+		g.pendingMu.Lock()
+		ch, ok := g.pending[requestID]
+		g.pendingMu.Unlock()
+		if ok {
+			select {
+			case ch <- resp:
+			default:
+			}
+		}
 	}
 }
 
@@ -276,16 +324,12 @@ func (g *GatewayServer) routeStreamMessage(msg *proto.WorkerMessage) {
 		// Session already closed by the WS side — silently drop late frames.
 		return
 	}
-	// deliver internally guards against send-on-closed-channel.
 	s.deliver(msg)
 }
 
 func (g *GatewayServer) unregister(w *ConnectedWorker) {
 	clusterID := w.ClusterID
 
-	// Identity check: only delete the map entry if it still points to *this*
-	// worker. If a newer connection has taken over (register() above kicked
-	// us), we must not blow away the new entry on our way out.
 	g.mu.Lock()
 	cur, ok := g.workers[clusterID]
 	wasCurrent := ok && cur == w
@@ -295,8 +339,6 @@ func (g *GatewayServer) unregister(w *ConnectedWorker) {
 	g.mu.Unlock()
 
 	if !wasCurrent {
-		// We were already kicked by a newer registration. The new worker
-		// owns the cluster slot and its streams; don't touch them.
 		log.Printf("[gateway] worker exited (already replaced): cluster=%s", clusterID)
 		return
 	}
@@ -304,9 +346,11 @@ func (g *GatewayServer) unregister(w *ConnectedWorker) {
 	if err := store.UpdateClusterStatus(clusterID, store.ClusterStatusOffline); err != nil {
 		log.Printf("[gateway] update cluster offline failed: cluster=%s err=%v", clusterID, err)
 	}
-	// Close any active streams (Pod logs / exec) bound to this worker so the
-	// WS handlers unblock from <-stream.Recv() instead of hanging forever.
 	g.closeClusterStreams(clusterID)
+	// Drop any half-assembled inbound responses so reconnect starts clean.
+	if w.rxAsm != nil {
+		w.rxAsm.reset()
+	}
 	log.Printf("[gateway] worker disconnected: cluster=%s", clusterID)
 }
 
@@ -340,17 +384,19 @@ func (g *GatewayServer) GetWorker(clusterID string) (*ConnectedWorker, bool) {
 	return w, ok
 }
 
-// SendResourceRequest sends a ResourceRequest to the connected Worker for the
-// given cluster and blocks until the Worker responds or ctx is cancelled.
-// This is the primary entry point for P3 workload operations.
-func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID string, req *proto.ResourceRequest) (*proto.ResourceResponse, error) {
+// SendResourceRequest sends a chunked ResourceRequest to the connected
+// Worker for the given cluster and blocks until the Worker writes back
+// the assembled ResourceResponse (Start + chunks + End) or ctx is
+// cancelled. req.Body (apply/update/patch JSON payload) is chunked
+// over the wire; nil/empty for list/get/delete.
+func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID string, req *ResourceRequest) (*ResourceResponse, error) {
 	w, ok := g.GetWorker(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("cluster %s not connected", clusterID)
 	}
 
 	requestID := uuid.New().String()
-	ch := make(chan *proto.ResourceResponse, 1)
+	ch := make(chan *ResourceResponse, 1)
 
 	g.pendingMu.Lock()
 	g.pending[requestID] = ch
@@ -361,22 +407,20 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 		g.pendingMu.Unlock()
 	}()
 
-	w.sendMu.Lock()
-	err := w.Stream.Send(&proto.ServerMessage{
-		RequestId: requestID,
-		Payload: &proto.ServerMessage_ResourceReq{
-			ResourceReq: req,
-		},
-	})
-	w.sendMu.Unlock()
-	if err != nil {
+	start := &proto.ResourceRequestStart{
+		Action:        req.Action,
+		Group:         req.Group,
+		Version:       req.Version,
+		Kind:          req.Kind,
+		Namespace:     req.Namespace,
+		Name:          req.Name,
+		Limit:         req.Limit,
+		ContinueToken: req.ContinueToken,
+	}
+	if err := sendChunkedResourceRequest(ctx, w, requestID, start, req.Body); err != nil {
 		return nil, fmt.Errorf("send to worker: %w", err)
 	}
 
-	// Watch the worker's stream context too: when the worker disconnects,
-	// gRPC tears the stream down and Stream.Context() is cancelled. Without
-	// this case the caller would block until ctx (typically 30-60s) — long
-	// after the answer is impossible.
 	select {
 	case resp := <-ch:
 		return resp, nil
@@ -387,35 +431,16 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 	}
 }
 
-// MetricsSnapshot is a point-in-time read of the gateway's internal
-// maps for the /api/v1/metrics endpoint. Counts are taken under the
-// matching mutex so a concurrent register / response / stream open
-// can't tear them, but the four sections aren't a single consistent
-// snapshot (no global lock) — close enough for an operator gauge.
+// MetricsSnapshot — see field comments.
 type MetricsSnapshot struct {
-	// Workers is the number of currently-registered worker connections.
-	Workers int `json:"workers"`
-	// PerClusterStreams maps clusterID → live stream count (logs / exec
-	// / ws proxy sessions). Useful for spotting a single cluster
-	// holding the bulk of open sessions.
+	Workers           int            `json:"workers"`
 	PerClusterStreams map[string]int `json:"perClusterStreams"`
-	// Pending is the count of outstanding ResourceRequest replies the
-	// gateway is waiting on. Should stay near zero in steady state;
-	// growth means the worker is slow or wedged.
-	Pending int `json:"pending"`
-	// PendingHTTP is the same for the reverse-proxy path.
-	PendingHTTP int `json:"pendingHTTP"`
-	// Streams is the total active streaming sessions across clusters.
-	Streams int `json:"streams"`
-	// PluginLogSessions is the number of per-(cluster, plugin) install
-	// log ring buffers held in memory. Each session is reaped 10min
-	// after its last frame.
-	PluginLogSessions int `json:"pluginLogSessions"`
+	Pending           int            `json:"pending"`
+	PendingHTTP       int            `json:"pendingHTTP"`
+	Streams           int            `json:"streams"`
+	PluginLogSessions int            `json:"pluginLogSessions"`
 }
 
-// MetricsSnapshot collects internal counters for the /metrics endpoint.
-// Each map read takes its own lock; the four sections aren't atomic with
-// respect to each other, but operator observability doesn't need that.
 func (g *GatewayServer) MetricsSnapshot() MetricsSnapshot {
 	snap := MetricsSnapshot{
 		PerClusterStreams: make(map[string]int),
@@ -446,18 +471,19 @@ func (g *GatewayServer) MetricsSnapshot() MetricsSnapshot {
 	return snap
 }
 
-// SendHTTPRequest forwards an HTTP request through the Worker to an in-
-// cluster Service and blocks until the Worker writes back HTTPResponse or
-// ctx is cancelled. Used by the reverse-proxy handler that embeds Grafana
-// (and similar plugin UIs) inside KPilot.
-func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
+// SendHTTPRequest forwards an HTTP request through the Worker to an
+// in-cluster Service and blocks until the Worker writes back the
+// assembled HTTPResponse or ctx is cancelled. req.Body (POST/PUT)
+// is chunked over the wire — each chunk's Send takes < 1 ms, so a 32
+// MiB upload never starves Heartbeat on either side.
+func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, req *HTTPRequest) (*HTTPResponse, error) {
 	w, ok := g.GetWorker(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("cluster %s not connected", clusterID)
 	}
 
 	requestID := uuid.New().String()
-	ch := make(chan *proto.HTTPResponse, 1)
+	ch := make(chan *HTTPResponse, 1)
 
 	g.pendingHTTPMu.Lock()
 	g.pendingHTTP[requestID] = ch
@@ -468,19 +494,10 @@ func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, r
 		g.pendingHTTPMu.Unlock()
 	}()
 
-	w.sendMu.Lock()
-	err := w.Stream.Send(&proto.ServerMessage{
-		RequestId: requestID,
-		Payload:   &proto.ServerMessage_HttpReq{HttpReq: req},
-	})
-	w.sendMu.Unlock()
-	if err != nil {
+	if err := sendChunkedHTTPRequest(ctx, w, requestID, req.Method, req.URL, req.Headers, req.Body); err != nil {
 		return nil, fmt.Errorf("send to worker: %w", err)
 	}
 
-	// Same disconnect-unblocks-pending pattern as SendResourceRequest:
-	// without watching the stream context, an iframe asset request would
-	// hang the full proxyTimeout (60s) every time the worker dies.
 	select {
 	case resp := <-ch:
 		return resp, nil

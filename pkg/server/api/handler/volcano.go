@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
@@ -101,7 +100,7 @@ func ListVolcanoQueues(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "scheduling.volcano.sh",
 			Version:       "v1beta1",
@@ -204,7 +203,7 @@ func ListVolcanoJobs(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "batch.volcano.sh",
 			Version:       "v1alpha1",
@@ -291,7 +290,7 @@ func ListVolcanoCronJobs(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "batch.volcano.sh",
 			Version:       "v1alpha1",
@@ -372,7 +371,7 @@ func ListVolcanoPodGroups(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "scheduling.volcano.sh",
 			Version:       "v1beta1",
@@ -451,7 +450,7 @@ func ListVolcanoHyperNodes(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "topology.volcano.sh",
 			Version:       "v1alpha1",
@@ -536,7 +535,7 @@ func ListVolcanoJobFlows(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "flow.volcano.sh",
 			Version:       "v1alpha1",
@@ -617,7 +616,7 @@ func ListVolcanoJobTemplates(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "flow.volcano.sh",
 			Version:       "v1alpha1",
@@ -701,7 +700,7 @@ func ListVolcanoNumatopologies(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "nodeinfo.volcano.sh",
 			Version:       "v1alpha1",
@@ -791,7 +790,7 @@ func ListVolcanoNodeShards(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "shard.volcano.sh",
 			Version:       "v1alpha1",
@@ -892,7 +891,7 @@ func ListVolcanoColocationConfigurations(gw *gateway.GatewayServer) gin.HandlerF
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &proto.ResourceRequest{
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
 			Action:        "list-full",
 			Group:         "config.volcano.sh",
 			Version:       "v1alpha1",

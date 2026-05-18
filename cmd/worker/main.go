@@ -16,7 +16,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	pb "github.com/togettoyou/kpilot/pkg/common/proto"
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
 	"github.com/togettoyou/kpilot/pkg/worker/config"
 	"github.com/togettoyou/kpilot/pkg/worker/plugin"
@@ -87,7 +86,9 @@ func main() {
 			log.Fatalf("[worker] failed to create clientset: %v", err)
 		}
 
-		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper(), tunnelClient.SendResourceResponse)
+		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper(), func(requestID string, r *proxy.ResourceResponse) {
+			tunnelClient.SendResourceResponse(requestID, r.Success, r.Error, r.Data)
+		})
 		if err != nil {
 			log.Fatalf("[worker] failed to create proxy: %v", err)
 		}
@@ -105,7 +106,9 @@ func main() {
 		// embedded plugin UIs like Grafana, plus VM / VictoriaLogs
 		// PromQL / LogsQL queries from the monitoring / logging pages).
 		httpProxy := proxy.NewHTTPProxy(
-			tunnelClient.SendHTTPResponse,
+			func(requestID string, r *proxy.HTTPResponse) {
+				tunnelClient.SendHTTPResponse(requestID, r.Status, r.Headers, r.Body, r.Error)
+			},
 			tunnelClient.StreamContext,
 			k8sCfg,
 			router,
@@ -142,7 +145,7 @@ func main() {
 		// it also pushes a Disabled status when handleDisable finds no
 		// CRD to delete (covers Server rows stuck at Uninstalling).
 		pluginMgr := plugin.NewManager(mgr.GetClient(), chartCache, statusPusher)
-		tunnelClient.SetPluginHandler(func(cmd *pb.PluginCommand) error {
+		tunnelClient.SetPluginHandler(func(cmd *tunnel.PluginCommand) error {
 			return pluginMgr.Handle(ctx, cmd)
 		})
 		// Reconciler watches Plugin CRDs and drives Helm.
