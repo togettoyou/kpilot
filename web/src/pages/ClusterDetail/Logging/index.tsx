@@ -24,6 +24,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 
 import TimeRangePicker, {
   resolveTimeRange,
@@ -276,8 +277,23 @@ const LoggingPage: React.FC = () => {
   }
 
   return (
-    <div className="p-6">
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    // Grafana-style fixed-viewport layout. Outer flex column locked to
+    // viewport height eliminates the nested-scroll mess the old
+    // `<div p-6>` + `<Space>` + `maxHeight: 600 overflow: auto`
+    // version had — top sections stay put, only the results list scrolls,
+    // mouse wheel always has one obvious target. 56px matches ProLayout's
+    // header height (same offset GrafanaEmbed uses).
+    <div
+      style={{
+        height: 'calc(100vh - 56px)',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: 24,
+        gap: 16,
+        overflow: 'hidden',
+      }}
+    >
+      <Space direction="vertical" size={16} style={{ width: '100%', flexShrink: 0 }}>
         {/* Query bar */}
         <Card size="small" styles={{ body: { padding: 16 } }}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -457,46 +473,66 @@ const LoggingPage: React.FC = () => {
             )}
           />
         )}
-
-        {/* Results list */}
-        {submitted && (
-          <Card
-            size="small"
-            title={
-              <Space>
-                <Typography.Text strong>
-                  {intl.formatMessage({ id: 'pages.logging.results.title' })}
-                </Typography.Text>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {intl.formatMessage(
-                    { id: 'pages.logging.results.count' },
-                    { n: lines.length },
-                  )}
-                </Typography.Text>
-              </Space>
-            }
-            styles={{ body: { padding: 0 } }}
-          >
-            <Spin spinning={search.loading}>
-              {lines.length === 0 && !search.loading ? (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  style={{ padding: 32 }}
-                  description={intl.formatMessage({
-                    id: 'pages.logging.results.empty',
-                  })}
-                />
-              ) : (
-                <div style={{ maxHeight: 600, overflow: 'auto' }}>
-                  {lines.map((ln, i) => (
-                    <LogRow key={i} line={ln} />
-                  ))}
-                </div>
-              )}
-            </Spin>
-          </Card>
-        )}
       </Space>
+
+      {/* Results list — owns the only scroll context on the page. Card
+          flexes to fill remaining viewport; Virtuoso virtualises the
+          rows so 10k results render with bounded DOM and constant
+          scroll cost. Spin is rendered as an absolute-positioned
+          overlay (instead of Spin-wrapping the children) because
+          Spin's `ant-spin-nested-loading` wrapper doesn't propagate
+          flex height down to Virtuoso, breaking its height: 100%
+          measurement. */}
+      {submitted && (
+        <Card
+          size="small"
+          title={
+            <Space>
+              <Typography.Text strong>
+                {intl.formatMessage({ id: 'pages.logging.results.title' })}
+              </Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {intl.formatMessage(
+                  { id: 'pages.logging.results.count' },
+                  { n: lines.length },
+                )}
+              </Typography.Text>
+              {search.loading && <Spin size="small" />}
+            </Space>
+          }
+          styles={{
+            body: {
+              padding: 0,
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+            },
+          }}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {lines.length === 0 && !search.loading ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              style={{ padding: 32 }}
+              description={intl.formatMessage({
+                id: 'pages.logging.results.empty',
+              })}
+            />
+          ) : (
+            <Virtuoso
+              style={{ flex: 1, minHeight: 0 }}
+              data={lines}
+              itemContent={(_index, ln) => <LogRow line={ln} />}
+            />
+          )}
+        </Card>
+      )}
     </div>
   );
 };
