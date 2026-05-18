@@ -740,6 +740,8 @@ export default {
   'pages.logging.histogram.title': 'Volume over time',
   'pages.logging.histogram.total': '{n} matches',
   'pages.logging.histogram.empty': 'No matches in this window',
+  'pages.logging.histogram.show': 'Show',
+  'pages.logging.histogram.hide': 'Hide',
   'pages.logging.results.title': 'Results',
   'pages.logging.results.count': '{n} rows',
   'pages.logging.results.empty': 'No matching log lines',

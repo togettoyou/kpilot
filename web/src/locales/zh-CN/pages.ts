@@ -724,6 +724,8 @@ export default {
   'pages.logging.histogram.title': '匹配量随时间分布',
   'pages.logging.histogram.total': '共 {n} 条',
   'pages.logging.histogram.empty': '所选窗口内无匹配',
+  'pages.logging.histogram.show': '展开',
+  'pages.logging.histogram.hide': '收起',
   'pages.logging.results.title': '结果',
   'pages.logging.results.count': '{n} 条',
   'pages.logging.results.empty': '无匹配的日志条目',

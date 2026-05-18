@@ -89,6 +89,12 @@ const LoggingPage: React.FC = () => {
     preset: '1h',
   });
   const [limit, setLimit] = useState(200);
+  // Histogram is collapsed by default — most log searches start by
+  // scanning the results list, not the volume curve. Toggle in the
+  // Card title opens it on demand. Total count stays visible in the
+  // title regardless so the "M results in window" signal is always
+  // there.
+  const [showHistogram, setShowHistogram] = useState(false);
 
   // Structured pickers — convenience layer that auto-builds a LogsQL
   // stream selector and back-fills it into the input. The input
@@ -288,12 +294,12 @@ const LoggingPage: React.FC = () => {
         height: 'calc(100vh - 56px)',
         display: 'flex',
         flexDirection: 'column',
-        padding: 24,
-        gap: 16,
+        padding: 12,
+        gap: 8,
         overflow: 'hidden',
       }}
     >
-      <Space direction="vertical" size={16} style={{ width: '100%', flexShrink: 0 }}>
+      <Space direction="vertical" size={8} style={{ width: '100%', flexShrink: 0 }}>
         {/* Query bar */}
         <Card size="small" styles={{ body: { padding: 16 } }}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -412,7 +418,10 @@ const LoggingPage: React.FC = () => {
           </Space>
         </Card>
 
-        {/* Histogram */}
+        {/* Histogram — collapsed by default. Title row stays visible
+            (showing the total-matches count) so the user can see at a
+            glance that the query did hit something even without
+            opening the chart. */}
         {submitted && (
           <Card
             size="small"
@@ -431,22 +440,37 @@ const LoggingPage: React.FC = () => {
                 )}
               </Space>
             }
-            styles={{ body: { padding: 12 } }}
-          >
-            <Spin spinning={histo.loading}>
-              <Suspense
-                fallback={
-                  <div style={{ textAlign: 'center', padding: 32 }}>
-                    <Spin />
-                  </div>
-                }
+            extra={
+              <Button
+                type="link"
+                size="small"
+                onClick={() => setShowHistogram((v) => !v)}
               >
-                <LoggingHistogram
-                  points={histo.data?.points ?? []}
-                  dark={isDarkMode}
-                />
-              </Suspense>
-            </Spin>
+                {intl.formatMessage({
+                  id: showHistogram
+                    ? 'pages.logging.histogram.hide'
+                    : 'pages.logging.histogram.show',
+                })}
+              </Button>
+            }
+            styles={{ body: { padding: showHistogram ? 8 : 0 } }}
+          >
+            {showHistogram && (
+              <Spin spinning={histo.loading}>
+                <Suspense
+                  fallback={
+                    <div style={{ textAlign: 'center', padding: 16 }}>
+                      <Spin />
+                    </div>
+                  }
+                >
+                  <LoggingHistogram
+                    points={histo.data?.points ?? []}
+                    dark={isDarkMode}
+                  />
+                </Suspense>
+              </Spin>
+            )}
           </Card>
         )}
 
