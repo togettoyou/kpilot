@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/google/uuid"
@@ -94,6 +95,14 @@ func newRxAccumulators() *rxAccumulators {
 
 func (r *rxAccumulators) open(requestID string, kind rxKind, start any) {
 	r.mu.Lock()
+	if _, exists := r.tab[requestID]; exists {
+		// Should be impossible — server generates a fresh UUID for each
+		// outbound request. A collision means either uuid pkg broke or
+		// worker is sending duplicate Start frames; either way the prior
+		// accumulator (and any chunks already received for it) gets
+		// orphaned. Log so we notice if it ever happens in practice.
+		log.Printf("[gateway] chunked accumulator collision (overwriting prior): request=%s kind=%d", requestID, kind)
+	}
 	r.tab[requestID] = &rxAccumulator{kind: kind, start: start}
 	r.mu.Unlock()
 }
@@ -223,19 +232,21 @@ func sendChunkedPluginCommand(ctx context.Context, w *ConnectedWorker, cmd *plug
 
 // serverSendBodyChunks splits body into ≤chunkSize-byte BodyChunk frames
 // and enqueues them on the slow lane in order. Empty body emits no
-// chunks.
+// chunks. Slices share storage with `body` — all callers pass fresh
+// allocations (io.ReadAll of request body, store.GetPluginBlobByID
+// output) that aren't mutated downstream, so the references stay valid
+// until the sender drains them. Saves ~body-size bytes per send (50 MiB
+// for a chart blob).
 func serverSendBodyChunks(ctx context.Context, w *ConnectedWorker, requestID string, body []byte) error {
 	for offset := 0; offset < len(body); offset += chunkSize {
 		end := offset + chunkSize
 		if end > len(body) {
 			end = len(body)
 		}
-		buf := make([]byte, end-offset)
-		copy(buf, body[offset:end])
 		if err := w.sender.sendSlow(ctx, &proto.ServerMessage{
 			RequestId: requestID,
 			Payload: &proto.ServerMessage_BodyChunk{
-				BodyChunk: &proto.BodyChunk{Data: buf},
+				BodyChunk: &proto.BodyChunk{Data: body[offset:end]},
 			},
 		}); err != nil {
 			return err

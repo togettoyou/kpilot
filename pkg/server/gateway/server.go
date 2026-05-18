@@ -184,6 +184,19 @@ func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
 
 	recvErr := make(chan error, 1)
 	go func() {
+		defer func() {
+			// A panic in handleWorkerMessage (proto type assertion, map
+			// access, etc.) would otherwise crash the entire gateway
+			// process and take every other cluster's connection with it.
+			// Recover into a synthetic disconnect for THIS worker only.
+			if r := recover(); r != nil {
+				log.Printf("[gateway] recv panic, dropping worker: cluster=%s panic=%v", worker.ClusterID, r)
+				select {
+				case recvErr <- fmt.Errorf("recv panic: %v", r):
+				default:
+				}
+			}
+		}()
 		for {
 			m, err := stream.Recv()
 			if err != nil {

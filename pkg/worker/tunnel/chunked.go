@@ -228,20 +228,21 @@ func (c *Client) sendChunkedResourceResponse(
 
 // sendBodyChunks splits body into ≤chunkSize-byte BodyChunk frames and
 // enqueues them on the slow lane in order. Empty body emits no chunks.
+// Slices share storage with `body` — all callers pass fresh allocations
+// (io.ReadAll / json.Marshal output) that aren't mutated downstream, so
+// the slice references stay valid until the sender drains them. Avoids
+// duplicating ~response-size bytes per send (significant for chart
+// blobs and large list-full payloads).
 func sendBodyChunks(ctx context.Context, sender *prioritySender, requestID string, body []byte) error {
 	for offset := 0; offset < len(body); offset += chunkSize {
 		end := offset + chunkSize
 		if end > len(body) {
 			end = len(body)
 		}
-		// Copy the slice — the prioritySender's queue may outlive the caller's
-		// reference (e.g., a JSON marshal buffer reused after Send returns).
-		buf := make([]byte, end-offset)
-		copy(buf, body[offset:end])
 		if err := sender.sendSlow(ctx, &proto.WorkerMessage{
 			RequestId: requestID,
 			Payload: &proto.WorkerMessage_BodyChunk{
-				BodyChunk: &proto.BodyChunk{Data: buf},
+				BodyChunk: &proto.BodyChunk{Data: body[offset:end]},
 			},
 		}); err != nil {
 			return err

@@ -346,7 +346,7 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 }
 
-func (c *Client) connect(ctx context.Context, onConnected func()) error {
+func (c *Client) connect(ctx context.Context, onConnected func()) (retErr error) {
 	target, transportCreds, err := resolveServerAddr(c.serverAddr)
 	if err != nil {
 		return err
@@ -444,6 +444,17 @@ func (c *Client) connect(ctx context.Context, onConnected func()) error {
 
 	go c.heartbeat(streamCtx)
 
+	// Recover from handler panics so a malformed server frame can't
+	// crash the entire worker process. Sets retErr (named return) so
+	// the outer Run loop reconnects with backoff rather than tight-
+	// looping on a deterministic panic.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[tunnel] recv panic, reconnecting: panic=%v", r)
+			retErr = fmt.Errorf("recv panic: %v", r)
+		}
+	}()
+
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
@@ -539,8 +550,17 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 
 // dispatchAssembled hands a fully-assembled chunked request to its
 // registered handler. Runs each handler in a fresh goroutine so the
-// recv-dispatch loop never blocks.
+// recv-dispatch loop never blocks. When BodyEnd carried an error
+// (asm.failed non-empty), the body is potentially incomplete — drop
+// the request rather than executing it with partial data. Currently
+// the server never sets BodyEnd.error, but this guards a future
+// streaming-from-Reader path.
 func (c *Client) dispatchAssembled(requestID string, asm *inboundAssembler) {
+	if asm.failed != "" {
+		log.Printf("[tunnel] dropping chunked request with body error: request=%s kind=%d err=%s",
+			requestID, asm.kind, asm.failed)
+		return
+	}
 	switch asm.kind {
 	case kindHTTP:
 		start := asm.start.(*proto.HTTPRequestStart)
