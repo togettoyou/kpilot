@@ -639,8 +639,15 @@ const LoggingPage: React.FC = () => {
             status="warning"
             title={intl.formatMessage({ id: 'pages.logging.error.title' })}
             subTitle={String(
-              (search.error as any)?.response?.data?.message ??
-                search.error.message,
+              // Three error shapes can reach here: SSE rejected payload
+              // ({code, message, status}), umi REST error wrapping a
+              // JSON body ({response:{data:{message}}}), and a plain
+              // Error. Prefer the most specific available.
+              (search.error as { message?: string }).message ??
+                (search.error as {
+                  response?: { data?: { message?: string } };
+                })?.response?.data?.message ??
+                'unknown error',
             )}
           />
         )}

@@ -13,7 +13,7 @@ package volcano
 // Frontend pages that previously gated on `ClusterPlugin.phase ==
 // Running` (Scheduler, Overview's scheduler-config card) switch to
 // this so user-managed Volcano installs (kubectl apply, helm install
-// outside KPilot, sealos preinstall, etc.) work the same.
+// outside KPilot, vendor-preinstalled distros, etc.) work the same.
 type Status struct {
 	// Installed is true when the Volcano CRD set is present on the
 	// cluster — RESTMapping for `scheduling.volcano.sh/v1beta1 Queue`

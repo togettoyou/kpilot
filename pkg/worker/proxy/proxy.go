@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -99,20 +100,33 @@ func (p *Proxy) resourceClient(mapping *apimeta.RESTMapping, namespace string) (
 
 // New creates a Proxy. sendFn is called after each operation to return
 // the result to the Server (typically tunnelClient.SendResourceResponse).
+//
+// All K8s API clients on this Proxy use INDEPENDENT http.Transports
+// rather than going through client-go's global TLS transport cache.
+// Same rationale as `newIndependentAPIClient` in http.go (see the long
+// comment there): when worker is outside the cluster and any single
+// K8s call is doing heavy work — service-proxy streaming a multi-MB
+// log response, a long-running watch, an inefficient list-all — the
+// shared HTTP/2 connection's flow-control window or stream pool gets
+// monopolised and every other K8s op on the worker queues behind it.
+// Giving each client its own transport lets each go through its own
+// HTTP/2 connection so heavy operations don't starve light ones.
 func New(
 	cfg *rest.Config,
 	mapper apimeta.RESTMapper,
 	sendFn func(string, *ResourceResponse),
 ) (*Proxy, error) {
-	dyn, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("dynamic client: %w", err)
-	}
-	// rest.HTTPClientFor builds an *http.Client with the TLS/auth transport
-	// from the rest.Config (bearer token, client cert, CA, etc.).
-	httpClient, err := rest.HTTPClientFor(cfg)
+	httpClient, err := newIndependentAPIClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("http client: %w", err)
+	}
+	// dynamic.NewForConfigAndClient lets us inject our own *http.Client
+	// (with its own transport) so the dynamic resource interface also
+	// gets connection isolation. Without this, dynamic would call
+	// rest.HTTPClientFor(cfg) internally and re-use the cached transport.
+	dyn, err := dynamic.NewForConfigAndClient(cfg, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("dynamic client: %w", err)
 	}
 	// VGPUTracker builds a typed clientset off the same cfg. Failure
 	// here is treated as fatal because the tracker only depends on
@@ -157,6 +171,8 @@ func (p *Proxy) execute(ctx context.Context, req *tunnel.ResourceRequest) *Resou
 		return p.vgpuSnapshot(ctx)
 	case "volcano-status":
 		return p.volcanoStatus(ctx)
+	case "tunnel-bench":
+		return p.tunnelBench(req.Limit)
 	}
 
 	gvk := schema.GroupVersionKind{
@@ -465,4 +481,31 @@ func marshal(v interface{}) *ResourceResponse {
 func fail(msg string) *ResourceResponse {
 	log.Printf("[proxy] resource op failed: err=%v", msg)
 	return &ResourceResponse{Success: false, Error: msg}
+}
+
+// tunnelBenchMaxBytes caps the byte count an operator can request via
+// /debug/tunnel-bench. 100 MiB at 20 KB/s tops out at ~85 minutes — far
+// more than any reasonable diagnostic run needs, but the cap protects
+// the worker pod's memory if someone fat-fingers a query string.
+const tunnelBenchMaxBytes = 100 * 1024 * 1024
+
+// tunnelBench generates n uncompressible random bytes and returns them
+// as the response payload. The /debug/tunnel-bench endpoint times the
+// round-trip and reports the effective worker→server bandwidth — the
+// direction that bottlenecks under a cross-WAN deployment.
+//
+// crypto/rand is used (not math/rand) so the payload is genuinely
+// uncompressible: gRPC stream-level gzip is enabled on this transport,
+// and compressible test data would skew the measurement toward the
+// post-compression rate instead of the wire throughput operators
+// actually need to know.
+func (p *Proxy) tunnelBench(n int64) *ResourceResponse {
+	if n <= 0 || n > tunnelBenchMaxBytes {
+		return fail(fmt.Sprintf("invalid byte count: got=%d max=%d", n, tunnelBenchMaxBytes))
+	}
+	data := make([]byte, n)
+	if _, err := io.ReadFull(rand.Reader, data); err != nil {
+		return fail(fmt.Sprintf("rand fill: %v", err))
+	}
+	return &ResourceResponse{Success: true, Data: data}
 }

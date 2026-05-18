@@ -138,9 +138,10 @@ Scoped action 端点的安全模式：
 自绘 LogsQL 搜索 UI，**不嵌 Grafana**。硬依赖 `victoria-logs`；chart 自带 Vector DaemonSet 收集所有 Pod 日志，零额外插件。
 
 - **后端两条端点**（`pkg/server/api/handler/logs.go`）：
-  - `GET /logs/search?query=...&from=...&to=...&limit=...` —— 匹配的日志行（默认 200，cap 1000）
+  - `GET /logs/search?query=...&from=...&to=...&limit=...` —— 匹配的日志行（默认 200，cap 10000）
   - `GET /logs/histogram?query=...&from=...&to=...` —— 时间桶 count，桶宽 = `(to-from)/50` 自适应
   - **空 query**：后端默认转 `*`（=全部），与前端"留空 = 全部日志"一致；用户不用记得敲星号
+  - **响应是 SSE,不是 JSON**(`pkg/server/api/handler/sse.go` 共享 helper):headers 立即 flush + 25s 一次 `event: progress\ndata: {"elapsedMs": ...}` 心跳穿透 ingress idle timeout(Sealos/nginx-ingress 常见 ~60–300s 静默连接 RST,跨 WAN 大查询会撞)+ 终态 `event: result\ndata: {<原 JSON>}` 或 `event: error\ndata: {code,message,status}`。前端 `services/kpilot/logs.ts` 用 EventSource 包成 Promise,`isResourceNotAvailable` 同时识别 REST 和 SSE 两种错误形状
 - **VL 未启用 / install 探测**：mount 时跑一个 60s 窗口的小直方图探测 RESOURCE_NOT_AVAILABLE，命中就走 `<NotInstalled>`，用户不用先敲 query 才知道未启用
 - **页面布局**（`pages/ClusterDetail/Logging/index.tsx`）：
   - **顶部 LogsQL 输入框**：留空 = 全部，placeholder 给示例。按 Enter 或点搜索触发

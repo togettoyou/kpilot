@@ -10,6 +10,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	// Blank import registers the gzip codec on the global codec registry.
+	// The Connect handler enables it per-stream via SetSendCompressor so
+	// server→worker frames are also compressed (worker→server is handled
+	// by the worker's UseCompressor call option).
+	_ "google.golang.org/grpc/encoding/gzip"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/store"
@@ -88,6 +94,15 @@ func NewGatewayServer() *GatewayServer {
 }
 
 func (g *GatewayServer) Connect(stream proto.PilotService_ConnectServer) error {
+	// Enable gzip on server→worker frames for this stream. Worker side
+	// uses grpc.UseCompressor("gzip") as a call option so its outbound
+	// is already compressed; this covers the reverse direction (chart
+	// blobs, large apply YAML bodies, etc.). Failure is non-fatal —
+	// stream just runs uncompressed if codec isn't registered.
+	if err := grpc.SetSendCompressor(stream.Context(), "gzip"); err != nil {
+		log.Printf("[gateway] enable send compressor failed: err=%v", err)
+	}
+
 	// 第一条消息必须是 Register
 	msg, err := stream.Recv()
 	if err != nil {

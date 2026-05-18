@@ -209,8 +209,8 @@ export default function VolcanoSchedulerPage() {
 
   // Cluster-side detection: works whether Volcano was installed via
   // KPilot's plugin registry, kubectl apply, helm install outside
-  // KPilot, sealos preinstall, etc. — the worker probes the Queue
-  // CRD + locates volcano-scheduler-configmap by fieldSelector.
+  // KPilot, vendor-preinstalled distros, etc. — the worker probes the
+  // Queue CRD + locates volcano-scheduler-configmap by fieldSelector.
   const status = useClusterRequest(
     () => getVolcanoStatus(clusterId!),
     [clusterId],

@@ -134,7 +134,7 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// + scheduler ConfigMap) so the frontend doesn't need to
 		// gate on KPilot's plugin registry. Works for any install
 		// path: KPilot plugin, kubectl apply, helm install outside
-		// KPilot, sealos preinstall, etc.
+		// KPilot, vendor-preinstalled distros, etc.
 		clusters.GET("/:id/volcano/status", handler.GetVolcanoStatus(gw))
 
 		// Device health aggregator — reads DCGM XID / ECC / temp / FB
@@ -196,6 +196,13 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// in the single-tenant model). Returns JSON; not Prometheus text
 		// format — this is a debug surface for the human operator.
 		protected.GET("/metrics", handler.GetMetrics(gw))
+
+		// Tunnel bandwidth diagnostic — fires a one-shot N-byte echo
+		// from worker→server and reports the effective throughput.
+		// Use after onboarding a cross-region worker to set realistic
+		// expectations for the cluster's logs/search default `limit`
+		// and the monitoring page's poll budgets.
+		clusters.GET("/:id/debug/tunnel-bench", handler.TunnelBench(gw))
 
 		// Global plugin registry
 		plugins := protected.Group("/plugins")

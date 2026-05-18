@@ -19,6 +19,16 @@ KPilot is a control plane for running GPU workloads on Kubernetes. Cluster opera
 
 Multi-cluster is the default — a single KPilot Server manages many clusters, with the in-cluster agent dialing back over gRPC. No inbound ports on the cluster side, no shared kubeconfigs, no per-cloud divergence.
 
+## Why KPilot
+
+- **One reverse-connecting gRPC stream per cluster.** Worker dials Server outbound; no inbound ports on the cluster, no kubeconfig leaves it. The same stream multiplexes K8s API proxying, Helm chart blobs, Pod logs / exec, and HTTP / WebSocket reverse-proxy for embedded UIs (Grafana, VictoriaMetrics).
+
+- **Chunked transport, gzip-compressed, fair-queued.** Large payloads (chart .tgz, describe output, log tail) are sliced into ≤256 KiB frames and gzip-compressed at the gRPC stream level (5–8× shrink on JSON). The per-stream sender drains a Heartbeat fast lane first, then round-robin schedules across per-request sub-queues, so a 20 MiB log response can't head-of-line block a concurrent `/workloads/nodes` call. Liveness rides on HTTP/2 keepalive PINGs, decoupled from application heartbeats.
+
+- **Deep Volcano integration.** 10 CR browsers, 7 typed authoring forms, and a visual scheduler-policy editor covering every Volcano action / tier / plugin parameter. vGPU slices are parsed from device-plugin annotations and rendered card-by-card with the Pods currently holding them.
+
+- **In-app dashboards, Grafana for ad-hoc work.** Cluster / GPU monitoring, log search (virtualized list + histogram), queue-quota bars, and vGPU panels render in-app against VictoriaMetrics / VictoriaLogs / DCGM directly. Grafana stays one route away for ad-hoc PromQL.
+
 ## Architecture
 
 <p align="center">

@@ -15,6 +15,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	// Blank import registers the gzip codec on the global codec registry
+	// (init() in the package). Required so the worker can advertise
+	// `grpc-encoding: gzip` on outbound Sends and the server can decode it.
+	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
@@ -366,6 +370,12 @@ func (c *Client) connect(ctx context.Context, onConnected func()) (retErr error)
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxGRPCMessageSize),
 			grpc.MaxCallSendMsgSize(maxGRPCMessageSize),
+			// gzip every outbound message on this stream. Body chunks are
+			// 256 KiB JSON / unstructured payloads with 5–8× compressibility
+			// — critical for cross-WAN deployments where the worker→server
+			// upstream can run at <50 KB/s. CPU cost on the worker is
+			// negligible relative to network savings.
+			grpc.UseCompressor("gzip"),
 		),
 	)
 	if err != nil {

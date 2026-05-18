@@ -13,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/transport"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
@@ -132,30 +134,91 @@ func NewHTTPProxy(
 		k8sCfg:      k8sCfg,
 		router:      router,
 	}
-	// Pre-build the apiserver-bound client once. rest.HTTPClientFor
-	// wraps the underlying transport with bearer-token auth + TLS
-	// using the same rest.Config that the rest of client-go uses, so
-	// SA token rotation works transparently (NewCachedFileTokenSource
-	// re-reads BearerTokenFile every 5 min). If config parsing fails
-	// we log + leave apiClient nil; doInClusterService will then skip
-	// the fallback and return the direct-dial error to the caller.
+	// Pre-build the apiserver-bound client once. We DON'T use
+	// `rest.HTTPClientFor(k8sCfg)` here because client-go caches its
+	// HTTP transport globally by config hash — every K8s call in the
+	// worker (p.httpClient for Table API, p.dyn for dynamic ops, plus
+	// this apiClient if it shared) would end up multiplexing on a
+	// SINGLE HTTP/2 connection to the API server.
+	//
+	// That's catastrophic when the worker is outside the cluster
+	// (kubeconfig / dev mode) and direct-dial to `*.svc.*` fails so
+	// service-proxy fallback kicks in: a multi-MB VL log query streams
+	// back through the apiserver service-proxy on this connection,
+	// saturates the HTTP/2 connection-level flow-control window, and
+	// every concurrent direct K8s op (list nodes, list namespaces …)
+	// stalls until the streaming request finishes consuming the
+	// window. Result: nodes-during-logs appears serialised, even
+	// though the gRPC tunnel itself is fairly scheduled and the K8s
+	// API server has plenty of headroom.
+	//
+	// Build a fresh `*http.Transport` so this client gets its own
+	// connection pool, then wrap with HTTPWrappersForConfig so
+	// bearer-token auth + caching token sources still work (SA token
+	// rotation continues to function transparently).
 	if k8sCfg != nil {
 		hostURL, err := url.Parse(k8sCfg.Host)
 		if err != nil {
 			log.Printf("[http-proxy] parse api host failed (service-proxy fallback disabled): host=%s err=%v", k8sCfg.Host, err)
-		} else if cli, err := rest.HTTPClientFor(k8sCfg); err != nil {
+		} else if cli, err := newIndependentAPIClient(k8sCfg); err != nil {
 			log.Printf("[http-proxy] build api http client failed (service-proxy fallback disabled): err=%v", err)
 		} else {
-			// Per-request ctx already enforces 60 s; the client itself
-			// shouldn't add an extra timeout (it would shadow the ctx
-			// cancel signal the tunnel uses to interrupt in-flight
-			// requests on disconnect).
-			cli.Timeout = 5 * time.Minute
 			p.apiClient = cli
 			p.apiHost = hostURL
 		}
 	}
 	return p
+}
+
+// newIndependentAPIClient builds an `*http.Client` aimed at the K8s
+// API server using a freshly-constructed `*http.Transport` — i.e. NOT
+// the one client-go would hand back from its global TLS transport
+// cache. See the long-form rationale at the only call site
+// (NewHTTPProxy) for why this matters.
+//
+// Replays the relevant bits of `transport.New`:
+//   1. Build the TLS config from the rest.Config (CA, client certs,
+//      InsecureSkipVerify, ServerName).
+//   2. Construct a stock `*http.Transport` with our own dial + pool
+//      settings, run it through `utilnet.SetTransportDefaults` to pick
+//      up the same HTTP/2 configuration client-go applies (read idle
+//      timeout, ping timeout, allow-http2, etc.). This is what gets a
+//      fresh, unique HTTP/2 connection on first use.
+//   3. Wrap with `transport.HTTPWrappersForConfig` so bearer-token /
+//      cert callback authentication continues to apply per request,
+//      with the same caching semantics client-go uses (token file
+//      reloads, exec plugin invocations, …).
+func newIndependentAPIClient(k8sCfg *rest.Config) (*http.Client, error) {
+	transportCfg, err := k8sCfg.TransportConfig()
+	if err != nil {
+		return nil, fmt.Errorf("build transport config: %w", err)
+	}
+	tlsCfg, err := transport.TLSConfigFor(transportCfg)
+	if err != nil {
+		return nil, fmt.Errorf("build tls config: %w", err)
+	}
+	base := utilnet.SetTransportDefaults(&http.Transport{
+		TLSClientConfig: tlsCfg,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+	})
+	rt, err := transport.HTTPWrappersForConfig(transportCfg, base)
+	if err != nil {
+		return nil, fmt.Errorf("wrap auth: %w", err)
+	}
+	return &http.Client{
+		Transport: rt,
+		// Aligns with the server-side proxyTimeout — a slow Grafana
+		// render or large VL search can complete instead of timing out
+		// at the worker first. Per-request ctx already enforces a
+		// shorter budget where appropriate.
+		Timeout: 5 * time.Minute,
+	}, nil
 }
 
 // hopByHopHeaders are the connection-control headers we must NOT forward.

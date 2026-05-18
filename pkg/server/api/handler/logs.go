@@ -85,6 +85,21 @@ func parseTimeWindow(c *gin.Context) (from, to time.Time, limit int, ok bool) {
 }
 
 // GetLogsSearch serves /api/v1/clusters/:id/logs/search?query=…&from=…&to=…&limit=…
+//
+// Response is Server-Sent Events (text/event-stream), NOT JSON. The
+// frontend opens it with EventSource and listens for three events:
+//
+//   progress  — heartbeat every ~25 s while the query is in flight,
+//               payload {"elapsedMs": <ms since handler start>}
+//   result    — terminal success event, payload = logSearchResponse
+//   error     — terminal failure event, payload {code, message, status}
+//
+// Why SSE instead of JSON: this query can legitimately take several
+// minutes on a cross-WAN tunnel; many managed HTTPS ingresses RST
+// connections that send no bytes for ~60–300 s, which trips before
+// our own 5 min vmlogsTimeout and surfaces as http=000 with no error
+// body. SSE keeps the connection live with the progress events so
+// the ingress sees activity.
 func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
@@ -96,22 +111,34 @@ func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 			// own catch-all syntax.
 			query = "*"
 		}
+		// parseTimeWindow writes a regular 4xx and returns ok=false on
+		// validation failure — we let that go out as a plain non-SSE
+		// 400 because EventSource's initial response status is the
+		// signal the browser uses; sending an SSE error event over a
+		// 200 OK would hide the request being malformed.
 		from, to, limit, ok := parseTimeWindow(c)
 		if !ok {
 			return
 		}
 
+		sse := startSSE(c)
+		if sse == nil {
+			return
+		}
+		stopKeepalive := sse.startKeepalive()
+		defer stopKeepalive()
+
 		vlURL, code, err := resolveVMLogsURL(gw, clusterID)
 		if err != nil {
 			if code != "" {
 				if code == CodePluginNotFound || code == CodePluginNotEnabled || code == CodePluginNotRunning {
-					apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+					sse.sendError(CodeResourceNotAvailable, "", http.StatusNotFound)
 					return
 				}
-				apiErr(c, http.StatusServiceUnavailable, code)
+				sse.sendError(code, "", http.StatusServiceUnavailable)
 				return
 			}
-			apiErrInternal(c, err)
+			sse.sendInternalError(err)
 			return
 		}
 
@@ -119,10 +146,10 @@ func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 		defer cancel()
 		lines, err := queryVMLogs(ctx, gw, clusterID, vlURL, query, from, to, limit)
 		if err != nil {
-			apiErrInternal(c, err)
+			sse.sendInternalError(err)
 			return
 		}
-		c.JSON(http.StatusOK, logSearchResponse{
+		_ = sse.send("result", logSearchResponse{
 			Query:       query,
 			From:        from.UTC().Format(time.RFC3339),
 			To:          to.UTC().Format(time.RFC3339),
@@ -161,6 +188,11 @@ func histogramStep(d time.Duration) time.Duration {
 }
 
 // GetLogsHistogram serves /api/v1/clusters/:id/logs/histogram?…
+//
+// Same SSE protocol as GetLogsSearch — see that handler's doc comment.
+// Histogram responses are smaller than search results (only bucket
+// counts, not log lines), but we mirror the SSE shape so the frontend
+// has a single code path for both endpoints.
 func GetLogsHistogram(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
@@ -173,17 +205,24 @@ func GetLogsHistogram(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
+		sse := startSSE(c)
+		if sse == nil {
+			return
+		}
+		stopKeepalive := sse.startKeepalive()
+		defer stopKeepalive()
+
 		vlURL, code, err := resolveVMLogsURL(gw, clusterID)
 		if err != nil {
 			if code != "" {
 				if code == CodePluginNotFound || code == CodePluginNotEnabled || code == CodePluginNotRunning {
-					apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+					sse.sendError(CodeResourceNotAvailable, "", http.StatusNotFound)
 					return
 				}
-				apiErr(c, http.StatusServiceUnavailable, code)
+				sse.sendError(code, "", http.StatusServiceUnavailable)
 				return
 			}
-			apiErrInternal(c, err)
+			sse.sendInternalError(err)
 			return
 		}
 
@@ -192,14 +231,14 @@ func GetLogsHistogram(gw *gateway.GatewayServer) gin.HandlerFunc {
 		step := histogramStep(to.Sub(from))
 		points, err := queryVMLogsHistogram(ctx, gw, clusterID, vlURL, query, from, to, step)
 		if err != nil {
-			apiErrInternal(c, err)
+			sse.sendInternalError(err)
 			return
 		}
 		var total int64
 		for _, p := range points {
 			total += p.Count
 		}
-		c.JSON(http.StatusOK, logsHistogramResponse{
+		_ = sse.send("result", logsHistogramResponse{
 			Query:       query,
 			From:        from.UTC().Format(time.RFC3339),
 			To:          to.UTC().Format(time.RFC3339),

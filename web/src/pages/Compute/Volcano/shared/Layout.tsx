@@ -160,11 +160,17 @@ export function formatAge(creationTimestamp?: string, placeholder = ''): string 
 // isResourceNotAvailable detects the RESOURCE_NOT_AVAILABLE 404 the
 // volcano list endpoints return when the corresponding CRD isn't
 // installed. Used by every page to swap to <NotInstalled />.
+//
+// Two error shapes flow through here:
+//   - REST (umi `request`)  → `error.response.data.code`
+//   - SSE (services/kpilot/logs.ts) → `error.code` directly
+// Both produce the same string code; check whichever is present.
 export function isResourceNotAvailable(error: unknown): boolean {
-  return (
-    (error as { response?: { data?: { code?: string } } } | undefined)
-      ?.response?.data?.code === 'RESOURCE_NOT_AVAILABLE'
-  );
+  const e = error as
+    | { code?: string; response?: { data?: { code?: string } } }
+    | undefined;
+  const code = e?.response?.data?.code ?? e?.code;
+  return code === 'RESOURCE_NOT_AVAILABLE';
 }
 
 // useStaggeredRefresh returns a fire(delaysMs) helper that schedules a
