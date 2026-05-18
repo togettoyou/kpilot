@@ -92,6 +92,12 @@ const TimeRangePicker: React.FC<Props> = ({
       <RangePicker
         size={size}
         showTime
+        // allowClear={false} hides the X button. Without this, clicking X
+        // on a custom range fires onChange(null) — we ignore it, but the
+        // controlled `value` prop re-renders the old range next frame,
+        // making the picker feel broken. Users switch modes by clicking
+        // a preset button instead.
+        allowClear={false}
         value={pickerValue}
         // Disable future dates and anything older than maxDays — the
         // server rejects > 31 days anyway, but blocking it here gives

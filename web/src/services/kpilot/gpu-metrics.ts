@@ -5,7 +5,12 @@ import { buildRangeQuery } from '@/components/TimeRangePicker';
 
 // Mirrors pkg/server/api/handler/gpu_metrics.go::gpuMetricsResponse.
 
+// GPUMetricsRange names the four preset windows the picker exposes.
+// Kept for compatibility, but the response's `range` field can also
+// be a "custom:from:to" string — see ResponseRange.
 export type GPUMetricsRange = '1h' | '24h' | '7d' | '30d';
+
+export type ResponseRange = GPUMetricsRange | string;
 
 // Metric IDs the server emits in `series`. Adding a new metric is a
 // server-driven contract change; treat unknown keys as ignorable on
@@ -46,7 +51,7 @@ export interface GPUMetricsSnapshot {
 }
 
 export interface GPUMetricsResponse {
-  range: GPUMetricsRange;
+  range: ResponseRange;
   from: string;
   to: string;
   generatedAt: string;

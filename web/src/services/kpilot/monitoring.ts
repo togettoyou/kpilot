@@ -8,7 +8,15 @@ import { buildRangeQuery } from '@/components/TimeRangePicker';
 // pod); each accepts the shared TimeRangeValue (preset OR custom
 // from/to) and translates to the matching URL form.
 
+// MetricsRange names the four preset windows the picker exposes. Kept
+// for compatibility with any callers that want a preset literal, but
+// the response's `range` field can also be a "custom:from:to" string
+// (when the user picks an absolute range) — see ResponseRange.
 export type MetricsRange = '1h' | '24h' | '7d' | '30d';
+
+// ResponseRange is what the backend echoes back. Either one of the
+// MetricsRange presets or "custom:<from>:<to>" verbatim.
+export type ResponseRange = MetricsRange | string;
 
 // rangeQS returns the URL query string fragment for the given range —
 // just delegates to the shared helper but keeps the service file
@@ -45,7 +53,7 @@ export interface ClusterMetricsSeries {
 }
 
 export interface ClusterMetricsResponse {
-  range: MetricsRange;
+  range: ResponseRange;
   from: string;
   to: string;
   generatedAt: string;
@@ -68,7 +76,7 @@ export interface NodeMetricSeries {
 }
 
 export interface NodeMetricsResponse {
-  range: MetricsRange;
+  range: ResponseRange;
   from: string;
   to: string;
   generatedAt: string;
@@ -91,7 +99,7 @@ export interface PodMetricSeries {
 }
 
 export interface PodMetricsResponse {
-  range: MetricsRange;
+  range: ResponseRange;
   from: string;
   to: string;
   generatedAt: string;
