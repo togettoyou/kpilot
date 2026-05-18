@@ -8,11 +8,30 @@ import (
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 )
 
-// chunkSize bounds a single BodyChunk's data field. Picked to keep each
-// stream.Send call short on the wire (~one HTTP/2 flow-control round-trip
-// at default window sizes) so the sender's loop releases between chunks
-// and high-priority frames (Heartbeat) can interleave.
-const chunkSize = 256 * 1024
+// chunkSize bounds a single BodyChunk's data field. Two competing
+// concerns shape this:
+//
+//   - Larger chunks amortise per-frame gRPC envelope overhead (~50
+//     bytes of protobuf + HTTP/2 framing) and let gzip compress with
+//     a fuller dictionary, so the wire is more efficient byte-for-
+//     byte.
+//   - Smaller chunks cap the wire time of a single "turn" in the
+//     fair-scheduling round-robin. Under cross-WAN bandwidth (~60
+//     KB/s observed against managed-ingress endpoints), a 256 KiB
+//     chunk takes ~4 s to traverse the wire, which means a small
+//     concurrent request waiting for its next round-robin slot has
+//     to wait that long per remaining interleaved chunk it needs to
+//     compete with. Dropping to 64 KiB cuts that per-slot wait to
+//     ~1 s — the difference between "feels frozen for several
+//     seconds" and "feels responsive" under a heavy concurrent log
+//     query.
+//
+// The 4× more frames cost an extra ~1% in wire bytes (overhead is
+// negligible relative to body bytes), modestly more CPU for framing
+// and scheduling, and gzip compresses slightly less tightly per
+// frame (~5–10% efficiency hit on highly redundant JSON). All worth
+// it for the latency win on slow links.
+const chunkSize = 64 * 1024
 
 // fastLaneBuf sizes the Heartbeat-only fast lane. One Heartbeat per
 // 10 s; a 16-slot buffer absorbs unlikely transient stalls.

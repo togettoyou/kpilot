@@ -9,8 +9,11 @@ import (
 )
 
 // chunkSize bounds a single BodyChunk's data field. Mirrors the worker
-// side; see pkg/worker/tunnel/sender.go for rationale.
-const chunkSize = 256 * 1024
+// side; see pkg/worker/tunnel/sender.go for the latency-vs-overhead
+// rationale (64 KiB caps a single round-robin "turn" at ~1 s on a
+// ~60 KB/s cross-WAN wire, keeping small concurrent requests
+// responsive while a large response streams).
+const chunkSize = 64 * 1024
 
 // fastLaneBuf is sized for control frames the server might emit out-
 // of-band. Server has no Heartbeat to send today, but the lane exists
