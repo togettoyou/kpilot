@@ -1,11 +1,21 @@
 import { request } from '@umijs/max';
 
+import type { TimeRangeValue } from '@/components/TimeRangePicker';
+import { buildRangeQuery } from '@/components/TimeRangePicker';
+
 // monitoring.ts — services for the cluster Monitoring page. Three
 // endpoints map to the three drill-down levels (cluster / node /
-// pod); each shares the same MetricsRange enum so the page can wire
-// one range picker to all three fetches.
+// pod); each accepts the shared TimeRangeValue (preset OR custom
+// from/to) and translates to the matching URL form.
 
 export type MetricsRange = '1h' | '24h' | '7d' | '30d';
+
+// rangeQS returns the URL query string fragment for the given range —
+// just delegates to the shared helper but keeps the service file
+// self-contained for readers tracing what shows up on the wire.
+function rangeQS(v: TimeRangeValue): string {
+  return buildRangeQuery(v);
+}
 
 export interface ClusterMetricsSnapshot {
   nodesReady: number;
@@ -44,10 +54,10 @@ export interface ClusterMetricsResponse {
   series: Record<string, ClusterMetricsSeries>;
 }
 
-export function getClusterMetrics(clusterId: string, range: MetricsRange) {
+export function getClusterMetrics(clusterId: string, range: TimeRangeValue) {
   return request<ClusterMetricsResponse>(
-    `/api/v1/clusters/${clusterId}/cluster-metrics`,
-    { method: 'GET', params: { range } },
+    `/api/v1/clusters/${clusterId}/cluster-metrics?${rangeQS(range)}`,
+    { method: 'GET' },
   );
 }
 
@@ -66,10 +76,10 @@ export interface NodeMetricsResponse {
   series: Record<string, NodeMetricSeries[]>;
 }
 
-export function getNodeMetrics(clusterId: string, range: MetricsRange) {
+export function getNodeMetrics(clusterId: string, range: TimeRangeValue) {
   return request<NodeMetricsResponse>(
-    `/api/v1/clusters/${clusterId}/node-metrics`,
-    { method: 'GET', params: { range } },
+    `/api/v1/clusters/${clusterId}/node-metrics?${rangeQS(range)}`,
+    { method: 'GET' },
   );
 }
 
@@ -119,15 +129,15 @@ export function getPodHealth(
 
 export function getPodMetrics(
   clusterId: string,
-  range: MetricsRange,
+  range: TimeRangeValue,
   namespace?: string,
   limit?: number,
 ) {
-  const params: Record<string, string | number> = { range };
+  const params: Record<string, string | number> = {};
   if (namespace) params.namespace = namespace;
   if (typeof limit === 'number' && limit > 0) params.limit = limit;
   return request<PodMetricsResponse>(
-    `/api/v1/clusters/${clusterId}/pod-metrics`,
+    `/api/v1/clusters/${clusterId}/pod-metrics?${rangeQS(range)}`,
     { method: 'GET', params },
   );
 }

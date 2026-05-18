@@ -25,6 +25,10 @@ import React, {
   useState,
 } from 'react';
 
+import TimeRangePicker, {
+  resolveTimeRange,
+  type TimeRangeValue,
+} from '@/components/TimeRangePicker';
 import {
   isResourceNotAvailable,
   NotInstalled,
@@ -41,13 +45,10 @@ import { listNamespaces, listWorkloads } from '@/services/kpilot/workload';
 // Heavy chart split off to keep the cluster-detail bundle lean.
 const LoggingHistogram = lazy(() => import('./LoggingHistogram'));
 
-const RANGE_PRESETS: Array<{ label: string; minutes: number }> = [
-  { label: '5m', minutes: 5 },
-  { label: '15m', minutes: 15 },
-  { label: '1h', minutes: 60 },
-  { label: '6h', minutes: 360 },
-  { label: '24h', minutes: 24 * 60 },
-];
+// 10000 is the server-side cap (parseTimeWindow in logs.go). VL itself
+// has no hard limit, but beyond 10k lines browser DOM rendering becomes
+// the bottleneck; if you really need more, narrow the search.
+const LIMIT_CAP = 10000;
 
 // /clusters/:id/logging — self-rendered search UI for VictoriaLogs.
 // Three pieces visible above the fold: the query bar (LogsQL string),
@@ -82,7 +83,10 @@ const LoggingPage: React.FC = () => {
   // hit Search and see all logs in the window. Removes the magic
   // asterisk users had to know to wipe before typing.
   const [query, setQuery] = useState('');
-  const [rangeMin, setRangeMin] = useState(60);
+  const [range, setRange] = useState<TimeRangeValue>({
+    mode: 'preset',
+    preset: '1h',
+  });
   const [limit, setLimit] = useState(200);
 
   // Structured pickers — convenience layer that auto-builds a LogsQL
@@ -100,7 +104,7 @@ const LoggingPage: React.FC = () => {
   // the query doesn't immediately reflow the chart underneath.
   const [submitted, setSubmitted] = useState<{
     query: string;
-    rangeMin: number;
+    range: TimeRangeValue;
     limit: number;
   } | null>(null);
 
@@ -122,10 +126,13 @@ const LoggingPage: React.FC = () => {
     // Empty input → ask for everything. Backend mirrors this default
     // so the server-side LogsQL parser sees `*` even on first load.
     const q = query.trim() || '*';
-    const nowMs = Date.now();
-    const to = new Date(nowMs).toISOString();
-    const from = new Date(nowMs - rangeMin * 60_000).toISOString();
-    setSubmitted({ query: q, rangeMin, limit });
+    // Resolve the range at click time so a preset like "1h" always
+    // anchors to the moment of the search, not when the picker last
+    // rendered.
+    const { from: fromDate, to: toDate } = resolveTimeRange(range);
+    const from = fromDate.toISOString();
+    const to = toDate.toISOString();
+    setSubmitted({ query: q, range, limit });
 
     setSearch({ data: null, error: null, loading: true });
     setHisto({ data: null, loading: true });
@@ -141,7 +148,7 @@ const LoggingPage: React.FC = () => {
         () => setHisto({ data: null, loading: false }),
       ),
     ]);
-  }, [clusterId, query, rangeMin, limit]);
+  }, [clusterId, query, range, limit]);
 
   // Fetch the namespace list once per cluster for the structured
   // picker. Same pattern as Monitoring page — local state, not the
@@ -351,18 +358,7 @@ const LoggingPage: React.FC = () => {
                 </Typography.Text>
               </Col>
               <Col>
-                <Space size={4} wrap>
-                  {RANGE_PRESETS.map((r) => (
-                    <Button
-                      key={r.minutes}
-                      size="small"
-                      type={rangeMin === r.minutes ? 'primary' : 'default'}
-                      onClick={() => setRangeMin(r.minutes)}
-                    >
-                      {r.label}
-                    </Button>
-                  ))}
-                </Space>
+                <TimeRangePicker value={range} onChange={setRange} />
               </Col>
               <Col flex="auto" />
               <Col>
@@ -372,11 +368,13 @@ const LoggingPage: React.FC = () => {
                   </Typography.Text>
                   <Input
                     size="small"
-                    style={{ width: 80 }}
+                    style={{ width: 96 }}
                     value={limit}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
-                      if (!Number.isNaN(v) && v > 0 && v <= 1000) setLimit(v);
+                      if (!Number.isNaN(v) && v > 0 && v <= LIMIT_CAP) {
+                        setLimit(v);
+                      }
                     }}
                   />
                   <Button

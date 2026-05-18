@@ -53,10 +53,8 @@ type podMetricsResponse struct {
 func GetPodMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
-		rangeKey := c.DefaultQuery("range", "1h")
-		spec, ok := clusterMetricsRanges[rangeKey]
+		tr, ok := resolveTimeRange(c, clusterMetricsRanges)
 		if !ok {
-			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
 		ns := c.Query("namespace")
@@ -70,7 +68,7 @@ func GetPodMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// Cache key includes namespace + limit so two different
 		// drill-downs don't share a body.
 		cacheKey := vmCacheKey("pod-metrics", clusterID,
-			fmt.Sprintf("%s|ns=%s|limit=%d", rangeKey, ns, limit))
+			fmt.Sprintf("%s|ns=%s|limit=%d", tr.cacheSuffix, ns, limit))
 		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
 			c.Data(http.StatusOK, "application/json", body)
 			return
@@ -92,8 +90,7 @@ func GetPodMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), vmTimeout)
 		defer cancel()
-		now := time.Now()
-		from := now.Add(-spec.duration)
+		from, to := tr.from, tr.to
 
 		// PromQL builds the namespace filter inline rather than via a
 		// label-replace pipeline — VM keeps cardinality bounded by the
@@ -174,7 +171,7 @@ func GetPodMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, now, spec.step)
+				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, to, tr.step)
 				if err != nil {
 					logSoftErr("pod-metrics", clusterID, q.key, err)
 					return
@@ -207,11 +204,11 @@ func GetPodMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		wg.Wait()
 
 		resp := podMetricsResponse{
-			Range:       rangeKey,
+			Range:       tr.cacheSuffix,
 			From:        from.UTC().Format(time.RFC3339),
-			To:          now.UTC().Format(time.RFC3339),
-			GeneratedAt: now.UTC().Format(time.RFC3339),
-			StepSeconds: int(spec.step.Seconds()),
+			To:          to.UTC().Format(time.RFC3339),
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+			StepSeconds: int(tr.step.Seconds()),
 			Namespace:   ns,
 			Series:      out,
 		}

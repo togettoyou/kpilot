@@ -41,8 +41,11 @@ type logSearchResponse struct {
 
 // parseTimeWindow extracts from / to / limit from the URL query.
 // from / to default to (now-1h, now). Limit defaults to 200, capped at
-// 1000 so a curl with limit=999999 can't drag huge payloads through
-// the gateway.
+// 10000 — VictoriaLogs itself has no hard upper bound on `limit`, but
+// beyond ~10k lines the browser DOM rendering becomes the bottleneck
+// and an investigator should narrow the search instead of paginating.
+// 10k × ~2 KiB/line keeps the chunked response in the single-digit MiB
+// range, which the worker tunnel handles in <1s.
 func parseTimeWindow(c *gin.Context) (from, to time.Time, limit int, ok bool) {
 	to = time.Now()
 	from = to.Add(-time.Hour)
@@ -71,7 +74,7 @@ func parseTimeWindow(c *gin.Context) (from, to time.Time, limit int, ok bool) {
 	limit = 200
 	if s := c.Query("limit"); s != "" {
 		v, err := strconv.Atoi(s)
-		if err != nil || v <= 0 || v > 1000 {
+		if err != nil || v <= 0 || v > 10000 {
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}

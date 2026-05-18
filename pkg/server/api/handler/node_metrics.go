@@ -50,14 +50,12 @@ type nodeMetricsResponse struct {
 func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
-		rangeKey := c.DefaultQuery("range", "1h")
-		spec, ok := clusterMetricsRanges[rangeKey]
+		tr, ok := resolveTimeRange(c, clusterMetricsRanges)
 		if !ok {
-			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
 
-		cacheKey := vmCacheKey("node-metrics", clusterID, rangeKey)
+		cacheKey := vmCacheKey("node-metrics", clusterID, tr.cacheSuffix)
 		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
 			c.Data(http.StatusOK, "application/json", body)
 			return
@@ -79,8 +77,7 @@ func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), vmTimeout)
 		defer cancel()
-		now := time.Now()
-		from := now.Add(-spec.duration)
+		from, to := tr.from, tr.to
 
 		// PromQL grouped by `instance`. CPU is averaged across modes
 		// per host; memory uses MemAvailable for the "used" delta.
@@ -138,7 +135,7 @@ func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, now, spec.step)
+				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, to, tr.step)
 				if err != nil {
 					logSoftErr("node-metrics", clusterID, q.key, err)
 					return
@@ -168,11 +165,11 @@ func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		wg.Wait()
 
 		resp := nodeMetricsResponse{
-			Range:       rangeKey,
+			Range:       tr.cacheSuffix,
 			From:        from.UTC().Format(time.RFC3339),
-			To:          now.UTC().Format(time.RFC3339),
-			GeneratedAt: now.UTC().Format(time.RFC3339),
-			StepSeconds: int(spec.step.Seconds()),
+			To:          to.UTC().Format(time.RFC3339),
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+			StepSeconds: int(tr.step.Seconds()),
 			Series:      out,
 		}
 		body, err := sharedVMResponseCache.Put(cacheKey, resp, 4*time.Second)

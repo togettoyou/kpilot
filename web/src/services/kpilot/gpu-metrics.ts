@@ -1,5 +1,8 @@
 import { request } from '@umijs/max';
 
+import type { TimeRangeValue } from '@/components/TimeRangePicker';
+import { buildRangeQuery } from '@/components/TimeRangePicker';
+
 // Mirrors pkg/server/api/handler/gpu_metrics.go::gpuMetricsResponse.
 
 export type GPUMetricsRange = '1h' | '24h' | '7d' | '30d';
@@ -52,9 +55,9 @@ export interface GPUMetricsResponse {
   series: Partial<Record<GPUMetricKey, GPUMetricSeries[]>>;
 }
 
-export function getGPUMetrics(clusterId: string, range: GPUMetricsRange) {
+export function getGPUMetrics(clusterId: string, range: TimeRangeValue) {
   return request<GPUMetricsResponse>(
-    `/api/v1/clusters/${clusterId}/gpu-metrics`,
-    { method: 'GET', params: { range } },
+    `/api/v1/clusters/${clusterId}/gpu-metrics?${buildRangeQuery(range)}`,
+    { method: 'GET' },
   );
 }

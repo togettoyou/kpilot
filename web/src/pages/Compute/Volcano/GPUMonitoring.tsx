@@ -6,7 +6,6 @@ import {
   Col,
   Empty,
   Progress,
-  Radio,
   Result,
   Row,
   Space,
@@ -18,10 +17,12 @@ import {
 import { useThemeMode } from 'antd-style';
 import React, { lazy, Suspense, useMemo, useState } from 'react';
 
+import TimeRangePicker, {
+  type TimeRangeValue,
+} from '@/components/TimeRangePicker';
 import {
   getGPUMetrics,
   type GPUMetricKey,
-  type GPUMetricsRange,
 } from '@/services/kpilot/gpu-metrics';
 
 import {
@@ -47,8 +48,6 @@ const MetricChartCard = lazy(() => import('./GPUMonitoringChart'));
 // Data: server pre-aggregates six DCGM range queries + a "current
 // snapshot" in /clusters/:id/gpu-metrics?range=…. The page slices the
 // response into one Line chart per metric plus four KPI gauges.
-
-const RANGES: GPUMetricsRange[] = ['1h', '24h', '7d', '30d'];
 
 // Metric definitions used to render the chart grid. `unitScale` is
 // applied at point construction time before charting (e.g. MiB → GiB,
@@ -90,7 +89,10 @@ const GPUMonitoringPage: React.FC = () => {
   const dark = appearance === 'dark';
   const { token } = theme.useToken();
 
-  const [range, setRange] = useState<GPUMetricsRange>('1h');
+  const [range, setRange] = useState<TimeRangeValue>({
+    mode: 'preset',
+    preset: '1h',
+  });
 
   const { data, loading, error, refresh } = useClusterRequest(
     () => getGPUMetrics(clusterId, range),
@@ -145,13 +147,7 @@ const GPUMonitoringPage: React.FC = () => {
                 flexWrap: 'wrap',
               }}
             >
-              <Radio.Group
-                value={range}
-                onChange={(e) => setRange(e.target.value)}
-                optionType="button"
-                buttonStyle="solid"
-                options={RANGES.map((r) => ({ label: r, value: r }))}
-              />
+              <TimeRangePicker value={range} onChange={setRange} />
               <RefreshControl
                 interval={interval}
                 setInterval={setInter}

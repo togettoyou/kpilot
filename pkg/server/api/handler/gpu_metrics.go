@@ -37,10 +37,7 @@ import (
 // step floor — line charts don't need as fine granularity as billing
 // integration. The 30d view especially benefits from coarser buckets
 // (otherwise the chart is mostly aliasing).
-var metricRangeSpec = map[string]struct {
-	duration time.Duration
-	step     time.Duration
-}{
+var metricRangeSpec = map[string]timeRangeSpec{
 	"1h":  {duration: time.Hour, step: 30 * time.Second},
 	"24h": {duration: 24 * time.Hour, step: 5 * time.Minute},
 	"7d":  {duration: 7 * 24 * time.Hour, step: 30 * time.Minute},
@@ -101,10 +98,8 @@ type gpuMetricsResponse struct {
 func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
-		rangeKey := c.DefaultQuery("range", "1h")
-		spec, ok := metricRangeSpec[rangeKey]
+		tr, ok := resolveTimeRange(c, metricRangeSpec)
 		if !ok {
-			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
 
@@ -113,7 +108,7 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// the same (cluster, range) tuple. The cache is keyed pre-
 		// resolveVMQueryURL so a hit also avoids the plugin lookup
 		// + worker tunnel hop entirely.
-		cacheKey := vmCacheKey("gpu-metrics", clusterID, rangeKey)
+		cacheKey := vmCacheKey("gpu-metrics", clusterID, tr.cacheSuffix)
 		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
 			c.Data(http.StatusOK, "application/json", body)
 			return
@@ -135,8 +130,7 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), vmTimeout)
 		defer cancel()
-		now := time.Now()
-		from := now.Add(-spec.duration)
+		from, to := tr.from, tr.to
 
 		// Each entry: result key + PromQL. The PromQL strings keep a
 		// stable label set (Hostname, gpu, UUID) because the frontend's
@@ -175,7 +169,7 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, now, spec.step)
+				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, to, tr.step)
 				if err != nil {
 					log.Printf("[gpu-metrics] VM range query failed: cluster=%s key=%s err=%v",
 						clusterID, q.key, err)
@@ -213,11 +207,11 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		snapshot := buildSnapshot(out)
 
 		resp := gpuMetricsResponse{
-			Range:       rangeKey,
+			Range:       tr.cacheSuffix,
 			From:        from.UTC().Format(time.RFC3339),
-			To:          now.UTC().Format(time.RFC3339),
-			GeneratedAt: now.UTC().Format(time.RFC3339),
-			StepSeconds: int(spec.step.Seconds()),
+			To:          to.UTC().Format(time.RFC3339),
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+			StepSeconds: int(tr.step.Seconds()),
 			Snapshot:    snapshot,
 			Series:      out,
 		}

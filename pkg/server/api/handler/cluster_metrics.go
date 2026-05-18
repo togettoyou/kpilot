@@ -36,12 +36,10 @@ func logSoftErr(handler, clusterID, key string, err error) {
 		handler, clusterID, key, err)
 }
 
-// clusterMetricsRanges are the windows the monitoring page picker
-// exposes. Same shape as the Compute pages so the UX is consistent.
-var clusterMetricsRanges = map[string]struct {
-	duration time.Duration
-	step     time.Duration
-}{
+// clusterMetricsRanges are the preset windows the monitoring page picker
+// exposes. Custom ranges (?from=&to=) bypass this table — see
+// resolveTimeRange in time_range.go.
+var clusterMetricsRanges = map[string]timeRangeSpec{
 	"1h":  {duration: time.Hour, step: 30 * time.Second},
 	"24h": {duration: 24 * time.Hour, step: 5 * time.Minute},
 	"7d":  {duration: 7 * 24 * time.Hour, step: 30 * time.Minute},
@@ -106,17 +104,15 @@ type clusterMetricsResponse struct {
 func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
-		rangeKey := c.DefaultQuery("range", "1h")
-		spec, ok := clusterMetricsRanges[rangeKey]
+		tr, ok := resolveTimeRange(c, clusterMetricsRanges)
 		if !ok {
-			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
 
 		// Reuse the shared 4s response cache that powers gpu-metrics —
 		// the underlying PromQL fan-out is the most expensive part of
 		// the page render and a typical UI poll interval is 5s.
-		cacheKey := vmCacheKey("cluster-metrics", clusterID, rangeKey)
+		cacheKey := vmCacheKey("cluster-metrics", clusterID, tr.cacheSuffix)
 		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
 			c.Data(http.StatusOK, "application/json", body)
 			return
@@ -138,8 +134,7 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), vmTimeout)
 		defer cancel()
-		now := time.Now()
-		from := now.Add(-spec.duration)
+		from, to := tr.from, tr.to
 
 		// Cluster-wide PromQL. CPU / memory expressions follow the
 		// canonical Prometheus community guides (avg over per-node
@@ -211,7 +206,7 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, now, spec.step)
+				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, to, tr.step)
 				if err != nil {
 					logSoftErr("cluster-metrics", clusterID, q.key, err)
 					return
@@ -274,11 +269,11 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 
 		resp := clusterMetricsResponse{
-			Range:       rangeKey,
+			Range:       tr.cacheSuffix,
 			From:        from.UTC().Format(time.RFC3339),
-			To:          now.UTC().Format(time.RFC3339),
-			GeneratedAt: now.UTC().Format(time.RFC3339),
-			StepSeconds: int(spec.step.Seconds()),
+			To:          to.UTC().Format(time.RFC3339),
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+			StepSeconds: int(tr.step.Seconds()),
 			Snapshot:    snap,
 			Series:      ranges,
 		}

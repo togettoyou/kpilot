@@ -5,7 +5,6 @@ import {
   Empty,
   Input,
   Progress,
-  Radio,
   Result,
   Row,
   Select,
@@ -19,13 +18,15 @@ import {
 import { useThemeMode } from 'antd-style';
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 
+import TimeRangePicker, {
+  type TimeRangeValue,
+} from '@/components/TimeRangePicker';
 import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   getClusterMetrics,
   getNodeMetrics,
   getPodHealth,
   getPodMetrics,
-  type MetricsRange,
   type NodeMetricSeries,
   type PodHealthRow,
   type PodMetricSeries,
@@ -43,8 +44,6 @@ import { usageColor } from '@/pages/Compute/Volcano/shared/utils';
 // pay for @ant-design/plots until this page is actually opened.
 const MultiSeriesChart = lazy(() => import('./MonitoringCharts'));
 
-const RANGES: MetricsRange[] = ['1h', '24h', '7d', '30d'];
-
 // /clusters/:id/monitoring — fully self-rendered, no Grafana iframe.
 // Three drill-down levels (cluster KPI / node trends / Pod top-N)
 // each pull from their own PromQL handler. Hard requirement is
@@ -56,7 +55,10 @@ const MonitoringPage: React.FC = () => {
   const { isDarkMode } = useThemeMode();
   const { token } = theme.useToken();
 
-  const [range, setRange] = useState<MetricsRange>('1h');
+  const [range, setRange] = useState<TimeRangeValue>({
+    mode: 'preset',
+    preset: '1h',
+  });
   // Pod-scope namespace picker — deliberately NOT wired to the global
   // namespace model used by Workloads. The monitoring view starts with
   // "all namespaces" every time so a returning operator gets the
@@ -257,12 +259,7 @@ const MonitoringPage: React.FC = () => {
               </Col>
               <Col>
                 <Space>
-                  <Radio.Group
-                    size="small"
-                    value={range}
-                    onChange={(e) => setRange(e.target.value)}
-                    options={RANGES.map((r) => ({ label: r, value: r }))}
-                  />
+                  <TimeRangePicker value={range} onChange={setRange} />
                   <RefreshControl
                     interval={interval}
                     setInterval={setIntervalMs}
