@@ -1,9 +1,10 @@
 apiVersion: v2
 name: kpilot
 description: |
-  Unified GPU + model platform for Kubernetes. Single chart can deploy
-  the KPilot Server (control plane), the KPilot Worker (in-cluster
-  agent), or both. The two are decoupled via the server.enabled and
+  Unified control plane for multi-cluster Kubernetes management, GPU
+  compute scheduling, and model serving. Single chart can deploy the
+  KPilot Server (control plane), the KPilot Worker (in-cluster agent),
+  or both. The two are decoupled via the server.enabled and
   worker.enabled toggles in values.yaml so an operator can install
   the server in one cluster and the worker in many others using the
   same chart.

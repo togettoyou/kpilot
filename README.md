@@ -1,6 +1,6 @@
 # KPilot
 
-**Unified GPU + model platform for Kubernetes.**
+**Unified control plane for multi-cluster Kubernetes management, GPU compute scheduling, and model serving.**
 
 [English](README.md) · [中文](README.zh-CN.md)
 
@@ -23,7 +23,7 @@ Multi-cluster is the default — a single KPilot Server manages many clusters, w
 
 - **One reverse-connecting gRPC stream per cluster.** Worker dials Server outbound; no inbound ports on the cluster, no kubeconfig leaves it. The same stream multiplexes K8s API proxying, Helm chart blobs, Pod logs / exec, and HTTP / WebSocket reverse-proxy for embedded UIs (Grafana, VictoriaMetrics).
 
-- **Chunked transport, gzip-compressed, fair-queued.** Large payloads (chart .tgz, describe output, log tail) are sliced into ≤256 KiB frames and gzip-compressed at the gRPC stream level (5–8× shrink on JSON). The per-stream sender drains a Heartbeat fast lane first, then round-robin schedules across per-request sub-queues, so a 20 MiB log response can't head-of-line block a concurrent `/workloads/nodes` call. Liveness rides on HTTP/2 keepalive PINGs, decoupled from application heartbeats.
+- **Chunked transport, gzip-compressed, fair-queued.** Large payloads (chart .tgz, describe output, log tail) are sliced into ≤64 KiB frames and gzip-compressed at the gRPC stream level (5–8× shrink on JSON). The per-stream sender drains a Heartbeat fast lane first, then round-robin schedules across per-request sub-queues, so a 20 MiB log response can't head-of-line block a concurrent `/workloads/nodes` call. Liveness rides on HTTP/2 keepalive PINGs, decoupled from application heartbeats.
 
 - **Deep Volcano integration.** 10 CR browsers, 7 typed authoring forms, and a visual scheduler-policy editor covering every Volcano action / tier / plugin parameter. vGPU slices are parsed from device-plugin annotations and rendered card-by-card with the Pods currently holding them.
 
@@ -58,7 +58,7 @@ kubectl -n kpilot-system port-forward svc/kpilot-server 8080:80
 open http://localhost:8080
 ```
 
-**Add a remote managed cluster** (one per cluster). Create a cluster row in the UI, copy the one-time ClusterToken, then on the target cluster:
+**Optional: add a remote managed cluster** (one per cluster). Create a cluster row in the UI, copy the one-time ClusterToken, then on the target cluster:
 
 ```bash
 helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
