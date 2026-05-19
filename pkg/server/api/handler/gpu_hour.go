@@ -45,10 +45,10 @@ var supportedRanges = map[string]struct {
 }
 
 type gpuHourRow struct {
-	Hostname string  `json:"hostname,omitempty"`
-	Instance string  `json:"instance,omitempty"`
-	GPU      string  `json:"gpu,omitempty"`
-	UUID     string  `json:"uuid,omitempty"`
+	Hostname string `json:"hostname,omitempty"`
+	Instance string `json:"instance,omitempty"`
+	GPU      string `json:"gpu,omitempty"`
+	UUID     string `json:"uuid,omitempty"`
 	// Hours: integrated GPU-utilization × duration, expressed in hours.
 	// "1.5" means the GPU was effectively running at 100% for an hour
 	// and a half over the window. With 4 GPUs at 100% for the same

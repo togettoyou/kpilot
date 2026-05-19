@@ -90,6 +90,18 @@ func (c *vmResponseCache) Put(key string, v any, ttl time.Duration) ([]byte, err
 // compute() should return a JSON-marshallable value; the marshalled
 // bytes go to both the cache and the caller. A compute() error is
 // returned to all waiting callers without caching anything.
+//
+// Caveat: compute() runs with whatever ctx the FIRST caller captured
+// in its closure (typically `c.Request.Context()` plus a per-handler
+// timeout). If that caller's ctx cancels before compute returns
+// (browser navigation, ingress RST, handler timeout), singleflight
+// propagates the cancellation error to every waiting caller — even
+// ones whose own ctx is still alive. In practice this is rare for
+// the VM handlers because (a) the ctx timeouts (vmTimeout=60s,
+// vmlogsTimeout=5min) bound the window and (b) coalesced waiters
+// arrive within the same poll burst, so they share the same fate
+// anyway. If a future caller needs per-caller cancellation isolation,
+// switch to sf.DoChan + select on the caller's ctx.
 func (c *vmResponseCache) GetOrCompute(key string, ttl time.Duration, compute func() (any, error)) ([]byte, error) {
 	if body, ok := c.Get(key); ok {
 		return body, nil

@@ -4,9 +4,9 @@
 // frontend can poll them at independent cadences and degrade
 // individually when the underlying exporter isn't installed:
 //
-//   /cluster-metrics  — this file. Top KPI strip + cluster-wide trend.
-//   /node-metrics     — per-node series for the table + charts.
-//   /pod-metrics      — top-N Pod CPU / memory series, namespace-scoped.
+//	/cluster-metrics  — this file. Top KPI strip + cluster-wide trend.
+//	/node-metrics     — per-node series for the table + charts.
+//	/pod-metrics      — top-N Pod CPU / memory series, namespace-scoped.
 //
 // Hard requirement: victoria-metrics plugin (PromQL endpoint). Soft
 // requirements: node-exporter (drives node-level CPU / memory / disk /
@@ -98,9 +98,10 @@ type clusterMetricsResponse struct {
 }
 
 // GetClusterMetrics serves /api/v1/clusters/:id/cluster-metrics?range=…
-// Five PromQL queries in parallel; any single query failure is logged
-// and produces an empty result for that metric so a missing exporter
-// doesn't blank out the whole page.
+// 12 PromQL queries in parallel (8 instant + 3 range + 1 by-phase
+// histogram); any single query failure is logged and produces an
+// empty result for that metric so a missing exporter doesn't blank
+// out the whole page.
 func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
@@ -135,137 +136,137 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		cacheKey := vmCacheKey("cluster-metrics", clusterID, tr.cacheSuffix)
 		body, err := sharedVMResponseCache.GetOrCompute(cacheKey, 4*time.Second, func() (any, error) {
 
-		// Cluster-wide PromQL. CPU / memory expressions follow the
-		// canonical Prometheus community guides (avg over per-node
-		// idle, available vs total). Pod phase and Node Ready come
-		// from kube-state-metrics; expressions return zero rows when
-		// KSM isn't installed.
-		instantQueries := []struct {
-			key    string
-			promql string
-		}{
-			{"nodesReady", `count(kube_node_status_condition{condition="Ready",status="true"})`},
-			{"nodesTotal", `count(kube_node_info)`},
-			{"cpuUtilPct", `(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100`},
-			{"memUtilPct", `(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100`},
-			// Absolute companions. cpuTotalCores counts logical CPUs
-			// across all nodes (one idle-mode series per logical CPU).
-			// cpuUsedCores is the cluster-wide non-idle rate — it
-			// converges to "currently active cores" because each
-			// busy core ticks one second per real second.
-			{"cpuTotalCores", `count(count by (cpu, instance) (node_cpu_seconds_total{mode="idle"}))`},
-			{"cpuUsedCores", `sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))`},
-			{"memTotalBytes", `sum(node_memory_MemTotal_bytes)`},
-			{"memUsedBytes", `sum(node_memory_MemTotal_bytes) - sum(node_memory_MemAvailable_bytes)`},
-		}
-		rangeQueries := []struct {
-			key    string
-			promql string
-		}{
-			// Cluster CPU / memory utilization over time — drives the
-			// trend chart under the KPI strip.
-			{"cpu", `(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100`},
-			{"mem", `(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100`},
-			// Pending pod count over time — backlog trending up means
-			// scheduling is stuck (PVC binding, taint mismatch,
-			// resource shortage). Flat at 0 is the healthy steady state.
-			{"pendingPods", `count(kube_pod_status_phase{phase="Pending"}) or vector(0)`},
-		}
+			// Cluster-wide PromQL. CPU / memory expressions follow the
+			// canonical Prometheus community guides (avg over per-node
+			// idle, available vs total). Pod phase and Node Ready come
+			// from kube-state-metrics; expressions return zero rows when
+			// KSM isn't installed.
+			instantQueries := []struct {
+				key    string
+				promql string
+			}{
+				{"nodesReady", `count(kube_node_status_condition{condition="Ready",status="true"})`},
+				{"nodesTotal", `count(kube_node_info)`},
+				{"cpuUtilPct", `(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100`},
+				{"memUtilPct", `(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100`},
+				// Absolute companions. cpuTotalCores counts logical CPUs
+				// across all nodes (one idle-mode series per logical CPU).
+				// cpuUsedCores is the cluster-wide non-idle rate — it
+				// converges to "currently active cores" because each
+				// busy core ticks one second per real second.
+				{"cpuTotalCores", `count(count by (cpu, instance) (node_cpu_seconds_total{mode="idle"}))`},
+				{"cpuUsedCores", `sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))`},
+				{"memTotalBytes", `sum(node_memory_MemTotal_bytes)`},
+				{"memUsedBytes", `sum(node_memory_MemTotal_bytes) - sum(node_memory_MemAvailable_bytes)`},
+			}
+			rangeQueries := []struct {
+				key    string
+				promql string
+			}{
+				// Cluster CPU / memory utilization over time — drives the
+				// trend chart under the KPI strip.
+				{"cpu", `(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100`},
+				{"mem", `(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100`},
+				// Pending pod count over time — backlog trending up means
+				// scheduling is stuck (PVC binding, taint mismatch,
+				// resource shortage). Flat at 0 is the healthy steady state.
+				{"pendingPods", `count(kube_pod_status_phase{phase="Pending"}) or vector(0)`},
+			}
 
-		var (
-			mu       sync.Mutex
-			wg       sync.WaitGroup
-			instants = make(map[string]float64, len(instantQueries))
-			ranges   = make(map[string]clusterMetricsSeries, len(rangeQueries))
-			phases   = make(map[string]int)
-		)
-		// 5 instant + 2 range queries, all fan out. Each failure is
-		// logged and produces a zero / empty result.
-		for _, q := range instantQueries {
-			q := q
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				series, err := queryVM(ctx, gw, clusterID, vmURL, q.promql)
-				if err != nil {
-					logSoftErr("cluster-metrics", clusterID, q.key, err)
-					return
-				}
-				var v float64
-				if len(series) > 0 {
-					v = series[0].Value
-				}
-				mu.Lock()
-				instants[q.key] = v
-				mu.Unlock()
-			}()
-		}
-		for _, q := range rangeQueries {
-			q := q
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, to, tr.step)
-				if err != nil {
-					logSoftErr("cluster-metrics", clusterID, q.key, err)
-					return
-				}
-				pts := make([]clusterMetricsPt, 0)
-				if len(series) > 0 {
-					for _, p := range series[0].Points {
-						pts = append(pts, clusterMetricsPt{Ts: p.Ts, Value: p.Value})
+			var (
+				mu       sync.Mutex
+				wg       sync.WaitGroup
+				instants = make(map[string]float64, len(instantQueries))
+				ranges   = make(map[string]clusterMetricsSeries, len(rangeQueries))
+				phases   = make(map[string]int)
+			)
+			// 5 instant + 2 range queries, all fan out. Each failure is
+			// logged and produces a zero / empty result.
+			for _, q := range instantQueries {
+				q := q
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					series, err := queryVM(ctx, gw, clusterID, vmURL, q.promql)
+					if err != nil {
+						logSoftErr("cluster-metrics", clusterID, q.key, err)
+						return
 					}
+					var v float64
+					if len(series) > 0 {
+						v = series[0].Value
+					}
+					mu.Lock()
+					instants[q.key] = v
+					mu.Unlock()
+				}()
+			}
+			for _, q := range rangeQueries {
+				q := q
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, to, tr.step)
+					if err != nil {
+						logSoftErr("cluster-metrics", clusterID, q.key, err)
+						return
+					}
+					pts := make([]clusterMetricsPt, 0)
+					if len(series) > 0 {
+						for _, p := range series[0].Points {
+							pts = append(pts, clusterMetricsPt{Ts: p.Ts, Value: p.Value})
+						}
+					}
+					mu.Lock()
+					ranges[q.key] = clusterMetricsSeries{Points: pts}
+					mu.Unlock()
+				}()
+			}
+			// One extra query: pod phase histogram (instant, by-phase).
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				series, err := queryVM(ctx, gw, clusterID, vmURL,
+					`sum by (phase) (kube_pod_status_phase)`)
+				if err != nil {
+					logSoftErr("cluster-metrics", clusterID, "podsByPhase", err)
+					return
 				}
 				mu.Lock()
-				ranges[q.key] = clusterMetricsSeries{Points: pts}
+				for _, s := range series {
+					p := s.Labels["phase"]
+					if p == "" {
+						continue
+					}
+					phases[p] = int(s.Value)
+				}
 				mu.Unlock()
 			}()
-		}
-		// One extra query: pod phase histogram (instant, by-phase).
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			series, err := queryVM(ctx, gw, clusterID, vmURL,
-				`sum by (phase) (kube_pod_status_phase)`)
-			if err != nil {
-				logSoftErr("cluster-metrics", clusterID, "podsByPhase", err)
-				return
-			}
-			mu.Lock()
-			for _, s := range series {
-				p := s.Labels["phase"]
-				if p == "" {
-					continue
-				}
-				phases[p] = int(s.Value)
-			}
-			mu.Unlock()
-		}()
-		wg.Wait()
+			wg.Wait()
 
-		snap := clusterMetricsSnapshot{
-			NodesReady:    int(instants["nodesReady"]),
-			NodesTotal:    int(instants["nodesTotal"]),
-			CPUUtilPct:    instants["cpuUtilPct"],
-			MemUtilPct:    instants["memUtilPct"],
-			CPUTotalCores: instants["cpuTotalCores"],
-			CPUUsedCores:  instants["cpuUsedCores"],
-			MemTotalBytes: instants["memTotalBytes"],
-			MemUsedBytes:  instants["memUsedBytes"],
-			PodsByPhase:   phases,
-		}
-		for _, n := range phases {
-			snap.PodsTotal += n
-		}
-		snap.PodsPending = phases["Pending"]
-		// Clamp negatives — PromQL can return tiny negative rates for
-		// gauges in flaky conditions; gauges in the UI don't like them.
-		if snap.CPUUtilPct < 0 {
-			snap.CPUUtilPct = 0
-		}
-		if snap.MemUtilPct < 0 {
-			snap.MemUtilPct = 0
-		}
+			snap := clusterMetricsSnapshot{
+				NodesReady:    int(instants["nodesReady"]),
+				NodesTotal:    int(instants["nodesTotal"]),
+				CPUUtilPct:    instants["cpuUtilPct"],
+				MemUtilPct:    instants["memUtilPct"],
+				CPUTotalCores: instants["cpuTotalCores"],
+				CPUUsedCores:  instants["cpuUsedCores"],
+				MemTotalBytes: instants["memTotalBytes"],
+				MemUsedBytes:  instants["memUsedBytes"],
+				PodsByPhase:   phases,
+			}
+			for _, n := range phases {
+				snap.PodsTotal += n
+			}
+			snap.PodsPending = phases["Pending"]
+			// Clamp negatives — PromQL can return tiny negative rates for
+			// gauges in flaky conditions; gauges in the UI don't like them.
+			if snap.CPUUtilPct < 0 {
+				snap.CPUUtilPct = 0
+			}
+			if snap.MemUtilPct < 0 {
+				snap.MemUtilPct = 0
+			}
 
 			return clusterMetricsResponse{
 				Range:       tr.cacheSuffix,

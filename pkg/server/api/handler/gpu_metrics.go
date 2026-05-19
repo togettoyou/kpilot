@@ -49,10 +49,10 @@ var metricRangeSpec = map[string]timeRangeSpec{
 // label-bag exposed) — adding a new label means changing the wire
 // contract on purpose, not by accident.
 type gpuMetricSeries struct {
-	Hostname string         `json:"hostname,omitempty"`
-	GPU      string         `json:"gpu,omitempty"`
-	UUID     string         `json:"uuid,omitempty"`
-	Points   []gpuMetricPt  `json:"points"`
+	Hostname string        `json:"hostname,omitempty"`
+	GPU      string        `json:"gpu,omitempty"`
+	UUID     string        `json:"uuid,omitempty"`
+	Points   []gpuMetricPt `json:"points"`
 }
 
 type gpuMetricPt struct {
@@ -66,15 +66,15 @@ type gpuMetricPt struct {
 // "current value" as a separate concept, so we use the most recent
 // range point.
 type gpuMetricsSnapshot struct {
-	ActiveGPUs       int     `json:"activeGPUs"`
-	AvgTempC         float64 `json:"avgTempC"`
-	MaxTempC         float64 `json:"maxTempC"`
-	TotalPowerW      float64 `json:"totalPowerW"`
-	AvgUtilPct       float64 `json:"avgUtilPct"`
-	FBUsedMiB        float64 `json:"fbUsedMiB"`
-	FBTotalMiB       float64 `json:"fbTotalMiB"`
-	FBUsagePct       float64 `json:"fbUsagePct"`
-	AvgTensorActPct  float64 `json:"avgTensorActPct"`
+	ActiveGPUs      int     `json:"activeGPUs"`
+	AvgTempC        float64 `json:"avgTempC"`
+	MaxTempC        float64 `json:"maxTempC"`
+	TotalPowerW     float64 `json:"totalPowerW"`
+	AvgUtilPct      float64 `json:"avgUtilPct"`
+	FBUsedMiB       float64 `json:"fbUsedMiB"`
+	FBTotalMiB      float64 `json:"fbTotalMiB"`
+	FBUsagePct      float64 `json:"fbUsagePct"`
+	AvgTensorActPct float64 `json:"avgTensorActPct"`
 }
 
 type gpuMetricsResponse struct {
@@ -129,79 +129,79 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		cacheKey := vmCacheKey("gpu-metrics", clusterID, tr.cacheSuffix)
 		body, err := sharedVMResponseCache.GetOrCompute(cacheKey, 4*time.Second, func() (any, error) {
 
-		// Each entry: result key + PromQL. The PromQL strings keep a
-		// stable label set (Hostname, gpu, UUID) because the frontend's
-		// chart legend depends on those labels matching across charts.
-		queries := []struct {
-			key    string
-			promql string
-		}{
-			{"util", `DCGM_FI_DEV_GPU_UTIL`},
-			{"temp", `DCGM_FI_DEV_GPU_TEMP`},
-			{"power", `DCGM_FI_DEV_POWER_USAGE`},
-			// FB used / total separately so the frontend can render the
-			// raw GiB curve AND derive a percentage on the snapshot
-			// gauge. Could be a single derived expression
-			// (DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL) but two
-			// queries are cheap and the raw value is more readable in
-			// the chart axis.
-			{"fbUsed", `DCGM_FI_DEV_FB_USED`},
-			{"fbTotal", `DCGM_FI_DEV_FB_TOTAL`},
-			// SM clock in MHz — DCGM emits MHz already (despite some
-			// docs saying Hz). Old dashboards multiply by 1e6; we
-			// don't, and the chart label says MHz.
-			{"sm", `DCGM_FI_DEV_SM_CLOCK`},
-			// Tensor active is a unit ratio [0,1]. Multiply by 100 in
-			// the chart layer for the % axis.
-			{"tensor", `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE`},
-		}
+			// Each entry: result key + PromQL. The PromQL strings keep a
+			// stable label set (Hostname, gpu, UUID) because the frontend's
+			// chart legend depends on those labels matching across charts.
+			queries := []struct {
+				key    string
+				promql string
+			}{
+				{"util", `DCGM_FI_DEV_GPU_UTIL`},
+				{"temp", `DCGM_FI_DEV_GPU_TEMP`},
+				{"power", `DCGM_FI_DEV_POWER_USAGE`},
+				// FB used / total separately so the frontend can render the
+				// raw GiB curve AND derive a percentage on the snapshot
+				// gauge. Could be a single derived expression
+				// (DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL) but two
+				// queries are cheap and the raw value is more readable in
+				// the chart axis.
+				{"fbUsed", `DCGM_FI_DEV_FB_USED`},
+				{"fbTotal", `DCGM_FI_DEV_FB_TOTAL`},
+				// SM clock in MHz — DCGM emits MHz already (despite some
+				// docs saying Hz). Old dashboards multiply by 1e6; we
+				// don't, and the chart label says MHz.
+				{"sm", `DCGM_FI_DEV_SM_CLOCK`},
+				// Tensor active is a unit ratio [0,1]. Multiply by 100 in
+				// the chart layer for the % axis.
+				{"tensor", `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE`},
+			}
 
-		var (
-			mu     sync.Mutex
-			wg     sync.WaitGroup
-			out    = make(map[string][]gpuMetricSeries, len(queries))
-		)
-		for _, q := range queries {
-			q := q
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, to, tr.step)
-				if err != nil {
-					log.Printf("[gpu-metrics] VM range query failed: cluster=%s key=%s err=%v",
-						clusterID, q.key, err)
-					return
-				}
-				rows := make([]gpuMetricSeries, 0, len(series))
-				for _, s := range series {
-					pts := make([]gpuMetricPt, 0, len(s.Points))
-					for _, p := range s.Points {
-						pts = append(pts, gpuMetricPt{Ts: p.Ts, Value: p.Value})
+			var (
+				mu  sync.Mutex
+				wg  sync.WaitGroup
+				out = make(map[string][]gpuMetricSeries, len(queries))
+			)
+			for _, q := range queries {
+				q := q
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, to, tr.step)
+					if err != nil {
+						log.Printf("[gpu-metrics] VM range query failed: cluster=%s key=%s err=%v",
+							clusterID, q.key, err)
+						return
 					}
-					rows = append(rows, gpuMetricSeries{
-						Hostname: s.Labels["Hostname"],
-						GPU:      s.Labels["gpu"],
-						UUID:     s.Labels["UUID"],
-						Points:   pts,
+					rows := make([]gpuMetricSeries, 0, len(series))
+					for _, s := range series {
+						pts := make([]gpuMetricPt, 0, len(s.Points))
+						for _, p := range s.Points {
+							pts = append(pts, gpuMetricPt{Ts: p.Ts, Value: p.Value})
+						}
+						rows = append(rows, gpuMetricSeries{
+							Hostname: s.Labels["Hostname"],
+							GPU:      s.Labels["gpu"],
+							UUID:     s.Labels["UUID"],
+							Points:   pts,
+						})
+					}
+					// Stable order so chart legends don't shuffle between
+					// refreshes. Hostname → gpu index is what an operator
+					// expects to see top-down.
+					sort.SliceStable(rows, func(i, j int) bool {
+						if rows[i].Hostname != rows[j].Hostname {
+							return rows[i].Hostname < rows[j].Hostname
+						}
+						return rows[i].GPU < rows[j].GPU
 					})
-				}
-				// Stable order so chart legends don't shuffle between
-				// refreshes. Hostname → gpu index is what an operator
-				// expects to see top-down.
-				sort.SliceStable(rows, func(i, j int) bool {
-					if rows[i].Hostname != rows[j].Hostname {
-						return rows[i].Hostname < rows[j].Hostname
-					}
-					return rows[i].GPU < rows[j].GPU
-				})
-				mu.Lock()
-				out[q.key] = rows
-				mu.Unlock()
-			}()
-		}
-		wg.Wait()
+					mu.Lock()
+					out[q.key] = rows
+					mu.Unlock()
+				}()
+			}
+			wg.Wait()
 
-		snapshot := buildSnapshot(out)
+			snapshot := buildSnapshot(out)
 
 			return gpuMetricsResponse{
 				Range:       tr.cacheSuffix,
