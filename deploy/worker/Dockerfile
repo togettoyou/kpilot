@@ -22,9 +22,13 @@ COPY proto/ ./proto/
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
+# Same rationale as server/Dockerfile: override the version variable
+# in pkg/common/version (NOT main) so worker's WorkerVersion in the
+# Register message reflects the CI image tag.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+    go build -trimpath \
+    -ldflags "-s -w -X github.com/togettoyou/kpilot/pkg/common/version.Version=$VERSION" \
     -o /work/worker ./cmd/worker
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime

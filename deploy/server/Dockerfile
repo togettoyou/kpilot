@@ -42,9 +42,15 @@ COPY proto/ ./proto/
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
+# Override pkg/common/version.Version at link time so the value the
+# /api/v1/version endpoint reports tracks the CI-assigned image tag.
+# The full import path matters — `-X main.version=…` (the old form)
+# silently no-ops because the variable lives in pkg/common/version,
+# not in cmd/server's main package.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+    go build -trimpath \
+    -ldflags "-s -w -X github.com/togettoyou/kpilot/pkg/common/version.Version=$VERSION" \
     -o /work/server ./cmd/server
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime

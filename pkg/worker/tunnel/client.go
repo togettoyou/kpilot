@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
+	"github.com/togettoyou/kpilot/pkg/common/version"
 )
 
 // resolveServerAddr accepts a SERVER_ADDR in either bare host:port form
@@ -69,7 +70,6 @@ const (
 	reconnectMaxDelay  = 60 * time.Second
 	heartbeatInterval  = 10 * time.Second
 	connectTimeout     = 15 * time.Second
-	workerVersion      = "v0.1.0"
 
 	// maxGRPCMessageSize caps any single gRPC message. After chunked
 	// transport (see chunked.go) the largest single message is a
@@ -395,7 +395,7 @@ func (c *Client) connect(ctx context.Context, onConnected func()) (retErr error)
 		Payload: &proto.WorkerMessage_Register{
 			Register: &proto.RegisterRequest{
 				ClusterToken:  c.clusterToken,
-				WorkerVersion: workerVersion,
+				WorkerVersion: version.Version,
 				ClusterDomain: c.clusterDomain,
 			},
 		},
