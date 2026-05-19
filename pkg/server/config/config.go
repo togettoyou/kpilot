@@ -35,6 +35,20 @@ type Config struct {
 	// SPA-friendly behavior. When empty (dev), the frontend is served
 	// by UmiJS on its own port and the Go server is API-only.
 	StaticDir string
+
+	// BootstrapLocalClusterToken auto-creates a cluster row named
+	// BootstrapLocalClusterName on first start so an all-in-one
+	// helm install (server + worker in the same release) doesn't need
+	// the admin to log in and create the cluster manually before the
+	// worker can register. Enabled when token is non-empty.
+	//
+	// Idempotent across restarts: if a cluster with the same NAME
+	// already exists the bootstrap silently no-ops (preserves any
+	// edits the admin made via UI). Token-rotation flows go through
+	// UI's "regenerate token" — this env is for the initial install,
+	// not ongoing management.
+	BootstrapLocalClusterName  string
+	BootstrapLocalClusterToken string
 }
 
 func Load() *Config {
@@ -64,15 +78,17 @@ func Load() *Config {
 	}
 
 	return &Config{
-		HTTPAddr:               envOr("HTTP_ADDR", ":8080"),
-		GRPCAddr:               envOr("GRPC_ADDR", ":9090"),
-		DSN:                    envOr("DSN", "postgres://kpilot:kpilot123@localhost:5432/kpilot?sslmode=disable"),
-		AdminUsername:          envOr("ADMIN_USERNAME", "kpilot"),
-		AdminPassword:          adminPassword,
-		AdminPasswordIsDefault: adminPasswordIsDefault,
-		JWTSecret:              jwtSecret,
-		CORSOrigins:            corsOrigins,
-		StaticDir:              envOr("STATIC_DIR", ""),
+		HTTPAddr:                   envOr("HTTP_ADDR", ":8080"),
+		GRPCAddr:                   envOr("GRPC_ADDR", ":9090"),
+		DSN:                        envOr("DSN", "postgres://kpilot:kpilot123@localhost:5432/kpilot?sslmode=disable"),
+		AdminUsername:              envOr("ADMIN_USERNAME", "kpilot"),
+		AdminPassword:              adminPassword,
+		AdminPasswordIsDefault:     adminPasswordIsDefault,
+		JWTSecret:                  jwtSecret,
+		CORSOrigins:                corsOrigins,
+		StaticDir:                  envOr("STATIC_DIR", ""),
+		BootstrapLocalClusterName:  envOr("BOOTSTRAP_LOCAL_CLUSTER_NAME", "local"),
+		BootstrapLocalClusterToken: envOr("BOOTSTRAP_LOCAL_CLUSTER_TOKEN", ""),
 	}
 }
 

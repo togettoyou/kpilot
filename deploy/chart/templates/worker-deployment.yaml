@@ -40,7 +40,7 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           env:
             - name: SERVER_ADDR
-              value: {{ .Values.worker.serverAddr | quote }}
+              value: {{ include "kpilot.worker.serverAddr" . | quote }}
             - name: CLUSTER_TOKEN
               valueFrom:
                 secretKeyRef:

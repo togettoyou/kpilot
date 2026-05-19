@@ -26,6 +26,20 @@ func main() {
 	if err := store.ResetAllClustersOffline(); err != nil {
 		log.Fatalf("reset cluster status: %v", err)
 	}
+	// Auto-create a cluster row matching the bundled worker's token when
+	// the helm chart deployed both server + worker in the same release.
+	// No-op when BOOTSTRAP_LOCAL_CLUSTER_TOKEN is unset (standalone
+	// server deploys) or when a cluster with the configured name already
+	// exists (idempotent across restarts).
+	if cfg.BootstrapLocalClusterToken != "" {
+		if err := store.BootstrapLocalCluster(
+			cfg.BootstrapLocalClusterName,
+			cfg.BootstrapLocalClusterToken,
+			"Auto-created at server bootstrap (helm bundled worker).",
+		); err != nil {
+			log.Fatalf("bootstrap local cluster: %v", err)
+		}
+	}
 
 	// gRPC server. Liveness is enforced via HTTP/2 keepalive PINGs at the
 	// transport layer (not via the application-level Heartbeat message),

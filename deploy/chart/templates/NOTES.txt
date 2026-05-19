@@ -17,20 +17,39 @@ KPilot Server installed.
   Admin login: {{ .Values.server.admin.username }} / (value of server.admin.password)
   Change ADMIN_PASSWORD immediately — the chart default is a known string.
 
+{{- if eq (include "kpilot.isBundled" .) "true" }}
+
+Bundled local worker enabled. The server auto-created a cluster row
+named "{{ .Values.server.localCluster.name }}" matching the worker's bootstrap
+token; the worker dials the in-cluster gRPC Service on its own. The
+cluster should appear Online in the UI within a few seconds.
+
+To add more managed clusters later, log into the UI, create a cluster
+row to get a one-time ClusterToken, then install this chart on the
+target cluster with:
+  worker.enabled=true
+  server.enabled=false
+  postgresql.enabled=false
+  worker.serverAddr=<this-server-grpc-host>:{{ .Values.server.grpc.service.port }}
+  worker.clusterToken=<token-from-UI>
+{{- else }}
+
 Next steps:
   1. Log into the UI.
   2. Create a cluster row; the UI shows a one-time ClusterToken.
   3. Install KPilot Worker on the target cluster (this same chart with
-     worker.enabled=true, worker.serverAddr=<server-grpc-host>:{{ .Values.server.grpc.service.port }},
+     worker.enabled=true, server.enabled=false, postgresql.enabled=false,
+     worker.serverAddr=<server-grpc-host>:{{ .Values.server.grpc.service.port }},
      worker.clusterToken=<token>).
 {{- end }}
+{{- end }}
 
-{{- if .Values.worker.enabled }}
+{{- if and .Values.worker.enabled (ne (include "kpilot.isBundled" .) "true") }}
 
 KPilot Worker installed.
 
   Namespace:    {{ .Release.Namespace }}
-  Server addr:  {{ .Values.worker.serverAddr }}
+  Server addr:  {{ include "kpilot.worker.serverAddr" . }}
   Data PVC:     {{ if .Values.worker.persistence.enabled }}{{ include "kpilot.workerFullname" . }}-data{{ else }}<emptyDir>{{ end }}
 
 The Worker dials the Server over gRPC. Check the rollout with:

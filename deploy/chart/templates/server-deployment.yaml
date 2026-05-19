@@ -68,6 +68,20 @@ spec:
                 secretKeyRef:
                   name: {{ include "kpilot.serverFullname" . }}-credentials
                   key: dsn
+            {{- if include "kpilot.server.localClusterToken" . }}
+            # Bundled-worker bootstrap: server auto-creates a cluster
+            # row with this token on first start so the in-cluster
+            # worker (deployed from the same release) can register
+            # immediately. Idempotent — skipped when a row with the
+            # same name already exists.
+            - name: BOOTSTRAP_LOCAL_CLUSTER_NAME
+              value: {{ .Values.server.localCluster.name | quote }}
+            - name: BOOTSTRAP_LOCAL_CLUSTER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kpilot.serverFullname" . }}-credentials
+                  key: localClusterToken
+            {{- end }}
           {{- with .Values.server.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
