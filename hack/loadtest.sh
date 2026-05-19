@@ -50,6 +50,15 @@
 #                              the same 100 conn × 60s, for ratio
 #                              checks (K8s API overhead vs pure
 #                              tunnel).
+#   hol [storm] [dur]          Head-of-line block validation. Runs N
+#                              concurrent `/logs/search?limit=10000`
+#                              storms (19 MB each) and probes
+#                              `/workloads/pods` latency during the
+#                              storm. Validates the per-request_id
+#                              round-robin fair scheduler in
+#                              `pkg/{server/gateway,worker/tunnel}/sender.go`.
+#                              Defaults: 10 storm slots × 30s.
+#                              Sweep recommendations: 10 / 50 / 100 / 200.
 #
 # Any subcommand respects LOADTEST_SAMPLE=1 to start a background
 # poller of /api/v1/metrics every 2s; the high-water mark for
@@ -192,6 +201,16 @@ stop_metrics_sampler() {
 }
 trap stop_metrics_sampler EXIT
 
+# pct reads one numeric column from stdin and prints avg / p50 / p90 /
+# p95 / p99 / max / n. Used by `hol` to summarise probe samples.
+pct() {
+  sort -n | awk 'BEGIN{c=0; s=0} {s+=$1; arr[c++]=$1} END{
+    if (c == 0) { print "  no samples"; exit }
+    printf "  avg=%.3fs p50=%.3fs p90=%.3fs p95=%.3fs p99=%.3fs max=%.3fs n=%d\n",
+      s/c, arr[int(c*0.5)], arr[int(c*0.9)], arr[int(c*0.95)], arr[int(c*0.99)], arr[c-1], c
+  }'
+}
+
 # fan_out runs N curl commands in parallel, prints completion time +
 # error count. Used by `monitoring` to simulate the Monitoring page's
 # real shape (concurrent endpoints, not a single one repeated).
@@ -315,6 +334,90 @@ case "$cmd" in
     run_bomb "tunnel-bench 64KB (pure gRPC tunnel)" \
       -c "$DEFAULT_CONC" -d "$DEFAULT_DUR" \
       "$HOST/api/v1/clusters/$CID/debug/tunnel-bench?bytes=65536"
+    stop_metrics_sampler
+    ;;
+
+  hol)
+    # Head-of-line block validation. Drives N concurrent large log
+    # queries (19 MB each, the heaviest realistic request shape) and
+    # measures probe latency on a small endpoint during the storm.
+    # If the per-request_id round-robin scheduler is doing its job,
+    # probe p50 should stay well under 1s even at 100× storm; if it's
+    # broken (single FIFO slow lane), probe latency goes to seconds.
+    #
+    # Reads three numbers, idle / under-load / recovery, so a regression
+    # in fair-scheduling jumps out at the under-load line. We sweep
+    # 10 / 50 / 100 / 200 when validating tunnel changes; ceiling on
+    # 2c/2G deploys is ~200× before p50 enters the 300ms band.
+    storm="${1:-10}"
+    dur="${2:-30s}"
+    secs="${dur%s}"
+    if ! [[ "$secs" =~ ^[0-9]+$ ]]; then
+      echo "hol: dur must be in <N>s form (got '$dur')" >&2; exit 2
+    fi
+
+    from=$(date -u -d "1 hour ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+           || date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
+    to=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    storm_url="$HOST/api/v1/clusters/$CID/logs/search?query=*&from=$from&to=$to&limit=10000"
+    probe_url="$HOST/api/v1/clusters/$CID/workloads/pods?limit=100"
+
+    start_metrics_sampler
+    echo "=== hol: storm=${storm}× logs(limit=10000) probe=pods dur=${dur} ==="
+
+    echo "-- idle baseline (10 samples) --"
+    for _ in $(seq 1 10); do
+      curl -s -o /dev/null -w "%{time_total}\n" -H "$COOKIE_HDR" "$probe_url"
+    done | pct
+
+    echo
+    echo "-- launching ${storm}× storm in background --"
+    storm_log=$(mktemp)
+    storm_end=$(( $(date +%s) + secs ))
+    for slot in $(seq 1 "$storm"); do
+      (ok=0; fail=0
+       while [[ $(date +%s) -lt $storm_end ]]; do
+         code=$(curl -s -m 120 -o /dev/null -w "%{http_code}" \
+                -H "$COOKIE_HDR" "$storm_url" 2>/dev/null)
+         if [[ "$code" == "200" ]]; then ok=$((ok+1)); else fail=$((fail+1)); fi
+       done
+       echo "slot$slot ok=$ok fail=$fail" >> "$storm_log") &
+    done
+
+    # Let the storm ramp before we measure — first request per slot
+    # has cold-cache cost we don't want polluting the probe samples.
+    sleep 3
+
+    echo "-- probe latency DURING storm (40 samples @0.5s) --"
+    probe_log=$(mktemp)
+    for _ in $(seq 1 40); do
+      curl -s -m 30 -o /dev/null -w "%{time_total} %{http_code}\n" \
+        -H "$COOKIE_HDR" "$probe_url" >> "$probe_log"
+      sleep 0.5
+    done
+    awk '{print $1}' "$probe_log" | pct
+    echo "  http codes:"
+    awk '{print $2}' "$probe_log" | sort | uniq -c | sed 's/^/    /'
+    rm -f "$probe_log"
+
+    # Block until every storm slot has appended its line — `wait` with
+    # no args waits for all backgrounded children.
+    wait
+    echo
+    echo "-- storm completion --"
+    awk -F'[= ]' '{ok+=$3; fail+=$5} END{
+      printf "  slots=%d total_ok=%d total_fail=%d avg_per_slot=%.1f\n",
+        NR, ok, fail, (NR>0 ? ok/NR : 0)
+    }' "$storm_log"
+    rm -f "$storm_log"
+
+    echo
+    echo "-- recovery (10 samples, 3s after storm) --"
+    sleep 3
+    for _ in $(seq 1 10); do
+      curl -s -o /dev/null -w "%{time_total}\n" -H "$COOKIE_HDR" "$probe_url"
+    done | pct
+
     stop_metrics_sampler
     ;;
 
