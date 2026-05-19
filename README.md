@@ -39,14 +39,17 @@ Multi-cluster is the default — a single KPilot Server manages many clusters, w
 
 ## Quick Start
 
-**Install the Server** (control-plane cluster):
+**Server + local Worker in one shot** (the common "manage the cluster you're installing into" path):
 
 ```bash
 helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
   --version 0.0.0-dev \
   --namespace kpilot-system --create-namespace \
-  --set server.admin.password='<change-me>'
+  --set server.admin.password='<change-me>' \
+  --set worker.enabled=true
 ```
+
+The chart auto-generates a shared bootstrap token, points the Worker at the in-cluster gRPC Service, and the Server registers a cluster row named `local` on first start. No need to click through the UI to mint a token — the cluster shows up Online within a few seconds.
 
 Port-forward the UI and log in with `kpilot` / `<your password>`:
 
@@ -55,18 +58,18 @@ kubectl -n kpilot-system port-forward svc/kpilot-server 8080:80
 open http://localhost:8080
 ```
 
-**Install the Worker** (each managed cluster). Create a cluster row in the UI, copy the one-time ClusterToken, then:
+**Add a remote managed cluster** (one per cluster). Create a cluster row in the UI, copy the one-time ClusterToken, then on the target cluster:
 
 ```bash
 helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
   --version 0.0.0-dev \
   --namespace kpilot-system --create-namespace \
   --set server.enabled=false,worker.enabled=true,postgresql.enabled=false \
-  --set worker.serverAddr='kpilot-server-grpc.kpilot-system.svc:9090' \
+  --set worker.serverAddr='<Server gRPC external addr>:9090' \
   --set worker.clusterToken='<paste-token>'
 ```
 
-The cluster row in the Server UI transitions to Online within a few seconds. Production exposure (Ingress, external Postgres, image registry mirrors) is covered in [`deploy/README.md`](deploy/README.md).
+Production exposure (Ingress, external Postgres, image registry mirrors) is covered in [`deploy/README.md`](deploy/README.md).
 
 ## Use Cases
 
