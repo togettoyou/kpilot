@@ -81,19 +81,6 @@ func GetGPUHour(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		// 60s TTL — gpu-hour is the slowest VM query (30d range can
-		// scan tens of millions of samples on a busy cluster) and the
-		// underlying value only changes meaningfully on the order of
-		// minutes. Caching server-side means a tab refreshing every
-		// 5s pays the real cost once a minute. The cache also covers
-		// the case where multiple operators open the same report at
-		// the same time.
-		cacheKey := vmCacheKey("gpu-hour", clusterID, rangeKey)
-		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
-			c.Data(http.StatusOK, "application/json", body)
-			return
-		}
-
 		vmURL, code, err := resolveVMQueryURL(gw, clusterID)
 		if err != nil {
 			if code != "" {
@@ -113,51 +100,60 @@ func GetGPUHour(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		now := time.Now()
 		from := now.Add(-spec.duration)
-		// VM doesn't have a built-in trapezoidal integrator. We compute
-		// avg_over_time(util/100) over the full window, multiply by
-		// the window length in hours. Equivalent to integrating the
-		// curve and accurate up to the original sampling rate (DCGM
-		// default ~5s scrape). avg_over_time runs faster than a
-		// query_range pull-and-sum, and the result is one vector
-		// sample per series — cheap to ship over the worker tunnel.
-		promql := fmt.Sprintf(
-			`avg_over_time((DCGM_FI_DEV_GPU_UTIL / 100)[%s:%s])`,
-			rangeKey, fmt.Sprintf("%ds", int(spec.step.Seconds())),
-		)
-		series, err := queryVM(ctx, gw, clusterID, vmURL, promql)
-		if err != nil {
-			apiErrInternal(c, err)
-			return
-		}
 
-		hoursPerUnit := spec.duration.Hours()
-		rows := make([]gpuHourRow, 0, len(series))
-		var total float64
-		for _, s := range series {
-			h := s.Value * hoursPerUnit
-			rows = append(rows, gpuHourRow{
-				Hostname: s.Labels["Hostname"],
-				Instance: s.Labels["instance"],
-				GPU:      s.Labels["gpu"],
-				UUID:     s.Labels["UUID"],
-				Hours:    h,
+		// 60s TTL — gpu-hour is the slowest VM query (30d range can
+		// scan tens of millions of samples on a busy cluster) and the
+		// underlying value only changes meaningfully on the order of
+		// minutes. Caching server-side means a tab refreshing every
+		// 5s pays the real cost once a minute. GetOrCompute layers
+		// singleflight so multiple operators opening the same report
+		// at once share a single fan-out.
+		cacheKey := vmCacheKey("gpu-hour", clusterID, rangeKey)
+		body, err := sharedVMResponseCache.GetOrCompute(cacheKey, 60*time.Second, func() (any, error) {
+			// VM doesn't have a built-in trapezoidal integrator. We compute
+			// avg_over_time(util/100) over the full window, multiply by
+			// the window length in hours. Equivalent to integrating the
+			// curve and accurate up to the original sampling rate (DCGM
+			// default ~5s scrape). avg_over_time runs faster than a
+			// query_range pull-and-sum, and the result is one vector
+			// sample per series — cheap to ship over the worker tunnel.
+			promql := fmt.Sprintf(
+				`avg_over_time((DCGM_FI_DEV_GPU_UTIL / 100)[%s:%s])`,
+				rangeKey, fmt.Sprintf("%ds", int(spec.step.Seconds())),
+			)
+			series, err := queryVM(ctx, gw, clusterID, vmURL, promql)
+			if err != nil {
+				return nil, err
+			}
+
+			hoursPerUnit := spec.duration.Hours()
+			rows := make([]gpuHourRow, 0, len(series))
+			var total float64
+			for _, s := range series {
+				h := s.Value * hoursPerUnit
+				rows = append(rows, gpuHourRow{
+					Hostname: s.Labels["Hostname"],
+					Instance: s.Labels["instance"],
+					GPU:      s.Labels["gpu"],
+					UUID:     s.Labels["UUID"],
+					Hours:    h,
+				})
+				total += h
+			}
+
+			sort.SliceStable(rows, func(i, j int) bool {
+				return rows[i].Hours > rows[j].Hours
 			})
-			total += h
-		}
 
-		sort.SliceStable(rows, func(i, j int) bool {
-			return rows[i].Hours > rows[j].Hours
+			return gpuHourResponse{
+				Range:       rangeKey,
+				From:        from.UTC().Format(time.RFC3339),
+				To:          now.UTC().Format(time.RFC3339),
+				GeneratedAt: now.UTC().Format(time.RFC3339),
+				Rows:        rows,
+				Total:       total,
+			}, nil
 		})
-
-		resp := gpuHourResponse{
-			Range:       rangeKey,
-			From:        from.UTC().Format(time.RFC3339),
-			To:          now.UTC().Format(time.RFC3339),
-			GeneratedAt: now.UTC().Format(time.RFC3339),
-			Rows:        rows,
-			Total:       total,
-		}
-		body, err := sharedVMResponseCache.Put(cacheKey, resp, 60*time.Second)
 		if err != nil {
 			apiErrInternal(c, err)
 			return

@@ -50,12 +50,6 @@ func GetPodHealth(gw *gateway.GatewayServer) gin.HandlerFunc {
 			}
 		}
 
-		cacheKey := vmCacheKey("pod-health", clusterID, ns+"|"+strconv.Itoa(limit))
-		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
-			c.Data(http.StatusOK, "application/json", body)
-			return
-		}
-
 		vmURL, code, err := resolveVMQueryURL(gw, clusterID)
 		if err != nil {
 			if code != "" {
@@ -72,6 +66,9 @@ func GetPodHealth(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), vmTimeout)
 		defer cancel()
+
+		cacheKey := vmCacheKey("pod-health", clusterID, ns+"|"+strconv.Itoa(limit))
+		body, err := sharedVMResponseCache.GetOrCompute(cacheKey, 4*time.Second, func() (any, error) {
 
 		nsFilter := ""
 		if ns != "" {
@@ -160,12 +157,12 @@ func GetPodHealth(gw *gateway.GatewayServer) gin.HandlerFunc {
 			rows = rows[:limit]
 		}
 
-		resp := podHealthResponse{
-			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-			Namespace:   ns,
-			Rows:        rows,
-		}
-		body, err := sharedVMResponseCache.Put(cacheKey, resp, 4*time.Second)
+			return podHealthResponse{
+				GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+				Namespace:   ns,
+				Rows:        rows,
+			}, nil
+		})
 		if err != nil {
 			apiErrInternal(c, err)
 			return

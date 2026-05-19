@@ -65,15 +65,6 @@ func GetPodMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			}
 		}
 
-		// Cache key includes namespace + limit so two different
-		// drill-downs don't share a body.
-		cacheKey := vmCacheKey("pod-metrics", clusterID,
-			fmt.Sprintf("%s|ns=%s|limit=%d", tr.cacheSuffix, ns, limit))
-		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
-			c.Data(http.StatusOK, "application/json", body)
-			return
-		}
-
 		vmURL, code, err := resolveVMQueryURL(gw, clusterID)
 		if err != nil {
 			if code != "" {
@@ -91,6 +82,12 @@ func GetPodMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), vmTimeout)
 		defer cancel()
 		from, to := tr.from, tr.to
+
+		// Cache key includes namespace + limit so two different
+		// drill-downs don't share a body.
+		cacheKey := vmCacheKey("pod-metrics", clusterID,
+			fmt.Sprintf("%s|ns=%s|limit=%d", tr.cacheSuffix, ns, limit))
+		body, err := sharedVMResponseCache.GetOrCompute(cacheKey, 4*time.Second, func() (any, error) {
 
 		// PromQL builds the namespace filter inline rather than via a
 		// label-replace pipeline — VM keeps cardinality bounded by the
@@ -203,16 +200,16 @@ func GetPodMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		wg.Wait()
 
-		resp := podMetricsResponse{
-			Range:       tr.cacheSuffix,
-			From:        from.UTC().Format(time.RFC3339),
-			To:          to.UTC().Format(time.RFC3339),
-			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-			StepSeconds: int(tr.step.Seconds()),
-			Namespace:   ns,
-			Series:      out,
-		}
-		body, err := sharedVMResponseCache.Put(cacheKey, resp, 4*time.Second)
+			return podMetricsResponse{
+				Range:       tr.cacheSuffix,
+				From:        from.UTC().Format(time.RFC3339),
+				To:          to.UTC().Format(time.RFC3339),
+				GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+				StepSeconds: int(tr.step.Seconds()),
+				Namespace:   ns,
+				Series:      out,
+			}, nil
+		})
 		if err != nil {
 			apiErrInternal(c, err)
 			return

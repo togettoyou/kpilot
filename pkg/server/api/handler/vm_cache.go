@@ -2,8 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // vmResponseCache is the shared TTL cache for VM-backed query handlers
@@ -30,6 +33,13 @@ import (
 type vmResponseCache struct {
 	mu      sync.RWMutex
 	entries map[string]vmCacheEntry
+	// sf collapses concurrent cache-miss callers for the same key into
+	// one underlying compute() invocation. Without it, N tabs polling
+	// the same metric all fan out independently the first time the TTL
+	// expires — the chart we ship has 10+ users at burst, so the
+	// stampede was visible. singleflight.Do guarantees exactly one
+	// in-flight call per key; the rest wait for its result.
+	sf singleflight.Group
 }
 
 type vmCacheEntry struct {
@@ -69,6 +79,40 @@ func (c *vmResponseCache) Put(key string, v any, ttl time.Duration) ([]byte, err
 	return body, nil
 }
 
+// GetOrCompute returns the cached body if it's still fresh, otherwise
+// calls compute() (deduplicated across concurrent callers via
+// singleflight) to build the response, caches the marshalled bytes
+// with the given TTL, and returns. Callers should use this instead of
+// the raw Get/Put pair when the compute step is expensive (PromQL
+// fan-out through the tunnel) and a sub-poll-interval TTL leaves a
+// burst window where a stampede would otherwise multiply load.
+//
+// compute() should return a JSON-marshallable value; the marshalled
+// bytes go to both the cache and the caller. A compute() error is
+// returned to all waiting callers without caching anything.
+func (c *vmResponseCache) GetOrCompute(key string, ttl time.Duration, compute func() (any, error)) ([]byte, error) {
+	if body, ok := c.Get(key); ok {
+		return body, nil
+	}
+	v, err, _ := c.sf.Do(key, func() (any, error) {
+		// Double-check under the singleflight gate — between our
+		// Get above and entering Do, another caller may have
+		// populated the cache. Skip the compute in that case.
+		if body, ok := c.Get(key); ok {
+			return body, nil
+		}
+		resp, err := compute()
+		if err != nil {
+			return nil, err
+		}
+		return c.Put(key, resp, ttl)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]byte), nil
+}
+
 // InvalidateCluster drops every entry whose key includes the given
 // cluster id. Called from the DeleteCluster path so deleted clusters
 // don't leak entries.
@@ -76,7 +120,7 @@ func (c *vmResponseCache) InvalidateCluster(clusterID string) {
 	needle := "|" + clusterID + "|"
 	c.mu.Lock()
 	for k := range c.entries {
-		if containsSubstr(k, needle) {
+		if strings.Contains(k, needle) {
 			delete(c.entries, k)
 		}
 	}
@@ -112,19 +156,4 @@ func (c *vmResponseCache) reapForever(interval time.Duration) {
 // by InvalidateCluster to scope a delete.
 func vmCacheKey(tag, clusterID, suffix string) string {
 	return tag + "|" + clusterID + "|" + suffix
-}
-
-// containsSubstr is strings.Contains without pulling in the strings
-// package — the cache hot path is small and we want to keep this file
-// dependency-light.
-func containsSubstr(s, sub string) bool {
-	if len(sub) == 0 {
-		return true
-	}
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

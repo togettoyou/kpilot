@@ -112,11 +112,16 @@ func NewHTTPProxy(
 				DialContext: (&net.Dialer{
 					Timeout: 5 * time.Second,
 				}).DialContext,
-				// Keep-alive a small pool of upstream conns per Service —
-				// loading a Grafana dashboard fires ~30 parallel requests
-				// for JS/CSS/JSON, recycling sockets matters.
-				MaxIdleConns:        50,
-				MaxIdleConnsPerHost: 20,
+				// Keep-alive a generous pool of upstream conns per Service.
+				// The Monitoring page fans out 22+ parallel PromQL queries
+				// to one VM Service; Grafana dashboard loads fire ~30
+				// parallel asset requests. The previous per-host=20 made
+				// the back half of every fan-out wait on a fresh TLS
+				// handshake (≈50ms each on local links, more on cross-
+				// region). 100 covers both burst sources without growing
+				// per-host steady-state usage (idle conns reap after 90s).
+				MaxIdleConns:        200,
+				MaxIdleConnsPerHost: 100,
 				IdleConnTimeout:     90 * time.Second,
 				// Disable response body chunking inside the transport so
 				// we can read the whole body in one call before forwarding.
@@ -203,8 +208,14 @@ func newIndependentAPIClient(k8sCfg *rest.Config) (*http.Client, error) {
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 20,
+		// Matches HTTPProxy.client's pool sizing — when this client is
+		// the service-proxy fallback for in-cluster Service URLs (dev
+		// mode + cluster DNS unreachable), the same Monitoring fan-out
+		// of 20+ parallel PromQL queries lands on the K8s API server
+		// host. 20 per-host was the bottleneck before; 100 lets a full
+		// burst reuse keep-alive connections.
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 100,
 		IdleConnTimeout:     90 * time.Second,
 	})
 	rt, err := transport.HTTPWrappersForConfig(transportCfg, base)

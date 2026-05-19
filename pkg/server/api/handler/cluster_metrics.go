@@ -109,15 +109,11 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		// Reuse the shared 4s response cache that powers gpu-metrics —
-		// the underlying PromQL fan-out is the most expensive part of
-		// the page render and a typical UI poll interval is 5s.
-		cacheKey := vmCacheKey("cluster-metrics", clusterID, tr.cacheSuffix)
-		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
-			c.Data(http.StatusOK, "application/json", body)
-			return
-		}
-
+		// Resolve VM URL up front (cheap, hits a 30s in-process cache)
+		// so plugin-not-installed errors stay typed and map to
+		// RESOURCE_NOT_AVAILABLE 404. Cache lookup + compute happen
+		// after; a singleflight gate inside the cache collapses
+		// concurrent cold misses on the same key into one fan-out.
 		vmURL, code, err := resolveVMQueryURL(gw, clusterID)
 		if err != nil {
 			if code != "" {
@@ -135,6 +131,9 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), vmTimeout)
 		defer cancel()
 		from, to := tr.from, tr.to
+
+		cacheKey := vmCacheKey("cluster-metrics", clusterID, tr.cacheSuffix)
+		body, err := sharedVMResponseCache.GetOrCompute(cacheKey, 4*time.Second, func() (any, error) {
 
 		// Cluster-wide PromQL. CPU / memory expressions follow the
 		// canonical Prometheus community guides (avg over per-node
@@ -268,16 +267,16 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			snap.MemUtilPct = 0
 		}
 
-		resp := clusterMetricsResponse{
-			Range:       tr.cacheSuffix,
-			From:        from.UTC().Format(time.RFC3339),
-			To:          to.UTC().Format(time.RFC3339),
-			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-			StepSeconds: int(tr.step.Seconds()),
-			Snapshot:    snap,
-			Series:      ranges,
-		}
-		body, err := sharedVMResponseCache.Put(cacheKey, resp, 4*time.Second)
+			return clusterMetricsResponse{
+				Range:       tr.cacheSuffix,
+				From:        from.UTC().Format(time.RFC3339),
+				To:          to.UTC().Format(time.RFC3339),
+				GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+				StepSeconds: int(tr.step.Seconds()),
+				Snapshot:    snap,
+				Series:      ranges,
+			}, nil
+		})
 		if err != nil {
 			apiErrInternal(c, err)
 			return

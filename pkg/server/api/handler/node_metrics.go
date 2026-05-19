@@ -55,12 +55,6 @@ func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		cacheKey := vmCacheKey("node-metrics", clusterID, tr.cacheSuffix)
-		if body, ok := sharedVMResponseCache.Get(cacheKey); ok {
-			c.Data(http.StatusOK, "application/json", body)
-			return
-		}
-
 		vmURL, code, err := resolveVMQueryURL(gw, clusterID)
 		if err != nil {
 			if code != "" {
@@ -78,6 +72,9 @@ func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), vmTimeout)
 		defer cancel()
 		from, to := tr.from, tr.to
+
+		cacheKey := vmCacheKey("node-metrics", clusterID, tr.cacheSuffix)
+		body, err := sharedVMResponseCache.GetOrCompute(cacheKey, 4*time.Second, func() (any, error) {
 
 		// PromQL grouped by `instance`. CPU is averaged across modes
 		// per host; memory uses MemAvailable for the "used" delta.
@@ -164,15 +161,15 @@ func GetNodeMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		wg.Wait()
 
-		resp := nodeMetricsResponse{
-			Range:       tr.cacheSuffix,
-			From:        from.UTC().Format(time.RFC3339),
-			To:          to.UTC().Format(time.RFC3339),
-			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-			StepSeconds: int(tr.step.Seconds()),
-			Series:      out,
-		}
-		body, err := sharedVMResponseCache.Put(cacheKey, resp, 4*time.Second)
+			return nodeMetricsResponse{
+				Range:       tr.cacheSuffix,
+				From:        from.UTC().Format(time.RFC3339),
+				To:          to.UTC().Format(time.RFC3339),
+				GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+				StepSeconds: int(tr.step.Seconds()),
+				Series:      out,
+			}, nil
+		})
 		if err != nil {
 			apiErrInternal(c, err)
 			return
