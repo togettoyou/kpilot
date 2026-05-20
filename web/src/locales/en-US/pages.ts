@@ -731,9 +731,9 @@ export default {
   'pages.models.registry.filter.runtime': 'Runtime',
   'pages.models.registry.filter.license': 'License',
   // form labels
-  'pages.models.registry.form.name': 'Name (DNS-1123 label)',
+  'pages.models.registry.form.name': 'Name (DNS-1035 label)',
   'pages.models.registry.form.name.help':
-    'Lowercase letters / digits / hyphen, alphanumeric start + end. Used directly as the Deployment name in P16+',
+    'Lowercase letter start, then lowercase letters / digits / hyphen, alphanumeric end (no dots — used directly as the Service / Deployment name).',
   'pages.models.registry.form.displayName': 'Display name',
   'pages.models.registry.form.description': 'Description',
   'pages.models.registry.form.family': 'Family',

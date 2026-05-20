@@ -189,9 +189,11 @@ const (
 type Model struct {
 	ID uint `gorm:"primaryKey;autoIncrement" json:"id"`
 
-	// Canonical short id. DNS-1123 label safe (lowercased, no spaces) so
-	// it can become a Deployment.metadata.name in P16 without a transform
-	// step. Capped to 63 to match the K8s label limit.
+	// Canonical short id. DNS-1035 label safe (lowercase letter start,
+	// no dots) so it can become a Service / Deployment metadata.name in
+	// P16 without a transform step. Service is the stricter rule of the
+	// two (DNS-1035 needs alpha start; DNS-1123 allows digit start).
+	// Capped to 63 to match the K8s label limit.
 	Name string `gorm:"type:varchar(63);not null;uniqueIndex" json:"name"`
 
 	// Human-readable label for catalog cards / table rows.

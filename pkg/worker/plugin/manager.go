@@ -27,10 +27,10 @@ type Manager struct {
 	// Push lets handleDisable surface a "no-op completed" status back to
 	// Server when there's no CRD to delete (Server already thinks the
 	// plugin is Uninstalling — without this, the row would stay stuck).
-	Push StatusPusher
+	Push Pusher
 }
 
-func NewManager(c client.Client, cache *ChartCache, push StatusPusher) *Manager {
+func NewManager(c client.Client, cache *ChartCache, push Pusher) *Manager {
 	return &Manager{Client: c, Cache: cache, Push: push}
 }
 

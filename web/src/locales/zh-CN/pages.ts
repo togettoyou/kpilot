@@ -711,8 +711,8 @@ export default {
   'pages.models.registry.filter.runtime': '运行时',
   'pages.models.registry.filter.license': '许可证',
   // form labels
-  'pages.models.registry.form.name': '名称（DNS-1123 label）',
-  'pages.models.registry.form.name.help': '小写字母 / 数字 / 连字符，开头结尾为字母数字；后续 Deployment 会直接用作 name',
+  'pages.models.registry.form.name': '名称（DNS-1035 label）',
+  'pages.models.registry.form.name.help': '小写字母开头，可含小写字母 / 数字 / 连字符，以字母数字结尾（不能含点；后续会直接作为 Service / Deployment 的 name 使用）',
   'pages.models.registry.form.displayName': '展示名',
   'pages.models.registry.form.description': '描述',
   'pages.models.registry.form.family': '系列',

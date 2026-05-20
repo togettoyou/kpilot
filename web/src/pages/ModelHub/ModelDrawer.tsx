@@ -248,12 +248,11 @@ const ModelDrawer: React.FC<Props> = ({
         if (!visible) onClose();
       }}
       onValuesChange={(changed) => {
-        // Only auto-swap in NEW mode — editing an existing row should
-        // never surprise-rewrite the image/args the user picked
-        // before. Also gate on the runtime field specifically; other
-        // form changes (name typed in, family picked) don't touch
-        // image/args.
-        if (isEdit) return;
+        // Runtime swap rewrites image + default_args to the new
+        // runtime's template. Fires in every mode (create / edit /
+        // duplicate) because switching runtime is a deliberate user
+        // action — the previous "edit preserves" rule left the user
+        // staring at vLLM args after picking SGLang from the Select.
         if (!('runtime' in changed) || !changed.runtime) return;
         const defaults = RUNTIME_DEFAULTS[changed.runtime as ModelRuntime];
         if (!defaults) return;
@@ -283,7 +282,7 @@ const ModelDrawer: React.FC<Props> = ({
         rules={[
           { required: true },
           {
-            pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
+            pattern: /^[a-z]([-a-z0-9]*[a-z0-9])?$/,
             message: intl.formatMessage({
               id: 'pages.models.registry.form.name.help',
             }),

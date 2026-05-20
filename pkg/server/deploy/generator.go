@@ -516,6 +516,21 @@ func buildDeployment(
 		},
 	})
 
+	podSpec := corev1.PodSpec{
+		RestartPolicy: corev1.RestartPolicyAlways,
+		Containers:    []corev1.Container{container},
+		Volumes:       volumes,
+	}
+	// Volcano vGPU requires the Volcano scheduler — the device plugin
+	// reads vgpu-memory / vgpu-cores assignments off Volcano-set pod
+	// annotations and falls back to a "cannot get valid pod" rpc
+	// error from kubelet's Allocate path when default-scheduler is
+	// the one that admitted the pod. Setting SchedulerName here is
+	// the missing step; the user does not need to opt in separately.
+	if opts.GPUType == GPUTypeVolcano {
+		podSpec.SchedulerName = "volcano"
+	}
+
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -528,11 +543,7 @@ func buildDeployment(
 			Selector: &metav1.LabelSelector{MatchLabels: selector},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyAlways,
-					Containers:    []corev1.Container{container},
-					Volumes:       volumes,
-				},
+				Spec:       podSpec,
 			},
 		},
 	}

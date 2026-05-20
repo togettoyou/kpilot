@@ -1,7 +1,7 @@
 // Package dashboards bundles the dashboard JSONs that KPilot pre-provisions
 // into the Grafana plugin on enable. Server-side only — Worker never sees
 // these files; they're injected into the plugin's values payload by
-// gateway.BuildEnableCommand before the PluginCommand goes out the wire.
+// pluginservice.BuildEnableCommand before the PluginCommand goes out the wire.
 //
 // Why server-side overlay rather than baking into seed.go's default_values:
 // the JSONs are ~700 KB combined, so including them in the registry row's

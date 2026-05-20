@@ -29,13 +29,6 @@ func (g *GatewayServer) ClusterDomain(clusterID string) string {
 	return ""
 }
 
-// BuildEnableCommand keeps a method on the gateway for backward
-// compatibility with existing handlers — it forwards to pluginservice
-// with the gateway itself as the cluster-domain resolver.
-func (g *GatewayServer) BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin) (*pluginservice.Command, error) {
-	return pluginservice.BuildEnableCommand(p, cp, g)
-}
-
 // replayPendingPluginCommands re-pushes plugin commands for any
 // (cluster, plugin) row whose state on Server suggests an action is in
 // flight that the (just-reconnected) Worker may not know about.

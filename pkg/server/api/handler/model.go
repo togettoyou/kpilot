@@ -35,10 +35,12 @@ const (
 	maxModelRecommendedGPULen = 1 * 1024 // small JSON object {count, memoryGiB, model}
 )
 
-// nameRe enforces DNS-1123 label so Name can serve as a K8s resource
-// name in P16 without sanitization. Lowercase letters / digits / hyphen,
-// starts + ends with alphanumeric.
-var nameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+// nameRe enforces DNS-1035 label so Name can serve as a K8s Service
+// name in P16 (Service is stricter than DNS-1123: must start with a
+// letter, not a digit). Lowercase letter start, then letters / digits
+// / hyphen, alphanumeric end. No dots — those are RFC-1123 *subdomain*
+// not *label*, and Service names take the label form.
+var nameRe = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
 
 // validRuntimes / validFamilies mirror the closed enums the frontend
 // Select restricts to. Server-side check stops a hand-rolled POST from

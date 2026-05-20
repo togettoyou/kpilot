@@ -500,7 +500,7 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			Phase:           store.PluginPhasePending,
 		}
 
-		cmd, err := gw.BuildEnableCommand(plugin, cp)
+		cmd, err := pluginservice.BuildEnableCommand(plugin, cp, gw)
 		if err != nil {
 			apiErrInternal(c, err)
 			return

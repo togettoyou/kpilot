@@ -37,10 +37,6 @@ type Pusher interface {
 	PushPluginLogEnd(crdName string, success bool, summary string)
 }
 
-// StatusPusher is kept as an alias for backwards-compat with anyone
-// embedding kpilot's plugin package. Internal callers use Pusher.
-type StatusPusher = Pusher
-
 // Reconciler reconciles a Plugin CRD by driving its Helm release toward
 // the spec. One reconciler instance per Worker.
 type Reconciler struct {

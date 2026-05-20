@@ -47,7 +47,7 @@ import (
 var builtinModels = []Model{
 	// ─── Qwen3 family (Apache-2.0) ──────────────────────────────
 	{
-		Name:           "qwen3-0.6b-instruct",
+		Name:           "qwen3-0-6b-instruct",
 		DisplayName:    "Qwen3 0.6B Instruct",
 		Description:    "Smallest Qwen3 dense — 0.8B params actual (the '0.6B' name refers to non-embedding parameter count). At BF16 it's ~1.6 GB VRAM, fits on any GPU including 4 GB cards. Pick this preset to smoke-test the deployment pipeline end-to-end before pulling a real workload.",
 		Family:         ModelFamilyQwen,
@@ -144,7 +144,7 @@ var builtinModels = []Model{
 
 	// ─── Mistral family ─────────────────────────────────────────
 	{
-		Name:           "mistral-small-3.2-24b-instruct",
+		Name:           "mistral-small-3-2-24b-instruct",
 		DisplayName:    "Mistral Small 3.2 24B Instruct",
 		Description:    "Apache-2.0 24B with vision + 128k context (June 2026 checkpoint). The headline mid-tier open-weight; production-friendly license.",
 		Family:         ModelFamilyMistral,
@@ -174,7 +174,7 @@ var builtinModels = []Model{
 
 	// ─── Z.ai GLM family ────────────────────────────────────────
 	{
-		Name:           "glm-5.1",
+		Name:           "glm-5-1",
 		DisplayName:    "GLM-5.1",
 		Description:    "Z.ai GLM-5.1 — currently leads the Artificial Analysis Intelligence Index among open-weight models. Focused on agentic engineering / coding / long-horizon planning. Heavy MoE — multi-GPU only.",
 		Family:         ModelFamilyGLM,
@@ -204,7 +204,7 @@ var builtinModels = []Model{
 
 	// ─── Moonshot Kimi family ───────────────────────────────────
 	{
-		Name:           "kimi-k2.6",
+		Name:           "kimi-k2-6",
 		DisplayName:    "Kimi K2.6",
 		Description:    "Moonshot AI's flagship — 1T total / 32B active MoE, native multimodal, agentic. Heavy — multi-GPU only. Modified MIT license adds extra terms above 100M MAU; below that threshold it behaves like vanilla MIT.",
 		Family:         ModelFamilyKimi,
@@ -224,6 +224,7 @@ var builtinModels = []Model{
 // definition so doc/license/arg fixes ship with the next deploy.
 func SeedBuiltinModels(db *gorm.DB) error {
 	for _, want := range builtinModels {
+		want.IsBuiltin = true
 		var existing Model
 		err := db.Where("name = ?", want.Name).First(&existing).Error
 		switch {
