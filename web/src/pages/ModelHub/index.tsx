@@ -4,7 +4,6 @@ import { useIntl, useRequest } from '@umijs/max';
 import {
   Alert,
   App,
-  Avatar,
   Badge,
   Button,
   Col,
@@ -191,8 +190,10 @@ const ModelHubPage: React.FC = () => {
     });
   };
 
-  // Section header for one family. Renders the logo, label, and a
-  // count badge; the whole header is the Collapse's clickable area.
+  // Section header for one family. Just label + count — the logo
+  // moved exclusively to individual cards so each row carries its
+  // own brand glyph and the section bar reads as a clean text
+  // grouping, not a duplicated badge row.
   const renderFamilyHeader = (family: ModelFamily, count: number) => {
     const meta =
       family === 'custom'
@@ -202,18 +203,6 @@ const ModelHubPage: React.FC = () => {
       meta?.label ?? intl.formatMessage({ id: 'pages.models.registry.custom' });
     return (
       <Space size={10}>
-        <Avatar
-          shape="square"
-          size={28}
-          src={meta?.iconUrl}
-          style={{
-            backgroundColor: meta?.color ?? '#8c8c8c',
-            color: '#fff',
-            fontSize: 13,
-          }}
-        >
-          {label.charAt(0).toUpperCase()}
-        </Avatar>
         <Text strong style={{ fontSize: 15 }}>
           {label}
         </Text>
