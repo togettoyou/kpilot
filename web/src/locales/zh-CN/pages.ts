@@ -650,21 +650,14 @@ export default {
   'pages.models.registry.custom': '自定义',
   'pages.models.registry.delete.confirm': '确定删除模型「{name}」？',
   'pages.models.registry.delete.success': '已删除',
-  'pages.models.registry.deleteHint': '删除自定义模型；内置模型禁用此操作',
   'pages.models.registry.builtinHint': '内置模型不可编辑/删除',
-  // table columns
-  'pages.models.registry.col.name': '名称',
-  'pages.models.registry.col.family': '系列',
-  'pages.models.registry.col.runtime': '运行时',
+  // detail drawer field labels (also used as Descriptions labels)
   'pages.models.registry.col.image': '镜像',
   'pages.models.registry.col.hf': 'HuggingFace ID',
   'pages.models.registry.col.gpu': '推荐 GPU',
-  'pages.models.registry.col.license': '许可证',
-  'pages.models.registry.col.actions': '操作',
-  // filters
-  'pages.models.registry.filter.family': '系列',
+  // toolbar filters
   'pages.models.registry.filter.runtime': '运行时',
-  'pages.models.registry.filter.all': '全部',
+  'pages.models.registry.filter.license': '许可证',
   // form labels
   'pages.models.registry.form.name': '名称（DNS-1123 label）',
   'pages.models.registry.form.name.help': '小写字母 / 数字 / 连字符，开头结尾为字母数字；后续 Deployment 会直接用作 name',
@@ -684,7 +677,6 @@ export default {
   'pages.models.registry.form.license.placeholder': '如 apache-2.0 / llama3.1 / deepseek',
   // empty state
   'pages.models.registry.empty.title': '暂无模型',
-  'pages.models.registry.empty.subtitle': '内置预设已自动 seed；可点击右上角新建自定义模型条目',
   // roadmap banner
   'pages.models.registry.roadmap.title': '即将推出',
   'pages.models.registry.roadmap.desc': '模型部署、在线 chat 调试、OpenAI 兼容路由、Volcano gang scheduling 分布式微调',

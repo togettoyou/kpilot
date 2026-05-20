@@ -658,21 +658,14 @@ export default {
   'pages.models.registry.custom': 'Custom',
   'pages.models.registry.delete.confirm': 'Delete model "{name}"?',
   'pages.models.registry.delete.success': 'Deleted',
-  'pages.models.registry.deleteHint': 'Delete a custom model; built-in entries are locked',
   'pages.models.registry.builtinHint': 'Built-in entries cannot be edited or deleted',
-  // table columns
-  'pages.models.registry.col.name': 'Name',
-  'pages.models.registry.col.family': 'Family',
-  'pages.models.registry.col.runtime': 'Runtime',
+  // detail drawer field labels (also used as Descriptions labels)
   'pages.models.registry.col.image': 'Image',
   'pages.models.registry.col.hf': 'HuggingFace ID',
   'pages.models.registry.col.gpu': 'Recommended GPU',
-  'pages.models.registry.col.license': 'License',
-  'pages.models.registry.col.actions': 'Actions',
-  // filters
-  'pages.models.registry.filter.family': 'Family',
+  // toolbar filters
   'pages.models.registry.filter.runtime': 'Runtime',
-  'pages.models.registry.filter.all': 'All',
+  'pages.models.registry.filter.license': 'License',
   // form labels
   'pages.models.registry.form.name': 'Name (DNS-1123 label)',
   'pages.models.registry.form.name.help':
@@ -698,8 +691,6 @@ export default {
     'e.g. apache-2.0 / llama3.1 / deepseek',
   // empty state
   'pages.models.registry.empty.title': 'No models yet',
-  'pages.models.registry.empty.subtitle':
-    'Built-in presets are seeded automatically. Click "New model" above to add a custom entry.',
   // roadmap banner
   'pages.models.registry.roadmap.title': 'Coming soon',
   'pages.models.registry.roadmap.desc':
