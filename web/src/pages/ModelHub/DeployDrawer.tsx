@@ -28,7 +28,7 @@ import type {
 } from '@/services/kpilot/model';
 import { deployModel } from '@/services/kpilot/model';
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 interface Props {
   open: boolean;
@@ -246,6 +246,12 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
       const resp = await deployModel(model.id, buildPayload(values));
       setYamlPreview(resp.yaml_preview);
       setResults(resp.apply_results ?? []);
+      // Always flip to the results tab on submit completion —
+      // previously the table sat at the bottom of the config form
+      // and required scrolling, which made failures invisible at
+      // a glance. Now success or partial-failure both surface
+      // immediately on a dedicated tab.
+      setActiveTab('result');
       const failed = (resp.apply_results ?? []).some((r) => !r.success);
       if (failed) {
         message.warning(
@@ -693,32 +699,6 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
                     autoComplete="new-password"
                   />
                 </Form.Item>
-
-                {results && (
-                  <>
-                    <Typography.Title level={5} style={{ marginTop: 24 }}>
-                      {intl.formatMessage({
-                        id: 'pages.models.deploy.result.status',
-                      })}
-                    </Typography.Title>
-                    <Table
-                      size="small"
-                      rowKey={(r) => `${r.kind}-${r.name}`}
-                      columns={resultColumns}
-                      dataSource={results}
-                      pagination={false}
-                    />
-                    {results.every((r) => r.success) && (
-                      <Paragraph style={{ marginTop: 12 }}>
-                        <Button type="link" onClick={gotoWorkloads}>
-                          {intl.formatMessage({
-                            id: 'pages.models.deploy.gotoWorkloads',
-                          })}
-                        </Button>
-                      </Paragraph>
-                    )}
-                  </>
-                )}
               </Form>
             ),
           },
@@ -744,6 +724,72 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
               </div>
             ),
           },
+          // Results tab only exists after a deploy attempt — keeps
+          // the tab bar at two items on a fresh open and grows to
+          // three only when there's something to show. handleDeploy
+          // flips activeTab to "result" on submit completion, so
+          // success / failure surface immediately without scrolling.
+          ...(results
+            ? [
+                {
+                  key: 'result',
+                  label: intl.formatMessage({
+                    id: 'pages.models.deploy.tab.result',
+                  }),
+                  children: (
+                    <div>
+                      {results.length === 0 ? (
+                        <Text type="secondary">
+                          {intl.formatMessage({
+                            id: 'pages.models.deploy.result.empty',
+                          })}
+                        </Text>
+                      ) : (
+                        <>
+                          {results.every((r) => r.success) ? (
+                            <Alert
+                              type="success"
+                              showIcon
+                              style={{ marginBottom: 16 }}
+                              message={intl.formatMessage({
+                                id: 'pages.models.deploy.result.allOk',
+                              })}
+                              action={
+                                <Button
+                                  size="small"
+                                  type="link"
+                                  onClick={gotoWorkloads}
+                                >
+                                  {intl.formatMessage({
+                                    id: 'pages.models.deploy.gotoWorkloads',
+                                  })}
+                                </Button>
+                              }
+                            />
+                          ) : (
+                            <Alert
+                              type="error"
+                              showIcon
+                              style={{ marginBottom: 16 }}
+                              message={intl.formatMessage({
+                                id: 'pages.models.deploy.partial',
+                              })}
+                            />
+                          )}
+                          <Table
+                            size="small"
+                            rowKey={(r) => `${r.kind}-${r.name}`}
+                            columns={resultColumns}
+                            dataSource={results}
+                            pagination={false}
+                          />
+                        </>
+                      )}
+                    </div>
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
     </Drawer>
