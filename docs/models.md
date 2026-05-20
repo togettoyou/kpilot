@@ -110,12 +110,20 @@ family 枚举包含 `qwen` / `deepseek` / `llama` / `mistral` / `glm` / `yi` / `
 
 重复部署到同名 = **SSA update**，不是报错，也不是创建新 instance。
 
-### GPU 资源 plumbing
+### 容器资源（三层叠加）
 
-`gpu_type` 字段二选一：
+| 层 | 字段 | 写入位置 | 备注 |
+|---|---|---|---|
+| ① CPU / 内存 | `cpu_request` / `cpu_limit` / `memory_request` / `memory_limit`（K8s quantity 字符串如 `"2"` / `"500m"` / `"4Gi"`）| `resources.requests` 与 `resources.limits` 可不同 | 留空 = 不设置该资源，调度器默认。server 经 `resource.ParseQuantity` 校验 |
+| ② GPU 数量 | `gpu_count` + `gpu_type` | 二选一资源 key，requests==limits（extended resource 强制）| `nvidia.com/gpu`（默认）或 `volcano.sh/vgpu-number` |
+| ③ Volcano vGPU 子资源 | `vgpu_memory_mib`（每卡 MiB） / `vgpu_cores`（每卡 SM 0-100%）| `limits` only，kubelet mirror | **仅 `gpu_type=volcano` 时下发**，跟 nvidia 模式无关 |
+
+GPU 资源 plumbing 二选一：
 
 - `nvidia`（默认）→ `resources.limits['nvidia.com/gpu']: N` —— 通用，所有 NVIDIA device plugin 都认
-- `volcano` → `resources.limits['volcano.sh/vgpu-number']: N` —— 需要 `volcano-vgpu-device-plugin` 已安装（KPilot 内置插件），支持单卡切多 Pod
+- `volcano` → `volcano.sh/vgpu-number` + 可选 `volcano.sh/vgpu-memory` + 可选 `volcano.sh/vgpu-cores`，要求集群装了 `volcano-vgpu-device-plugin`（KPilot 内置插件），支持单卡切多 Pod
+
+容器还兜底 dshm tmpfs 2 GiB 给 NCCL（多卡 tensor-parallel 必需），readiness probe 打 `/health`、failureThreshold=10 × 30s 等冷启动下载完成。
 
 ### KPilot 标签集（每个 manifest 都打）
 
@@ -136,6 +144,16 @@ labels:
 ### Dry-run 预览
 
 `POST /api/v1/models/:id/deploy?dry_run=true` —— 同 payload，但 server 只生成 manifests + YAML 文本，不下发到集群。前端 DeployDrawer 的「YAML 预览」tab 走这个。
+
+### 前端 DeployDrawer 三 tab
+
+| tab | 行为 |
+|---|---|
+| 配置 | 表单。Deploy 按钮 `disabled={!isFormReady}`（监听 cluster / namespace / replicas / gpu_count 四个必填字段，4 个 `Form.useWatch` 钩子），表单未填完整不可点 |
+| YAML 预览 | 切 tab 时自动调 dry_run（表单 invalid 时显示提示 Alert，不出空编辑器）；表单 `onValuesChange` 失效缓存让下次切 tab 重新拉。复用 `pages/ClusterDetail/Workloads/YamlEditor`（CodeMirror + YAML 高亮 + 主题色） |
+| 部署结果 | 仅首次提交后出现的第三个 tab。提交完成后自动切到此处；Alert banner（success / error 色）+ per-doc 表格（错误列 `whiteSpace=pre-wrap` 完整显示 K8s admission webhook 等多行错误）；成功 banner 带「跳转到工作负载」链接 |
+
+**autofill 防御**：HF Token（`Input.Password`）放表单最底部 + `autoComplete="new-password"`，配合 Form 整体 `autoComplete="off"`，避免 Chrome 把"密码字段之前的第一个 input"（Cluster Select）误填为登录用户名。
 
 ### 限制 / 已知边界
 
