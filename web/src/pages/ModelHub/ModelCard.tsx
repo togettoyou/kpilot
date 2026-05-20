@@ -1,4 +1,9 @@
-import { CopyOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import {
+  CloudUploadOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  EditOutlined,
+} from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import { Avatar, Button, Card, Space, Tag, Tooltip, Typography } from 'antd';
 import React from 'react';
@@ -14,6 +19,7 @@ interface Props {
   onEdit: (m: Model) => void;
   onDuplicate: (m: Model) => void;
   onDelete: (m: Model) => void;
+  onDeploy: (m: Model) => void;
 }
 
 // ModelCard renders one catalog entry in the family-grouped grid.
@@ -29,6 +35,7 @@ const ModelCard: React.FC<Props> = ({
   onEdit,
   onDuplicate,
   onDelete,
+  onDeploy,
 }) => {
   const intl = useIntl();
   const meta =
@@ -175,6 +182,18 @@ const ModelCard: React.FC<Props> = ({
           size={0}
           onClick={(e) => e.stopPropagation()} // don't trigger card View
         >
+          <Tooltip
+            title={intl.formatMessage({
+              id: 'pages.models.deploy.action.deploy',
+            })}
+          >
+            <Button
+              size="small"
+              type="primary"
+              icon={<CloudUploadOutlined />}
+              onClick={() => onDeploy(model)}
+            />
+          </Tooltip>
           <Tooltip
             title={intl.formatMessage({
               id: 'pages.models.registry.action.duplicate',

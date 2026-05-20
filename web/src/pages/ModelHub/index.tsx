@@ -29,6 +29,7 @@ import {
   RUNTIME_LABELS,
 } from '@/services/kpilot/model';
 
+import DeployDrawer from './DeployDrawer';
 import ModelCard from './ModelCard';
 import ModelDetailDrawer from './ModelDetailDrawer';
 import type { ModelDrawerMode } from './ModelDrawer';
@@ -61,6 +62,9 @@ const ModelHubPage: React.FC = () => {
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailModel, setDetailModel] = useState<Model | null>(null);
+
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [deploySource, setDeploySource] = useState<Model | null>(null);
 
   // Filter state. Within-section card order is fixed (built-ins
   // first, then sort_order, then name) — exposing it as a Select
@@ -165,6 +169,11 @@ const ModelHubPage: React.FC = () => {
     setDetailModel(m);
     setDetailOpen(true);
   };
+  const openDeploy = (m: Model) => {
+    setDeploySource(m);
+    setDeployOpen(true);
+    setDetailOpen(false);
+  };
   const handleDelete = (m: Model) => {
     modal.confirm({
       title: intl.formatMessage(
@@ -252,6 +261,7 @@ const ModelHubPage: React.FC = () => {
                 onEdit={openEdit}
                 onDuplicate={openDuplicate}
                 onDelete={handleDelete}
+                onDeploy={openDeploy}
               />
             </Col>
           ))}
@@ -378,6 +388,13 @@ const ModelHubPage: React.FC = () => {
         onClose={() => setDetailOpen(false)}
         onEdit={openEdit}
         onDuplicate={openDuplicate}
+        onDeploy={openDeploy}
+      />
+
+      <DeployDrawer
+        open={deployOpen}
+        model={deploySource}
+        onClose={() => setDeployOpen(false)}
       />
 
       <ModelDrawer

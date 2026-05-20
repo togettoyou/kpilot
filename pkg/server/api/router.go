@@ -221,6 +221,10 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		models.GET("/:id", handler.GetModel)
 		models.PATCH("/:id", handler.UpdateModel)
 		models.DELETE("/:id", handler.DeleteModel)
+		// P16-A — generate Deployment + Service + optional PVC/Secret
+		// from a catalog row and apply through the worker tunnel.
+		// `?dry_run=true` returns manifests without applying.
+		models.POST("/:id/deploy", handler.DeployModel(gw))
 	}
 
 	// SPA static fallback — only mounted when STATIC_DIR points at a

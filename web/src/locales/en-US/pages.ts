@@ -654,6 +654,54 @@ export default {
   'pages.models.registry.empty.noMatch': 'No matches — try clearing the filters',
   'pages.models.registry.noDescription': '(no description)',
   'pages.models.registry.noArgs': '(no launch args — vLLM uses defaults)',
+
+  // deploy drawer (P16-A)
+  'pages.models.deploy.title': 'Deploy {name}',
+  'pages.models.deploy.tab.config': 'Config',
+  'pages.models.deploy.tab.preview': 'YAML preview',
+  'pages.models.deploy.cluster': 'Target cluster',
+  'pages.models.deploy.cluster.placeholder': 'Pick the cluster to deploy to',
+  'pages.models.deploy.namespace': 'Namespace',
+  'pages.models.deploy.namespace.help':
+    'Auto-created if missing (when the checkbox below is ticked)',
+  'pages.models.deploy.createNamespace': 'Auto-create if missing',
+  'pages.models.deploy.instance': 'Instance name (optional)',
+  'pages.models.deploy.instance.help':
+    'Empty = singleton (deployment name = model name). Set it to allow multiple variants in the same cluster (deployment name = model-instance).',
+  'pages.models.deploy.replicas': 'Replicas',
+  'pages.models.deploy.gpuCount': 'GPU count',
+  'pages.models.deploy.gpuType': 'GPU resource type',
+  'pages.models.deploy.gpuType.nvidia': 'nvidia.com/gpu (native)',
+  'pages.models.deploy.gpuType.volcano':
+    'volcano.sh/vgpu-* (fractional sharing)',
+  'pages.models.deploy.gpuType.help':
+    'The volcano option requires the volcano-vgpu-device-plugin to be installed on the cluster',
+  'pages.models.deploy.hfToken': 'HuggingFace token (optional)',
+  'pages.models.deploy.hfToken.help':
+    'Required when pulling gated weights (Llama 4, etc). Stored as a Secret and surfaced to the container via envFrom as HF_TOKEN.',
+  'pages.models.deploy.extraArgs': 'Extra launch args (optional)',
+  'pages.models.deploy.extraArgs.help':
+    'One per line. Appended after the model defaults; later vLLM flags override earlier ones, so this can also override defaults.',
+  'pages.models.deploy.pvc.section': 'Weight-cache PVC',
+  'pages.models.deploy.pvc.enabled': 'Enable PVC cache',
+  'pages.models.deploy.pvc.help':
+    '⚠️ Cold start downloads the full model from HuggingFace (Qwen3-0.6B ~1.5 GB / Qwen3-32B ~65 GB / DeepSeek-R1 ~1.3 TB). With PVC enabled it downloads once and pod restarts reuse the cache; with it disabled every pod restart re-downloads.',
+  'pages.models.deploy.pvc.size': 'PVC size (GiB)',
+  'pages.models.deploy.pvc.storageClass': 'StorageClass (optional)',
+  'pages.models.deploy.pvc.storageClass.placeholder':
+    'Empty = cluster default',
+  'pages.models.deploy.action.preview': 'Generate YAML preview',
+  'pages.models.deploy.action.deploy': 'Deploy to cluster',
+  'pages.models.deploy.success': 'Deployed {name} to namespace {ns}',
+  'pages.models.deploy.partial':
+    'Some resources failed to apply — see results below',
+  'pages.models.deploy.gotoWorkloads': 'Go to Workloads to watch the pod',
+  'pages.models.deploy.result.kind': 'Resource',
+  'pages.models.deploy.result.name': 'Name',
+  'pages.models.deploy.result.status': 'Status',
+  'pages.models.deploy.result.error': 'Error',
+  'pages.models.deploy.result.ok': 'OK',
+  'pages.models.deploy.result.failed': 'Failed',
   'pages.models.registry.builtin': 'Built-in',
   'pages.models.registry.custom': 'Custom',
   'pages.models.registry.delete.confirm': 'Delete model "{name}"?',

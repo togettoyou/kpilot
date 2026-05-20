@@ -1,4 +1,8 @@
-import { CopyOutlined, EditOutlined } from '@ant-design/icons';
+import {
+  CloudUploadOutlined,
+  CopyOutlined,
+  EditOutlined,
+} from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import {
   App,
@@ -24,6 +28,7 @@ interface Props {
   onClose: () => void;
   onEdit: (m: Model) => void;
   onDuplicate: (m: Model) => void;
+  onDeploy: (m: Model) => void;
 }
 
 // Read-only detail view that opens when a card is clicked. Separates
@@ -36,6 +41,7 @@ const ModelDetailDrawer: React.FC<Props> = ({
   onClose,
   onEdit,
   onDuplicate,
+  onDeploy,
 }) => {
   const intl = useIntl();
   const { message } = App.useApp();
@@ -122,12 +128,18 @@ const ModelDetailDrawer: React.FC<Props> = ({
             })}
           </Button>
           <Button
-            type="primary"
             icon={<EditOutlined />}
             disabled={model.is_builtin}
             onClick={() => onEdit(model)}
           >
             {intl.formatMessage({ id: 'pages.common.edit' })}
+          </Button>
+          <Button
+            type="primary"
+            icon={<CloudUploadOutlined />}
+            onClick={() => onDeploy(model)}
+          >
+            {intl.formatMessage({ id: 'pages.models.deploy.action.deploy' })}
           </Button>
         </Space>
       }

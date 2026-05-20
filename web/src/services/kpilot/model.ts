@@ -209,3 +209,62 @@ export function updateModel(id: number, payload: ModelPayload) {
 export function deleteModel(id: number) {
   return request<void>(`/api/v1/models/${id}`, { method: 'DELETE' });
 }
+
+// ─── Deploy (P16-A) ─────────────────────────────────────────────
+
+export type DeployGPUType = 'nvidia' | 'volcano';
+
+export interface DeployPVC {
+  enabled: boolean;
+  size_gib: number;
+  storage_class_name?: string;
+}
+
+export interface DeployPayload {
+  cluster_id: string;
+  namespace?: string;
+  create_namespace?: boolean;
+  instance?: string; // optional DNS-1123 label; empty = singleton {model.name}
+  replicas: number;
+  gpu_count: number;
+  gpu_type: DeployGPUType;
+  hf_token?: string;
+  extra_args?: string[];
+  pvc: DeployPVC;
+}
+
+// Per-doc apply result echoed back from server's applyOneDoc path.
+// Frontend uses this to render "Deployment OK · PVC failed (no
+// default StorageClass)" instead of a single yes/no.
+export interface DeployApplyResult {
+  index: number;
+  kind: string;
+  namespace: string;
+  name: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface DeployResponse {
+  deployment_name: string;
+  namespace: string;
+  yaml_preview: string;
+  applied: boolean;
+  apply_results?: DeployApplyResult[];
+}
+
+// deployModel runs the generator + (optionally) the apply path on
+// the server. dryRun=true returns just the manifests + YAML for
+// the preview tab; dryRun=false (default) applies to the cluster
+// and returns per-doc apply results.
+export function deployModel(
+  id: number,
+  payload: DeployPayload,
+  dryRun = false,
+) {
+  return request<DeployResponse>(`/api/v1/models/${id}/deploy`, {
+    method: 'POST',
+    data: payload,
+    params: dryRun ? { dry_run: 'true' } : undefined,
+  });
+}

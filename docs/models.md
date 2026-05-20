@@ -7,9 +7,10 @@
 | 模块 | 状态 |
 |---|---|
 | **模型仓库** | ✅ P15 已落地 |
-| **模型部署** | 🚧 P16 待开始 |
-| **在线 chat 调试** | 📋 P17 待规划 |
-| **OpenAI 兼容路由** | 📋 P17 待规划 |
+| **模型部署** | ✅ P16-A 已落地（不含 chat 调试 / 反代）|
+| **在线 chat 调试** | 🚧 P16-B 待开始 |
+| **OpenAI 兼容反代 endpoint** | 🚧 P16-C 待开始 |
+| **OpenAI 兼容路由（按 model 灰度 / A/B）** | 📋 P17 待规划 |
 | **分布式 fine-tune（Volcano gang scheduling）** | 📋 P18 待规划 |
 
 不引入 KServe（Knative 依赖过重），P16+ 直接走 Deployment + Service。
@@ -81,6 +82,67 @@ family 枚举包含 `qwen` / `deepseek` / `llama` / `mistral` / `glm` / `yi` / `
 - `ModelDrawer.tsx`：新建 + 编辑共用 DrawerForm —— 三段（基本信息 / 运行时 / 调优参数），客户端先解析 JSON 给出可读错误再 submit
 - 内置条目 Edit / Delete 按钮禁用 + tooltip 提示「内置不可改」
 - 表格下方 Alert banner 列出 P16+ roadmap 模块，对首次访问的用户诚实交代当前覆盖范围
+
+---
+
+---
+
+## 模型部署（P16-A 已落地）
+
+`POST /api/v1/models/:id/deploy` → server 生成 K8s manifests → 通过 worker tunnel 走 `apply` action 推到目标集群。**Model row 是模板**：同一行可独立部署到多个集群，每个集群可起多个 instance。
+
+### 生成什么
+
+按顺序 apply：
+
+1. **Namespace**（仅当 `create_namespace=true` 且不存在 —— 用 `app.kubernetes.io/managed-by=kpilot` 标记）
+2. **PersistentVolumeClaim**（仅当 `pvc.enabled=true` —— RWO, ReclaimPolicy=Retain, mount 到 `/root/.cache/huggingface`）
+3. **Secret**（仅当传了 `hf_token` —— `Opaque` 类型，键 `HF_TOKEN`，容器走 `envFrom` 拿）
+4. **Deployment**（vLLM/SGLang/TGI 容器 + GPU resources + dshm tmpfs 2 GiB + readiness probe）
+5. **Service**（ClusterIP, port 8000）
+
+### Deployment.metadata.name 规则
+
+| instance 字段 | Deployment 名 | 用途 |
+|---|---|---|
+| 空 | `{model.name}` | 单实例，最常见 |
+| 非空（DNS-1123 label，≤30 char）| `{model.name}-{instance}` | 同集群多变体共存（prod / canary / long-context 等）|
+
+重复部署到同名 = **SSA update**，不是报错，也不是创建新 instance。
+
+### GPU 资源 plumbing
+
+`gpu_type` 字段二选一：
+
+- `nvidia`（默认）→ `resources.limits['nvidia.com/gpu']: N` —— 通用，所有 NVIDIA device plugin 都认
+- `volcano` → `resources.limits['volcano.sh/vgpu-number']: N` —— 需要 `volcano-vgpu-device-plugin` 已安装（KPilot 内置插件），支持单卡切多 Pod
+
+### KPilot 标签集（每个 manifest 都打）
+
+```yaml
+labels:
+  app.kubernetes.io/managed-by: kpilot
+  app.kubernetes.io/name: {model.name}           # 不含 instance 后缀，便于跨实例 list
+  app.kubernetes.io/instance: {deployment.name}  # 含后缀
+  app.kubernetes.io/component: inference
+  kpilot.io/model-id: "{id}"                     # 反查 catalog row
+  kpilot.io/model-family: qwen | deepseek | ...
+  kpilot.io/model-runtime: vllm | sglang | tgi
+  kpilot.io/instance-suffix: ""                  # 空 = singleton
+```
+
+**部署状态 = 集群是 source of truth，DB 不存 ModelDeployment 表**。后续要"列出我管的部署"走 K8s label selector `app.kubernetes.io/managed-by=kpilot` 即可，KPilot DB 即使丢失也能自动恢复"我管这些"的认知。
+
+### Dry-run 预览
+
+`POST /api/v1/models/:id/deploy?dry_run=true` —— 同 payload，但 server 只生成 manifests + YAML 文本，不下发到集群。前端 DeployDrawer 的「YAML 预览」tab 走这个。
+
+### 限制 / 已知边界
+
+- `replicas` ≤ 32 / `gpu_count` ≤ 16 / `pvc.size_gib` ≤ 4096（4 TiB） —— 防 typo
+- 不挂 PVC 时 vLLM 走 emptyDir，**容器重启会重新下载权重**（drawer 有 Warning 提示）
+- 冷启动慢：drawer 提示用户跳转到 `/clusters/:id/workloads/deployments` 看 Pod 起来
+- 暂未支持多节点 tensor-parallel（>1 Pod 协同）—— P18 训练任务那边再说
 
 ---
 
