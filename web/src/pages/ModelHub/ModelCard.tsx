@@ -116,7 +116,7 @@ const ModelCard: React.FC<Props> = ({
             <Text
               strong
               style={{ fontSize: 14, lineHeight: 1.3 }}
-              ellipsis={{ tooltip: model.display_name }}
+              ellipsis={{ tooltip: false }}
             >
               {model.display_name}
             </Text>
@@ -143,9 +143,13 @@ const ModelCard: React.FC<Props> = ({
         </Text>
       )}
 
+      {/* Description: 4-line preview, no hover-tooltip on overflow.
+          Card click opens the read-only detail drawer where the
+          full description lives — keeps the "hover reveals stuff"
+          pattern out of the catalog browse path. */}
       <Paragraph
         type="secondary"
-        ellipsis={{ rows: 2, tooltip: model.description }}
+        ellipsis={{ rows: 4, tooltip: false }}
         style={{ fontSize: 12, marginBottom: 0, flex: 1 }}
       >
         {model.description || (
