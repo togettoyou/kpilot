@@ -51,6 +51,45 @@ export const RUNTIME_LABELS: Record<ModelRuntime, string> = {
   tgi: 'TGI',
 };
 
+// RUNTIME_DEFAULTS — image + default_args templates per runtime. The
+// create drawer pulls from this map both for the initial form values
+// and for auto-swap when the user changes the runtime Select (only in
+// new mode — edit mode preserves whatever the row already has). Args
+// are JSON-encoded strings to match the wire format on the model.
+//
+// vLLM / SGLang / TGI all speak OpenAI-compatible HTTP, but their CLI
+// flags differ. None of these include the model-path flag (vLLM
+// `--model`, SGLang `--model-path`, TGI `--model-id`) — those get
+// injected at P16+ deploy time from `hugging_face_id` so a custom
+// row pointing at a local checkpoint can reuse the same tuning.
+//
+// Image versions cross-checked 2026-05:
+//   - vLLM v0.20.2 stable (vllm-project/vllm releases)
+//   - SGLang v0.4.10.post2-cu126 stable (lmsysorg/sglang docker hub)
+//   - TGI 3.3.5 latest; project is in maintenance mode as of 2025-12,
+//     supported here for legacy deployments but most teams now move
+//     to vLLM/SGLang
+export const RUNTIME_DEFAULTS: Record<
+  ModelRuntime,
+  { image: string; defaultArgs: string }
+> = {
+  vllm: {
+    image: 'vllm/vllm-openai:v0.20.2',
+    defaultArgs:
+      '["--max-model-len","32768","--dtype","auto","--gpu-memory-utilization","0.9"]',
+  },
+  sglang: {
+    image: 'lmsysorg/sglang:v0.4.10.post2-cu126',
+    defaultArgs:
+      '["--context-length","32768","--mem-fraction-static","0.9","--host","0.0.0.0","--port","30000"]',
+  },
+  tgi: {
+    image: 'ghcr.io/huggingface/text-generation-inference:3.3.5',
+    defaultArgs:
+      '["--max-input-length","4096","--max-total-tokens","8192","--num-shard","1"]',
+  },
+};
+
 // Model matches store.Model: hugging_face_id / default_args /
 // recommended_gpu are text-typed in DB but the frontend treats them
 // as JSON. default_args is JSON-encoded string[]; recommended_gpu is

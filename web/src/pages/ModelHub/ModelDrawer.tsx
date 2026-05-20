@@ -1,3 +1,4 @@
+import type { ProFormInstance } from '@ant-design/pro-components';
 import {
   DrawerForm,
   ProFormSelect,
@@ -6,7 +7,7 @@ import {
 } from '@ant-design/pro-components';
 import { useIntl } from '@umijs/max';
 import { App, Typography } from 'antd';
-import React from 'react';
+import React, { useRef } from 'react';
 
 import type {
   Model,
@@ -19,6 +20,7 @@ import {
   FAMILY_LABELS,
   MODEL_FAMILIES,
   MODEL_RUNTIMES,
+  RUNTIME_DEFAULTS,
   RUNTIME_LABELS,
   updateModel,
 } from '@/services/kpilot/model';
@@ -133,13 +135,20 @@ const ModelDrawer: React.FC<Props> = ({ open, model, onClose, onSaved }) => {
     : {
         family: 'custom',
         runtime: 'vllm',
-        // Sensible defaults so a new custom row doesn't start empty —
-        // most adds are minor variants on these.
-        image: 'vllm/vllm-openai:v0.20.2',
-        default_args:
-          '["--max-model-len","32768","--dtype","auto","--gpu-memory-utilization","0.9"]',
+        // image + default_args pulled from the same RUNTIME_DEFAULTS
+        // map the runtime auto-swap reads, so the initial open and a
+        // subsequent runtime change land on identical templates.
+        image: RUNTIME_DEFAULTS.vllm.image,
+        default_args: RUNTIME_DEFAULTS.vllm.defaultArgs,
         recommended_gpu: '{"count":1,"memoryGiB":24,"model":"any"}',
       };
+
+  // formRef lets onValuesChange reach back into the form to overwrite
+  // image + default_args when runtime flips. The ref initialiser uses
+  // undefined (not null) to satisfy ProForm's RefObject<T | undefined>
+  // formRef prop signature; setFieldsValue inherits from antd's
+  // FormInstance unchanged.
+  const formRef = useRef<ProFormInstance<FormValues> | undefined>(undefined);
 
   return (
     <DrawerForm<FormValues>
@@ -147,10 +156,26 @@ const ModelDrawer: React.FC<Props> = ({ open, model, onClose, onSaved }) => {
       title={intl.formatMessage({
         id: isEdit ? 'pages.models.registry.edit' : 'pages.models.registry.new',
       })}
+      formRef={formRef}
       open={open}
       onFinish={handleFinish}
       onOpenChange={(visible) => {
         if (!visible) onClose();
+      }}
+      onValuesChange={(changed) => {
+        // Only auto-swap in NEW mode — editing an existing row should
+        // never surprise-rewrite the image/args the user picked
+        // before. Also gate on the runtime field specifically; other
+        // form changes (name typed in, family picked) don't touch
+        // image/args.
+        if (isEdit) return;
+        if (!('runtime' in changed) || !changed.runtime) return;
+        const defaults = RUNTIME_DEFAULTS[changed.runtime as ModelRuntime];
+        if (!defaults) return;
+        formRef.current?.setFieldsValue({
+          image: defaults.image,
+          default_args: defaults.defaultArgs,
+        });
       }}
       drawerProps={{
         size: 'large',
