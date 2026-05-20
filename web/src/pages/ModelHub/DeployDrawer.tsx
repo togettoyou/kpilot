@@ -303,6 +303,7 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
                 form={form}
                 layout="vertical"
                 initialValues={defaults ?? undefined}
+                autoComplete="off"
               >
                 <Form.Item
                   name="cluster_id"
@@ -342,7 +343,7 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
                     { max: 63 },
                   ]}
                 >
-                  <Input maxLength={63} />
+                  <Input maxLength={63} autoComplete="off" />
                 </Form.Item>
 
                 <Form.Item name="create_namespace" valuePropName="checked">
@@ -379,6 +380,7 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
                   <Input
                     maxLength={30}
                     placeholder="prod / long-context / ..."
+                    autoComplete="off"
                   />
                 </Form.Item>
 
@@ -425,23 +427,6 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
                       })}
                     </Radio>
                   </Radio.Group>
-                </Form.Item>
-
-                <Form.Item
-                  name="hf_token"
-                  label={intl.formatMessage({
-                    id: 'pages.models.deploy.hfToken',
-                  })}
-                  tooltip={intl.formatMessage({
-                    id: 'pages.models.deploy.hfToken.help',
-                  })}
-                  rules={[{ max: 200 }]}
-                >
-                  <Input.Password
-                    maxLength={200}
-                    placeholder="hf_..."
-                    autoComplete="off"
-                  />
                 </Form.Item>
 
                 <Form.Item
@@ -505,9 +490,35 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
                       placeholder={intl.formatMessage({
                         id: 'pages.models.deploy.pvc.storageClass.placeholder',
                       })}
+                      autoComplete="off"
                     />
                   </Form.Item>
                 </Space>
+
+                {/* HF Token at the bottom — browsers pair a password
+                    field's autofill with the FIRST text input that
+                    appears before it in the form. Putting this last
+                    keeps the Cluster Select / Namespace / Instance
+                    inputs all "above" the password, so Chrome stops
+                    offering to fill saved usernames into them. The
+                    autoComplete="new-password" is the only value
+                    Chrome respects for "don't autofill". */}
+                <Form.Item
+                  name="hf_token"
+                  label={intl.formatMessage({
+                    id: 'pages.models.deploy.hfToken',
+                  })}
+                  tooltip={intl.formatMessage({
+                    id: 'pages.models.deploy.hfToken.help',
+                  })}
+                  rules={[{ max: 200 }]}
+                >
+                  <Input.Password
+                    maxLength={200}
+                    placeholder="hf_..."
+                    autoComplete="new-password"
+                  />
+                </Form.Item>
 
                 {results && (
                   <>
