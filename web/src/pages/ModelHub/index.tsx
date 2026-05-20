@@ -35,12 +35,6 @@ import ModelDrawer from './ModelDrawer';
 
 const { Text } = Typography;
 
-// Sort options exposed in the toolbar Select.
-//   - family    : built-ins first then family + sort_order (server default)
-//   - name-asc  : alphabetical by display_name
-//   - recent    : newest updated first (covers "I just edited this, where is it")
-type SortKey = 'family' | 'name-asc' | 'recent';
-
 // Catalog of deployable model presets (P15). Family-grouped card
 // layout: each family becomes a collapsible section, cards inside
 // render the headline metadata + hover-revealed actions. Card click
@@ -62,13 +56,14 @@ const ModelHubPage: React.FC = () => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailModel, setDetailModel] = useState<Model | null>(null);
 
-  // Filter / sort state.
+  // Filter state. Within-section card order is fixed (built-ins
+  // first, then sort_order, then name) — exposing it as a Select
+  // didn't add value with ~1-4 cards per section.
   const [query, setQuery] = useState('');
   const [licenseFilter, setLicenseFilter] = useState<string | undefined>();
   const [runtimeFilter, setRuntimeFilter] = useState<
     ModelRuntime | undefined
   >();
-  const [sortKey, setSortKey] = useState<SortKey>('family');
 
   // Track which sections are expanded. Default = all open so first
   // visit feels like an overview, not a maze. Stored as activeKey
@@ -115,17 +110,10 @@ const ModelHubPage: React.FC = () => {
       filtered = filtered.filter((m) => m.runtime === runtimeFilter);
     }
 
+    // Built-ins first → sort_order → name. Mirrors the server's
+    // default ListModels order; re-sorted client-side as defense
+    // so a future server tweak can't silently reorder the cards.
     const sorted = [...filtered].sort((a, b) => {
-      if (sortKey === 'name-asc') {
-        return a.display_name.localeCompare(b.display_name);
-      }
-      if (sortKey === 'recent') {
-        return (
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        );
-      }
-      // family default mirrors server-side order: built-ins first,
-      // then sort_order within a family, then name as tiebreaker.
       if (a.is_builtin !== b.is_builtin) return a.is_builtin ? -1 : 1;
       if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
       return a.display_name.localeCompare(b.display_name);
@@ -140,7 +128,7 @@ const ModelHubPage: React.FC = () => {
       else buckets.set('custom', [...(buckets.get('custom') ?? []), m]);
     }
     return buckets;
-  }, [rows, query, licenseFilter, runtimeFilter, sortKey]);
+  }, [rows, query, licenseFilter, runtimeFilter]);
 
   const totalAfterFilter = useMemo(() => {
     let n = 0;
@@ -307,34 +295,6 @@ const ModelHubPage: React.FC = () => {
           onChange={setLicenseFilter}
           style={{ width: 160 }}
           options={licenseOptions.map((l) => ({ label: l, value: l }))}
-        />
-        <Select
-          value={sortKey}
-          onChange={setSortKey}
-          style={{ width: 160 }}
-          title={intl.formatMessage({
-            id: 'pages.models.registry.sort.tooltip',
-          })}
-          options={[
-            {
-              label: intl.formatMessage({
-                id: 'pages.models.registry.sort.family',
-              }),
-              value: 'family',
-            },
-            {
-              label: intl.formatMessage({
-                id: 'pages.models.registry.sort.name',
-              }),
-              value: 'name-asc',
-            },
-            {
-              label: intl.formatMessage({
-                id: 'pages.models.registry.sort.recent',
-              }),
-              value: 'recent',
-            },
-          ]}
         />
         <Text type="secondary">
           {intl.formatMessage(
