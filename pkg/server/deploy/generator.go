@@ -370,13 +370,14 @@ func buildDeployment(
 ) *appsv1.Deployment {
 	selector := selectorLabels(model.Name, name)
 
-	// Resources built up from three layers:
+	// Resources built up in two layers:
 	//   1. CPU + memory: request + limit can differ (burst headroom)
-	//   2. GPU count: extended resource, must be requests == limits
-	//      (kubelet mirrors limit→request automatically — we set both
-	//      so the manifest reads consistently in YAML preview)
-	//   3. vGPU sub-resources (memory MiB / cores %): only when
-	//      GPUType=Volcano, limit-only since they're extended resources
+	//   2. GPU resources (nvidia.com/gpu or volcano.sh/vgpu-*): K8s
+	//      mirrors limits → requests for extended resources at admission
+	//      time (requests==limits is mandatory), so we follow the
+	//      upstream convention and only emit them under `limits`.
+	//      NVIDIA's device-plugin README + Volcano vGPU docs + HAMi
+	//      volcano-vgpu-device-plugin README all show limits-only.
 	requests := corev1.ResourceList{}
 	limits := corev1.ResourceList{}
 	// parseQty returns (zero, ok=false) on invalid input — we skip
@@ -406,11 +407,10 @@ func buildDeployment(
 	if q, ok := parseQty(opts.MemoryLimit); ok {
 		limits[corev1.ResourceMemory] = q
 	}
+	gpuCount := *resource.NewQuantity(int64(opts.GPUCount), resource.DecimalSI)
 	switch opts.GPUType {
 	case GPUTypeVolcano:
-		gpu := *resource.NewQuantity(int64(opts.GPUCount), resource.DecimalSI)
-		requests[corev1.ResourceName("volcano.sh/vgpu-number")] = gpu
-		limits[corev1.ResourceName("volcano.sh/vgpu-number")] = gpu
+		limits[corev1.ResourceName("volcano.sh/vgpu-number")] = gpuCount
 		if opts.VGPUMemoryMiB > 0 {
 			limits[corev1.ResourceName("volcano.sh/vgpu-memory")] = *resource.NewQuantity(int64(opts.VGPUMemoryMiB), resource.DecimalSI)
 		}
@@ -418,9 +418,7 @@ func buildDeployment(
 			limits[corev1.ResourceName("volcano.sh/vgpu-cores")] = *resource.NewQuantity(int64(opts.VGPUCores), resource.DecimalSI)
 		}
 	default:
-		gpu := *resource.NewQuantity(int64(opts.GPUCount), resource.DecimalSI)
-		requests[corev1.ResourceName("nvidia.com/gpu")] = gpu
-		limits[corev1.ResourceName("nvidia.com/gpu")] = gpu
+		limits[corev1.ResourceName("nvidia.com/gpu")] = gpuCount
 	}
 
 	container := corev1.Container{

@@ -57,18 +57,18 @@ DELETE /api/v1/models/:id              # 删除（内置返回 403 MODEL_BUILTIN
 
 | name | display | family | recommended GPU | license |
 |---|---|---|---|---|
-| qwen3-0.6b-instruct | Qwen3 0.6B Instruct | qwen | 1 × 4 GiB any | apache-2.0 |
+| qwen3-0-6b-instruct | Qwen3 0.6B Instruct | qwen | 1 × 4 GiB any | apache-2.0 |
 | qwen3-8b-instruct | Qwen3 8B Instruct | qwen | 1 × 24 GiB any | apache-2.0 |
 | qwen3-14b-instruct | Qwen3 14B Instruct | qwen | 1 × 40 GiB A100 | apache-2.0 |
 | qwen3-32b-instruct | Qwen3 32B Instruct | qwen | 1 × 80 GiB H100 | apache-2.0 |
 | qwen3-30b-a3b-instruct | Qwen3 30B-A3B (MoE) | qwen | 1 × 24 GiB any | apache-2.0 |
 | deepseek-r1 | DeepSeek R1 | deepseek | 8 × 80 GiB H100 | mit |
 | llama-4-scout-17b-16e-instruct | Llama 4 Scout 17B-16E (MoE) | llama | 1 × 80 GiB H100 | llama4 |
-| mistral-small-3.2-24b-instruct | Mistral Small 3.2 24B | mistral | 1 × 48 GiB A100 | apache-2.0 |
+| mistral-small-3-2-24b-instruct | Mistral Small 3.2 24B | mistral | 1 × 48 GiB A100 | apache-2.0 |
 | phi-4 | Phi-4 14B | phi | 1 × 24 GiB any | mit |
-| glm-5.1 | GLM-5.1 | glm | 8 × 80 GiB H100 | mit |
+| glm-5-1 | GLM-5.1 | glm | 8 × 80 GiB H100 | mit |
 | gemma-4-31b | Gemma 4 31B | gemma | 1 × 80 GiB H100 | apache-2.0 |
-| kimi-k2.6 | Kimi K2.6 | kimi | 8 × 80 GiB H100 | modified-mit |
+| kimi-k2-6 | Kimi K2.6 | kimi | 8 × 80 GiB H100 | modified-mit |
 
 选型依据：HuggingFace trending 2026 H1 / Artificial Analysis Intelligence Index / vLLM release notes 交叉验证。**Qwen3-32B** 被多方报道为 2026 「多数团队的默认选择」（代码生成领先 + Apache 2.0 + 单 H100）；**GLM-5.1** 当前 Intelligence Index 开源权重榜首；**Kimi K2.6** 是 1T MoE 多模态 + Modified MIT。
 
@@ -115,8 +115,8 @@ family 枚举包含 `qwen` / `deepseek` / `llama` / `mistral` / `glm` / `yi` / `
 | 层 | 字段 | 写入位置 | 备注 |
 |---|---|---|---|
 | ① CPU / 内存 | `cpu_request` / `cpu_limit` / `memory_request` / `memory_limit`（K8s quantity 字符串如 `"2"` / `"500m"` / `"4Gi"`）| `resources.requests` 与 `resources.limits` 可不同 | 留空 = 不设置该资源，调度器默认。server 经 `resource.ParseQuantity` 校验 |
-| ② GPU 数量 | `gpu_count` + `gpu_type` | 二选一资源 key，requests==limits（extended resource 强制）| `nvidia.com/gpu`（默认）或 `volcano.sh/vgpu-number` |
-| ③ Volcano vGPU 子资源 | `vgpu_memory_mib`（每卡 MiB） / `vgpu_cores`（每卡 SM 0-100%）| `limits` only，kubelet mirror | **仅 `gpu_type=volcano` 时下发**，跟 nvidia 模式无关 |
+| ② GPU 数量 | `gpu_count` + `gpu_type` | 二选一资源 key，`limits` only（K8s 在 admission 自动镜像到 requests，extended resource 强制 requests==limits）| `nvidia.com/gpu`（默认）或 `volcano.sh/vgpu-number` |
+| ③ Volcano vGPU 子资源 | `vgpu_memory_mib`（每卡 MiB） / `vgpu_cores`（每卡 SM 0-100%）| `limits` only | **仅 `gpu_type=volcano` 时下发**，跟 nvidia 模式无关 |
 
 GPU 资源 plumbing 二选一：
 

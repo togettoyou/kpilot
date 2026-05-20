@@ -75,7 +75,7 @@ interface FormValues {
 // which is the rule of thumb Hugging Face documents.
 const pvcSizeForModel = (m: Model): number => {
   const n = m.name;
-  if (n.includes('0.6b')) return 5;
+  if (n.includes('0-6b')) return 5;
   if (n.includes('8b') || n.includes('9b')) return 30;
   if (n.includes('14b')) return 50;
   if (n.includes('30b') || n.includes('32b')) return 100;
