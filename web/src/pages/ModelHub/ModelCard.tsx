@@ -179,9 +179,13 @@ const ModelCard: React.FC<Props> = ({
           )}
         </Space>
         <Space
-          size={0}
+          size="small"
           onClick={(e) => e.stopPropagation()} // don't trigger card View
         >
+          {/* Deploy is the primary CTA — stays in its own Space
+              slot with a visible gap from the secondary icon row,
+              so users don't accidentally click Duplicate when
+              aiming for Deploy on small screens. */}
           <Tooltip
             title={intl.formatMessage({
               id: 'pages.models.deploy.action.deploy',
@@ -194,49 +198,51 @@ const ModelCard: React.FC<Props> = ({
               onClick={() => onDeploy(model)}
             />
           </Tooltip>
-          <Tooltip
-            title={intl.formatMessage({
-              id: 'pages.models.registry.action.duplicate',
-            })}
-          >
-            <Button
-              size="small"
-              type="text"
-              icon={<CopyOutlined />}
-              onClick={() => onDuplicate(model)}
-            />
-          </Tooltip>
-          <Tooltip
-            title={
-              model.is_builtin
-                ? lockedTip
-                : intl.formatMessage({ id: 'pages.common.edit' })
-            }
-          >
-            <Button
-              size="small"
-              type="text"
-              icon={<EditOutlined />}
-              disabled={model.is_builtin}
-              onClick={() => onEdit(model)}
-            />
-          </Tooltip>
-          <Tooltip
-            title={
-              model.is_builtin
-                ? lockedTip
-                : intl.formatMessage({ id: 'pages.common.delete' })
-            }
-          >
-            <Button
-              size="small"
-              type="text"
-              danger
-              icon={<DeleteOutlined />}
-              disabled={model.is_builtin}
-              onClick={() => onDelete(model)}
-            />
-          </Tooltip>
+          <Space size={0}>
+            <Tooltip
+              title={intl.formatMessage({
+                id: 'pages.models.registry.action.duplicate',
+              })}
+            >
+              <Button
+                size="small"
+                type="text"
+                icon={<CopyOutlined />}
+                onClick={() => onDuplicate(model)}
+              />
+            </Tooltip>
+            <Tooltip
+              title={
+                model.is_builtin
+                  ? lockedTip
+                  : intl.formatMessage({ id: 'pages.common.edit' })
+              }
+            >
+              <Button
+                size="small"
+                type="text"
+                icon={<EditOutlined />}
+                disabled={model.is_builtin}
+                onClick={() => onEdit(model)}
+              />
+            </Tooltip>
+            <Tooltip
+              title={
+                model.is_builtin
+                  ? lockedTip
+                  : intl.formatMessage({ id: 'pages.common.delete' })
+              }
+            >
+              <Button
+                size="small"
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                disabled={model.is_builtin}
+                onClick={() => onDelete(model)}
+              />
+            </Tooltip>
+          </Space>
         </Space>
       </div>
     </Card>
