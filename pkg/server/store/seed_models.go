@@ -170,7 +170,7 @@ var builtinModels = []Model{
 		HuggingFaceID:  "zai-org/GLM-5.1",
 		DefaultArgs:    `["--max-model-len","32768","--dtype","auto","--tensor-parallel-size","8","--trust-remote-code","--gpu-memory-utilization","0.9"]`,
 		RecommendedGPU: `{"count":8,"memoryGiB":80,"model":"H100"}`,
-		License:        "glm",
+		License:        "mit",
 		SortOrder:      10,
 	},
 
@@ -178,14 +178,14 @@ var builtinModels = []Model{
 	{
 		Name:           "gemma-4-31b",
 		DisplayName:    "Gemma 4 31B",
-		Description:    "Google's 2026 dense flagship — 31B params, 256k context, multimodal. Multilingual support across 140+ languages.",
+		Description:    "Google's 2026 dense flagship — 31B params, 256k context, multimodal. Multilingual support across 140+ languages. Gemma 4 dropped the custom Gemma Terms in favor of true Apache 2.0.",
 		Family:         ModelFamilyGemma,
 		Runtime:        ModelRuntimeVLLM,
 		Image:          "vllm/vllm-openai:v0.20.2",
 		HuggingFaceID:  "google/gemma-4-31B",
 		DefaultArgs:    `["--max-model-len","32768","--dtype","auto","--gpu-memory-utilization","0.9"]`,
 		RecommendedGPU: `{"count":1,"memoryGiB":80,"model":"H100"}`,
-		License:        "gemma",
+		License:        "apache-2.0",
 		SortOrder:      10,
 	},
 
@@ -193,14 +193,14 @@ var builtinModels = []Model{
 	{
 		Name:           "kimi-k2.6",
 		DisplayName:    "Kimi K2.6",
-		Description:    "Moonshot AI's flagship — 1T total / 32B active MoE, native multimodal, agentic. Modified MIT license. Heavy — multi-GPU only.",
+		Description:    "Moonshot AI's flagship — 1T total / 32B active MoE, native multimodal, agentic. Heavy — multi-GPU only. Modified MIT license adds extra terms above 100M MAU; below that threshold it behaves like vanilla MIT.",
 		Family:         ModelFamilyKimi,
 		Runtime:        ModelRuntimeVLLM,
 		Image:          "vllm/vllm-openai:v0.20.2",
 		HuggingFaceID:  "moonshotai/Kimi-K2.6",
 		DefaultArgs:    `["--max-model-len","32768","--dtype","auto","--tensor-parallel-size","8","--trust-remote-code","--gpu-memory-utilization","0.9"]`,
 		RecommendedGPU: `{"count":8,"memoryGiB":80,"model":"H100"}`,
-		License:        "mit",
+		License:        "modified-mit",
 		SortOrder:      10,
 	},
 }

@@ -64,9 +64,9 @@ DELETE /api/v1/models/:id              # 删除（内置返回 403 MODEL_BUILTIN
 | llama-4-scout-17b-16e-instruct | Llama 4 Scout 17B-16E (MoE) | llama | 1 × 80 GiB H100 | llama4 |
 | mistral-small-3.2-24b-instruct | Mistral Small 3.2 24B | mistral | 1 × 48 GiB A100 | apache-2.0 |
 | phi-4 | Phi-4 14B | phi | 1 × 24 GiB any | mit |
-| glm-5.1 | GLM-5.1 | glm | 8 × 80 GiB H100 | glm |
-| gemma-4-31b | Gemma 4 31B | gemma | 1 × 80 GiB H100 | gemma |
-| kimi-k2.6 | Kimi K2.6 | kimi | 8 × 80 GiB H100 | mit |
+| glm-5.1 | GLM-5.1 | glm | 8 × 80 GiB H100 | mit |
+| gemma-4-31b | Gemma 4 31B | gemma | 1 × 80 GiB H100 | apache-2.0 |
+| kimi-k2.6 | Kimi K2.6 | kimi | 8 × 80 GiB H100 | modified-mit |
 
 选型依据：HuggingFace trending 2026 H1 / Artificial Analysis Intelligence Index / vLLM release notes 交叉验证。**Qwen3-32B** 被多方报道为 2026 「多数团队的默认选择」（代码生成领先 + Apache 2.0 + 单 H100）；**GLM-5.1** 当前 Intelligence Index 开源权重榜首；**Kimi K2.6** 是 1T MoE 多模态 + Modified MIT。
 
