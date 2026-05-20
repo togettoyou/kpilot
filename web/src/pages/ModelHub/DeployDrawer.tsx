@@ -16,10 +16,9 @@ import {
   Tabs,
   Tag,
   Typography,
-  theme,
 } from 'antd';
 import React, { useEffect, useMemo, useState } from 'react';
-
+import { YamlEditor } from '@/pages/ClusterDetail/Workloads/YamlEditor';
 import { listClusters } from '@/services/kpilot/cluster';
 import type {
   DeployApplyResult,
@@ -93,7 +92,6 @@ const pvcSizeForModel = (m: Model): number => {
 const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
   const intl = useIntl();
   const { message } = App.useApp();
-  const { token } = theme.useToken();
 
   const [form] = Form.useForm<FormValues>();
   // Hold the YAML preview returned from the server's dry_run path.
@@ -199,20 +197,49 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
     };
   };
 
-  const handlePreview = async () => {
-    if (!model) return;
+  // Shared dry-run that powers both the explicit "预览" button and
+  // the auto-fetch when the user clicks the YAML preview tab. The
+  // tab callback ignores validation failures silently (the form
+  // shows the markers anyway); the button surfaces them as toast.
+  const fetchPreview = async (silent = false): Promise<boolean> => {
+    if (!model) return false;
+    let values: FormValues;
     try {
-      const values = await form.validateFields();
-      setPreviewing(true);
+      values = await form.validateFields();
+    } catch {
+      // antd already painted per-field error markers; nothing
+      // more to do silently. The explicit button path lets the
+      // user see them by virtue of having clicked.
+      return false;
+    }
+    setPreviewing(true);
+    try {
       const resp = await deployModel(model.id, buildPayload(values), true);
       setYamlPreview(resp.yaml_preview);
-      setActiveTab('preview');
-    } catch {
-      // validateFields throws on invalid — antd has already
-      // rendered the per-field error markers. Other errors fall
-      // through to the global toast handler.
+      return true;
+    } catch (e) {
+      if (!silent) throw e;
+      return false;
     } finally {
       setPreviewing(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    const ok = await fetchPreview(false);
+    if (ok) setActiveTab('preview');
+  };
+
+  // Switching tabs into "preview" should populate it without a
+  // second click — only fetch if we don't already have a preview
+  // for the current form state. We treat the cached YAML as
+  // stale only when the tab is freshly opened (yamlPreview empty),
+  // so a user can flip tabs back and forth without re-running
+  // dry_run every time.
+  const handleTabChange = (key: string) => {
+    setActiveTab(key);
+    if (key === 'preview' && !yamlPreview && model) {
+      void fetchPreview(true);
     }
   };
 
@@ -326,7 +353,7 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
     >
       <Tabs
         activeKey={activeTab}
-        onChange={setActiveTab}
+        onChange={handleTabChange}
         items={[
           {
             key: 'config',
@@ -339,6 +366,11 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
                 layout="vertical"
                 initialValues={defaults ?? undefined}
                 autoComplete="off"
+                onValuesChange={() => {
+                  // Any form edit invalidates the cached YAML —
+                  // next click into the preview tab refetches.
+                  if (yamlPreview) setYamlPreview('');
+                }}
               >
                 <Form.Item
                   name="cluster_id"
@@ -709,27 +741,21 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
             label: intl.formatMessage({
               id: 'pages.models.deploy.tab.preview',
             }),
-            children: yamlPreview ? (
-              <pre
-                style={{
-                  background: token.colorFillTertiary,
-                  color: token.colorText,
-                  padding: 12,
-                  borderRadius: token.borderRadius,
-                  fontSize: 12,
-                  maxHeight: 'calc(100vh - 220px)',
-                  overflow: 'auto',
-                }}
-              >
-                {yamlPreview}
-              </pre>
-            ) : (
-              <Text type="secondary">
-                {intl.formatMessage({
-                  id: 'pages.models.deploy.action.preview',
-                })}
-                ←
-              </Text>
+            children: (
+              // Reuse the workloads YAML editor — CodeMirror + YAML
+              // mode + theme-aware colors, same component every other
+              // YAML drawer in the app uses. readOnly so the preview
+              // can't be hand-edited (regenerate by toggling form
+              // fields and switching tabs).
+              <div style={{ minHeight: 320 }}>
+                {previewing && !yamlPreview ? (
+                  <Text type="secondary">
+                    {intl.formatMessage({ id: 'pages.common.loading' })}
+                  </Text>
+                ) : (
+                  <YamlEditor value={yamlPreview} readOnly />
+                )}
+              </div>
             ),
           },
         ]}
