@@ -143,3 +143,102 @@ type ClusterPlugin struct {
 
 	Plugin *Plugin `gorm:"foreignKey:PluginID" json:"plugin,omitempty"`
 }
+
+// ModelRuntime is the inference engine the model runs under. Drives
+// image selection + default args. All three speak OpenAI-compatible
+// HTTP at /v1/{chat/completions,completions,embeddings}; vLLM is the
+// default we ship presets for, sglang / tgi are listed so an admin
+// can add custom rows without us having to ship code for them later.
+type ModelRuntime string
+
+const (
+	ModelRuntimeVLLM   ModelRuntime = "vllm"
+	ModelRuntimeSGLang ModelRuntime = "sglang"
+	ModelRuntimeTGI    ModelRuntime = "tgi"
+)
+
+// ModelFamily groups presets in the catalog UI. "custom" is the
+// escape hatch for user-added rows that don't fit any of the known
+// open-weights series.
+type ModelFamily string
+
+const (
+	ModelFamilyQwen     ModelFamily = "qwen"
+	ModelFamilyDeepSeek ModelFamily = "deepseek"
+	ModelFamilyLlama    ModelFamily = "llama"
+	ModelFamilyMistral  ModelFamily = "mistral"
+	ModelFamilyGLM      ModelFamily = "glm"
+	ModelFamilyYi       ModelFamily = "yi"
+	ModelFamilyPhi      ModelFamily = "phi"
+	ModelFamilyGemma    ModelFamily = "gemma"
+	ModelFamilyKimi     ModelFamily = "kimi"
+	ModelFamilyCustom   ModelFamily = "custom"
+)
+
+// Model is a GLOBAL catalog entry for an inference-deployable model.
+// Not cluster-scoped — the same registry powers every cluster's
+// deployment selector in P16+.
+//
+// P15 ships read + CRUD only; the row holds enough metadata to
+// generate a Deployment + Service manifest in P16 without further
+// lookups (image + args + GPU shape).
+//
+// Built-in presets are seeded at startup and are mutation-locked
+// (handler rejects PATCH/DELETE with is_builtin=true) — same
+// protection model as Plugin.
+type Model struct {
+	ID uint `gorm:"primaryKey;autoIncrement" json:"id"`
+
+	// Canonical short id. DNS-1123 label safe (lowercased, no spaces) so
+	// it can become a Deployment.metadata.name in P16 without a transform
+	// step. Capped to 63 to match the K8s label limit.
+	Name string `gorm:"type:varchar(63);not null;uniqueIndex" json:"name"`
+
+	// Human-readable label for catalog cards / table rows.
+	DisplayName string `gorm:"type:varchar(255);not null" json:"display_name"`
+
+	// 500-char cap mirrors Plugin.Description; frontend textarea uses
+	// the same maxLength so direct API writes can't bypass it.
+	Description string `gorm:"type:varchar(500)" json:"description"`
+
+	Family  ModelFamily  `gorm:"type:varchar(32);not null;default:'custom'" json:"family"`
+	Runtime ModelRuntime `gorm:"type:varchar(32);not null;default:'vllm'" json:"runtime"`
+
+	// Container image including tag — full ref the cluster's container
+	// runtime will pull. vLLM's official image is the default for
+	// seeded presets; admins can pin a specific tag here per row.
+	Image string `gorm:"type:varchar(512);not null" json:"image"`
+
+	// HuggingFace repo id ("Qwen/Qwen2.5-7B-Instruct"). Optional —
+	// custom rows pointing at a private model registry can leave it
+	// blank and pass the model path through DefaultArgs instead.
+	HuggingFaceID string `gorm:"type:varchar(255)" json:"hugging_face_id"`
+
+	// JSON array of strings, e.g. ["--max-model-len", "32768",
+	// "--dtype", "auto"]. Caller passes them as the container's
+	// `args` field; vLLM/sglang/tgi all read positional flags this
+	// way. Text-typed in DB so we can extend the schema without
+	// migrations; validated as a JSON string-array in the handler.
+	DefaultArgs string `gorm:"type:text" json:"default_args"`
+
+	// JSON object describing the recommended GPU shape so the
+	// deployment wizard (P16) can pre-fill resources.limits. Shape:
+	// {"count": 1, "memoryGiB": 24, "model": "T4|A10|A100|H100|any"}
+	// Free-form text-typed for the same forward-compat reason as
+	// DefaultArgs.
+	RecommendedGPU string `gorm:"type:text" json:"recommended_gpu"`
+
+	// License slug — "apache-2.0", "mit", "llama3", "custom", ...
+	// Listed for compliance review; no enforcement on our side.
+	License string `gorm:"type:varchar(64)" json:"license"`
+
+	IsBuiltin bool `gorm:"not null;default:false" json:"is_builtin"`
+
+	// Within-family sort. Seed.go uses this to put 7B before 14B
+	// before 72B for a sensible reading order; custom rows default
+	// to 0 and fall back to name sort.
+	SortOrder int `gorm:"not null;default:0" json:"sort_order"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}

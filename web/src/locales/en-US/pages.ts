@@ -641,22 +641,74 @@ export default {
   'pages.pluginInstallLog.stale':
     'No log available: the 10-minute retention window has expired, or no operation is currently running. Re-run enable / disable to start a new log session.',
 
-  'pages.models.landing.title': 'Model Serving',
-  'pages.models.landing.subtitle':
-    'Registry, deployment, chat playground, and routing — coming soon',
-  'pages.models.landing.comingSoon': 'Coming soon',
-  'pages.models.landing.registry.title': 'Model registry',
-  'pages.models.landing.registry.desc':
-    'Curated catalog of deployable models: runtime (vLLM / SGLang / TGI), images, recommended GPU shape',
-  'pages.models.landing.deploy.title': 'Deployment',
-  'pages.models.landing.deploy.desc':
-    'Pick a model + target cluster + GPU count + replicas; produces Deployment + Service applied to the cluster',
-  'pages.models.landing.chat.title': 'Chat playground',
-  'pages.models.landing.chat.desc':
-    'Built-in chat UI to verify a deployed model is up and behaving',
-  'pages.models.landing.routing.title': 'Routing',
-  'pages.models.landing.routing.desc':
-    'OpenAI-compatible gateway: route by model param, support canary / A/B',
+  // models registry (P15) — catalog of deployable model presets, no deployment yet
+  'pages.models.registry.title': 'Model registry',
+  'pages.models.registry.subtitle':
+    'Global catalog of deployable model presets — runtime, image, recommended GPU, default args. Deployment / chat / routing land in upcoming releases.',
+  'pages.models.registry.new': 'New model',
+  'pages.models.registry.edit': 'Edit model',
+  'pages.models.registry.builtin': 'Built-in',
+  'pages.models.registry.custom': 'Custom',
+  'pages.models.registry.delete.confirm': 'Delete model "{name}"?',
+  'pages.models.registry.delete.success': 'Deleted',
+  'pages.models.registry.deleteHint': 'Delete a custom model; built-in entries are locked',
+  'pages.models.registry.builtinHint': 'Built-in entries cannot be edited or deleted',
+  // table columns
+  'pages.models.registry.col.name': 'Name',
+  'pages.models.registry.col.family': 'Family',
+  'pages.models.registry.col.runtime': 'Runtime',
+  'pages.models.registry.col.image': 'Image',
+  'pages.models.registry.col.hf': 'HuggingFace ID',
+  'pages.models.registry.col.gpu': 'Recommended GPU',
+  'pages.models.registry.col.license': 'License',
+  'pages.models.registry.col.actions': 'Actions',
+  // filters
+  'pages.models.registry.filter.family': 'Family',
+  'pages.models.registry.filter.runtime': 'Runtime',
+  'pages.models.registry.filter.all': 'All',
+  // form labels
+  'pages.models.registry.form.name': 'Name (DNS-1123 label)',
+  'pages.models.registry.form.name.help':
+    'Lowercase letters / digits / hyphen, alphanumeric start + end. Used directly as the Deployment name in P16+',
+  'pages.models.registry.form.displayName': 'Display name',
+  'pages.models.registry.form.description': 'Description',
+  'pages.models.registry.form.family': 'Family',
+  'pages.models.registry.form.runtime': 'Runtime',
+  'pages.models.registry.form.image': 'Container image',
+  'pages.models.registry.form.image.help':
+    'Full image reference including tag. The official vLLM image is vllm/vllm-openai:<version>',
+  'pages.models.registry.form.hf': 'HuggingFace repo ID',
+  'pages.models.registry.form.hf.help':
+    'e.g. Qwen/Qwen2.5-7B-Instruct. Leave blank to pass a local model path via default_args',
+  'pages.models.registry.form.defaultArgs': 'Default args',
+  'pages.models.registry.form.defaultArgs.help':
+    'JSON array of strings, e.g. ["--max-model-len","32768","--dtype","auto"]. Do NOT include --model here — the deployment generator injects it from the HuggingFace ID',
+  'pages.models.registry.form.recommendedGPU': 'Recommended GPU',
+  'pages.models.registry.form.recommendedGPU.help':
+    'JSON object, e.g. {"count":1,"memoryGiB":24,"model":"any"}',
+  'pages.models.registry.form.license': 'License',
+  'pages.models.registry.form.license.placeholder':
+    'e.g. apache-2.0 / llama3.1 / deepseek',
+  // empty state
+  'pages.models.registry.empty.title': 'No models yet',
+  'pages.models.registry.empty.subtitle':
+    'Built-in presets are seeded automatically. Click "New model" above to add a custom entry.',
+  // roadmap banner
+  'pages.models.registry.roadmap.title': 'Coming soon',
+  'pages.models.registry.roadmap.desc':
+    'Model deployment, inline chat playground, OpenAI-compatible routing, distributed fine-tuning on Volcano gang scheduling',
+  // pages.common.* — shared UI verbs / section headers for P15+ pages.
+  // New pages should reach for these first instead of redefining
+  // identical strings under their own namespace.
+  'pages.common.edit': 'Edit',
+  'pages.common.delete': 'Delete',
+  'pages.common.copy': 'Copy',
+  'pages.common.copied': 'Copied',
+  'pages.common.copyFailed': 'Copy failed',
+  'pages.common.saved': 'Saved',
+  'pages.common.identity': 'Identity',
+  'pages.common.runtime': 'Runtime',
+  'pages.common.tuning': 'Tuning',
 
   // monitoring page — self-rendered. Hard dep: victoria-metrics.
   // Soft deps: node-exporter / kube-state-metrics (each missing
@@ -981,6 +1033,10 @@ export default {
   'errors.PLUGIN_NAME_EXISTS': 'Plugin name already exists',
   'errors.PLUGIN_BUILTIN_LOCKED':
     'Built-in plugins cannot be modified or deleted',
+  'errors.MODEL_NOT_FOUND': 'Model not found',
+  'errors.MODEL_NAME_EXISTS': 'Model name already exists',
+  'errors.MODEL_BUILTIN_LOCKED':
+    'Built-in models cannot be modified or deleted',
   'errors.PLUGIN_CHART_MISSING':
     'Please configure a chart source (repo URL, OCI reference, or local file)',
   'errors.PLUGIN_UPLOAD_TOO_LARGE': 'File too large (max 16MB)',
@@ -993,7 +1049,8 @@ export default {
   'errors.PROXY_UPSTREAM_ERROR': 'Reverse-proxy upstream error',
 
   // login
-  'pages.login.subtitle': 'Unified GPU + Model platform for Kubernetes',
+  'pages.login.subtitle':
+    'Unified control plane for multi-cluster Kubernetes, GPU scheduling, and model serving',
   'pages.login.username.placeholder': 'Username',
   'pages.login.username.required': 'Please enter your username',
   'pages.login.password.placeholder': 'Password',

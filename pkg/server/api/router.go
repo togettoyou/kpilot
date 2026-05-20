@@ -212,6 +212,15 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		plugins.GET("/:id", handler.GetPlugin)
 		plugins.PATCH("/:id", handler.UpdatePlugin)
 		plugins.DELETE("/:id", handler.DeletePlugin)
+
+		// Global model catalog (P15). Built-in presets seeded at
+		// startup are mutation-locked at the handler layer.
+		models := protected.Group("/models")
+		models.GET("", handler.ListModels)
+		models.POST("", handler.CreateModel)
+		models.GET("/:id", handler.GetModel)
+		models.PATCH("/:id", handler.UpdateModel)
+		models.DELETE("/:id", handler.DeleteModel)
 	}
 
 	// SPA static fallback — only mounted when STATIC_DIR points at a

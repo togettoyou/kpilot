@@ -38,7 +38,7 @@ func Init(dsn string) error {
 	sqlDB.SetMaxIdleConns(20)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
-	if err = db.AutoMigrate(&Cluster{}, &PluginBlob{}, &Plugin{}, &ClusterPlugin{}); err != nil {
+	if err = db.AutoMigrate(&Cluster{}, &PluginBlob{}, &Plugin{}, &ClusterPlugin{}, &Model{}); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 
@@ -53,6 +53,10 @@ func Init(dsn string) error {
 
 	if err := SeedBuiltinPlugins(db); err != nil {
 		return fmt.Errorf("seed builtin plugins: %w", err)
+	}
+
+	if err := SeedBuiltinModels(db); err != nil {
+		return fmt.Errorf("seed builtin models: %w", err)
 	}
 
 	return nil

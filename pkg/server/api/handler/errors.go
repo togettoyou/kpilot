@@ -27,6 +27,9 @@ const (
 	CodePluginUninstalling   = "PLUGIN_UNINSTALLING"
 	CodePluginNotEnabled     = "PLUGIN_NOT_ENABLED"
 	CodePluginNotRunning     = "PLUGIN_NOT_RUNNING"
+	CodeModelNotFound        = "MODEL_NOT_FOUND"
+	CodeModelNameExists      = "MODEL_NAME_EXISTS"
+	CodeModelBuiltinLocked   = "MODEL_BUILTIN_LOCKED"
 	CodeLoginIncorrect       = "LOGIN_INCORRECT"
 	// CodeProxyUpstream is the 502-style code used when the in-cluster
 	// reverse proxy successfully dispatched through the worker but the

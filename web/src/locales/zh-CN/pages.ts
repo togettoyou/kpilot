@@ -634,17 +634,65 @@ export default {
   'pages.pluginInstallLog.stale':
     '暂无可用日志：保留期（10 分钟）已过，或当前没有正在进行的操作。重新启用 / 禁用插件可触发新一轮日志。',
 
-  'pages.models.landing.title': '模型服务',
-  'pages.models.landing.subtitle': '从模型仓库到部署、调试、路由的端到端面板（建设中）',
-  'pages.models.landing.comingSoon': '建设中',
-  'pages.models.landing.registry.title': '模型仓库',
-  'pages.models.landing.registry.desc': '集中管理可部署的模型清单：运行时（vLLM / SGLang / TGI）、镜像、推荐 GPU 配置等',
-  'pages.models.landing.deploy.title': '模型部署',
-  'pages.models.landing.deploy.desc': '从仓库挑模型 + 选集群 + 选 GPU 数 + 副本数，一键拼出 Deployment + Service 推到目标集群',
-  'pages.models.landing.chat.title': '在线调试',
-  'pages.models.landing.chat.desc': '内置简易 chat playground，验证已部署模型的可用性 + 体验',
-  'pages.models.landing.routing.title': '模型路由',
-  'pages.models.landing.routing.desc': 'OpenAI 兼容网关，按 model 参数路由到不同后端，支持灰度 / A/B',
+  // models registry (P15) — catalog of deployable model presets, no deployment yet
+  'pages.models.registry.title': '模型仓库',
+  'pages.models.registry.subtitle': '全局可部署模型清单 —— 运行时、镜像、推荐 GPU、默认启动参数。模型部署 / 调试 / 路由在后续版本落地。',
+  'pages.models.registry.new': '新建模型',
+  'pages.models.registry.edit': '编辑模型',
+  'pages.models.registry.builtin': '内置',
+  'pages.models.registry.custom': '自定义',
+  'pages.models.registry.delete.confirm': '确定删除模型「{name}」？',
+  'pages.models.registry.delete.success': '已删除',
+  'pages.models.registry.deleteHint': '删除自定义模型；内置模型禁用此操作',
+  'pages.models.registry.builtinHint': '内置模型不可编辑/删除',
+  // table columns
+  'pages.models.registry.col.name': '名称',
+  'pages.models.registry.col.family': '系列',
+  'pages.models.registry.col.runtime': '运行时',
+  'pages.models.registry.col.image': '镜像',
+  'pages.models.registry.col.hf': 'HuggingFace ID',
+  'pages.models.registry.col.gpu': '推荐 GPU',
+  'pages.models.registry.col.license': '许可证',
+  'pages.models.registry.col.actions': '操作',
+  // filters
+  'pages.models.registry.filter.family': '系列',
+  'pages.models.registry.filter.runtime': '运行时',
+  'pages.models.registry.filter.all': '全部',
+  // form labels
+  'pages.models.registry.form.name': '名称（DNS-1123 label）',
+  'pages.models.registry.form.name.help': '小写字母 / 数字 / 连字符，开头结尾为字母数字；后续 Deployment 会直接用作 name',
+  'pages.models.registry.form.displayName': '展示名',
+  'pages.models.registry.form.description': '描述',
+  'pages.models.registry.form.family': '系列',
+  'pages.models.registry.form.runtime': '运行时',
+  'pages.models.registry.form.image': '容器镜像',
+  'pages.models.registry.form.image.help': '完整镜像引用（含 tag）。vLLM 官方镜像为 vllm/vllm-openai:<version>',
+  'pages.models.registry.form.hf': 'HuggingFace 仓库 ID',
+  'pages.models.registry.form.hf.help': '如 Qwen/Qwen2.5-7B-Instruct；留空可在 default_args 中传入本地模型路径',
+  'pages.models.registry.form.defaultArgs': '默认启动参数',
+  'pages.models.registry.form.defaultArgs.help': 'JSON 字符串数组，如 ["--max-model-len","32768","--dtype","auto"]。不要在此处加 --model（部署时由 HuggingFace ID 自动注入）',
+  'pages.models.registry.form.recommendedGPU': '推荐 GPU',
+  'pages.models.registry.form.recommendedGPU.help': 'JSON 对象，如 {"count":1,"memoryGiB":24,"model":"any"}',
+  'pages.models.registry.form.license': '许可证',
+  'pages.models.registry.form.license.placeholder': '如 apache-2.0 / llama3.1 / deepseek',
+  // empty state
+  'pages.models.registry.empty.title': '暂无模型',
+  'pages.models.registry.empty.subtitle': '内置预设已自动 seed；可点击右上角新建自定义模型条目',
+  // roadmap banner
+  'pages.models.registry.roadmap.title': '即将推出',
+  'pages.models.registry.roadmap.desc': '模型部署、在线 chat 调试、OpenAI 兼容路由、Volcano gang scheduling 分布式微调',
+  // pages.common.* — shared UI verbs / section headers used by P15+
+  // pages. New pages should reach for these first instead of redefining
+  // identical strings under their own namespace.
+  'pages.common.edit': '编辑',
+  'pages.common.delete': '删除',
+  'pages.common.copy': '复制',
+  'pages.common.copied': '已复制',
+  'pages.common.copyFailed': '复制失败',
+  'pages.common.saved': '已保存',
+  'pages.common.identity': '基本信息',
+  'pages.common.runtime': '运行时配置',
+  'pages.common.tuning': '调优参数',
 
   // monitoring page — 自绘，依赖 victoria-metrics（硬）+ node-exporter
   // / kube-state-metrics（软：缺哪个就对应面板空）
@@ -960,10 +1008,13 @@ export default {
   'errors.PLUGIN_UNINSTALLING': '插件正在卸载中，请等待卸载完成再启用',
   'errors.PLUGIN_NOT_ENABLED': '插件尚未启用',
   'errors.PLUGIN_NOT_RUNNING': '插件未处于运行中状态',
+  'errors.MODEL_NOT_FOUND': '模型不存在',
+  'errors.MODEL_NAME_EXISTS': '模型名称已存在',
+  'errors.MODEL_BUILTIN_LOCKED': '内置模型不允许修改或删除',
   'errors.PROXY_UPSTREAM_ERROR': '反向代理上游错误',
 
   // login
-  'pages.login.subtitle': 'Kubernetes 上的 GPU + 模型一体化平台',
+  'pages.login.subtitle': 'Kubernetes 多集群管理 + GPU 算力调度 + 模型服务的一体化控制面',
   'pages.login.username.placeholder': '用户名',
   'pages.login.username.required': '请输入用户名',
   'pages.login.password.placeholder': '密码',
