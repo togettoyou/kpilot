@@ -51,6 +51,18 @@ interface FormValues {
   replicas: number;
   gpu_count: number;
   gpu_type: DeployGPUType;
+  // K8s quantity strings — left empty by default so vLLM gets
+  // whatever the default scheduler hands it. Filled in only when
+  // the user needs to pin CPU / memory budgets.
+  cpu_request: string;
+  cpu_limit: string;
+  memory_request: string;
+  memory_limit: string;
+  // Volcano vGPU sub-resources — rendered only when gpu_type=volcano.
+  // Keeping them in the FormValues unconditionally so React's form
+  // state stays consistent across runtime toggles.
+  vgpu_memory_mib?: number;
+  vgpu_cores?: number;
   hf_token: string;
   extra_args_text: string;
   pvc_enabled: boolean;
@@ -112,6 +124,12 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
       replicas: 1,
       gpu_count: gpuCount,
       gpu_type: 'nvidia',
+      cpu_request: '',
+      cpu_limit: '',
+      memory_request: '',
+      memory_limit: '',
+      vgpu_memory_mib: undefined,
+      vgpu_cores: undefined,
       hf_token: '',
       extra_args_text: '',
       pvc_enabled: true,
@@ -146,6 +164,11 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean);
+    // vGPU sub-resources only ship when the user picked volcano;
+    // for nvidia the fields are hidden but might still hold
+    // residual values from a runtime toggle, so we explicitly
+    // drop them here rather than rely on UI hiding alone.
+    const useVolcano = values.gpu_type === 'volcano';
     return {
       cluster_id: values.cluster_id,
       namespace: values.namespace,
@@ -154,6 +177,18 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
       replicas: values.replicas,
       gpu_count: values.gpu_count,
       gpu_type: values.gpu_type,
+      cpu_request: values.cpu_request.trim() || undefined,
+      cpu_limit: values.cpu_limit.trim() || undefined,
+      memory_request: values.memory_request.trim() || undefined,
+      memory_limit: values.memory_limit.trim() || undefined,
+      vgpu_memory_mib:
+        useVolcano && values.vgpu_memory_mib && values.vgpu_memory_mib > 0
+          ? values.vgpu_memory_mib
+          : undefined,
+      vgpu_cores:
+        useVolcano && values.vgpu_cores && values.vgpu_cores > 0
+          ? values.vgpu_cores
+          : undefined,
       hf_token: values.hf_token,
       extra_args,
       pvc: {
@@ -428,6 +463,127 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
                     </Radio>
                   </Radio.Group>
                 </Form.Item>
+
+                {/* Volcano vGPU sub-resources — visible only when the
+                    user picked the volcano runtime. Without these the
+                    Pod gets whole-slot defaults; setting them lets one
+                    physical card carry multiple Pods (per-slot memory
+                    + SM percentage). Mirrors the JobForm pattern in
+                    /compute. shouldUpdate scoped to gpu_type so we
+                    re-render only on that change. */}
+                <Form.Item
+                  noStyle
+                  shouldUpdate={(prev, cur) => prev.gpu_type !== cur.gpu_type}
+                >
+                  {({ getFieldValue }) =>
+                    getFieldValue('gpu_type') === 'volcano' ? (
+                      <Space.Compact block style={{ marginBottom: 16 }}>
+                        <Form.Item
+                          name="vgpu_memory_mib"
+                          label={intl.formatMessage({
+                            id: 'pages.models.deploy.vgpu.memory',
+                          })}
+                          tooltip={intl.formatMessage({
+                            id: 'pages.models.deploy.vgpu.memory.help',
+                          })}
+                          style={{ flex: 1 }}
+                        >
+                          <InputNumber
+                            min={0}
+                            max={1048576}
+                            precision={0}
+                            placeholder="3000"
+                            addonAfter="MiB"
+                            style={{ width: '100%' }}
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          name="vgpu_cores"
+                          label={intl.formatMessage({
+                            id: 'pages.models.deploy.vgpu.cores',
+                          })}
+                          tooltip={intl.formatMessage({
+                            id: 'pages.models.deploy.vgpu.cores.help',
+                          })}
+                          style={{ flex: 1, marginInlineStart: 12 }}
+                        >
+                          <InputNumber
+                            min={0}
+                            max={100}
+                            precision={0}
+                            placeholder="50"
+                            addonAfter="%"
+                            style={{ width: '100%' }}
+                          />
+                        </Form.Item>
+                      </Space.Compact>
+                    ) : null
+                  }
+                </Form.Item>
+
+                {/* CPU + memory request/limit — K8s quantity strings.
+                    Empty fields omit the resource entirely, letting
+                    the scheduler default. Request can be smaller than
+                    limit for burst headroom. */}
+                <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                  {intl.formatMessage({
+                    id: 'pages.models.deploy.resources',
+                  })}
+                </Typography.Text>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 12,
+                    marginTop: 4,
+                    marginBottom: 16,
+                  }}
+                >
+                  <Form.Item
+                    name="cpu_request"
+                    label={intl.formatMessage({
+                      id: 'pages.models.deploy.resources.cpu.request',
+                    })}
+                    style={{ marginBottom: 0 }}
+                  >
+                    <Input placeholder="2" maxLength={32} autoComplete="off" />
+                  </Form.Item>
+                  <Form.Item
+                    name="cpu_limit"
+                    label={intl.formatMessage({
+                      id: 'pages.models.deploy.resources.cpu.limit',
+                    })}
+                    style={{ marginBottom: 0 }}
+                  >
+                    <Input placeholder="4" maxLength={32} autoComplete="off" />
+                  </Form.Item>
+                  <Form.Item
+                    name="memory_request"
+                    label={intl.formatMessage({
+                      id: 'pages.models.deploy.resources.memory.request',
+                    })}
+                    style={{ marginBottom: 0 }}
+                  >
+                    <Input
+                      placeholder="4Gi"
+                      maxLength={32}
+                      autoComplete="off"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="memory_limit"
+                    label={intl.formatMessage({
+                      id: 'pages.models.deploy.resources.memory.limit',
+                    })}
+                    style={{ marginBottom: 0 }}
+                  >
+                    <Input
+                      placeholder="8Gi"
+                      maxLength={32}
+                      autoComplete="off"
+                    />
+                  </Form.Item>
+                </div>
 
                 <Form.Item
                   name="extra_args_text"

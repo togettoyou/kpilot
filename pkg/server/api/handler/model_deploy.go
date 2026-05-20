@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/togettoyou/kpilot/pkg/server/deploy"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
@@ -35,6 +36,8 @@ const (
 	maxDeployReplicas     = 32          // sanity ceiling — beyond this is a cluster scaling story, not P16
 	maxDeployGPUCount     = 16          // single Pod cap; multi-node would need a Job not a Deployment
 	maxDeployPVCSizeGiB   = 4096        // 4 TiB ceiling so a typo doesn't request 999999 GiB
+	maxDeployQtyLen       = 32          // K8s quantity strings ("4Gi", "500m", "2") are short; mirrors JobForm
+	maxDeployVGPUMemMiB   = 1 << 20     // 1 TiB in MiB — single-slot ceiling far past any real card
 )
 
 // deployRequest is the wire shape of POST /api/v1/models/:id/deploy.
@@ -50,9 +53,21 @@ type deployRequest struct {
 	Replicas        int32    `json:"replicas"`
 	GPUCount        int      `json:"gpu_count"`
 	GPUType         string   `json:"gpu_type"` // "nvidia" | "volcano"
-	HFToken         string   `json:"hf_token"`
-	ExtraArgs       []string `json:"extra_args"`
-	PVC             pvcReq   `json:"pvc"`
+	// CPU / memory request / limit as K8s quantity strings ("2",
+	// "500m", "4Gi"). Empty omits that resource. Each side
+	// validated through resource.ParseQuantity below.
+	CPURequest    string `json:"cpu_request"`
+	CPULimit      string `json:"cpu_limit"`
+	MemoryRequest string `json:"memory_request"`
+	MemoryLimit   string `json:"memory_limit"`
+	// vGPU sub-resources — only honored when gpu_type=volcano.
+	// vgpu_memory_mib is per-slot MiB (vgpu device plugin's unit),
+	// vgpu_cores is 0..100 percent of SMs per slot.
+	VGPUMemoryMiB int      `json:"vgpu_memory_mib"`
+	VGPUCores     int      `json:"vgpu_cores"`
+	HFToken       string   `json:"hf_token"`
+	ExtraArgs     []string `json:"extra_args"`
+	PVC           pvcReq   `json:"pvc"`
 }
 
 type pvcReq struct {
@@ -96,6 +111,31 @@ func (r *deployRequest) validate() string {
 		if r.PVC.StorageClassName != "" && len(r.PVC.StorageClassName) > maxDeployNamespaceLen {
 			return CodeInvalidRequest
 		}
+	}
+	// Quantity strings — length cap + parse-check. Length stops a
+	// runaway request from blowing memory in ParseQuantity; the
+	// parse stops "4Q" from getting all the way to the generator
+	// where it'd silently drop.
+	for _, q := range []string{r.CPURequest, r.CPULimit, r.MemoryRequest, r.MemoryLimit} {
+		if q == "" {
+			continue
+		}
+		if len(q) > maxDeployQtyLen {
+			return CodeInvalidRequest
+		}
+		if _, err := resource.ParseQuantity(q); err != nil {
+			return CodeInvalidRequest
+		}
+	}
+	// vGPU sub-resources: only meaningful with volcano, but we
+	// still range-check the values when present so a stale form
+	// state (user picked volcano, filled values, switched to
+	// nvidia) doesn't get rejected — generator just drops them.
+	if r.VGPUMemoryMiB < 0 || r.VGPUMemoryMiB > maxDeployVGPUMemMiB {
+		return CodeInvalidRequest
+	}
+	if r.VGPUCores < 0 || r.VGPUCores > 100 {
+		return CodeInvalidRequest
 	}
 	// extra_args: cap total serialized length so a runaway request
 	// can't blow up the manifest. Each arg also gets a per-element
@@ -168,6 +208,12 @@ func DeployModel(gw *gateway.GatewayServer) gin.HandlerFunc {
 			Replicas:        req.Replicas,
 			GPUCount:        req.GPUCount,
 			GPUType:         gpuType,
+			CPURequest:      req.CPURequest,
+			CPULimit:        req.CPULimit,
+			MemoryRequest:   req.MemoryRequest,
+			MemoryLimit:     req.MemoryLimit,
+			VGPUMemoryMiB:   req.VGPUMemoryMiB,
+			VGPUCores:       req.VGPUCores,
 			HFToken:         req.HFToken,
 			ExtraArgs:       req.ExtraArgs,
 			PVC: deploy.PVCSpec{

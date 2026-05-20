@@ -676,6 +676,18 @@ export default {
     'volcano.sh/vgpu-* (fractional sharing)',
   'pages.models.deploy.gpuType.help':
     'The volcano option requires the volcano-vgpu-device-plugin to be installed on the cluster',
+  'pages.models.deploy.vgpu.memory': 'Per-slot memory',
+  'pages.models.deploy.vgpu.memory.help':
+    'volcano.sh/vgpu-memory: per vGPU-slot framebuffer (MiB). Empty = whole card',
+  'pages.models.deploy.vgpu.cores': 'Per-slot cores',
+  'pages.models.deploy.vgpu.cores.help':
+    'volcano.sh/vgpu-cores: per vGPU-slot SM percentage (0-100). Empty = whole card',
+  'pages.models.deploy.resources':
+    'CPU / memory request / limit (empty = unset, scheduler decides)',
+  'pages.models.deploy.resources.cpu.request': 'CPU request',
+  'pages.models.deploy.resources.cpu.limit': 'CPU limit',
+  'pages.models.deploy.resources.memory.request': 'Memory request',
+  'pages.models.deploy.resources.memory.limit': 'Memory limit',
   'pages.models.deploy.hfToken': 'HuggingFace token (optional)',
   'pages.models.deploy.hfToken.help':
     'Required when pulling gated weights (Llama 4, etc). Stored as a Secret and surfaced to the container via envFrom as HF_TOKEN.',

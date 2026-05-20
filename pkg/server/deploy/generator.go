@@ -80,6 +80,23 @@ type DeployOptions struct {
 	GPUCount  int
 	GPUType   GPUType
 
+	// CPU + memory request/limit as K8s quantity strings ("2", "4Gi",
+	// "500m"). Empty = don't set that resource. Request defaults
+	// can differ from limit so users can size for burst headroom;
+	// the JobForm in /compute uses the same pair-of-strings shape.
+	CPURequest    string
+	CPULimit      string
+	MemoryRequest string
+	MemoryLimit   string
+
+	// vGPU sub-resources for the Volcano vgpu device plugin. Only
+	// honored when GPUType=Volcano. vgpu-memory is per-slot in MiB
+	// (the volcano-vgpu-device-plugin's unit), vgpu-cores is per-slot
+	// SM percentage (0..100). Both zero/unset = don't emit, kubelet
+	// gives the requesting Pod whole-slot defaults.
+	VGPUMemoryMiB int
+	VGPUCores     int
+
 	// HFToken, when non-empty, becomes a Secret + envFrom on the
 	// container so gated models (Llama 4, Mistral 7B etc) can pull
 	// from HuggingFace at startup.
@@ -353,15 +370,57 @@ func buildDeployment(
 ) *appsv1.Deployment {
 	selector := selectorLabels(model.Name, name)
 
-	// GPU resource requests — both list + limits pinned to the same
-	// integer count, which is what device-plugin extended resources
-	// require (they're not divisible / burstable).
-	gpuResources := corev1.ResourceList{}
+	// Resources built up from three layers:
+	//   1. CPU + memory: request + limit can differ (burst headroom)
+	//   2. GPU count: extended resource, must be requests == limits
+	//      (kubelet mirrors limit→request automatically — we set both
+	//      so the manifest reads consistently in YAML preview)
+	//   3. vGPU sub-resources (memory MiB / cores %): only when
+	//      GPUType=Volcano, limit-only since they're extended resources
+	requests := corev1.ResourceList{}
+	limits := corev1.ResourceList{}
+	// parseQty returns (zero, ok=false) on invalid input — we skip
+	// the resource in that case rather than panic via MustParse.
+	// The handler validates upstream too, but defensive coding here
+	// means a future direct caller can't bring the server down with
+	// a bad string.
+	parseQty := func(s string) (resource.Quantity, bool) {
+		if s == "" {
+			return resource.Quantity{}, false
+		}
+		q, err := resource.ParseQuantity(s)
+		if err != nil {
+			return resource.Quantity{}, false
+		}
+		return q, true
+	}
+	if q, ok := parseQty(opts.CPURequest); ok {
+		requests[corev1.ResourceCPU] = q
+	}
+	if q, ok := parseQty(opts.CPULimit); ok {
+		limits[corev1.ResourceCPU] = q
+	}
+	if q, ok := parseQty(opts.MemoryRequest); ok {
+		requests[corev1.ResourceMemory] = q
+	}
+	if q, ok := parseQty(opts.MemoryLimit); ok {
+		limits[corev1.ResourceMemory] = q
+	}
 	switch opts.GPUType {
 	case GPUTypeVolcano:
-		gpuResources[corev1.ResourceName("volcano.sh/vgpu-number")] = *resource.NewQuantity(int64(opts.GPUCount), resource.DecimalSI)
+		gpu := *resource.NewQuantity(int64(opts.GPUCount), resource.DecimalSI)
+		requests[corev1.ResourceName("volcano.sh/vgpu-number")] = gpu
+		limits[corev1.ResourceName("volcano.sh/vgpu-number")] = gpu
+		if opts.VGPUMemoryMiB > 0 {
+			limits[corev1.ResourceName("volcano.sh/vgpu-memory")] = *resource.NewQuantity(int64(opts.VGPUMemoryMiB), resource.DecimalSI)
+		}
+		if opts.VGPUCores > 0 {
+			limits[corev1.ResourceName("volcano.sh/vgpu-cores")] = *resource.NewQuantity(int64(opts.VGPUCores), resource.DecimalSI)
+		}
 	default:
-		gpuResources[corev1.ResourceName("nvidia.com/gpu")] = *resource.NewQuantity(int64(opts.GPUCount), resource.DecimalSI)
+		gpu := *resource.NewQuantity(int64(opts.GPUCount), resource.DecimalSI)
+		requests[corev1.ResourceName("nvidia.com/gpu")] = gpu
+		limits[corev1.ResourceName("nvidia.com/gpu")] = gpu
 	}
 
 	container := corev1.Container{
@@ -376,8 +435,8 @@ func buildDeployment(
 			{Name: "HF_HOME", Value: hfCacheMount},
 		},
 		Resources: corev1.ResourceRequirements{
-			Limits:   gpuResources,
-			Requests: gpuResources,
+			Limits:   limits,
+			Requests: requests,
 		},
 		// Cold start can be many minutes (HF download for big
 		// models). Readiness probe targets /health which vLLM /

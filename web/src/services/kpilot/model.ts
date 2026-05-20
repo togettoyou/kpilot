@@ -228,6 +228,15 @@ export interface DeployPayload {
   replicas: number;
   gpu_count: number;
   gpu_type: DeployGPUType;
+  // K8s quantity strings ("2", "500m", "4Gi"); empty omits.
+  cpu_request?: string;
+  cpu_limit?: string;
+  memory_request?: string;
+  memory_limit?: string;
+  // Volcano vGPU sub-resources — only honored when gpu_type=volcano.
+  // vgpu_memory_mib is per-slot MiB, vgpu_cores is 0..100 % of SMs.
+  vgpu_memory_mib?: number;
+  vgpu_cores?: number;
   hf_token?: string;
   extra_args?: string[];
   pvc: DeployPVC;
