@@ -732,8 +732,10 @@ export default {
   'pages.models.registry.form.defaultArgs.help':
     'JSON array of strings, e.g. ["--max-model-len","32768","--dtype","auto"]. Do NOT include --model here — the deployment generator injects it from the HuggingFace ID',
   'pages.models.registry.form.recommendedGPU': 'Recommended GPU',
-  'pages.models.registry.form.recommendedGPU.help':
-    'JSON object, e.g. {"count":1,"memoryGiB":24,"model":"any"}',
+  'pages.models.registry.form.recommendedGPU.help': 'count × memory × model',
+  'pages.models.registry.form.recommendedGPU.count': 'Count',
+  'pages.models.registry.form.recommendedGPU.memory': 'Memory (GiB)',
+  'pages.models.registry.form.recommendedGPU.model': 'Model',
   'pages.models.registry.form.license': 'License',
   'pages.models.registry.form.license.placeholder':
     'e.g. apache-2.0 / llama3.1 / deepseek',

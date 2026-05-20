@@ -1,6 +1,7 @@
 import type { ProFormInstance } from '@ant-design/pro-components';
 import {
   DrawerForm,
+  ProFormDigit,
   ProFormSelect,
   ProFormText,
   ProFormTextArea,
@@ -48,9 +49,19 @@ interface FormValues {
   image: string;
   hugging_face_id?: string;
   default_args?: string;
-  recommended_gpu?: string;
+  // recommended_gpu broken out into three structured fields in the
+  // UI; serialised back to a JSON blob on submit. The wire-level
+  // `recommended_gpu` string stays unchanged so the server / cards
+  // / detail drawer can keep parsing the same shape.
+  gpu_count?: number;
+  gpu_memory_gib?: number;
+  gpu_model?: string;
   license?: string;
 }
+
+// Known GPU model shorthands the seed presets use. "any" = no
+// constraint, used when a 24 GB anything (T4 / RTX / A10) will do.
+const GPU_MODEL_OPTIONS = ['any', 'T4', 'A10', 'A100', 'H100', 'B100'];
 
 // ModelDrawer is the create + edit form. Built-in rows never open it
 // (the table buttons are disabled), so we don't worry about the
@@ -95,20 +106,19 @@ const ModelDrawer: React.FC<Props> = ({
         return false;
       }
     }
-    if (values.recommended_gpu) {
-      try {
-        const obj = JSON.parse(values.recommended_gpu);
-        if (typeof obj !== 'object' || Array.isArray(obj)) {
-          throw new Error('not an object');
-        }
-      } catch {
-        message.error(
-          intl.formatMessage({
-            id: 'pages.models.registry.form.recommendedGPU.help',
-          }),
-        );
-        return false;
-      }
+    // Compose the recommended_gpu wire blob from the three
+    // structured form fields. Only emit fields the user actually
+    // set so the server-side validator doesn't see {"count":0}
+    // and reject it as malformed.
+    const recommended_gpu: Record<string, unknown> = {};
+    if (values.gpu_count && values.gpu_count > 0) {
+      recommended_gpu.count = values.gpu_count;
+    }
+    if (values.gpu_memory_gib && values.gpu_memory_gib > 0) {
+      recommended_gpu.memoryGiB = values.gpu_memory_gib;
+    }
+    if (values.gpu_model) {
+      recommended_gpu.model = values.gpu_model;
     }
 
     const payload: ModelPayload = {
@@ -120,7 +130,10 @@ const ModelDrawer: React.FC<Props> = ({
       image: values.image,
       hugging_face_id: values.hugging_face_id ?? '',
       default_args: values.default_args ?? '',
-      recommended_gpu: values.recommended_gpu ?? '',
+      recommended_gpu:
+        Object.keys(recommended_gpu).length > 0
+          ? JSON.stringify(recommended_gpu)
+          : '',
       license: values.license ?? '',
     };
 
@@ -132,6 +145,37 @@ const ModelDrawer: React.FC<Props> = ({
     message.success(intl.formatMessage({ id: 'pages.common.saved' }));
     onSaved();
     return true;
+  };
+
+  // parseGPU pulls existing model.recommended_gpu (JSON blob) into
+  // the three form fields. Falls back to undefined per-field on
+  // bad JSON / missing key so the form shows the placeholder
+  // instead of forcing an arbitrary number.
+  const parseGPU = (raw: string | undefined) => {
+    if (!raw)
+      return {
+        gpu_count: undefined,
+        gpu_memory_gib: undefined,
+        gpu_model: undefined,
+      };
+    try {
+      const g = JSON.parse(raw) as {
+        count?: number;
+        memoryGiB?: number;
+        model?: string;
+      };
+      return {
+        gpu_count: g.count,
+        gpu_memory_gib: g.memoryGiB,
+        gpu_model: g.model,
+      };
+    } catch {
+      return {
+        gpu_count: undefined,
+        gpu_memory_gib: undefined,
+        gpu_model: undefined,
+      };
+    }
   };
 
   const initial: Partial<FormValues> = model
@@ -152,7 +196,7 @@ const ModelDrawer: React.FC<Props> = ({
         image: model.image,
         hugging_face_id: model.hugging_face_id,
         default_args: model.default_args,
-        recommended_gpu: model.recommended_gpu,
+        ...parseGPU(model.recommended_gpu),
         license: model.license,
       }
     : {
@@ -163,7 +207,9 @@ const ModelDrawer: React.FC<Props> = ({
         // subsequent runtime change land on identical templates.
         image: RUNTIME_DEFAULTS.vllm.image,
         default_args: RUNTIME_DEFAULTS.vllm.defaultArgs,
-        recommended_gpu: '{"count":1,"memoryGiB":24,"model":"any"}',
+        gpu_count: 1,
+        gpu_memory_gib: 24,
+        gpu_model: 'any',
       };
 
   // formRef lets onValuesChange reach back into the form to overwrite
@@ -321,21 +367,48 @@ const ModelDrawer: React.FC<Props> = ({
         }}
       />
 
-      <ProFormTextArea
-        name="recommended_gpu"
-        label={intl.formatMessage({
+      {/* Recommended GPU shape — three structured fields composed
+          into the recommended_gpu wire JSON on submit. Three
+          inline ProForm controls in a row read better than a
+          single JSON TextArea for picking sane numbers; the
+          deploy drawer + card cells parse the same JSON blob
+          shape regardless of how it was authored. */}
+      <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+        {intl.formatMessage({
           id: 'pages.models.registry.form.recommendedGPU',
         })}
-        tooltip={intl.formatMessage({
-          id: 'pages.models.registry.form.recommendedGPU.help',
-        })}
-        fieldProps={{
-          rows: 3,
-          maxLength: 1024,
-          showCount: true,
-          style: { fontFamily: 'monospace', fontSize: 12 },
+      </Typography.Text>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 1fr',
+          gap: 12,
+          marginTop: 4,
         }}
-      />
+      >
+        <ProFormDigit
+          name="gpu_count"
+          label={intl.formatMessage({
+            id: 'pages.models.registry.form.recommendedGPU.count',
+          })}
+          fieldProps={{ min: 1, max: 16, style: { width: '100%' } }}
+        />
+        <ProFormDigit
+          name="gpu_memory_gib"
+          label={intl.formatMessage({
+            id: 'pages.models.registry.form.recommendedGPU.memory',
+          })}
+          fieldProps={{ min: 1, max: 2048, style: { width: '100%' } }}
+        />
+        <ProFormSelect
+          name="gpu_model"
+          label={intl.formatMessage({
+            id: 'pages.models.registry.form.recommendedGPU.model',
+          })}
+          options={GPU_MODEL_OPTIONS.map((g) => ({ label: g, value: g }))}
+          fieldProps={{ showSearch: true, allowClear: true }}
+        />
+      </div>
 
       <ProFormText
         name="license"

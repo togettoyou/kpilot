@@ -712,7 +712,10 @@ export default {
   'pages.models.registry.form.defaultArgs': '默认启动参数',
   'pages.models.registry.form.defaultArgs.help': 'JSON 字符串数组，如 ["--max-model-len","32768","--dtype","auto"]。不要在此处加 --model（部署时由 HuggingFace ID 自动注入）',
   'pages.models.registry.form.recommendedGPU': '推荐 GPU',
-  'pages.models.registry.form.recommendedGPU.help': 'JSON 对象，如 {"count":1,"memoryGiB":24,"model":"any"}',
+  'pages.models.registry.form.recommendedGPU.help': '数量 × 显存 × 型号',
+  'pages.models.registry.form.recommendedGPU.count': '数量',
+  'pages.models.registry.form.recommendedGPU.memory': '显存 (GiB)',
+  'pages.models.registry.form.recommendedGPU.model': '型号',
   'pages.models.registry.form.license': '许可证',
   'pages.models.registry.form.license.placeholder': '如 apache-2.0 / llama3.1 / deepseek',
   // empty state
