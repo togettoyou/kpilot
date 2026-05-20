@@ -48,7 +48,11 @@ interface FormValues {
   runtime: ModelRuntime;
   image: string;
   hugging_face_id?: string;
-  default_args?: string;
+  // Multi-line "one flag per line" text in the UI; serialised back
+  // to the JSON array string wire format on submit. Same shape the
+  // deploy drawer uses for extra_args, so users see a consistent
+  // input style across both drawers.
+  default_args_text?: string;
   // recommended_gpu broken out into three structured fields in the
   // UI; serialised back to a JSON blob on submit. The wire-level
   // `recommended_gpu` string stays unchanged so the server / cards
@@ -58,6 +62,32 @@ interface FormValues {
   gpu_model?: string;
   license?: string;
 }
+
+// argsJsonToText / argsTextToJson bridge the wire format (JSON
+// string array, server's source of truth) and the UI format
+// (newline-separated plain text, friendlier than authoring JSON).
+// Symmetric — round-trip preserves order; bad JSON yields empty
+// text rather than throwing so existing rows with broken data
+// don't bomb the form.
+const argsJsonToText = (json: string | undefined): string => {
+  if (!json) return '';
+  try {
+    const arr = JSON.parse(json) as unknown[];
+    if (!Array.isArray(arr)) return '';
+    return arr.map((v) => String(v)).join('\n');
+  } catch {
+    return '';
+  }
+};
+
+const argsTextToJson = (text: string | undefined): string => {
+  if (!text) return '';
+  const args = text
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return args.length > 0 ? JSON.stringify(args) : '';
+};
 
 // Known GPU model shorthands the seed presets use. "any" = no
 // constraint, used when a 24 GB anything (T4 / RTX / A10) will do.
@@ -88,24 +118,6 @@ const ModelDrawer: React.FC<Props> = ({
   const formKey = model ? `${mode}-${model.id}` : 'new';
 
   const handleFinish = async (values: FormValues) => {
-    // JSON validation client-side too — server validates again but
-    // surfacing the parse error here gives a clearer message than
-    // "INVALID_REQUEST".
-    if (values.default_args) {
-      try {
-        const arr = JSON.parse(values.default_args);
-        if (!Array.isArray(arr) || arr.some((v) => typeof v !== 'string')) {
-          throw new Error('not a string array');
-        }
-      } catch {
-        message.error(
-          intl.formatMessage({
-            id: 'pages.models.registry.form.defaultArgs.help',
-          }),
-        );
-        return false;
-      }
-    }
     // Compose the recommended_gpu wire blob from the three
     // structured form fields. Only emit fields the user actually
     // set so the server-side validator doesn't see {"count":0}
@@ -129,7 +141,7 @@ const ModelDrawer: React.FC<Props> = ({
       runtime: values.runtime,
       image: values.image,
       hugging_face_id: values.hugging_face_id ?? '',
-      default_args: values.default_args ?? '',
+      default_args: argsTextToJson(values.default_args_text),
       recommended_gpu:
         Object.keys(recommended_gpu).length > 0
           ? JSON.stringify(recommended_gpu)
@@ -195,7 +207,7 @@ const ModelDrawer: React.FC<Props> = ({
         runtime: model.runtime,
         image: model.image,
         hugging_face_id: model.hugging_face_id,
-        default_args: model.default_args,
+        default_args_text: argsJsonToText(model.default_args),
         ...parseGPU(model.recommended_gpu),
         license: model.license,
       }
@@ -206,7 +218,7 @@ const ModelDrawer: React.FC<Props> = ({
         // map the runtime auto-swap reads, so the initial open and a
         // subsequent runtime change land on identical templates.
         image: RUNTIME_DEFAULTS.vllm.image,
-        default_args: RUNTIME_DEFAULTS.vllm.defaultArgs,
+        default_args_text: argsJsonToText(RUNTIME_DEFAULTS.vllm.defaultArgs),
         gpu_count: 1,
         gpu_memory_gib: 24,
         gpu_model: 'any',
@@ -247,7 +259,7 @@ const ModelDrawer: React.FC<Props> = ({
         if (!defaults) return;
         formRef.current?.setFieldsValue({
           image: defaults.image,
-          default_args: defaults.defaultArgs,
+          default_args_text: argsJsonToText(defaults.defaultArgs),
         });
       }}
       drawerProps={{
@@ -352,15 +364,16 @@ const ModelDrawer: React.FC<Props> = ({
       </Typography.Title>
 
       <ProFormTextArea
-        name="default_args"
+        name="default_args_text"
         label={intl.formatMessage({
           id: 'pages.models.registry.form.defaultArgs',
         })}
         tooltip={intl.formatMessage({
           id: 'pages.models.registry.form.defaultArgs.help',
         })}
+        placeholder={'--max-model-len\n32768\n--dtype\nauto'}
         fieldProps={{
-          rows: 4,
+          rows: 6,
           maxLength: 8192,
           showCount: true,
           style: { fontFamily: 'monospace', fontSize: 12 },

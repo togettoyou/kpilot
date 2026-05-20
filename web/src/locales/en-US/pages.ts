@@ -744,7 +744,7 @@ export default {
     'e.g. Qwen/Qwen2.5-7B-Instruct. Leave blank to pass a local model path via default_args',
   'pages.models.registry.form.defaultArgs': 'Default args',
   'pages.models.registry.form.defaultArgs.help':
-    'JSON array of strings, e.g. ["--max-model-len","32768","--dtype","auto"]. Do NOT include --model here — the deployment generator injects it from the HuggingFace ID',
+    'One arg per line (flag + value each on its own line). Do NOT include --model here — the deployment generator injects it from the HuggingFace ID',
   'pages.models.registry.form.recommendedGPU': 'Recommended GPU',
   'pages.models.registry.form.recommendedGPU.help': 'count × memory × model',
   'pages.models.registry.form.recommendedGPU.count': 'Count',

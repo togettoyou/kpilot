@@ -721,7 +721,7 @@ export default {
   'pages.models.registry.form.hf': 'HuggingFace 仓库 ID',
   'pages.models.registry.form.hf.help': '如 Qwen/Qwen2.5-7B-Instruct；留空可在 default_args 中传入本地模型路径',
   'pages.models.registry.form.defaultArgs': '默认启动参数',
-  'pages.models.registry.form.defaultArgs.help': 'JSON 字符串数组，如 ["--max-model-len","32768","--dtype","auto"]。不要在此处加 --model（部署时由 HuggingFace ID 自动注入）',
+  'pages.models.registry.form.defaultArgs.help': '每行一个参数（flag 与值各占一行）。不要在此处加 --model（部署时由 HuggingFace ID 自动注入）',
   'pages.models.registry.form.recommendedGPU': '推荐 GPU',
   'pages.models.registry.form.recommendedGPU.help': '数量 × 显存 × 型号',
   'pages.models.registry.form.recommendedGPU.count': '数量',
