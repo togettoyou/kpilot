@@ -47,6 +47,19 @@ import (
 var builtinModels = []Model{
 	// ─── Qwen3 family (Apache-2.0) ──────────────────────────────
 	{
+		Name:           "qwen3-0.6b-instruct",
+		DisplayName:    "Qwen3 0.6B Instruct",
+		Description:    "Smallest Qwen3 dense — 0.8B params actual (the '0.6B' name refers to non-embedding parameter count). At BF16 it's ~1.6 GB VRAM, fits on any GPU including 4 GB cards. Pick this preset to smoke-test the deployment pipeline end-to-end before pulling a real workload.",
+		Family:         ModelFamilyQwen,
+		Runtime:        ModelRuntimeVLLM,
+		Image:          "vllm/vllm-openai:v0.20.2",
+		HuggingFaceID:  "Qwen/Qwen3-0.6B",
+		DefaultArgs:    `["--max-model-len","32768","--dtype","auto","--gpu-memory-utilization","0.9"]`,
+		RecommendedGPU: `{"count":1,"memoryGiB":4,"model":"any"}`,
+		License:        "apache-2.0",
+		SortOrder:      5,
+	},
+	{
 		Name:           "qwen3-8b-instruct",
 		DisplayName:    "Qwen3 8B Instruct",
 		Description:    "Alibaba Qwen3 8B dense — Apache-2.0, supports seamless switch between thinking / non-thinking modes within a single model. Native 32k context (131k with YaRN). Single 24 GB GPU.",

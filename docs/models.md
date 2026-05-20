@@ -52,10 +52,11 @@ DELETE /api/v1/models/:id              # 删除（内置返回 403 MODEL_BUILTIN
 
 ### 内置预设（`pkg/server/store/seed_models.go`）
 
-启动时 upsert，覆盖 2026-05 仍在主流使用的开源权重 11 条：
+启动时 upsert，覆盖 2026-05 仍在主流使用的开源权重 12 条：
 
 | name | display | family | recommended GPU | license |
 |---|---|---|---|---|
+| qwen3-0.6b-instruct | Qwen3 0.6B Instruct | qwen | 1 × 4 GiB any | apache-2.0 |
 | qwen3-8b-instruct | Qwen3 8B Instruct | qwen | 1 × 24 GiB any | apache-2.0 |
 | qwen3-14b-instruct | Qwen3 14B Instruct | qwen | 1 × 40 GiB A100 | apache-2.0 |
 | qwen3-32b-instruct | Qwen3 32B Instruct | qwen | 1 × 80 GiB H100 | apache-2.0 |
