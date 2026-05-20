@@ -639,6 +639,16 @@ export default {
   'pages.models.registry.subtitle': '全局可部署模型清单 —— 运行时、镜像、推荐 GPU、默认启动参数。模型部署 / 调试 / 路由在后续版本落地。',
   'pages.models.registry.new': '新建模型',
   'pages.models.registry.edit': '编辑模型',
+  'pages.models.registry.duplicate': '复制为自定义',
+  'pages.models.registry.action.duplicate': '复制',
+  'pages.models.registry.search.placeholder': '搜索模型 / HF ID / 描述',
+  'pages.models.registry.sort.family': '按系列分组',
+  'pages.models.registry.sort.name': '按名称',
+  'pages.models.registry.sort.recent': '最近更新',
+  'pages.models.registry.toolbar.count': '{n} / {total}',
+  'pages.models.registry.empty.noMatch': '无匹配模型 —— 试试清除过滤条件',
+  'pages.models.registry.noDescription': '（无描述）',
+  'pages.models.registry.noArgs': '（无启动参数 —— vLLM 将使用默认）',
   'pages.models.registry.builtin': '内置',
   'pages.models.registry.custom': '自定义',
   'pages.models.registry.delete.confirm': '确定删除模型「{name}」？',
@@ -693,6 +703,7 @@ export default {
   'pages.common.identity': '基本信息',
   'pages.common.runtime': '运行时配置',
   'pages.common.tuning': '调优参数',
+  'pages.common.loading': '加载中…',
 
   // monitoring page — 自绘，依赖 victoria-metrics（硬）+ node-exporter
   // / kube-state-metrics（软：缺哪个就对应面板空）

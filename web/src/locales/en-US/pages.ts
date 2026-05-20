@@ -647,6 +647,16 @@ export default {
     'Global catalog of deployable model presets — runtime, image, recommended GPU, default args. Deployment / chat / routing land in upcoming releases.',
   'pages.models.registry.new': 'New model',
   'pages.models.registry.edit': 'Edit model',
+  'pages.models.registry.duplicate': 'Duplicate as custom',
+  'pages.models.registry.action.duplicate': 'Duplicate',
+  'pages.models.registry.search.placeholder': 'Search model / HF ID / description',
+  'pages.models.registry.sort.family': 'Group by family',
+  'pages.models.registry.sort.name': 'By name',
+  'pages.models.registry.sort.recent': 'Recently updated',
+  'pages.models.registry.toolbar.count': '{n} / {total}',
+  'pages.models.registry.empty.noMatch': 'No matches — try clearing the filters',
+  'pages.models.registry.noDescription': '(no description)',
+  'pages.models.registry.noArgs': '(no launch args — vLLM uses defaults)',
   'pages.models.registry.builtin': 'Built-in',
   'pages.models.registry.custom': 'Custom',
   'pages.models.registry.delete.confirm': 'Delete model "{name}"?',
@@ -709,6 +719,7 @@ export default {
   'pages.common.identity': 'Identity',
   'pages.common.runtime': 'Runtime',
   'pages.common.tuning': 'Tuning',
+  'pages.common.loading': 'Loading…',
 
   // monitoring page — self-rendered. Hard dep: victoria-metrics.
   // Soft deps: node-exporter / kube-state-metrics (each missing

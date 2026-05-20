@@ -25,9 +25,16 @@ import {
   updateModel,
 } from '@/services/kpilot/model';
 
+export type ModelDrawerMode = 'create' | 'edit' | 'duplicate';
+
 interface Props {
   open: boolean;
-  model: Model | null; // null = create, populated = edit
+  // For mode='edit' or 'duplicate', `model` is the source row. In
+  // 'duplicate' we ignore the source's id/is_builtin and treat the
+  // submit as a fresh Create (so even built-ins can be cloned into
+  // a new custom row). In 'create' the source is null.
+  model: Model | null;
+  mode: ModelDrawerMode;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -49,17 +56,25 @@ interface FormValues {
 // (the table buttons are disabled), so we don't worry about the
 // is_builtin lock here — server rejects PATCH anyway as a defense-
 // in-depth check.
-const ModelDrawer: React.FC<Props> = ({ open, model, onClose, onSaved }) => {
+const ModelDrawer: React.FC<Props> = ({
+  open,
+  model,
+  mode,
+  onClose,
+  onSaved,
+}) => {
   const intl = useIntl();
   const { message } = App.useApp();
 
-  // Antd Pro DrawerForm holds form state via `form` ref or via
-  // `initialValues` (snapshot only). The cleanest pattern is to pass
-  // `initialValues` keyed by `model?.id ?? 'new'` so swapping between
-  // edit-rowA / edit-rowB / new-row resets the form contents. We
-  // wrap with a key prop on DrawerForm.
-  const isEdit = !!model;
-  const formKey = model?.id ?? 'new';
+  // Edit ↔ Create distinction drives the API call + the name-field
+  // disabled state. Duplicate behaves like Create on submit, but
+  // pre-fills from `model`.
+  const isEdit = mode === 'edit' && !!model;
+  const isDuplicate = mode === 'duplicate' && !!model;
+  // formKey rotates per source row + mode so opening duplicate from
+  // row A right after closing edit on row B doesn't leak stale form
+  // values. 'new' for plain create.
+  const formKey = model ? `${mode}-${model.id}` : 'new';
 
   const handleFinish = async (values: FormValues) => {
     // JSON validation client-side too — server validates again but
@@ -121,10 +136,18 @@ const ModelDrawer: React.FC<Props> = ({ open, model, onClose, onSaved }) => {
 
   const initial: Partial<FormValues> = model
     ? {
-        name: model.name,
-        display_name: model.display_name,
+        // In duplicate mode, suffix the name with "-copy" so the
+        // unique-name check passes on submit. Also force family to
+        // "custom" when cloning a built-in — the duplicate is a
+        // user row whether the source was internal or not. The
+        // name field stays editable in duplicate mode so the user
+        // can pick something better.
+        name: isDuplicate ? `${model.name}-copy` : model.name,
+        display_name: isDuplicate
+          ? `${model.display_name} (Copy)`
+          : model.display_name,
         description: model.description,
-        family: model.family,
+        family: isDuplicate && model.is_builtin ? 'custom' : model.family,
         runtime: model.runtime,
         image: model.image,
         hugging_face_id: model.hugging_face_id,
@@ -154,7 +177,11 @@ const ModelDrawer: React.FC<Props> = ({ open, model, onClose, onSaved }) => {
     <DrawerForm<FormValues>
       key={formKey}
       title={intl.formatMessage({
-        id: isEdit ? 'pages.models.registry.edit' : 'pages.models.registry.new',
+        id: isEdit
+          ? 'pages.models.registry.edit'
+          : isDuplicate
+            ? 'pages.models.registry.duplicate'
+            : 'pages.models.registry.new',
       })}
       formRef={formRef}
       open={open}

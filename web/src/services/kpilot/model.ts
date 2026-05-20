@@ -30,20 +30,82 @@ export const MODEL_FAMILIES: ModelFamily[] = [
   'custom',
 ];
 
-// Canonical display labels — used by the table filter and the form
-// Select. Centralised so the two stay in sync; "custom" is rendered
-// via i18n so the dropdown reads natively in CN / EN.
-export const FAMILY_LABELS: Record<Exclude<ModelFamily, 'custom'>, string> = {
-  qwen: 'Qwen',
-  deepseek: 'DeepSeek',
-  llama: 'Llama',
-  mistral: 'Mistral',
-  glm: 'GLM',
-  yi: 'Yi',
-  phi: 'Phi',
-  gemma: 'Gemma',
-  kimi: 'Kimi',
+// FAMILY_META carries everything the catalog UI needs per family:
+// canonical display label, an accent color for the letter-avatar
+// fallback + section header tint, and (optionally) the iconUrl of
+// the maintaining org's HuggingFace avatar. Icons point at HF's CDN
+// so we don't hotlink off third-party brand sites + no bundle bloat;
+// antd Avatar falls back to the colored letter on load failure.
+//
+// "custom" stays separate (label resolved via i18n, no logo) so the
+// type system keeps it out of the icon-bearing record.
+export const FAMILY_META: Record<
+  Exclude<ModelFamily, 'custom'>,
+  { label: string; color: string; iconUrl: string }
+> = {
+  qwen: {
+    label: 'Qwen',
+    color: '#5546B8',
+    iconUrl:
+      'https://cdn-avatars.huggingface.co/v1/production/uploads/620760a26e3b7210c2ff1943/-s1gyJfvbE1RgO5iBeNOi.png',
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    color: '#0066FF',
+    iconUrl:
+      'https://cdn-avatars.huggingface.co/v1/production/uploads/6538815d1bdb3c40db94fbfa/xMBly9PUMphrFVMxLX4kq.png',
+  },
+  llama: {
+    label: 'Llama',
+    color: '#1877F2',
+    iconUrl:
+      'https://cdn-avatars.huggingface.co/v1/production/uploads/646cf8084eefb026fb8fd8bc/oCTqufkdTkjyGodsx1vo1.png',
+  },
+  mistral: {
+    label: 'Mistral',
+    color: '#FF7000',
+    iconUrl:
+      'https://cdn-avatars.huggingface.co/v1/production/uploads/634c17653d11eaedd88b314d/9OgyfKstSZtbmsmuG8MbU.png',
+  },
+  glm: {
+    label: 'GLM',
+    color: '#00B6CB',
+    iconUrl:
+      'https://cdn-avatars.huggingface.co/v1/production/uploads/62dc173789b4cf157d36ebee/i_pxzM2ZDo3Ub-BEgIkE9.png',
+  },
+  yi: {
+    label: 'Yi',
+    color: '#B100E8',
+    iconUrl:
+      'https://cdn-avatars.huggingface.co/v1/production/uploads/6536187279f1de44b5e02d0f/-T8Xw0mX67_R73b7Re1y-.png',
+  },
+  phi: {
+    label: 'Phi',
+    color: '#00A4EF',
+    iconUrl:
+      'https://cdn-avatars.huggingface.co/v1/production/uploads/1583646260758-5e64858c87403103f9f1055d.png',
+  },
+  gemma: {
+    label: 'Gemma',
+    color: '#4285F4',
+    iconUrl:
+      'https://cdn-avatars.huggingface.co/v1/production/uploads/5dd96eb166059660ed1ee413/WtA3YYitedOr9n02eHfJe.png',
+  },
+  kimi: {
+    label: 'Kimi',
+    color: '#FFB400',
+    iconUrl:
+      'https://cdn-avatars.huggingface.co/v1/production/uploads/641c1e77c3983aa9490f8121/X1yT2rsaIbR9cdYGEVu0X.jpeg',
+  },
 };
+
+// FAMILY_LABELS kept as a thin label-only view so callers that only
+// need the display string don't have to destructure FAMILY_META.
+// Built from FAMILY_META so the two can't drift.
+export const FAMILY_LABELS: Record<Exclude<ModelFamily, 'custom'>, string> =
+  Object.fromEntries(
+    Object.entries(FAMILY_META).map(([k, v]) => [k, v.label]),
+  ) as Record<Exclude<ModelFamily, 'custom'>, string>;
 
 export const RUNTIME_LABELS: Record<ModelRuntime, string> = {
   vllm: 'vLLM',
