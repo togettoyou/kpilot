@@ -684,7 +684,6 @@ export default {
   'pages.models.deploy.pvc.size': 'PVC 大小（GiB）',
   'pages.models.deploy.pvc.storageClass': 'StorageClass（可选）',
   'pages.models.deploy.pvc.storageClass.placeholder': '留空 = 集群默认',
-  'pages.models.deploy.action.preview': '生成 YAML 预览',
   'pages.models.deploy.action.deploy': '部署到集群',
   'pages.models.deploy.success': '已部署 {name} 到命名空间 {ns}',
   'pages.models.deploy.partial': '部分资源应用失败，请查看每条结果',

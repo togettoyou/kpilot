@@ -702,7 +702,6 @@ export default {
   'pages.models.deploy.pvc.storageClass': 'StorageClass (optional)',
   'pages.models.deploy.pvc.storageClass.placeholder':
     'Empty = cluster default',
-  'pages.models.deploy.action.preview': 'Generate YAML preview',
   'pages.models.deploy.action.deploy': 'Deploy to cluster',
   'pages.models.deploy.success': 'Deployed {name} to namespace {ns}',
   'pages.models.deploy.partial':

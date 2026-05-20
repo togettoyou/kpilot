@@ -1,4 +1,4 @@
-import { CloudUploadOutlined, EyeOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined } from '@ant-design/icons';
 import { history, useIntl, useRequest } from '@umijs/max';
 import {
   Alert,
@@ -225,11 +225,6 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
     }
   };
 
-  const handlePreview = async () => {
-    const ok = await fetchPreview(false);
-    if (ok) setActiveTab('preview');
-  };
-
   // Switching tabs into "preview" should populate it without a
   // second click — only fetch if we don't already have a preview
   // for the current form state. We treat the cached YAML as
@@ -332,23 +327,14 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
           : ''
       }
       extra={
-        <Space>
-          <Button
-            icon={<EyeOutlined />}
-            onClick={handlePreview}
-            loading={previewing}
-          >
-            {intl.formatMessage({ id: 'pages.models.deploy.action.preview' })}
-          </Button>
-          <Button
-            type="primary"
-            icon={<CloudUploadOutlined />}
-            onClick={handleDeploy}
-            loading={submitting}
-          >
-            {intl.formatMessage({ id: 'pages.models.deploy.action.deploy' })}
-          </Button>
-        </Space>
+        <Button
+          type="primary"
+          icon={<CloudUploadOutlined />}
+          onClick={handleDeploy}
+          loading={submitting}
+        >
+          {intl.formatMessage({ id: 'pages.models.deploy.action.deploy' })}
+        </Button>
       }
     >
       <Tabs
