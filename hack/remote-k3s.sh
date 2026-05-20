@@ -6,10 +6,17 @@
 # Custom ssh port supported via positional arg.
 #
 #   remote-k3s up [user@]<host> [port]
-#     install k3s, pull kubeconfig, start SSH tunnel, merge context.
+#     install k3s + helm on the remote. Asks before setting up a local
+#     SSH tunnel + merging the cluster into ~/.kube/config — default
+#     is to skip, because half the time you just want a remote env.
+#     Set REMOTE_K3S_TUNNEL=1 (or =0) to skip the prompt non-interactively.
 #     The `user@` prefix overrides the default (root). Use it for
 #     cloud images that disable root password SSH — pass the cloud's
 #     default sudoer (ubuntu / centos / ec2-user / admin / opc).
+#   remote-k3s tunnel [user@]<host> [port]
+#     set up the local tunnel + kubeconfig merge against an already-
+#     installed remote (no install steps). Useful when you said no
+#     at the `up` prompt, or want kubectl from a new laptop.
 #   remote-k3s down               kill the tunnel + remove local context (server untouched)
 #   remote-k3s reset              down + delete kubeconfig file and backups
 #   remote-k3s status             show tunnel pid + cluster reachability
@@ -77,15 +84,19 @@ ensure_ssh_key() {
 # fine but never finish the SSH handshake — `ConnectTimeout` doesn't
 # catch that (it only covers the TCP layer). ServerAlive* gives every
 # individual call a real liveness check on top.
+#
+# Multiplexing is disabled on Git Bash / MSYS / Cygwin: their Unix
+# domain socket emulation can't keep the master alive between ssh
+# invocations, so every reuse fails with `mux_client_request_session:
+# read from master failed: Connection reset by peer` before silently
+# falling back to a fresh connection. The fallback works, but the
+# noise floods the user's terminal — cleaner to just open N
+# independent connections (still fast over a debug link).
 SSH_MUX_DIR="$HOME/.ssh/control"
-mkdir -p "$SSH_MUX_DIR" && chmod 700 "$SSH_MUX_DIR"
 SSH_OPTS=(
   -o StrictHostKeyChecking=no
   -o ServerAliveInterval=10
   -o ServerAliveCountMax=3
-  -o ControlMaster=auto
-  -o "ControlPath=$SSH_MUX_DIR/%C"
-  -o ControlPersist=60s
   # IdentityFile + IdentitiesOnly: force ssh to try ONLY our pushed
   # key, not whatever's in ssh-agent or the default identity rotation
   # (id_rsa → id_ecdsa → id_ed25519). Without it, a machine with N
@@ -94,6 +105,17 @@ SSH_OPTS=(
   -i "$SSH_KEY"
   -o IdentitiesOnly=yes
 )
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) ;;
+  *)
+    mkdir -p "$SSH_MUX_DIR" && chmod 700 "$SSH_MUX_DIR"
+    SSH_OPTS+=(
+      -o ControlMaster=auto
+      -o "ControlPath=$SSH_MUX_DIR/%C"
+      -o ControlPersist=60s
+    )
+    ;;
+esac
 
 red()    { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 green()  { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -218,12 +240,6 @@ try_keyless() {
 # key actually landed where sshd will look.
 push_pubkey_via_password() {
   local user=$1 host=$2
-  if ! command -v expect >/dev/null 2>&1; then
-    red "expect not installed; install it (apt: expect / brew: expect / pacman: expect) or"
-    red "push the key manually with:"
-    red "  ssh-copy-id -o Port=$SSH_PORT -i ${SSH_KEY}.pub $user@$host"
-    return 2
-  fi
   # Belt-and-suspenders: ensure_ssh_key at script start should have
   # made this file, but double-check before reading. An empty pubkey
   # would make the remote `grep -qF ''` match every line and report
@@ -264,6 +280,51 @@ expect {
 EOF
 }
 
+# push_pubkey_via_ssh_copy_id is the Git Bash / MSYS / "no expect"
+# fallback. SSH_ASKPASS_REQUIRE=force (OpenSSH 8.4+) lets us feed
+# REMOTE_K3S_PASSWORD through a temp helper script even with a tty
+# attached, so the user doesn't have to retype it. Without
+# REMOTE_K3S_PASSWORD we just hand control to ssh-copy-id and let it
+# prompt on /dev/tty.
+#
+# Less robust than the expect path: ssh-copy-id can report success
+# when sshd_config rejects the AuthorizedKeysFile location, etc. We
+# still re-probe with `try_keyless` in push_key after returning, so
+# that mode is caught and surfaces in diagnose_pubkey_auth.
+push_pubkey_via_ssh_copy_id() {
+  local user=$1 host=$2
+  if [[ ! -s "${SSH_KEY}.pub" ]]; then
+    red "pubkey file ${SSH_KEY}.pub is missing or empty — cannot bootstrap"
+    return 2
+  fi
+  if [[ -n "$REMOTE_K3S_PASSWORD" ]]; then
+    local pwfile askpass
+    pwfile=$(mktemp)
+    askpass=$(mktemp)
+    # Write the password to a temp file and have askpass `cat` it.
+    # Avoids embedding the password (which may contain backticks /
+    # single quotes / pipes) inside another shell snippet.
+    printf '%s\n' "$REMOTE_K3S_PASSWORD" > "$pwfile"
+    chmod 600 "$pwfile"
+    cat > "$askpass" <<EOF
+#!/usr/bin/env bash
+cat "$pwfile"
+EOF
+    chmod 700 "$askpass"
+    SSH_ASKPASS="$askpass" SSH_ASKPASS_REQUIRE=force DISPLAY="${DISPLAY:-:0}" \
+      ssh-copy-id -o Port="$SSH_PORT" \
+                  -o StrictHostKeyChecking=no \
+                  -o UserKnownHostsFile=/dev/null \
+                  -i "${SSH_KEY}.pub" "$user@$host" </dev/null
+    local rc=$?
+    rm -f "$askpass" "$pwfile"
+    return $rc
+  fi
+  ssh-copy-id -o Port="$SSH_PORT" \
+              -o StrictHostKeyChecking=no \
+              -i "${SSH_KEY}.pub" "$user@$host"
+}
+
 # diagnose_pubkey_auth prints likely causes when try_keyless fails
 # after a successful bootstrap. Common Tencent / Ubuntu cloud-image
 # culprits: a sshd_config drop-in that disables PubkeyAuthentication
@@ -272,6 +333,10 @@ EOF
 # (sshd rejects keys when ~ is world-writable, silently).
 diagnose_pubkey_auth() {
   local host=$1
+  if ! command -v expect >/dev/null 2>&1; then
+    yellow "skip remote diagnostic: \`expect\` not installed on this host"
+    return 0
+  fi
   yellow "diagnosing why pubkey auth fails for $SSH_USER@$host …"
   REMOTE_K3S_PASSWORD="$REMOTE_K3S_PASSWORD" \
   SSH_PORT="$SSH_PORT" \
@@ -308,8 +373,28 @@ push_key() {
     read -rsp "password for $SSH_USER@$host:$SSH_PORT: " REMOTE_K3S_PASSWORD
     echo
   fi
-  step "pushing pubkey via expect"
-  if ! push_pubkey_via_password "$SSH_USER" "$host"; then
+  # Prefer `expect` because its BOOTSTRAP_DONE sentinel verifies the
+  # key actually landed in authorized_keys. Fall back to ssh-copy-id
+  # (always present with openssh-client; bundled with Git Bash on
+  # Windows where expect isn't available).
+  local rc
+  if command -v expect >/dev/null 2>&1; then
+    step "pushing pubkey via expect"
+    push_pubkey_via_password "$SSH_USER" "$host"
+    rc=$?
+  elif command -v ssh-copy-id >/dev/null 2>&1; then
+    step "pushing pubkey via ssh-copy-id (expect unavailable)"
+    push_pubkey_via_ssh_copy_id "$SSH_USER" "$host"
+    rc=$?
+  else
+    red "neither \`expect\` nor \`ssh-copy-id\` is available; install one of:"
+    red "  expect      (apt: expect / brew: expect / pacman: expect) — preferred, verifies key landed"
+    red "  ssh-copy-id (apt: openssh-client / brew: openssh)"
+    red "or push the key manually:"
+    red "  ssh-copy-id -o Port=$SSH_PORT -i ${SSH_KEY}.pub $SSH_USER@$host"
+    return 1
+  fi
+  if [[ "$rc" -ne 0 ]]; then
     red "could not push pubkey to $SSH_USER@$host"
     if [[ "$SSH_USER" == "root" ]]; then
       red "many cloud images (Tencent / GCP / AWS Ubuntu) disable root password SSH —"
@@ -539,6 +624,68 @@ EOF
     '
   fi
 
+  step "installing helm (idempotent, official get-helm-3 script)"
+  # /etc/profile.d/k3s-kubeconfig.sh exports KUBECONFIG to k3s.yaml
+  # for any login shell, so helm / kubectl work for root + every
+  # sudoer without needing per-user ~/.kube/config copies. helm reads
+  # $KUBECONFIG first, then ~/.kube/config — so this single export
+  # is enough to make `helm list` / `helm install` work right after
+  # `ssh ubuntu@host`. The verify command sets KUBECONFIG inline
+  # because /etc/profile.d only fires on next login, not in this
+  # remote_ssh call.
+  remote_ssh "$host" '
+    if command -v helm >/dev/null 2>&1; then
+      echo "helm already installed: $(helm version --short)"
+    else
+      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash >/dev/null
+      echo "installed: $(helm version --short)"
+    fi
+    if [ ! -f /etc/profile.d/k3s-kubeconfig.sh ]; then
+      cat > /etc/profile.d/k3s-kubeconfig.sh <<EOF
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+EOF
+      chmod 644 /etc/profile.d/k3s-kubeconfig.sh
+    fi
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm list -A >/dev/null && echo "helm → k3s OK"
+  '
+
+  local hint_target="$SSH_USER@$host"
+  [[ "$SSH_PORT" != "22" ]] && hint_target+=" $SSH_PORT"
+  if ! confirm_local_tunnel; then
+    green ""
+    green "✓ remote ready — k3s + helm installed on $host"
+    green "  ssh in:                     ssh -p $SSH_PORT $SSH_USER@$host"
+    green "  set up local tunnel later:  ./hack/remote-k3s.sh tunnel $hint_target"
+    return 0
+  fi
+  setup_local_tunnel "$host"
+}
+
+# confirm_local_tunnel returns 0 to bring up local tunnel + merge into
+# ~/.kube/config, 1 to skip (caller exits early). Default = skip,
+# because many uses of this script are "just install the env on a
+# remote box" and we shouldn't silently overwrite the user's local
+# kubectl context. $REMOTE_K3S_TUNNEL = 1/yes/y skips the prompt
+# with yes; 0/no/n skips with no — for unattended runs.
+confirm_local_tunnel() {
+  case "${REMOTE_K3S_TUNNEL:-}" in
+    1|y|Y|yes|Yes|YES) return 0 ;;
+    0|n|N|no|No|NO)    return 1 ;;
+  esac
+  local reply
+  read -rp "Set up local tunnel + merge into ~/.kube/config now? [y/N]: " reply
+  case "$reply" in
+    y|Y|yes|Yes|YES) return 0 ;;
+    *)               return 1 ;;
+  esac
+}
+
+# setup_local_tunnel does the kubeconfig + ssh -L + ~/.kube/config
+# merge dance. Split out of cmd_up so `remote-k3s tunnel <host>` can
+# call it standalone (skip the install steps when k3s is already
+# there, e.g. you came back to the same box from a different laptop).
+setup_local_tunnel() {
+  local host=$1
   step "pulling kubeconfig to $KUBE_FILE"
   remote_scp_from "$host" /etc/rancher/k3s/k3s.yaml "$KUBE_FILE"
   chmod 600 "$KUBE_FILE"
@@ -569,6 +716,27 @@ EOF
   green "✓ ready — context '$CONTEXT' is active"
   green "  worker:   KUBECONFIG=$KUBE_FILE ./worker …"
   green "  teardown: remote-k3s down"
+}
+
+cmd_tunnel() {
+  local target=${1:-}
+  [[ -z "$target" ]] && { red "missing <host>"; usage; }
+  local host=$target
+  if [[ "$target" == *"@"* ]]; then
+    SSH_USER="${target%@*}"
+    host="${target#*@}"
+  fi
+  if [[ -n "${2:-}" ]]; then
+    SSH_PORT=$2
+  fi
+  step "verifying SSH access to $SSH_USER@$host:$SSH_PORT"
+  push_key "$host"
+  remote_ssh "$host" 'test -f /etc/rancher/k3s/k3s.yaml' >/dev/null 2>&1 || {
+    red "no k3s kubeconfig at /etc/rancher/k3s/k3s.yaml on $host"
+    red "run \`./hack/remote-k3s.sh up $SSH_USER@$host\` first"
+    exit 1
+  }
+  setup_local_tunnel "$host"
 }
 
 cmd_down() {
@@ -621,6 +789,7 @@ cmd_status() {
 
 case "${1:-}" in
   up)     shift; cmd_up "$@" ;;
+  tunnel) shift; cmd_tunnel "$@" ;;
   down)   cmd_down ;;
   reset)  cmd_reset ;;
   status) cmd_status ;;
