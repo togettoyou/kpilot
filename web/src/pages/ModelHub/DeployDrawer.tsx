@@ -303,9 +303,26 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
     {
       title: intl.formatMessage({ id: 'pages.models.deploy.result.error' }),
       dataIndex: 'error',
-      ellipsis: true,
+      // No ellipsis — K8s API errors are often multi-line
+      // ("admission webhook denied the request: spec.template..."),
+      // and the user explicitly opened the results tab to read them.
+      // pre-wrap preserves server-side newlines; word-break:
+      // break-word handles long single-token paths.
       render: (e?: string) =>
-        e ? <Text type="danger">{e}</Text> : <Text type="secondary">—</Text>,
+        e ? (
+          <Text
+            type="danger"
+            style={{
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontSize: 12,
+            }}
+          >
+            {e}
+          </Text>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
     },
   ];
 
