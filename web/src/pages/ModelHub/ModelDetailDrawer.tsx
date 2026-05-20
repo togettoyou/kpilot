@@ -9,6 +9,7 @@ import {
   Space,
   Tag,
   Typography,
+  theme,
 } from 'antd';
 import React from 'react';
 
@@ -38,6 +39,10 @@ const ModelDetailDrawer: React.FC<Props> = ({
 }) => {
   const intl = useIntl();
   const { message } = App.useApp();
+  // Same tokens the page uses — keeps the args code block legible
+  // in both light + dark themes (the previous hard-coded #f5f5f5
+  // background was invisible in dark mode).
+  const { token } = theme.useToken();
 
   if (!model) return null;
 
@@ -224,11 +229,12 @@ const ModelDetailDrawer: React.FC<Props> = ({
       {args ? (
         <div
           style={{
-            background: '#f5f5f5',
+            background: token.colorFillTertiary,
             padding: 12,
-            borderRadius: 4,
+            borderRadius: token.borderRadius,
             fontFamily: 'monospace',
             fontSize: 12,
+            color: token.colorText,
           }}
         >
           {args.length === 0 ? (

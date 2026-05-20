@@ -15,6 +15,7 @@ import {
   Select,
   Space,
   Typography,
+  theme,
 } from 'antd';
 import React, { useMemo, useState } from 'react';
 
@@ -45,6 +46,11 @@ const { Text } = Typography;
 const ModelHubPage: React.FC = () => {
   const intl = useIntl();
   const { message, modal } = App.useApp();
+  // Pull live design tokens so the catalog respects dark mode —
+  // hard-coded #fff / #f0f0f0 backgrounds left the section panels
+  // and count badge stuck in light colors when the user flipped
+  // the theme.
+  const { token } = theme.useToken();
 
   // Drawer state — kept as discriminated union over `mode` so the
   // child drawer can decide create / edit / duplicate behaviors from
@@ -206,8 +212,8 @@ const ModelHubPage: React.FC = () => {
           count={count}
           showZero
           style={{
-            backgroundColor: count > 0 ? '#f0f0f0' : '#fafafa',
-            color: '#595959',
+            backgroundColor: token.colorFillSecondary,
+            color: token.colorTextSecondary,
             fontSize: 11,
           }}
         />
@@ -218,12 +224,24 @@ const ModelHubPage: React.FC = () => {
   // Build Collapse items — only families with rows get a section.
   // Section order = MODEL_FAMILIES iteration order (curated): Qwen
   // first, custom last.
+  // Theme-aware panel styling — colorBgContainer is the design
+  // token antd Card uses internally, so the panels track light /
+  // dark mode like the rest of the page. Pulled out as a const
+  // so it lives next to the only thing that uses it.
+  const panelStyle: React.CSSProperties = {
+    marginBottom: 12,
+    background: token.colorBgContainer,
+    borderRadius: token.borderRadiusLG,
+    border: 'none',
+  };
+
   const collapseItems = MODEL_FAMILIES.map((family) => {
     const items = grouped.get(family) ?? [];
     if (items.length === 0) return null;
     return {
       key: family,
       label: renderFamilyHeader(family, items.length),
+      style: panelStyle,
       children: (
         <Row gutter={[16, 16]}>
           {items.map((m) => (
@@ -243,6 +261,7 @@ const ModelHubPage: React.FC = () => {
   }).filter(Boolean) as {
     key: string;
     label: React.ReactNode;
+    style: React.CSSProperties;
     children: React.ReactNode;
   }[];
 
@@ -371,15 +390,6 @@ const ModelHubPage: React.FC = () => {
           refresh();
         }}
       />
-
-      {/* Section card cosmetic overrides — gives each family panel a
-          rounded white card on a transparent background, matching the
-          plugins page card grid feel. One-shot inline style; if it
-          grows beyond two selectors move to antd-style createStyles. */}
-      <style>{`
-        .ant-collapse > .ant-collapse-item { margin-bottom: 12px; background: #fff; border-radius: 8px !important; }
-        .ant-collapse > .ant-collapse-item > .ant-collapse-header { padding: 12px 16px !important; }
-      `}</style>
     </PageContainer>
   );
 };
