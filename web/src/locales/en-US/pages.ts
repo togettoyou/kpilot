@@ -650,9 +650,11 @@ export default {
   'pages.models.registry.duplicate': 'Duplicate as custom',
   'pages.models.registry.action.duplicate': 'Duplicate',
   'pages.models.registry.search.placeholder': 'Search model / HF ID / description',
-  'pages.models.registry.sort.family': 'Group by family',
+  'pages.models.registry.sort.family': 'Recommended order',
   'pages.models.registry.sort.name': 'By name',
   'pages.models.registry.sort.recent': 'Recently updated',
+  'pages.models.registry.sort.tooltip':
+    'Only affects card order within each family; family grouping is always preserved',
   'pages.models.registry.toolbar.count': '{n} / {total}',
   'pages.models.registry.empty.noMatch': 'No matches — try clearing the filters',
   'pages.models.registry.noDescription': '(no description)',

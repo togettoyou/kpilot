@@ -312,6 +312,9 @@ const ModelHubPage: React.FC = () => {
           value={sortKey}
           onChange={setSortKey}
           style={{ width: 160 }}
+          title={intl.formatMessage({
+            id: 'pages.models.registry.sort.tooltip',
+          })}
           options={[
             {
               label: intl.formatMessage({
