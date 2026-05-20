@@ -652,6 +652,7 @@ export default {
   'pages.models.deploy.tab.config': '配置',
   'pages.models.deploy.tab.preview': 'YAML 预览',
   'pages.models.deploy.tab.result': '部署结果',
+  'pages.models.deploy.preview.notReady': '请先在「配置」tab 选择目标集群并填完必填项，再来这里看 YAML 预览',
   'pages.models.deploy.result.empty': '尚无结果',
   'pages.models.deploy.result.allOk': '所有资源已成功应用',
   'pages.models.deploy.cluster': '目标集群',

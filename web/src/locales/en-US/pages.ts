@@ -660,6 +660,8 @@ export default {
   'pages.models.deploy.tab.config': 'Config',
   'pages.models.deploy.tab.preview': 'YAML preview',
   'pages.models.deploy.tab.result': 'Deploy result',
+  'pages.models.deploy.preview.notReady':
+    'Fill in the required fields on the Config tab (target cluster, namespace, replicas, GPU count) first — then come back here for the YAML preview',
   'pages.models.deploy.result.empty': 'No results yet',
   'pages.models.deploy.result.allOk': 'All resources applied successfully',
   'pages.models.deploy.cluster': 'Target cluster',

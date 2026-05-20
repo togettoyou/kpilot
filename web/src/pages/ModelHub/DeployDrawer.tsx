@@ -103,6 +103,24 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
   const [submitting, setSubmitting] = useState(false);
   const [previewing, setPreviewing] = useState(false);
 
+  // Watch the four required fields reactively to gate the Deploy
+  // button + the preview-tab fetch. Empty/zero on any of them
+  // means the form would fail validateFields() so there's nothing
+  // to send — disabling the button up front saves users from a
+  // click that does nothing and surfaces the missing field
+  // expectation visually (gray = "fill more fields first").
+  const watchedClusterId = Form.useWatch('cluster_id', form);
+  const watchedNamespace = Form.useWatch('namespace', form);
+  const watchedReplicas = Form.useWatch('replicas', form);
+  const watchedGPUCount = Form.useWatch('gpu_count', form);
+  const isFormReady =
+    !!watchedClusterId &&
+    !!watchedNamespace &&
+    watchedReplicas != null &&
+    watchedReplicas > 0 &&
+    watchedGPUCount != null &&
+    watchedGPUCount >= 0;
+
   // Defaults derived from the source model — only computed when
   // model changes. Recommended GPU count comes from the catalog
   // row; PVC size is heuristic above.
@@ -226,14 +244,13 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
   };
 
   // Switching tabs into "preview" should populate it without a
-  // second click — only fetch if we don't already have a preview
-  // for the current form state. We treat the cached YAML as
-  // stale only when the tab is freshly opened (yamlPreview empty),
-  // so a user can flip tabs back and forth without re-running
-  // dry_run every time.
+  // second click — but only when the form is actually ready to
+  // submit. Skipping the fetch on invalid form keeps the tab
+  // showing a "fill required fields first" hint instead of an
+  // empty editor that looks like a bug.
   const handleTabChange = (key: string) => {
     setActiveTab(key);
-    if (key === 'preview' && !yamlPreview && model) {
+    if (key === 'preview' && !yamlPreview && model && isFormReady) {
       void fetchPreview(true);
     }
   };
@@ -355,6 +372,7 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
           icon={<CloudUploadOutlined />}
           onClick={handleDeploy}
           loading={submitting}
+          disabled={!isFormReady}
         >
           {intl.formatMessage({ id: 'pages.models.deploy.action.deploy' })}
         </Button>
@@ -730,8 +748,22 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
               // YAML drawer in the app uses. readOnly so the preview
               // can't be hand-edited (regenerate by toggling form
               // fields and switching tabs).
+              //
+              // Three states:
+              //   - form not ready → Alert "fill required fields"
+              //     so the empty editor doesn't look like a bug
+              //   - fetching first preview → "loading…" placeholder
+              //   - otherwise → render the YAML
               <div style={{ minHeight: 320 }}>
-                {previewing && !yamlPreview ? (
+                {!isFormReady ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message={intl.formatMessage({
+                      id: 'pages.models.deploy.preview.notReady',
+                    })}
+                  />
+                ) : previewing && !yamlPreview ? (
                   <Text type="secondary">
                     {intl.formatMessage({ id: 'pages.common.loading' })}
                   </Text>
