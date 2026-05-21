@@ -9,7 +9,6 @@ import {
   Space,
   Spin,
   Statistic,
-  Typography,
   theme,
 } from 'antd';
 import { useThemeMode } from 'antd-style';
@@ -158,10 +157,20 @@ const GPUMonitoringPage: React.FC = () => {
           {/* KPI row — snapshot is computed server-side from the last
              range point per series. activeGPUs comes from util series
              cardinality (utilization reports even for idle GPUs).
-             Two rows of 3 cards on md, single row of 6 on lg+. */}
-          <Row gutter={[16, 16]}>
+             Two rows of 3 cards on md, single row of 6 on lg+.
+             Order chosen to put workload-shape signals together:
+             count → util% → memory% → temp → power → tensor.
+
+             Card heights are aligned by:
+             1. Every Card has style.height: 100% (Col stretches to
+                the row's tallest, Card fills its Col).
+             2. Every secondary detail (max temp, absolute GiB) goes
+                INSIDE the dashboard ring's `format` slot — never as
+                a sibling Text under the Statistic, which would bump
+                that card +16px and break the alignment. */}
+          <Row gutter={[16, 16]} align="stretch">
             <Col xs={24} sm={12} md={8} lg={4}>
-              <Card>
+              <Card style={{ height: '100%' }}>
                 <Statistic
                   title={intl.formatMessage({
                     id: 'pages.gpuMonitoring.snap.activeGPUs',
@@ -171,7 +180,7 @@ const GPUMonitoringPage: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} sm={12} md={8} lg={4}>
-              <Card>
+              <Card style={{ height: '100%' }}>
                 <div className="flex items-center justify-between">
                   <Statistic
                     title={intl.formatMessage({
@@ -191,8 +200,37 @@ const GPUMonitoringPage: React.FC = () => {
                 </div>
               </Card>
             </Col>
+            {/* Memory — its own card (was lumped with power before).
+               Absolute "x/yG" rendered inside the ring instead of
+               as a sibling Text line; keeps this card's height
+               identical to the other ring cards. */}
             <Col xs={24} sm={12} md={8} lg={4}>
-              <Card>
+              <Card style={{ height: '100%' }}>
+                <div className="flex items-center justify-between">
+                  <Statistic
+                    title={intl.formatMessage({
+                      id: 'pages.gpuMonitoring.snap.fbUsage',
+                    })}
+                    value={snap?.fbUsagePct ?? 0}
+                    precision={1}
+                    suffix="%"
+                  />
+                  <Progress
+                    type="dashboard"
+                    percent={Math.min(snap?.fbUsagePct ?? 0, 100)}
+                    size={64}
+                    strokeColor={dashboardColor(snap?.fbUsagePct ?? 0, token)}
+                    format={() => {
+                      const used = ((snap?.fbUsedMiB ?? 0) / 1024).toFixed(0);
+                      const total = ((snap?.fbTotalMiB ?? 0) / 1024).toFixed(0);
+                      return `${used}/${total}G`;
+                    }}
+                  />
+                </div>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={8} lg={4}>
+              <Card style={{ height: '100%' }}>
                 <div className="flex items-center justify-between">
                   <Statistic
                     title={intl.formatMessage({
@@ -218,7 +256,7 @@ const GPUMonitoringPage: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} sm={12} md={8} lg={4}>
-              <Card>
+              <Card style={{ height: '100%' }}>
                 <Statistic
                   title={intl.formatMessage({
                     id: 'pages.gpuMonitoring.snap.totalPower',
@@ -229,51 +267,14 @@ const GPUMonitoringPage: React.FC = () => {
                 />
               </Card>
             </Col>
-            {/* Memory utilisation — its own card now (was lumped with
-               power before, which buried it under the power digit).
-               Dashboard ring + percentage main value, with the
-               absolute "used / total GiB" as a secondary line so
-               capacity planning has the actual numbers in view. */}
-            <Col xs={24} sm={12} md={8} lg={4}>
-              <Card>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Statistic
-                      title={intl.formatMessage({
-                        id: 'pages.gpuMonitoring.snap.fbUsage',
-                      })}
-                      value={snap?.fbUsagePct ?? 0}
-                      precision={1}
-                      suffix="%"
-                    />
-                    <Typography.Text
-                      type="secondary"
-                      style={{
-                        fontSize: 12,
-                        fontVariantNumeric: 'tabular-nums',
-                      }}
-                    >
-                      {((snap?.fbUsedMiB ?? 0) / 1024).toFixed(1)} /{' '}
-                      {((snap?.fbTotalMiB ?? 0) / 1024).toFixed(1)} GiB
-                    </Typography.Text>
-                  </div>
-                  <Progress
-                    type="dashboard"
-                    percent={Math.min(snap?.fbUsagePct ?? 0, 100)}
-                    size={64}
-                    strokeColor={dashboardColor(snap?.fbUsagePct ?? 0, token)}
-                    format={() => ''}
-                  />
-                </div>
-              </Card>
-            </Col>
             {/* Tensor-core activity — distinct from generic GPU util:
                util is "any SM busy", tensor is "tensor cores
                specifically firing", which is what matters for LLM /
                vision training. Low tensor + high util usually means
-               memory-bound or non-tensor workload. */}
+               memory-bound or non-tensor workload. DCGM only emits
+               this on Volta+ cards; older GPUs surface as zero. */}
             <Col xs={24} sm={12} md={8} lg={4}>
-              <Card>
+              <Card style={{ height: '100%' }}>
                 <div className="flex items-center justify-between">
                   <Statistic
                     title={intl.formatMessage({
