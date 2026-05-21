@@ -127,6 +127,7 @@ func (s *Stream) Close() {
 	s.gateway.streamMu.Lock()
 	delete(s.gateway.streams, s.sessionID)
 	s.gateway.streamMu.Unlock()
+	log.Printf("[wire] stream closed cluster=%s session=%s dropped=%d", s.clusterID, s.sessionID, s.dropped.Load())
 }
 
 // deliver pushes an inbound worker frame into the session's recv channel.
@@ -171,5 +172,6 @@ func (g *GatewayServer) OpenStream(clusterID string) (*Stream, error) {
 	g.streamMu.Lock()
 	g.streams[s.sessionID] = s
 	g.streamMu.Unlock()
+	log.Printf("[wire] stream opened cluster=%s session=%s", clusterID, s.sessionID)
 	return s, nil
 }

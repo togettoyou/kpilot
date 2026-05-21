@@ -157,7 +157,11 @@ func (p *Proxy) Handle(requestID string, req *tunnel.ResourceRequest) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	start := time.Now()
 	resp := p.execute(ctx, req)
+	log.Printf("[wire] resource handled request=%s action=%s gvk=%s/%s/%s ns=%s name=%s success=%t dataBytes=%d err=%q elapsed=%s",
+		requestID, req.Action, req.Group, req.Version, req.Kind, req.Namespace, req.Name,
+		resp.Success, len(resp.Data), resp.Error, time.Since(start))
 	p.sendFn(requestID, resp)
 }
 

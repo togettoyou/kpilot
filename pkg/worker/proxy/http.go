@@ -304,15 +304,20 @@ func (p *HTTPProxy) Handle(requestID string, req *tunnel.HTTPRequest) {
 		p.handleStreaming(requestID, req)
 		return
 	}
+	start := time.Now()
 	resp, err := p.do(req)
 	if err != nil {
 		log.Printf("[http-proxy] dispatch failed: url=%s err=%v", req.URL, err)
+		log.Printf("[wire] http buffered handled request=%s status=502 bodyBytes=0 err=%q elapsed=%s",
+			requestID, err.Error(), time.Since(start))
 		p.sendFn(requestID, &HTTPResponse{
 			Status: http.StatusBadGateway,
 			Error:  err.Error(),
 		})
 		return
 	}
+	log.Printf("[wire] http buffered handled request=%s status=%d bodyBytes=%d elapsed=%s",
+		requestID, resp.Status, len(resp.Body), time.Since(start))
 	p.sendFn(requestID, resp)
 }
 
@@ -322,6 +327,8 @@ func (p *HTTPProxy) Handle(requestID string, req *tunnel.HTTPRequest) {
 // can finalize cleanly — even on dispatch failure (Start with errMsg +
 // zero-chunk End).
 func (p *HTTPProxy) handleStreaming(requestID string, req *tunnel.HTTPRequest) {
+	log.Printf("[diag-worker] handleStreaming ENTER request=%s url=%s", requestID, req.URL)
+	defer log.Printf("[diag-worker] handleStreaming EXIT request=%s", requestID)
 	if p.sendStartFn == nil || p.sendChunkFn == nil || p.sendEndFn == nil {
 		// Misconfigured worker (or test stub). Fall back to buffered so
 		// gateway still gets *something* — better than a wedged request.

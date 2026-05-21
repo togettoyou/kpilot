@@ -57,6 +57,14 @@ import (
 // hanging we want to release the worker session eventually.
 const inferenceStreamTimeout = 10 * time.Minute
 
+// inferenceWriteTimeout is the per-chunk Write deadline. Mirrors
+// sseWriteTimeout in sse.go; see that comment for the full
+// rationale (browser stops reading but keeps TCP keep-alive open →
+// kernel send buffer fills → Write blocks forever → handler stuck
+// → gateway recv loop blocks → cascade). 5 s is generous for any
+// healthy chunk write.
+const inferenceWriteTimeout = 5 * time.Second
+
 // inferenceMaxRequestBytes is the per-call request body ceiling.
 // Long-context completions can have multi-MB prompts; 16 MiB covers
 // "I pasted a whole book in the system prompt" without enabling
@@ -193,6 +201,17 @@ func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterI
 	}
 
 	flusher, _ := c.Writer.(http.Flusher)
+	// Per-write deadline — same safety valve as sse.go::send. Browser
+	// fetch + AbortController doesn't always close TCP immediately
+	// (keep-alive reuse, mid-stream consumer abort path may leave the
+	// conn half-open); without this, c.Writer.Write blocks on a full
+	// kernel send buffer that never drains, wedging the handler
+	// indefinitely. That stuck handler → gateway chunks channel
+	// fills → recv loop blocks on push → every other request to that
+	// worker stalls. 5 s is plenty for any healthy write; on stall it
+	// surfaces fast and the deferred stream.Close → HttpCancel
+	// cascade tears the upstream down.
+	rc := http.NewResponseController(c.Writer)
 
 	for _, h := range stream.Headers {
 		canon := http.CanonicalHeaderKey(h.Name)
@@ -248,6 +267,9 @@ func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterI
 				}
 				return
 			}
+			// Reset the deadline per write so a successful chunk
+			// doesn't carry residual budget into the next one.
+			_ = rc.SetWriteDeadline(time.Now().Add(inferenceWriteTimeout))
 			if _, err := c.Writer.Write(chunk); err != nil {
 				// Client gone. stream.Close (deferred) releases the
 				// worker session.

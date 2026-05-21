@@ -38,6 +38,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/google/uuid"
@@ -112,11 +113,9 @@ type HTTPStream struct {
 // in that path via closeWorkerHTTPStreams.
 func (s *HTTPStream) Close() {
 	s.closeOnce.Do(func() {
-		// Look up the worker by the session's cluster id. If the
-		// worker already disconnected, the lookup misses and we
-		// skip the cancel frame — there's no one left to receive it.
+		log.Printf("[diag-gw] HTTPStream.Close cluster=%s request=%s", s.sess.clusterID, s.requestID)
 		if w, ok := s.gw.GetWorker(s.sess.clusterID); ok && w.sender != nil {
-			_ = w.sender.sendSlow(context.Background(), &proto.ServerMessage{
+			err := w.sender.sendSlow(context.Background(), &proto.ServerMessage{
 				RequestId: s.requestID,
 				Payload: &proto.ServerMessage_HttpCancel{
 					HttpCancel: &proto.HTTPCancelRequest{
@@ -124,9 +123,13 @@ func (s *HTTPStream) Close() {
 					},
 				},
 			})
+			log.Printf("[diag-gw] HttpCancel sent cluster=%s request=%s err=%v", s.sess.clusterID, s.requestID, err)
+		} else {
+			log.Printf("[diag-gw] HttpCancel skipped (worker gone) cluster=%s request=%s", s.sess.clusterID, s.requestID)
 		}
 		s.gw.removeHTTPStream(s.requestID)
 		s.sess.close()
+		log.Printf("[diag-gw] HTTPStream.Close done request=%s", s.requestID)
 	})
 }
 

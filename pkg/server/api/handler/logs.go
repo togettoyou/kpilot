@@ -17,6 +17,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -138,6 +139,12 @@ func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
 		query := c.Query("query")
+		// DIAG: trace logs-search lifecycle to chase the "browser
+		// Stop hangs everything" report. Remove once root cause is
+		// locked.
+		dbgID := time.Now().UnixNano() % 1_000_000
+		log.Printf("[diag-logs] ENTER req=%d cluster=%s query=%q", dbgID, clusterID, query)
+		defer log.Printf("[diag-logs] EXIT req=%d", dbgID)
 		if query == "" {
 			// Empty query == "everything in the window". The frontend
 			// presents an empty search box as "all logs"; mirroring
@@ -194,19 +201,15 @@ func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 		defer cancel()
 
 		start := time.Now()
+		log.Printf("[diag-logs] start streamVMLogs req=%d limit=%d", dbgID, limit)
 		total, endErr, sErr := streamVMLogs(ctx, gw, clusterID, vlURL,
 			query, from, to, limit,
-			func(ln vmLogLine) {
-				// Best-effort: a send error here means the client
-				// disconnected mid-stream. The deferred stream.Close
-				// in streamVMLogs + ctx cancellation will tear the
-				// upstream down; we just stop emitting.
-				_ = sse.send("line", ln)
+			func(ln vmLogLine) error {
+				return sse.send("line", ln)
 			})
+		log.Printf("[diag-logs] streamVMLogs returned req=%d total=%d endErr=%q sErr=%v ctxErr=%v",
+			dbgID, total, endErr, sErr, ctx.Err())
 		if sErr != nil {
-			// Dispatch / upstream failure that occurred BEFORE any
-			// line was sent. ctx.Done from client disconnect maps to
-			// "user gave up" — no error event needed.
 			if errors.Is(sErr, context.Canceled) {
 				return
 			}

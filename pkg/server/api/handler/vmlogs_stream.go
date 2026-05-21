@@ -38,10 +38,22 @@ import (
 const maxLogLineBytes = 1 << 20
 
 // streamLogsHandler is the per-line callback. Implementations
-// typically marshal the line into an SSE `line` event. The cb is
-// invoked on the same goroutine as the gateway recv loop's pusher
-// (via the chunks channel) — keep it cheap (no blocking I/O).
-type streamLogsHandler func(ln vmLogLine)
+// typically marshal the line into an SSE `line` event and return
+// the write error so streamVMLogs can bail when the client
+// disconnects. The cb runs on the same goroutine as the
+// gateway-streaming consumer; keep it cheap.
+//
+// Returning a non-nil error from onLine is the signal for
+// streamVMLogs to abort — critically important on the SSE path
+// where a closed client conn doesn't surface fast via ctx alone:
+// without this exit signal, streamVMLogs keeps consuming
+// gateway-stream chunks, the consumer falls behind upstream
+// production, the chunks channel fills (32-deep cap), and the
+// gateway's per-worker recv loop blocks on the now-full push —
+// which then stalls EVERY other request that worker owes a
+// response to. Translating "client gone" into "stop iterating
+// chunks NOW" prevents that cascading hang.
+type streamLogsHandler func(ln vmLogLine) error
 
 // streamVMLogs runs a LogsQL `query` over [from, to] via the
 // gateway streaming path. For each complete NDJSON record observed
@@ -82,10 +94,15 @@ func streamVMLogs(
 	if sErr != nil {
 		return 0, "", fmt.Errorf("open VL stream: %w", sErr)
 	}
+	log.Printf("[diag-stream] opened cluster=%s status=%d url=%s", clusterID, stream.Status, u)
 	// MUST defer Close — otherwise a slow consumer / early return
 	// leaves the gateway session registered and stalls the worker
 	// recv loop on its bounded chunks channel.
-	defer stream.Close()
+	defer func() {
+		log.Printf("[diag-stream] stream.Close() invoked cluster=%s total=%d endErr=%q",
+			clusterID, total, endErr)
+		stream.Close()
+	}()
 
 	if stream.Error != "" {
 		return 0, "", fmt.Errorf("worker VL dispatch: %s", stream.Error)
@@ -142,6 +159,12 @@ func streamVMLogs(
 			}
 			buf.Write(chunk)
 			for {
+				select {
+				case <-ctx.Done():
+					log.Printf("[diag-stream] EXIT via ctx.Done (inner) cluster=%s total=%d err=%v", clusterID, total, ctx.Err())
+					return total, "ctx cancelled", ctx.Err()
+				default:
+				}
 				idx := bytes.IndexByte(buf.Bytes(), '\n')
 				if idx < 0 {
 					break
@@ -156,17 +179,18 @@ func streamVMLogs(
 					dropped++
 					continue
 				}
-				onLine(projectLogLine(rec))
+				if oErr := onLine(projectLogLine(rec)); oErr != nil {
+					log.Printf("[diag-stream] EXIT via onLine err cluster=%s total=%d err=%v", clusterID, total, oErr)
+					return total, "client send: " + oErr.Error(), nil
+				}
 				total++
 				if limit > 0 && total >= limit {
-					// Caller asked for a hard cap — stop forwarding.
-					// Deferred stream.Close releases the gateway
-					// session; the worker's upstream HTTP request
-					// cancels via its own ctx.Done eventually.
+					log.Printf("[diag-stream] EXIT via limit cluster=%s total=%d", clusterID, total)
 					goto done
 				}
 			}
 		case <-ctx.Done():
+			log.Printf("[diag-stream] EXIT via ctx.Done (outer) cluster=%s total=%d err=%v", clusterID, total, ctx.Err())
 			return total, "ctx cancelled", ctx.Err()
 		}
 	}

@@ -42,6 +42,22 @@ import (
 // values risk picking up new proxy configs that we don't control.
 const sseKeepaliveInterval = 25 * time.Second
 
+// sseWriteTimeout caps how long a single SSE write can block. This
+// is the safety valve against the "browser EventSource.close() but
+// keep TCP keep-alive open" failure mode: client stops reading,
+// kernel send buffer fills, Write blocks forever waiting for buffer
+// to drain. Without this deadline, streamVMLogs's onLine wedges
+// indefinitely, the gateway's per-worker recv loop backs up on the
+// chunks channel, and EVERY other request to that worker hangs.
+//
+// 5 s is generous for any healthy write (typical SSE event = ~150
+// bytes, completes in microseconds) but short enough that a stuck
+// client surfaces fast. After a write-deadline timeout, Fprintf
+// returns an error → sse.send returns error → onLine returns error
+// → streamVMLogs exits → defer stream.Close → HttpCancel → worker
+// unwinds → cascading cleanup.
+const sseWriteTimeout = 5 * time.Second
+
 // sseStream wraps a gin response writer with the bits SSE needs:
 // flush after every event, and a mutex so the keep-alive goroutine
 // doesn't race with the final result emit. NOT exported — only the
@@ -90,6 +106,17 @@ func (s *sseStream) send(event string, payload any) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Per-write deadline so a stuck client (closed EventSource but
+	// kept TCP keep-alive open, so kernel send buffer never drains)
+	// can't wedge us indefinitely. ResponseController is Go 1.20+;
+	// SetWriteDeadline returns ErrNotSupported on writers without
+	// an underlying net.Conn (mocks, etc.) — we ignore that and
+	// proceed without the safety net. The deadline is cleared
+	// after the write so future writes (or transitions to a
+	// non-streamed response) aren't accidentally constrained.
+	rc := http.NewResponseController(s.c.Writer)
+	_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+	defer func() { _ = rc.SetWriteDeadline(time.Time{}) }()
 	if _, err := fmt.Fprintf(s.c.Writer, "event: %s\ndata: %s\n\n", event, body); err != nil {
 		return err
 	}

@@ -152,6 +152,8 @@ func sendChunkedHTTPRequest(ctx context.Context, w *ConnectedWorker, requestID, 
 	if w.sender == nil {
 		return fmt.Errorf("worker sender not ready")
 	}
+	log.Printf("[wire] →worker HTTPRequest cluster=%s request=%s method=%s url=%s bodyBytes=%d stream=%t",
+		w.ClusterID, requestID, method, url, len(body), streamResponse)
 	if err := w.sender.sendSlow(ctx, &proto.ServerMessage{
 		RequestId: requestID,
 		Payload: &proto.ServerMessage_HttpReqStart{
@@ -183,6 +185,8 @@ func sendChunkedResourceRequest(ctx context.Context, w *ConnectedWorker, request
 	if w.sender == nil {
 		return fmt.Errorf("worker sender not ready")
 	}
+	log.Printf("[wire] →worker ResourceRequest cluster=%s request=%s action=%s gvk=%s/%s/%s ns=%s name=%s limit=%d bodyBytes=%d",
+		w.ClusterID, requestID, req.Action, req.Group, req.Version, req.Kind, req.Namespace, req.Name, req.Limit, len(body))
 	if err := w.sender.sendSlow(ctx, &proto.ServerMessage{
 		RequestId: requestID,
 		Payload: &proto.ServerMessage_ResourceReqStart{
@@ -217,6 +221,8 @@ func sendChunkedPluginCommand(ctx context.Context, w *ConnectedWorker, cmd *plug
 	if spec != nil && spec.Chart != nil {
 		spec.Chart.HasBlob = len(cmd.Blob) > 0
 	}
+	log.Printf("[wire] →worker PluginCommand cluster=%s request=%s action=%s crd=%s blobBytes=%d hasBlob=%t",
+		w.ClusterID, requestID, cmd.Action, cmd.CrdName, len(cmd.Blob), spec != nil && spec.Chart != nil && spec.Chart.HasBlob)
 	if err := w.sender.sendSlow(ctx, &proto.ServerMessage{
 		RequestId: requestID,
 		Payload: &proto.ServerMessage_PluginCmdStart{

@@ -266,10 +266,15 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 		// no longer used for liveness — gRPC keepalive owns that.
 		w.markSeen()
 	case *proto.WorkerMessage_PluginStatus:
+		log.Printf("[wire] ←worker PluginStatus cluster=%s crd=%s phase=%s version=%s rev=%d",
+			w.ClusterID, p.PluginStatus.CrdName, p.PluginStatus.Phase, p.PluginStatus.ObservedVersion, p.PluginStatus.HelmRevision)
 		g.handlePluginStatus(w, p.PluginStatus)
 	case *proto.WorkerMessage_PluginLog:
+		// Per-line log spam — don't trace each one, but worth noting the session-end.
 		g.recordPluginLog(w.ClusterID, p.PluginLog)
 	case *proto.WorkerMessage_PluginLogEnd:
+		log.Printf("[wire] ←worker PluginLogEnd cluster=%s crd=%s success=%t summary=%q",
+			w.ClusterID, p.PluginLogEnd.CrdName, p.PluginLogEnd.Success, p.PluginLogEnd.Summary)
 		g.recordPluginLogEnd(w.ClusterID, p.PluginLogEnd)
 
 	// Chunked inbound responses: HTTPResponse / ResourceResponse arrive as
@@ -347,6 +352,8 @@ func (g *GatewayServer) finalizeChunkedResponse(w *ConnectedWorker, requestID, e
 			// it so the caller gets a 502 rather than a truncated payload.
 			resp.Error = endErr
 		}
+		log.Printf("[wire] ←worker HTTPResponse cluster=%s request=%s status=%d bodyBytes=%d err=%q",
+			w.ClusterID, requestID, resp.Status, len(resp.Body), resp.Error)
 		g.pendingHTTPMu.Lock()
 		ch, ok := g.pendingHTTP[requestID]
 		g.pendingHTTPMu.Unlock()
@@ -367,6 +374,8 @@ func (g *GatewayServer) finalizeChunkedResponse(w *ConnectedWorker, requestID, e
 			resp.Error = endErr
 			resp.Success = false
 		}
+		log.Printf("[wire] ←worker ResourceResponse cluster=%s request=%s success=%t dataBytes=%d err=%q",
+			w.ClusterID, requestID, resp.Success, len(resp.Data), resp.Error)
 		g.pendingMu.Lock()
 		ch, ok := g.pending[requestID]
 		g.pendingMu.Unlock()

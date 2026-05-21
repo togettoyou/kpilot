@@ -218,12 +218,15 @@ func (c *Client) cancelHTTPRequest(requestID, reason string) {
 	c.httpCancelMu.Lock()
 	cancel, ok := c.httpCancelers[requestID]
 	delete(c.httpCancelers, requestID)
+	mapSize := len(c.httpCancelers)
 	c.httpCancelMu.Unlock()
+	log.Printf("[diag-worker] HttpCancel received request=%s reason=%s found=%v remaining=%d",
+		requestID, reason, ok, mapSize)
 	if !ok {
 		return
 	}
-	log.Printf("[tunnel] http stream cancelled by server: request=%s reason=%s", requestID, reason)
 	cancel()
+	log.Printf("[diag-worker] cancel() returned request=%s", requestID)
 }
 
 // SetResourceHandler registers the callback invoked once a complete
@@ -610,14 +613,19 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 			c.dispatchAssembled(msg.RequestId, asm)
 		}
 	case *proto.ServerMessage_LogsStart:
+		log.Printf("[wire] ←server LogsStart session=%s ns=%s pod=%s container=%s follow=%t tail=%d",
+			msg.RequestId, p.LogsStart.Namespace, p.LogsStart.Pod, p.LogsStart.Container, p.LogsStart.Follow, p.LogsStart.TailLines)
 		if c.logsStartHandler != nil {
 			go c.logsStartHandler(msg.RequestId, p.LogsStart)
 		}
 	case *proto.ServerMessage_LogsCancel:
+		log.Printf("[wire] ←server LogsCancel session=%s", msg.RequestId)
 		if c.logsCancelHandler != nil {
 			c.logsCancelHandler(msg.RequestId)
 		}
 	case *proto.ServerMessage_ExecStart:
+		log.Printf("[wire] ←server ExecStart session=%s ns=%s pod=%s container=%s tty=%t cmd=%v",
+			msg.RequestId, p.ExecStart.Namespace, p.ExecStart.Pod, p.ExecStart.Container, p.ExecStart.Tty, p.ExecStart.Command)
 		if c.execStartHandler != nil {
 			go c.execStartHandler(msg.RequestId, p.ExecStart)
 		}
@@ -630,10 +638,12 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 			c.execResizeHandler(msg.RequestId, p.ExecResize.Cols, p.ExecResize.Rows)
 		}
 	case *proto.ServerMessage_ExecCancel:
+		log.Printf("[wire] ←server ExecCancel session=%s", msg.RequestId)
 		if c.execCancelHandler != nil {
 			c.execCancelHandler(msg.RequestId)
 		}
 	case *proto.ServerMessage_WsStart:
+		log.Printf("[wire] ←server WSStart session=%s url=%s", msg.RequestId, p.WsStart.Url)
 		if c.wsStartHandler != nil {
 			go c.wsStartHandler(msg.RequestId, p.WsStart)
 		}
@@ -674,12 +684,16 @@ func (c *Client) dispatchAssembled(requestID string, asm *inboundAssembler) {
 			Body:           asm.body,
 			StreamResponse: start.StreamResponse,
 		}
+		log.Printf("[wire] ←server HTTPRequest request=%s method=%s url=%s bodyBytes=%d stream=%t",
+			requestID, start.Method, start.Url, len(asm.body), start.StreamResponse)
 		go c.httpHandler(requestID, req)
 	case kindResource:
 		start := asm.start.(*proto.ResourceRequestStart)
 		if c.resourceHandler == nil {
 			return
 		}
+		log.Printf("[wire] ←server ResourceRequest request=%s action=%s gvk=%s/%s/%s ns=%s name=%s limit=%d bodyBytes=%d",
+			requestID, start.Action, start.Group, start.Version, start.Kind, start.Namespace, start.Name, start.Limit, len(asm.body))
 		req := &ResourceRequest{
 			Action:        start.Action,
 			Group:         start.Group,
@@ -704,6 +718,8 @@ func (c *Client) dispatchAssembled(requestID string, asm *inboundAssembler) {
 			Spec:      start.Spec,
 			ChartBlob: asm.body,
 		}
+		log.Printf("[wire] ←server PluginCommand request=%s action=%s crd=%s blobBytes=%d",
+			requestID, start.Action, start.CrdName, len(asm.body))
 		go func() {
 			if err := c.pluginHandler(cmd); err != nil {
 				log.Printf("[tunnel] plugin handler: action=%s name=%s err=%v",
