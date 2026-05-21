@@ -980,6 +980,9 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
   // hierarchies are shallow (1-2 levels) and a tree gives us per-row
   // affordances (state chip, cpu allocated/cap) that a polar chart
   // can't.
+  // Same cluster-cap fallback as the cluster gauge + the per-queue
+  // table above — keeps the three Overview surfaces consistent.
+  const clusterCap = data.clusterAllocatable ?? {};
   const { treeData, hasHierarchy } = useMemo<{
     treeData: DataNode[];
     hasHierarchy: boolean;
@@ -987,6 +990,11 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
     if (data.queues.length === 0) {
       return { treeData: [], hasHierarchy: false };
     }
+    const pick = (qVal: string | undefined, clusterKey: string): number => {
+      const q = parseQuantity(qVal);
+      if (q > 0) return q;
+      return parseQuantity(clusterCap[clusterKey]);
+    };
     const byName = new Map<string, QueueNodeBuild>();
     for (const q of data.queues) {
       byName.set(q.name, {
@@ -994,9 +1002,9 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
         parent: q.parent || undefined,
         state: q.state,
         cpuAlloc: parseQuantity(q.allocated?.cpu),
-        cpuCap: parseQuantity(q.capability?.cpu),
+        cpuCap: pick(q.capability?.cpu, 'cpu'),
         memAlloc: parseQuantity(q.allocated?.memory) / 1024 ** 3,
-        memCap: parseQuantity(q.capability?.memory) / 1024 ** 3,
+        memCap: pick(q.capability?.memory, 'memory') / 1024 ** 3,
         children: [],
       });
     }
@@ -1016,7 +1024,7 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
       children: n.children.length > 0 ? n.children.map(toNode) : undefined,
     });
     return { treeData: roots.map(toNode), hasHierarchy: nested };
-  }, [data.queues]);
+  }, [data.queues, clusterCap]);
   return (
     <Card
       size="small"
