@@ -24,8 +24,9 @@ KPilot 的算力调度平台 = **Volcano 批量调度** 为核心，AI / HPC 作
 首屏。集群级 Volcano 健康度 + 资源情况一览：
 
 - **KPI 卡片**：Queues / Running Jobs / Pending Jobs / Failed Jobs / CronJobs / PodGroups / HyperNodes 数量 + GPU 节点数 + 总 vGPU 切片
-- **容量水平条**：每个 Queue 的 capacity vs allocated（CPU / memory / vGPU 一行一资源），有界资源按利用率排序，无界资源按负载排序（`a8bd696`），无界视觉与有界明显区分（`63446a4`）
-- **饼图 / 列表**：Job phase 分布（点击切片可跳 `/compute/:id/jobs?state=Running`，URL-driven 过滤）+ 最近失败 Job 列表 + Queue 层级树（cpu + memory 同时展示，`51fe1fb`）
+- **集群容量水平条**：集群级 CPU / memory / vGPU 三资源 capacity vs allocated；capacity 任一行未设时 fallback 到 `clusterAllocatable`（队列配额 §7 同一份），与 ClusterCapacityCard / 队列层级树共享 fallback 链路 —— 三个面板对「集群上限」的判断完全一致
+- **队列层级树**：一张 Card 表达整棵 Queue 树，每个节点显示 CPU / memory / **GPU（自动探测 vGPU 模式：`volcano.sh/vgpu-memory` 走 vGPU 显存轴、否则走 `nvidia.com/gpu` 整卡数）** 三轴 + GPU 数字 chip。早期还另有一张 `QueueResourceCard` flat 表格（同一份数据二次展示），P14 收尾时删除（~316 行），布局变成 ClusterCapacityCard → QueueHierarchyCard 全宽 → 其它行
+- **饼图 / 列表**：Job phase 分布（点击切片可跳 `/compute/:id/jobs?state=Running`，URL-driven 过滤）+ 最近失败 Job 列表
 - **数据合并**：先做 cluster-side `getVolcanoStatus` 探测（worker 探 Queue CRD + ConfigMap field selector），未装就 throw `RESOURCE_NOT_AVAILABLE`-shape 触发 `<NotInstalled>`；安装的话并行拉 6 个 list 端点 + scheduler configmap（`Promise.allSettled`，可选 sub-CRD 缺失自动降级成空桶，不让整个 dashboard fail）
 - **依赖检测**：Volcano 集群侧未装 → `NotInstalled`；装了但 CR 为空 → 空 dashboard 而非错误。判定不依赖 kpilot 插件注册表（用户手 `kubectl apply` / `helm install` 装的 Volcano 也能识别）
 - 文件：`Overview.tsx`（~620 行 page 框架）+ `OverviewCharts.tsx`（~1300 行图表 / 卡片组件）
@@ -140,7 +141,7 @@ Volcano 提供两套机制：
 
 - **数据流**：NVIDIA DCGM Exporter 内置插件（`pkg/server/store/seed.go` 中 `dcgm-exporter` 一行，sort_order 27，chart 来源 `https://nvidia.github.io/dcgm-exporter/helm-charts`，DaemonSet 部署）→ 暴露 `:9400` 上的 Prometheus 指标 → VictoriaMetrics 按 `prometheus.io/{scrape,port}` 服务注解抓取 → server `pkg/server/api/handler/gpu_metrics.go::GetGPUMetrics` 通过 `gw.SendHTTPRequest` 走 worker tunnel 并发跑 6 条 PromQL 范围查询 → 前端 `<Line>` 图表渲染
 - **后端 `/api/v1/clusters/:id/gpu-metrics?range=1h|24h|7d|30d`**：
-  - 6 条 PromQL 并发：`DCGM_FI_DEV_GPU_UTIL` / `_TEMP` / `_POWER_USAGE` / `_FB_USED` / `_FB_TOTAL` / `_SM_CLOCK` / `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE`
+  - 6 条 PromQL 并发：`DCGM_FI_DEV_GPU_UTIL` / `_TEMP` / `_POWER_USAGE` / `_FB_USED` / fbTotal（**`sum by (Hostname,gpu,UUID,modelName)(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)`** —— DCGM 不发 `_FB_TOTAL`，老写法常驻 0 导致 fbUsagePct 死锁在 NaN/0%；`USED+FREE` 即物理显存上限） / `_SM_CLOCK` / `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE`
   - 单查询失败仅 log，对应 metric 返回空，前端只少一张图
   - 响应 shape `{ range, from, to, generatedAt, stepSeconds, snapshot, series: { util, temp, power, fbUsed, fbTotal, sm, tensor: [{ hostname, gpu, uuid, points: [{ts,value}] }] } }`，每条 series 按 (hostname, gpu) 稳定排序
   - **snapshot** 服务端预算：activeGPUs / avgTempC / maxTempC / totalPowerW / avgUtilPct / fbUsedMiB / fbTotalMiB / fbUsagePct / avgTensorActPct，取每条 series 最右点 reduce，前端 KPI 不重复 walk
@@ -149,7 +150,8 @@ Volcano 提供两套机制：
 - **worker 自动路由 in-cluster Service URL**：worker `pkg/worker/proxy/http.go` 检测 host 匹配 `*.svc.*` 时按 routingMode 缓存的决策派发。冷缓存或 TTL 过期时（默认 24h）下一次请求先尝试直连 DNS dial；dial-time 错误（DNS NXDOMAIN / connection refused / no route）触发 fallback 到 K8s API server 的 service proxy 端点（`/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/<path>`），并把决策写回缓存。生产里 Worker 在集群内 → 第一次请求后所有后续 in-cluster 流量直连 Service，**不再走 API server**；本地 dev（Worker 跨 kubeconfig/SSH tunnel 拿不到 cluster.local DNS）→ 第一次请求后缓存翻成 service-proxy，后续都走 API server 兜底。决策按 Worker 进程缓存、无 Server 配置成本
 - **页面**：`pages/Compute/Volcano/GPUMonitoring.tsx` ——
   - 顶部 Radio.Group range picker + RefreshControl（default off）
-  - 4 KPI 卡：activeGPUs / 平均利用率（`Progress.dashboard` + 阈值配色） / 平均温度（dashboard，max 90℃ 标 ↑）/ 总功耗 + 显存占用混合卡
+  - **6 KPI 卡**：activeGPUs / 平均利用率（`Progress.dashboard` + 阈值配色） / **显存占用**（独立卡，`Progress.dashboard` 的 `format` slot 嵌 `used/totalG` 绝对值 —— 不放外面是为了不把卡撑高 16px 破坏行对齐）/ 平均温度（dashboard，max 90℃ 标 ↑） / 总功耗 / **Tensor 活跃率**（`DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` 区别于通用 util："任一 SM 在跑" vs "tensor core 在跑"，LLM / 视觉训练才看；Volta+ 才发，老卡常驻 0）
+  - **KPI 行布局**：共用 `KpiTile` helper —— 文本侧 `flex:1 + min-width:0` 占满剩余宽度、标题与数值 `whiteSpace:nowrap` 防一字一行折行；环侧 `flex-shrink:0` 防 64→0 被挤；卡高用 `<Card style.height:100%>` + `<Row align="stretch">` 拉齐。Col 断点 `xs/sm/md/lg/xl/xxl = 1/2/2/3/4/6`，6-per-row 仅 ≥1600px 留给宽屏
   - 6 张 Line chart 网格（响应式 `xs=24 xl=12`）—— 每张多 series（按 hostname · GPU index 标签），暗色主题切换 `theme="classicDark"`；FB 自动 MiB → GiB，Tensor 0-1 → %
   - 单图无数据走 `Empty.PRESENTED_IMAGE_SIMPLE` 占位，整页全空走 EmptyCard CTA
   - **chart 拆 lazy chunk**：`@ant-design/plots` G2 runtime ~250 KB gzip 单独抽到 `GPUMonitoringChart.tsx`，主页面用 `React.lazy` + `Suspense(fallback=Spin)` 引入。算力调度其他 5 个页面不开 GPU 监控就不下载这份 bundle，VGPU / QueueQuota 等纯 antd 页保持轻量
@@ -162,14 +164,15 @@ Volcano 提供两套机制：
 单 Queue 多资源配额深化视图。**Overview 的姊妹页**：Overview 显示集群级 capability vs allocated 三资源横向条；队列配额页选定一个 Queue 后展开 **全部资源类型** × **四状态**（capability / guarantee / allocated / deserved）+ **子 Queue 卡片递归**。**默认选中 `root` 队列**——Volcano 总有 root 节点（隐式父队列），新装集群上 root 是唯一观察对象，首屏就有内容而不是空 CTA。
 
 - **数据流**：复用现有 `/api/v1/clusters/:id/volcano/queues` 列表端点（list-full 已经把 spec.{capability, guarantee, deserved, priority} + status.allocated 都投影出来）；一次拉全集群队列，子树关系在前端按 `spec.parent` 重组。**无新端点**
+- **集群上限 fallback**：`ListVolcanoQueues` 同时并发 List Nodes、用 `resource.Quantity.Add()` 聚合 `node.status.allocatable` 得 `clusterAllocatable map[string]string`，作为额外字段挂在响应顶层（`queueListResponse` extends `volcanoListResponse`）。前端在 Queue 未设 `spec.capability` 的资源行用集群可分配量当分母 + 「集群上限 X」label + 「物理」Tag，**不再显示无意义的「未设上限 / 0%」**。同一份 `clusterAllocatable` 在 Overview 的 ClusterCapacityCard / 队列层级树两个地方也复用
 - **后端字段扩展**：`pkg/server/api/handler/volcano.go::queueRow` 加 `Priority` / `Guarantee` / `Deserved` 三个字段。`spec.guarantee` 在 Volcano 里嵌套写成 `{ resource: ResourceList }`，server 端 unwrap 内层 `resource` 直接下发
 - **页面布局**：
   - **顶部 selector**：缩进树形 option list 的 Queue Select（父子层级靠前缀 `│   ├─` 可视化，避免引入 Cascader 重组件），右侧统计「共 N 个 Queue」+ RefreshControl 间隔下拉（默认 off）
   - **主卡片**（选中 Queue 之后）：header bar 列名称 + state Tag + 父队列 Tag + priority/weight Badge + reclaimable 反向 Tag + extra 处运行/等待/排队 job 计数 Badge。body 内逐资源行：
     - **resource header**：人类化名（CPU / 内存 / GPU 整卡 / vGPU 切片数 / vGPU 显存 / vGPU 算力，其他键 raw 显示）+ 已分配 / 保障 / 上限 / 应得 数字串
-    - **bar**：纯 CSS 自绘 —— 横向 track = capability，填充 = allocated（颜色按状态切：超 capability 红 / 未达 guarantee 橙 / 正常蓝），guarantee 用 2px 绿色竖线 tick（hover Tooltip），deserved 用 2px 紫色竖线 tick（仅 capacity 插件启用时下发）。antd Progress 不支持多 marker 叠加，所以走 absolute-positioned div。**未设上限的资源**走斜纹空轨道（与 Overview CapacityRow 一致），不填充——曾经按 max(alloc, guar, des) 当分母会让条永远 100%「看起来满」，现在用 `repeating-linear-gradient(45deg)` + 隐藏 tick 表达「无上限」
+    - **bar**：纯 CSS 自绘 —— 横向 track = capability（无上限走集群 allocatable fallback，再无 fallback 才走斜纹空轨道），填充 = allocated，**填充色按 usageBand 阈值**（`shared/utils.ts::usageColor` 复用：≥85% 红 / ≥60% 橙 / 其余绿），guarantee 用 2px 绿色竖线 tick（hover Tooltip），deserved 用 2px 紫色竖线 tick（仅 capacity 插件启用时下发）。antd Progress 不支持多 marker 叠加，所以走 absolute-positioned div
     - **超限 / 未达保障**：Alert（error / warning）渲染在 bar 下方
-  - **子 Queue 区**：用同款 QueueDetailCard 紧凑模式（`primary=false`，size=small）递归渲染直属子 Queue
+  - **子 Queue 区**：递归 `<SubqueueTree>`（antd `Collapse`），**默认全部折叠**，header 显示子 Queue 名 + `(N)` 后代总数 —— 早期版本是 flat 列出所有子 Queue 卡片，深层多孩子集群（HPC 用户常见）一屏几十张卡，找不到东西。每个 Collapse panel 展开后嵌一个 `<QueueDetailCard primary={false}>`，子树继续递归
 - **首屏默认选中**：`root` 队列（Volcano 隐式根），无 root 时回退到 `items[0]`
 - **轮询**：复用 `useAutoRefresh` + `<RefreshControl>`，default off
 - **hooks 顺序**：所有 `useMemo` / `useEffect` 必须在 RESOURCE_NOT_AVAILABLE early-return 之前调用。曾经把 early-return 插在 hooks 之间 → 集群无 Volcano 时报「Rendered fewer hooks than expected」
