@@ -9,6 +9,7 @@ import {
   Alert,
   Badge,
   Card,
+  Collapse,
   Empty,
   Select,
   Space,
@@ -274,26 +275,19 @@ const QueueQuotaPage: React.FC = () => {
                       <BranchesOutlined />
                       {intl.formatMessage(
                         { id: 'pages.queueQuota.children.title' },
-                        { count: selectedChildren.length },
+                        {
+                          count: countDescendants(selectedChildren, childrenOf),
+                        },
                       )}
                     </Space>
                   }
                 >
-                  <Space
-                    direction="vertical"
-                    size="middle"
-                    style={{ width: '100%' }}
-                  >
-                    {selectedChildren.map((c) => (
-                      <QueueDetailCard
-                        key={c.name}
-                        queue={c}
-                        dark={dark}
-                        primary={false}
-                        clusterCap={data?.clusterAllocatable}
-                      />
-                    ))}
-                  </Space>
+                  <SubqueueTree
+                    queues={selectedChildren}
+                    childrenOf={childrenOf}
+                    dark={dark}
+                    clusterCap={data?.clusterAllocatable}
+                  />
                 </Card>
               )}
             </>
@@ -305,6 +299,116 @@ const QueueQuotaPage: React.FC = () => {
 };
 
 export default QueueQuotaPage;
+
+// SubqueueTree — recursive collapsible tree of subqueues. Each
+// node renders as an antd Collapse panel; expanding the panel
+// reveals the full QueueDetailCard for that subqueue + (if the
+// subqueue has its own children) a nested SubqueueTree. Default
+// state is fully collapsed so the page stays compact on a cluster
+// with many queues — operators expand only the subtree they care
+// about.
+//
+// Header layout: indent strip · queue name · state tag · "N children"
+// hint when applicable · running / pending mini counts. The hint
+// answers "is there anything inside if I expand?" without forcing
+// an open.
+function SubqueueTree({
+  queues,
+  childrenOf,
+  dark,
+  clusterCap,
+}: {
+  queues: QueueRow[];
+  childrenOf: Map<string, QueueRow[]>;
+  dark: boolean;
+  clusterCap?: Record<string, string>;
+}) {
+  const intl = useIntl();
+  if (queues.length === 0) return null;
+  const items = queues.map((q) => {
+    const kids = (childrenOf.get(q.name) ?? [])
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      key: q.name,
+      label: (
+        <Space size={10} wrap>
+          <Typography.Text strong>{q.name}</Typography.Text>
+          {q.state && (
+            <Tag color={q.state === 'Open' ? 'green' : 'default'}>
+              {q.state}
+            </Tag>
+          )}
+          {kids.length > 0 && (
+            <Tag color="blue" icon={<BranchesOutlined />}>
+              {intl.formatMessage(
+                { id: 'pages.queueQuota.subtree.childCount' },
+                { n: kids.length },
+              )}
+            </Tag>
+          )}
+          {q.running > 0 && (
+            <Badge
+              status="processing"
+              text={intl.formatMessage(
+                { id: 'pages.queueQuota.card.running' },
+                { n: q.running },
+              )}
+            />
+          )}
+          {q.pending > 0 && (
+            <Badge
+              status="warning"
+              text={intl.formatMessage(
+                { id: 'pages.queueQuota.card.pending' },
+                { n: q.pending },
+              )}
+            />
+          )}
+        </Space>
+      ),
+      children: (
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <QueueDetailCard
+            queue={q}
+            dark={dark}
+            primary={false}
+            clusterCap={clusterCap}
+          />
+          {kids.length > 0 && (
+            <SubqueueTree
+              queues={kids}
+              childrenOf={childrenOf}
+              dark={dark}
+              clusterCap={clusterCap}
+            />
+          )}
+        </Space>
+      ),
+    };
+  });
+  return <Collapse items={items} bordered={false} ghost />;
+}
+
+// countDescendants — total subqueue count including transitive
+// children, used by the parent Card title so the count reflects
+// the whole subtree the SubqueueTree exposes, not just the direct
+// children. Iterative DFS for safety on weird cyclic-by-mistake
+// data; the visited set caps the recursion regardless.
+function countDescendants(
+  roots: QueueRow[],
+  childrenOf: Map<string, QueueRow[]>,
+): number {
+  const seen = new Set<string>();
+  const stack = [...roots];
+  while (stack.length > 0) {
+    const q = stack.pop()!;
+    if (seen.has(q.name)) continue;
+    seen.add(q.name);
+    for (const c of childrenOf.get(q.name) ?? []) stack.push(c);
+  }
+  return seen.size;
+}
 
 // QueueDetailCard renders one queue's header (state / parent / weight /
 // priority / reclaimable) and a stack of per-resource bars (capability

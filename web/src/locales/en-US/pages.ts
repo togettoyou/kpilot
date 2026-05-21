@@ -910,6 +910,7 @@ export default {
   'pages.queueQuota.noResources':
     'This queue does not declare any resource quota.',
   'pages.queueQuota.children.title': 'Child queues ({count})',
+  'pages.queueQuota.subtree.childCount': '{n} child',
   'pages.queueQuota.card.parent': 'parent: {parent}',
   'pages.queueQuota.card.priority': 'priority {priority}',
   'pages.queueQuota.card.weight': 'weight {weight}',

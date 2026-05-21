@@ -877,6 +877,7 @@ export default {
   'pages.queueQuota.empty.cta': '请选择一个 Queue 查看其多资源配额情况',
   'pages.queueQuota.noResources': '该 Queue 未声明任何资源配额',
   'pages.queueQuota.children.title': '子 Queue（{count}）',
+  'pages.queueQuota.subtree.childCount': '{n} 个子 Queue',
   'pages.queueQuota.card.parent': '父队列: {parent}',
   'pages.queueQuota.card.priority': '优先级 {priority}',
   'pages.queueQuota.card.weight': '权重 {weight}',
