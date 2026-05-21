@@ -4,7 +4,6 @@ import {
   SendOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { PageContainer } from '@ant-design/pro-components';
 import { history, useIntl, useLocation } from '@umijs/max';
 import {
   Alert,
@@ -121,6 +120,53 @@ const ModelChatPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<ChatResponse['usage'] | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Full-bleed layout — same pattern as ClusterDetail/Logging.
+  // Measure the actual available viewport height after mount so
+  // the page fills exactly the space below the ProLayout header
+  // and above the footer, leaving no room for an outer scrollbar.
+  // Formula is closed-form (no feedback loop): every term is a
+  // constant of the layout. PageContainer was removed because its
+  // header / breadcrumb chrome added unmeasurable padding.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [containerHeight, setContainerHeight] = useState<number | null>(null);
+  useEffect(() => {
+    let pending = 0;
+    const measure = () => {
+      pending = 0;
+      const el = wrapperRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const footer = document.querySelector<HTMLElement>('.kpilot-footer');
+      if (!footer) {
+        const h = Math.max(0, Math.floor(window.innerHeight - rect.top));
+        setContainerHeight((prev) => (prev === h ? prev : h));
+        return;
+      }
+      const footerRect = footer.getBoundingClientRect();
+      // Gap between wrapper bottom and footer top is the constant
+      // ProLayout padding we can't enumerate — measure it directly.
+      const gap = footerRect.top - rect.bottom;
+      const h = Math.max(
+        0,
+        Math.floor(window.innerHeight - rect.top - footerRect.height - gap),
+      );
+      setContainerHeight((prev) => (prev === h ? prev : h));
+    };
+    const schedule = () => {
+      if (pending) return;
+      pending = requestAnimationFrame(measure);
+    };
+    schedule();
+    window.addEventListener('resize', schedule);
+    const ro = new ResizeObserver(schedule);
+    ro.observe(document.body);
+    return () => {
+      if (pending) cancelAnimationFrame(pending);
+      window.removeEventListener('resize', schedule);
+      ro.disconnect();
+    };
+  }, []);
 
   // Load all deployments once on mount; refresh button reloads.
   // We don't auto-refresh because changing instance mid-conversation
@@ -318,14 +364,21 @@ const ModelChatPage: React.FC = () => {
   };
 
   // No deployments at all → guide user to deploy first instead of
-  // showing an empty playground that does nothing.
+  // showing an empty playground that does nothing. Same wrapper
+  // pattern as the main return so the page chrome / measurement
+  // stays consistent.
   if (!listLoading && rows.length === 0) {
     return (
-      <PageContainer
-        breadcrumbRender={false}
-        header={{
-          title: intl.formatMessage({ id: 'pages.models.chat.title' }),
-          breadcrumb: undefined,
+      <div
+        ref={wrapperRef}
+        style={{
+          height:
+            containerHeight != null ? containerHeight : 'calc(100vh - 100px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+          overflow: 'hidden',
         }}
       >
         <Result
@@ -345,327 +398,326 @@ const ModelChatPage: React.FC = () => {
             </Button>
           }
         />
-      </PageContainer>
+      </div>
     );
   }
 
   return (
-    <PageContainer
-      breadcrumbRender={false}
-      header={{
-        title: intl.formatMessage({ id: 'pages.models.chat.title' }),
-        subTitle: intl.formatMessage({ id: 'pages.models.chat.subtitle' }),
-        breadcrumb: undefined,
+    // Full-bleed wrapper — height pinned to viewport - header -
+    // footer - gap (measured via ResizeObserver above). No
+    // PageContainer chrome so the math stays closed-form and no
+    // outer scrollbar shows up. Sider menu already tells the user
+    // they're on 模型调试; the page-level title would be redundant.
+    //
+    // CSS Grid (not antd Row/Col) for the two-pane layout —
+    // antd Row with align="stretch" + flex-wrap:wrap doesn't
+    // reliably enforce its explicit height when children push
+    // past it, so the right Card's scroll area was growing with
+    // content instead of scrolling. `minmax(0, …)` lets cells
+    // shrink so a long Select / Tag doesn't inflate the column.
+    <div
+      ref={wrapperRef}
+      style={{
+        height:
+          containerHeight != null ? containerHeight : 'calc(100vh - 100px)',
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)',
+        gap: 12,
+        padding: 12,
+        overflow: 'hidden',
       }}
     >
-      {/* CSS Grid (not antd Row/Col) for the two-pane layout —
-         antd Row with align="stretch" + flex-wrap:wrap doesn't
-         reliably enforce its explicit height when children push
-         past it, so the right Card's scroll area was growing
-         with content instead of scrolling.
-         Grid `1fr 2fr` + `minmax(0, ...)` makes both cells share
-         the fixed grid height and minmax(0,...) lets them shrink
-         (otherwise a long Select / Tag inflates the cell width). */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)',
-          gap: 16,
-          height: 'calc(100vh - 200px)',
-        }}
-      >
-        {/* Left rail — instance picker + inference knobs. */}
-        <div style={{ minWidth: 0, minHeight: 0 }}>
-          <Card
-            size="small"
-            style={{
-              height: '100%',
+      {/* Left rail — instance picker + inference knobs. */}
+      <div style={{ minWidth: 0, minHeight: 0 }}>
+        <Card
+          size="small"
+          style={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            minWidth: 0,
+          }}
+          styles={{
+            body: {
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto',
+              overflowX: 'hidden',
+            },
+          }}
+          title={intl.formatMessage({ id: 'pages.models.chat.target' })}
+          extra={
+            <Button
+              size="small"
+              type="text"
+              icon={<ReloadOutlined />}
+              loading={listLoading}
+              onClick={fetchRows}
+            />
+          }
+        >
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Select
+              style={{ width: '100%' }}
+              placeholder={intl.formatMessage({
+                id: 'pages.models.chat.target.placeholder',
+              })}
+              loading={listLoading}
+              value={
+                instance
+                  ? `${instance.cluster_id}|${instance.namespace}|${instance.name}`
+                  : undefined
+              }
+              onChange={onSelectInstance}
+              options={options}
+              showSearch
+              optionFilterProp="label"
+            />
+            {instance && (
+              // maxWidth:100% + ellipsis Text so a long
+              // ns/name combo can't push past the Card body.
+              // Tag itself doesn't wrap, so without an explicit
+              // cap the tag overflows the Card horizontally.
+              <Space wrap size={4} style={{ maxWidth: '100%' }}>
+                <Tag color={familyColor} style={{ marginRight: 0 }}>
+                  {instance.model_display_name}
+                </Tag>
+                <Tag style={{ marginRight: 0 }}>{instance.cluster_name}</Tag>
+                <Tag style={{ marginRight: 0, maxWidth: '100%' }}>
+                  <Text
+                    ellipsis={{
+                      tooltip: `${instance.namespace}/${instance.name}`,
+                    }}
+                    style={{ maxWidth: '100%' }}
+                  >
+                    {instance.namespace}/{instance.name}
+                  </Text>
+                </Tag>
+              </Space>
+            )}
+
+            <div>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {intl.formatMessage({ id: 'pages.models.chat.systemPrompt' })}
+              </Text>
+              <Input.TextArea
+                rows={4}
+                placeholder={intl.formatMessage({
+                  id: 'pages.models.chat.systemPrompt.placeholder',
+                })}
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
+                disabled={sending}
+                style={{ marginTop: 4 }}
+              />
+            </div>
+
+            <Row gutter={8}>
+              <Col span={12}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {intl.formatMessage({
+                    id: 'pages.models.chat.temperature',
+                  })}
+                </Text>
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={0}
+                  max={2}
+                  step={0.1}
+                  value={temperature}
+                  onChange={(v) => setTemperature(v ?? 0.7)}
+                  disabled={sending}
+                />
+              </Col>
+              <Col span={12}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {intl.formatMessage({ id: 'pages.models.chat.maxTokens' })}
+                </Text>
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={1}
+                  max={32768}
+                  step={64}
+                  value={maxTokens ?? undefined}
+                  placeholder={intl.formatMessage({
+                    id: 'pages.models.chat.maxTokens.placeholder',
+                  })}
+                  onChange={(v) => setMaxTokens(v ?? null)}
+                  disabled={sending}
+                />
+              </Col>
+            </Row>
+
+            <Alert
+              type="info"
+              showIcon
+              message={intl.formatMessage({
+                id: 'pages.models.chat.streamNote',
+              })}
+            />
+          </Space>
+        </Card>
+      </div>
+
+      {/* Right pane — conversation. Same height as left via the
+           parent grid; the scroll div inside takes whatever's left
+           of the body after the input footer. */}
+      <div style={{ minWidth: 0, minHeight: 0 }}>
+        <Card
+          size="small"
+          style={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            minWidth: 0,
+          }}
+          styles={{
+            body: {
+              padding: 0,
+              flex: 1,
+              minHeight: 0,
               display: 'flex',
               flexDirection: 'column',
-              minWidth: 0,
+            },
+          }}
+          title={intl.formatMessage({ id: 'pages.models.chat.conversation' })}
+          extra={
+            <Button
+              size="small"
+              icon={<ClearOutlined />}
+              onClick={() => {
+                setHistory([]);
+                setError(null);
+                setUsage(null);
+              }}
+              disabled={sending || history_.length === 0}
+            >
+              {intl.formatMessage({ id: 'pages.models.chat.clear' })}
+            </Button>
+          }
+        >
+          <div
+            ref={scrollRef}
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '16px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              background: token.colorBgLayout,
+              minHeight: 0,
             }}
-            styles={{
-              body: {
-                flex: 1,
-                minHeight: 0,
-                overflowY: 'auto',
-                overflowX: 'hidden',
-              },
-            }}
-            title={intl.formatMessage({ id: 'pages.models.chat.target' })}
-            extra={
-              <Button
-                size="small"
-                type="text"
-                icon={<ReloadOutlined />}
-                loading={listLoading}
-                onClick={fetchRows}
-              />
-            }
           >
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Select
-                style={{ width: '100%' }}
-                placeholder={intl.formatMessage({
-                  id: 'pages.models.chat.target.placeholder',
+            {!instance ? (
+              <Empty
+                description={intl.formatMessage({
+                  id: 'pages.models.chat.pickFirst',
                 })}
-                loading={listLoading}
-                value={
-                  instance
-                    ? `${instance.cluster_id}|${instance.namespace}|${instance.name}`
-                    : undefined
-                }
-                onChange={onSelectInstance}
-                options={options}
-                showSearch
-                optionFilterProp="label"
               />
-              {instance && (
-                // maxWidth:100% + ellipsis Text so a long
-                // ns/name combo can't push past the Card body.
-                // Tag itself doesn't wrap, so without an explicit
-                // cap the tag overflows the Card horizontally.
-                <Space wrap size={4} style={{ maxWidth: '100%' }}>
-                  <Tag color={familyColor} style={{ marginRight: 0 }}>
-                    {instance.model_display_name}
-                  </Tag>
-                  <Tag style={{ marginRight: 0 }}>{instance.cluster_name}</Tag>
-                  <Tag style={{ marginRight: 0, maxWidth: '100%' }}>
-                    <Text
-                      ellipsis={{
-                        tooltip: `${instance.namespace}/${instance.name}`,
-                      }}
-                      style={{ maxWidth: '100%' }}
-                    >
-                      {instance.namespace}/{instance.name}
-                    </Text>
-                  </Tag>
-                </Space>
-              )}
-
-              <div>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {intl.formatMessage({ id: 'pages.models.chat.systemPrompt' })}
-                </Text>
-                <Input.TextArea
-                  rows={4}
-                  placeholder={intl.formatMessage({
-                    id: 'pages.models.chat.systemPrompt.placeholder',
-                  })}
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  disabled={sending}
-                  style={{ marginTop: 4 }}
-                />
-              </div>
-
-              <Row gutter={8}>
-                <Col span={12}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {intl.formatMessage({
-                      id: 'pages.models.chat.temperature',
-                    })}
-                  </Text>
-                  <InputNumber
-                    style={{ width: '100%' }}
-                    min={0}
-                    max={2}
-                    step={0.1}
-                    value={temperature}
-                    onChange={(v) => setTemperature(v ?? 0.7)}
-                    disabled={sending}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {intl.formatMessage({ id: 'pages.models.chat.maxTokens' })}
-                  </Text>
-                  <InputNumber
-                    style={{ width: '100%' }}
-                    min={1}
-                    max={32768}
-                    step={64}
-                    value={maxTokens ?? undefined}
-                    placeholder={intl.formatMessage({
-                      id: 'pages.models.chat.maxTokens.placeholder',
-                    })}
-                    onChange={(v) => setMaxTokens(v ?? null)}
-                    disabled={sending}
-                  />
-                </Col>
-              </Row>
-
+            ) : history_.length === 0 && !sending ? (
               <Alert
                 type="info"
                 showIcon
                 message={intl.formatMessage({
-                  id: 'pages.models.chat.streamNote',
+                  id: 'pages.models.chat.empty.title',
+                })}
+                description={intl.formatMessage({
+                  id: 'pages.models.chat.empty.desc',
                 })}
               />
-            </Space>
-          </Card>
-        </div>
-
-        {/* Right pane — conversation. Same height as left via the
-           parent grid; the scroll div inside takes whatever's left
-           of the body after the input footer. */}
-        <div style={{ minWidth: 0, minHeight: 0 }}>
-          <Card
-            size="small"
-            style={{
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              minWidth: 0,
-            }}
-            styles={{
-              body: {
-                padding: 0,
-                flex: 1,
-                minHeight: 0,
-                display: 'flex',
-                flexDirection: 'column',
-              },
-            }}
-            title={intl.formatMessage({ id: 'pages.models.chat.conversation' })}
-            extra={
-              <Button
-                size="small"
-                icon={<ClearOutlined />}
-                onClick={() => {
-                  setHistory([]);
-                  setError(null);
-                  setUsage(null);
+            ) : null}
+            {history_.map((m) => (
+              <ChatBubble
+                key={m.id}
+                msg={m}
+                familyColor={familyColor}
+                token={token}
+              />
+            ))}
+            {sending && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
                 }}
-                disabled={sending || history_.length === 0}
               >
-                {intl.formatMessage({ id: 'pages.models.chat.clear' })}
-              </Button>
-            }
-          >
-            <div
-              ref={scrollRef}
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                padding: '16px 20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 12,
-                background: token.colorBgLayout,
-                minHeight: 0,
-              }}
-            >
-              {!instance ? (
-                <Empty
-                  description={intl.formatMessage({
-                    id: 'pages.models.chat.pickFirst',
-                  })}
-                />
-              ) : history_.length === 0 && !sending ? (
-                <Alert
-                  type="info"
-                  showIcon
-                  message={intl.formatMessage({
-                    id: 'pages.models.chat.empty.title',
-                  })}
-                  description={intl.formatMessage({
-                    id: 'pages.models.chat.empty.desc',
-                  })}
-                />
-              ) : null}
-              {history_.map((m) => (
-                <ChatBubble
-                  key={m.id}
-                  msg={m}
-                  familyColor={familyColor}
-                  token={token}
-                />
-              ))}
-              {sending && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
+                <Avatar
+                  size={28}
+                  style={{ background: familyColor, flexShrink: 0 }}
                 >
-                  <Avatar
-                    size={28}
-                    style={{ background: familyColor, flexShrink: 0 }}
-                  >
-                    {instance?.model_display_name.charAt(0).toUpperCase()}
-                  </Avatar>
-                  <Spin size="small" />
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {intl.formatMessage({ id: 'pages.models.chat.thinking' })}
-                  </Text>
-                </div>
-              )}
-              {error && (
-                <Alert
-                  type="error"
-                  showIcon
-                  message={intl.formatMessage({
-                    id: 'pages.models.chat.error.title',
-                  })}
-                  description={error}
-                />
-              )}
-            </div>
-            <div
-              style={{
-                padding: '8px 20px 16px',
-                borderTop: `1px solid ${token.colorBorderSecondary}`,
-                background: token.colorBgContainer,
-              }}
-            >
-              {usage && (
-                <Text
-                  type="secondary"
-                  style={{
-                    fontSize: 11,
-                    display: 'block',
-                    marginBottom: 6,
-                  }}
-                >
-                  {intl.formatMessage(
-                    { id: 'pages.models.chat.usage' },
-                    {
-                      in: usage.prompt_tokens ?? 0,
-                      out: usage.completion_tokens ?? 0,
-                      total: usage.total_tokens ?? 0,
-                    },
-                  )}
+                  {instance?.model_display_name.charAt(0).toUpperCase()}
+                </Avatar>
+                <Spin size="small" />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {intl.formatMessage({ id: 'pages.models.chat.thinking' })}
                 </Text>
-              )}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Input.TextArea
-                  autoSize={{ minRows: 2, maxRows: 8 }}
-                  placeholder={intl.formatMessage({
-                    id: 'pages.models.chat.input.placeholder',
-                  })}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={onKeyDown}
-                  disabled={sending || !instance}
-                />
-                <Button
-                  type="primary"
-                  icon={<SendOutlined />}
-                  loading={sending}
-                  disabled={!input.trim() || !instance}
-                  onClick={send}
-                  style={{ height: 'auto' }}
-                >
-                  {intl.formatMessage({ id: 'pages.models.chat.send' })}
-                </Button>
               </div>
+            )}
+            {error && (
+              <Alert
+                type="error"
+                showIcon
+                message={intl.formatMessage({
+                  id: 'pages.models.chat.error.title',
+                })}
+                description={error}
+              />
+            )}
+          </div>
+          <div
+            style={{
+              padding: '8px 20px 16px',
+              borderTop: `1px solid ${token.colorBorderSecondary}`,
+              background: token.colorBgContainer,
+            }}
+          >
+            {usage && (
+              <Text
+                type="secondary"
+                style={{
+                  fontSize: 11,
+                  display: 'block',
+                  marginBottom: 6,
+                }}
+              >
+                {intl.formatMessage(
+                  { id: 'pages.models.chat.usage' },
+                  {
+                    in: usage.prompt_tokens ?? 0,
+                    out: usage.completion_tokens ?? 0,
+                    total: usage.total_tokens ?? 0,
+                  },
+                )}
+              </Text>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Input.TextArea
+                autoSize={{ minRows: 2, maxRows: 8 }}
+                placeholder={intl.formatMessage({
+                  id: 'pages.models.chat.input.placeholder',
+                })}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                disabled={sending || !instance}
+              />
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                loading={sending}
+                disabled={!input.trim() || !instance}
+                onClick={send}
+                style={{ height: 'auto' }}
+              >
+                {intl.formatMessage({ id: 'pages.models.chat.send' })}
+              </Button>
             </div>
-          </Card>
-        </div>
+          </div>
+        </Card>
       </div>
-    </PageContainer>
+    </div>
   );
 };
 
