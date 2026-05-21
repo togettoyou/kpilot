@@ -1128,6 +1128,12 @@ type ResourceRequestStart struct {
 	// list pagination: 0 = unbounded; non-empty continue_token = next page
 	Limit         int64  `protobuf:"varint,7,opt,name=limit,proto3" json:"limit,omitempty"`
 	ContinueToken string `protobuf:"bytes,8,opt,name=continue_token,json=continueToken,proto3" json:"continue_token,omitempty"`
+	// K8s label selector string ("key=value,key2!=value2"); applies to list
+	// actions only. Worker forwards to ListOptions.LabelSelector / Table API
+	// ?labelSelector= query. Empty = no filter. Used by the model service to
+	// discover its own deployments via "app.kubernetes.io/managed-by=kpilot,
+	// kpilot.io/model-id=<id>" without scanning every namespace.
+	LabelSelector string `protobuf:"bytes,9,opt,name=label_selector,json=labelSelector,proto3" json:"label_selector,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1214,6 +1220,13 @@ func (x *ResourceRequestStart) GetLimit() int64 {
 func (x *ResourceRequestStart) GetContinueToken() string {
 	if x != nil {
 		return x.ContinueToken
+	}
+	return ""
+}
+
+func (x *ResourceRequestStart) GetLabelSelector() string {
+	if x != nil {
+		return x.LabelSelector
 	}
 	return ""
 }
@@ -2540,7 +2553,7 @@ const file_pilot_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x02 \x01(\tR\tclusterId\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xe1\x01\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\x88\x02\n" +
 	"\x14ResourceRequestStart\x12\x16\n" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x14\n" +
 	"\x05group\x18\x02 \x01(\tR\x05group\x12\x18\n" +
@@ -2549,7 +2562,8 @@ const file_pilot_proto_rawDesc = "" +
 	"\tnamespace\x18\x05 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x06 \x01(\tR\x04name\x12\x14\n" +
 	"\x05limit\x18\a \x01(\x03R\x05limit\x12%\n" +
-	"\x0econtinue_token\x18\b \x01(\tR\rcontinueToken\"q\n" +
+	"\x0econtinue_token\x18\b \x01(\tR\rcontinueToken\x12%\n" +
+	"\x0elabel_selector\x18\t \x01(\tR\rlabelSelector\"q\n" +
 	"\x12PluginCommandStart\x12\x16\n" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x19\n" +
 	"\bcrd_name\x18\x02 \x01(\tR\acrdName\x12(\n" +

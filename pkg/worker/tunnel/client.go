@@ -599,6 +599,7 @@ func (c *Client) dispatchAssembled(requestID string, asm *inboundAssembler) {
 			Body:          asm.body,
 			Limit:         start.Limit,
 			ContinueToken: start.ContinueToken,
+			LabelSelector: start.LabelSelector,
 		}
 		go c.resourceHandler(requestID, req)
 	case kindPlugin:

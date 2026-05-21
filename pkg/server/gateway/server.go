@@ -444,6 +444,7 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 		Name:          req.Name,
 		Limit:         req.Limit,
 		ContinueToken: req.ContinueToken,
+		LabelSelector: req.LabelSelector,
 	}
 	if err := sendChunkedResourceRequest(ctx, w, requestID, start, req.Body); err != nil {
 		return nil, fmt.Errorf("send to worker: %w", err)

@@ -225,6 +225,10 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// from a catalog row and apply through the worker tunnel.
 		// `?dry_run=true` returns manifests without applying.
 		models.POST("/:id/deploy", handler.DeployModel(gw))
+		// P16-B — cross-cluster fan-out: list every Deployment
+		// labelled `kpilot.io/model-id=<id>` across online workers.
+		// Source of truth is the cluster, not a ModelDeployment table.
+		models.GET("/:id/deployments", handler.ListModelDeployments(gw))
 	}
 
 	// SPA static fallback — only mounted when STATIC_DIR points at a

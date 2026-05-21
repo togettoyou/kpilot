@@ -193,6 +193,13 @@ message ResourceRequestStart {
   // list pagination: 0 = unbounded; non-empty continue_token = next page
   int64  limit          = 7;
   string continue_token = 8;
+
+  // K8s label selector string ("key=value,key2!=value2"); applies to list
+  // actions only. Worker forwards to ListOptions.LabelSelector / Table API
+  // ?labelSelector= query. Empty = no filter. Used by the model service to
+  // discover its own deployments via "app.kubernetes.io/managed-by=kpilot,
+  // kpilot.io/model-id=<id>" without scanning every namespace.
+  string label_selector = 9;
 }
 
 // PluginCommandStart opens a PluginCommand. Chart blob (when ChartSourceMeta.

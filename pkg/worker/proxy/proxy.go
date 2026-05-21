@@ -200,9 +200,9 @@ func (p *Proxy) execute(ctx context.Context, req *tunnel.ResourceRequest) *Resou
 
 	switch req.Action {
 	case "list":
-		return p.listTable(ctx, mapping, req.Namespace, req.Limit, req.ContinueToken)
+		return p.listTable(ctx, mapping, req.Namespace, req.Limit, req.ContinueToken, req.LabelSelector)
 	case "list-full":
-		return p.listFull(ctx, mapping, req.Namespace, req.Limit, req.ContinueToken)
+		return p.listFull(ctx, mapping, req.Namespace, req.Limit, req.ContinueToken, req.LabelSelector)
 	case "get":
 		return p.get(ctx, mapping, req.Namespace, req.Name)
 	case "apply":
@@ -223,7 +223,7 @@ func (p *Proxy) execute(ctx context.Context, req *tunnel.ResourceRequest) *Resou
 // listTable uses the K8s Table API (same as kubectl default display).
 // The API server computes display cells server-side; only cell values and
 // object metadata are returned — spec/status are NOT transferred.
-func (p *Proxy) listTable(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, limit int64, continueToken string) *ResourceResponse {
+func (p *Proxy) listTable(ctx context.Context, mapping *apimeta.RESTMapping, namespace string, limit int64, continueToken string, labelSelector string) *ResourceResponse {
 	gv := mapping.Resource.GroupVersion()
 
 	var apiPrefix string
@@ -248,6 +248,9 @@ func (p *Proxy) listTable(ctx context.Context, mapping *apimeta.RESTMapping, nam
 	}
 	if continueToken != "" {
 		params.Set("continue", continueToken)
+	}
+	if labelSelector != "" {
+		params.Set("labelSelector", labelSelector)
 	}
 
 	rawURL := strings.TrimRight(p.cfg.Host, "/") + resourcePath + "?" + params.Encode()
@@ -288,6 +291,7 @@ func (p *Proxy) listFull(
 	namespace string,
 	limit int64,
 	continueToken string,
+	labelSelector string,
 ) *ResourceResponse {
 	opts := metav1.ListOptions{}
 	if limit > 0 {
@@ -295,6 +299,9 @@ func (p *Proxy) listFull(
 	}
 	if continueToken != "" {
 		opts.Continue = continueToken
+	}
+	if labelSelector != "" {
+		opts.LabelSelector = labelSelector
 	}
 	ri, effectiveNs := p.resourceClient(mapping, namespace)
 	// resourceClient defaults namespace="" → "default" for namespaced

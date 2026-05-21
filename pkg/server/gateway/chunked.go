@@ -57,6 +57,7 @@ type ResourceRequest struct {
 	Body          []byte
 	Limit         int64
 	ContinueToken string
+	LabelSelector string
 }
 
 // ResourceResponse is the assembled K8s proxy response delivered to

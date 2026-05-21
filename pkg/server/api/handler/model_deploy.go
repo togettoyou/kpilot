@@ -10,9 +10,15 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"regexp"
+	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
@@ -259,4 +265,235 @@ func DeployModel(gw *gateway.GatewayServer) gin.HandlerFunc {
 		resp.ApplyResults = results
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// listDeploymentsTimeout caps the per-cluster fan-out — long enough
+// for a slow cross-border tunnel to return a Deployment list, short
+// enough that a wedged worker can't stall the whole catalog page.
+// The drawer can refresh on demand if a cluster slipped past it.
+const listDeploymentsTimeout = 8 * time.Second
+
+// modelInstance is one inference deployment row returned to the
+// frontend. Cluster-scoped fields are flattened (cluster_id +
+// cluster_name) so the frontend can group either by cluster or
+// show a flat list. Replicas + ready_replicas come straight out
+// of `status` — no extra Pod list needed for v1.
+type modelInstance struct {
+	ClusterID         string    `json:"cluster_id"`
+	ClusterName       string    `json:"cluster_name"`
+	Namespace         string    `json:"namespace"`
+	Name              string    `json:"name"`
+	InstanceSuffix    string    `json:"instance_suffix"`
+	Image             string    `json:"image,omitempty"`
+	Replicas          int32     `json:"replicas"`
+	ReadyReplicas     int32     `json:"ready_replicas"`
+	AvailableReplicas int32     `json:"available_replicas"`
+	CreatedAt         time.Time `json:"created_at"`
+	// ServicePort hardcoded to 8000 in deploy.buildService — the
+	// frontend uses this to construct the chat URL without having
+	// to fan out a second Service list. If we ever expose port as
+	// a deploy option this needs to come from the Service.
+	ServicePort int32 `json:"service_port"`
+	// Status is the rolled-up condition we show in the table:
+	// "Running" (ready==spec), "Progressing" (ready<spec but progressing),
+	// "Failed" (status has a non-progressing condition). Pure derived
+	// state; the frontend doesn't need to walk conditions itself.
+	Status string `json:"status"`
+}
+
+type modelInstancesResponse struct {
+	ModelID   int64           `json:"model_id"`
+	Instances []modelInstance `json:"instances"`
+	// Errors lists clusters we tried but failed (worker offline,
+	// list timeout, RBAC missing apps/v1). The frontend renders
+	// this as an inline warning so users see "we tried 5 clusters,
+	// 1 was offline" rather than silently missing rows.
+	Errors []modelInstanceErr `json:"errors,omitempty"`
+}
+
+type modelInstanceErr struct {
+	ClusterID   string `json:"cluster_id"`
+	ClusterName string `json:"cluster_name"`
+	Error       string `json:"error"`
+}
+
+// ListModelDeployments handles GET /api/v1/models/:id/deployments.
+// Fans out a labelled Deployment list across every online worker,
+// merges into a flat instance array. Cluster is the source of
+// truth — we don't keep a ModelDeployment table; the generator
+// stamps `kpilot.io/model-id=<id>` so this query is sufficient.
+//
+// Offline clusters are silently skipped (the frontend already
+// shows offline state on the cluster page). Worker errors land
+// in the errors array so a partial result is still useful.
+func ListModelDeployments(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := parseModelID(c)
+		if err != nil {
+			return
+		}
+		model, err := store.GetModelByID(id)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				apiErr(c, http.StatusNotFound, CodeModelNotFound)
+				return
+			}
+			apiErrInternal(c, err)
+			return
+		}
+
+		clusters, err := store.ListClusters()
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+
+		selector := fmt.Sprintf("app.kubernetes.io/managed-by=kpilot,kpilot.io/model-id=%d", model.ID)
+
+		var (
+			mu        sync.Mutex
+			instances []modelInstance
+			errs      []modelInstanceErr
+			wg        sync.WaitGroup
+		)
+
+		for i := range clusters {
+			cl := clusters[i]
+			// Skip offline workers up-front so we don't burn a
+			// full timeout per cluster. SendResourceRequest would
+			// fail fast with "not connected" anyway, but doing
+			// the check here keeps the errors list cleaner —
+			// offline is the cluster page's job to surface.
+			if _, ok := gw.GetWorker(cl.ID); !ok {
+				continue
+			}
+			wg.Add(1)
+			go func(cl store.Cluster) {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(c.Request.Context(), listDeploymentsTimeout)
+				defer cancel()
+				rows, err := listInstancesInCluster(ctx, gw, &cl, selector)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					errs = append(errs, modelInstanceErr{
+						ClusterID:   cl.ID,
+						ClusterName: cl.Name,
+						Error:       err.Error(),
+					})
+					return
+				}
+				instances = append(instances, rows...)
+			}(cl)
+		}
+		wg.Wait()
+
+		c.JSON(http.StatusOK, modelInstancesResponse{
+			ModelID:   int64(model.ID),
+			Instances: instances,
+			Errors:    errs,
+		})
+	}
+}
+
+// listInstancesInCluster runs one list-full against apps/v1
+// Deployment with the label selector, then maps each item to a
+// modelInstance. We use list-full (not Table API) because Table
+// API drops .spec.template.spec.containers[0].image and
+// .status.{readyReplicas,availableReplicas} that we need for the
+// row. The selector is narrow so payload stays small.
+func listInstancesInCluster(
+	ctx context.Context,
+	gw *gateway.GatewayServer,
+	cl *store.Cluster,
+	selector string,
+) ([]modelInstance, error) {
+	resp, err := gw.SendResourceRequest(ctx, cl.ID, &gateway.ResourceRequest{
+		Action:        "list-full",
+		Group:         "apps",
+		Version:       "v1",
+		Kind:          "Deployment",
+		Namespace:     "", // empty = all namespaces (worker handles allNs)
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+
+	// The list-full payload is a vanilla DeploymentList JSON; we
+	// decode just the fields we need rather than pulling in
+	// k8s.io/api/apps/v1 (the generator side uses it, the list
+	// side doesn't need to).
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Name              string            `json:"name"`
+				Namespace         string            `json:"namespace"`
+				Labels            map[string]string `json:"labels"`
+				CreationTimestamp time.Time         `json:"creationTimestamp"`
+			} `json:"metadata"`
+			Spec struct {
+				Replicas *int32 `json:"replicas"`
+				Template struct {
+					Spec struct {
+						Containers []struct {
+							Image string `json:"image"`
+						} `json:"containers"`
+					} `json:"spec"`
+				} `json:"template"`
+			} `json:"spec"`
+			Status struct {
+				Replicas            int32 `json:"replicas"`
+				ReadyReplicas       int32 `json:"readyReplicas"`
+				AvailableReplicas   int32 `json:"availableReplicas"`
+				UnavailableReplicas int32 `json:"unavailableReplicas"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		log.Printf("[model-list] decode list-full failed: cluster=%s err=%v", cl.ID, err)
+		return nil, fmt.Errorf("decode deployment list: %w", err)
+	}
+
+	rows := make([]modelInstance, 0, len(list.Items))
+	for _, d := range list.Items {
+		var replicas int32
+		if d.Spec.Replicas != nil {
+			replicas = *d.Spec.Replicas
+		}
+		var image string
+		if len(d.Spec.Template.Spec.Containers) > 0 {
+			image = d.Spec.Template.Spec.Containers[0].Image
+		}
+		// Roll up status the way the user perceives it. Avoid
+		// surfacing "Unknown" — when in doubt, show "Progressing"
+		// since the readiness gate is the more honest signal.
+		var status string
+		switch {
+		case replicas > 0 && d.Status.ReadyReplicas >= replicas:
+			status = "Running"
+		case d.Status.UnavailableReplicas > 0 && d.Status.ReadyReplicas == 0:
+			status = "Failed"
+		default:
+			status = "Progressing"
+		}
+		rows = append(rows, modelInstance{
+			ClusterID:         cl.ID,
+			ClusterName:       cl.Name,
+			Namespace:         d.Metadata.Namespace,
+			Name:              d.Metadata.Name,
+			InstanceSuffix:    d.Metadata.Labels["kpilot.io/instance-suffix"],
+			Image:             image,
+			Replicas:          replicas,
+			ReadyReplicas:     d.Status.ReadyReplicas,
+			AvailableReplicas: d.Status.AvailableReplicas,
+			CreatedAt:         d.Metadata.CreationTimestamp,
+			ServicePort:       8000,
+			Status:            status,
+		})
+	}
+	return rows, nil
 }

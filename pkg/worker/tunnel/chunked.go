@@ -46,6 +46,7 @@ type ResourceRequest struct {
 	Body          []byte
 	Limit         int64
 	ContinueToken string
+	LabelSelector string
 }
 
 // PluginCommand is the assembled Helm plugin operation received from
