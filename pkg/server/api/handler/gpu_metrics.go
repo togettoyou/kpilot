@@ -141,12 +141,13 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 				{"power", `DCGM_FI_DEV_POWER_USAGE`},
 				// FB used / total separately so the frontend can render the
 				// raw GiB curve AND derive a percentage on the snapshot
-				// gauge. Could be a single derived expression
-				// (DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL) but two
-				// queries are cheap and the raw value is more readable in
-				// the chart axis.
+				// gauge. DCGM exporter (verified 4.x) does NOT publish
+				// DCGM_FI_DEV_FB_TOTAL — only FB_USED + FB_FREE. Derive
+				// total as USED + FREE per GPU (the `sum by (...)` keeps
+				// the per-card identity tags so the chart legend stays
+				// the same as the other per-card series).
 				{"fbUsed", `DCGM_FI_DEV_FB_USED`},
-				{"fbTotal", `DCGM_FI_DEV_FB_TOTAL`},
+				{"fbTotal", `sum by (Hostname, gpu, UUID, modelName) (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)`},
 				// SM clock in MHz — DCGM emits MHz already (despite some
 				// docs saying Hz). Old dashboards multiply by 1e6; we
 				// don't, and the chart label says MHz.
