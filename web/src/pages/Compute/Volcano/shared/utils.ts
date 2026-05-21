@@ -4,10 +4,17 @@
 
 // parseQuantity is the best-effort K8s Quantity translator used by the
 // queue dashboards and GPU pages. Handles cpu millicores (`m` suffix),
-// binary prefixes (Ki/Mi/Gi/Ti/Pi), and decimal SI prefixes (K/M/G/T/P).
+// binary prefixes (Ki/Mi/Gi/Ti/Pi), and decimal SI prefixes
+// (k/M/G/T/P/E — note SI kilo is lowercase per K8s/SI convention).
 // Charts are illustrative, not balance-sheet exact — Quantities with
 // E/e (scientific) or fractional exponents fall back to Number() which
 // is usually right for the resource-list payloads we render.
+//
+// Was bitten in the wild by Volcano emitting `"12k"` for
+// `volcano.sh/vgpu-memory`: the previous table only had uppercase `K`,
+// `Number("12k")` returns NaN, so parseQuantity returned 0 and the
+// scheduling overview's GPU memory row + the queue-quota vgpu-memory
+// bar both showed 0 even though the queue clearly had 12000 MiB.
 export function parseQuantity(raw: string | undefined): number {
   if (!raw) return 0;
   const s = raw.trim();
@@ -22,6 +29,7 @@ export function parseQuantity(raw: string | undefined): number {
     Gi: 1024 ** 3,
     Ti: 1024 ** 4,
     Pi: 1024 ** 5,
+    Ei: 1024 ** 6,
   };
   for (const [p, mul] of Object.entries(binPrefixes)) {
     if (s.endsWith(p)) {
@@ -29,12 +37,17 @@ export function parseQuantity(raw: string | undefined): number {
       return Number.isFinite(n) ? n * mul : 0;
     }
   }
+  // SI kilo is lowercase `k` (uppercase K means Kelvin per SI). K8s
+  // / kubelet / Volcano emit lowercase. The uppercase `K` entry stays
+  // as a tolerance backup in case someone hand-authored a Queue spec.
   const decPrefixes: Record<string, number> = {
+    k: 1000,
     K: 1000,
     M: 1000 ** 2,
     G: 1000 ** 3,
     T: 1000 ** 4,
     P: 1000 ** 5,
+    E: 1000 ** 6,
   };
   for (const [p, mul] of Object.entries(decPrefixes)) {
     if (s.endsWith(p)) {
