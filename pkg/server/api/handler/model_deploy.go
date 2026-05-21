@@ -291,6 +291,16 @@ type modelInstance struct {
 	ModelDisplayName string `json:"model_display_name"`
 	ModelFamily      string `json:"model_family,omitempty"`
 	ModelRuntime     string `json:"model_runtime,omitempty"`
+	// ModelField is the exact string the inference Service expects
+	// in `chat/completions` request body's `model` field. vLLM /
+	// SGLang / TGI start with `--model <HuggingFaceID>` (or the
+	// runtime's equivalent flag), so the served model name == the
+	// HF id. Falls back to deployment name when HF id is empty
+	// (custom rows without an HF source); orphan rows (catalog
+	// gone) also fall back to deployment name. Empty value would
+	// always 404 in vLLM — we keep this server-side so the chat
+	// page doesn't have to know about runtime quirks.
+	ModelField string `json:"model_field"`
 
 	ClusterID         string    `json:"cluster_id"`
 	ClusterName       string    `json:"cluster_name"`
@@ -525,7 +535,7 @@ func listInstancesInCluster(
 		// what the generator stamps; missing / unparseable label
 		// keeps the row as an orphan (still useful to see).
 		var modelID int64
-		var displayName, family, runtime string
+		var displayName, family, runtime, modelField string
 		if midStr := d.Metadata.Labels["kpilot.io/model-id"]; midStr != "" {
 			if mid, err := strconv.ParseUint(midStr, 10, 64); err == nil {
 				if m, ok := modelsByID[uint(mid)]; ok {
@@ -533,6 +543,7 @@ func listInstancesInCluster(
 					displayName = m.DisplayName
 					family = string(m.Family)
 					runtime = string(m.Runtime)
+					modelField = m.HuggingFaceID
 				} else {
 					// Orphan: catalog row deleted but cluster still
 					// has the Deployment. Surface anyway so the user
@@ -545,11 +556,19 @@ func listInstancesInCluster(
 		if displayName == "" {
 			displayName = d.Metadata.Name
 		}
+		// Fall back to deployment name when HF id is missing
+		// (custom rows / orphans). vLLM 404s on unknown model
+		// names regardless, but this at least lets the chat
+		// request surface an informative error.
+		if modelField == "" {
+			modelField = d.Metadata.Name
+		}
 		rows = append(rows, modelInstance{
 			ModelID:           modelID,
 			ModelDisplayName:  displayName,
 			ModelFamily:       family,
 			ModelRuntime:      runtime,
+			ModelField:        modelField,
 			ClusterID:         cl.ID,
 			ClusterName:       cl.Name,
 			Namespace:         d.Metadata.Namespace,

@@ -100,8 +100,8 @@ export default {
 
   // Model service platform sider — three static peer pages.
   'menu.models.catalog': 'Catalog',
-  'menu.models.deployments': 'Deployments',
-  'menu.models.chat': 'Chat',
+  'menu.models.deployments': 'Instances',
+  'menu.models.chat': 'Playground',
 
   'menu.account.logout': 'Logout',
 };

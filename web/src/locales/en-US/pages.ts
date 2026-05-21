@@ -664,7 +664,7 @@ export default {
   // models registry (P15) — catalog of deployable model presets, no deployment yet
   'pages.models.registry.title': 'Model registry',
   'pages.models.registry.subtitle':
-    'Global catalog of deployable model presets — runtime, image, recommended GPU, default args. Deployment / chat / routing land in upcoming releases.',
+    'Global catalog of deployable model presets — runtime, image, recommended GPU, default args.',
   'pages.models.registry.new': 'New model',
   'pages.models.registry.edit': 'Edit model',
   'pages.models.registry.duplicate': 'Duplicate as custom',
@@ -779,10 +779,6 @@ export default {
     'e.g. apache-2.0 / llama3.1 / deepseek',
   // empty state
   'pages.models.registry.empty.title': 'No models yet',
-  // roadmap banner
-  'pages.models.registry.roadmap.title': 'Coming soon',
-  'pages.models.registry.roadmap.desc':
-    'Model deployment, inline chat playground, OpenAI-compatible routing, distributed fine-tuning on Volcano gang scheduling',
   // pages.common.* — shared UI verbs / section headers for P15+ pages.
   // New pages should reach for these first instead of redefining
   // identical strings under their own namespace.
@@ -799,9 +795,9 @@ export default {
   'pages.common.refresh': 'Refresh',
   'pages.common.actions': 'Actions',
 
-  // P16-B — Deployments page (cross-model, cross-cluster survey,
+  // P16-B — Instances page (cross-model, cross-cluster survey,
   // moved from a per-model drawer to a top-level platform page)
-  'pages.models.deployments.title': 'Deployments',
+  'pages.models.deployments.title': 'Model instances',
   'pages.models.deployments.subtitle':
     'Inference deployments across all models and clusters',
   'pages.models.deployments.empty': 'No running inference instances right now.',
@@ -816,7 +812,7 @@ export default {
   'pages.models.deployments.col.name': 'Name',
   'pages.models.deployments.col.age': 'Age',
   'pages.models.deployments.partialFail.title': 'Some clusters failed to list',
-  'pages.models.deployments.action.chat': 'Open chat debug',
+  'pages.models.deployments.action.chat': 'Open playground',
   'pages.models.deployments.action.chatDisabled':
     'Available once the instance is ready',
   'pages.models.deployments.action.describe': 'Open in Workloads',
@@ -826,11 +822,11 @@ export default {
     'Only the Deployment is deleted; matching Service / PVC / Secret are left for you to clean up manually.',
   'pages.models.deployments.delete.success': 'Deployment deleted',
 
-  // P16-B — Chat page (full-page playground, replaces the
+  // P16-B — Playground page (full-page chat, replaces the
   // per-model ChatDrawer from v1)
-  'pages.models.chat.title': 'Chat',
+  'pages.models.chat.title': 'Model playground',
   'pages.models.chat.subtitle':
-    'Pick a running deployment and talk to it directly',
+    'Pick a running model instance and talk to it directly',
   'pages.models.chat.target': 'Target instance',
   'pages.models.chat.target.placeholder': 'Select an inference deployment',
   'pages.models.chat.systemPrompt': 'System prompt (optional)',

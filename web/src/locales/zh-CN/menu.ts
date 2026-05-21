@@ -106,8 +106,8 @@ export default {
   // injection like clusters / compute, so children live in routes.ts
   // directly and the labels go right here).
   'menu.models.catalog': '模型仓库',
-  'menu.models.deployments': '部署实例',
-  'menu.models.chat': 'Chat 调试',
+  'menu.models.deployments': '模型实例',
+  'menu.models.chat': '模型调试',
 
   'menu.account.logout': '退出登录',
 };

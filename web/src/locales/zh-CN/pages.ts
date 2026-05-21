@@ -651,7 +651,7 @@ export default {
   // models registry (P15) — catalog of deployable model presets, no deployment yet
   'pages.models.registry.title': '模型仓库',
   'pages.models.registry.subtitle':
-    '全局可部署模型清单 —— 运行时、镜像、推荐 GPU、默认启动参数。模型部署 / 调试 / 路由在后续版本落地。',
+    '全局可部署模型清单 —— 运行时、镜像、推荐 GPU、默认启动参数。',
   'pages.models.registry.new': '新建模型',
   'pages.models.registry.edit': '编辑模型',
   'pages.models.registry.duplicate': '复制为自定义',
@@ -760,10 +760,6 @@ export default {
     '如 apache-2.0 / llama3.1 / deepseek',
   // empty state
   'pages.models.registry.empty.title': '暂无模型',
-  // roadmap banner
-  'pages.models.registry.roadmap.title': '即将推出',
-  'pages.models.registry.roadmap.desc':
-    '模型部署、在线 chat 调试、OpenAI 兼容路由、Volcano gang scheduling 分布式微调',
   // pages.common.* — shared UI verbs / section headers used by P15+
   // pages. New pages should reach for these first instead of redefining
   // identical strings under their own namespace.
@@ -780,9 +776,9 @@ export default {
   'pages.common.refresh': '刷新',
   'pages.common.actions': '操作',
 
-  // P16-B — 部署实例 page (cross-model, cross-cluster survey,
+  // P16-B — 模型实例 page (cross-model, cross-cluster survey,
   // moved from a per-model drawer to a top-level platform page)
-  'pages.models.deployments.title': '部署实例',
+  'pages.models.deployments.title': '模型实例',
   'pages.models.deployments.subtitle': '跨模型、跨集群的推理部署总览',
   'pages.models.deployments.empty': '当前没有运行中的推理实例',
   'pages.models.deployments.instanceSuffix': '实例后缀：{v}',
@@ -796,7 +792,7 @@ export default {
   'pages.models.deployments.col.name': '部署名',
   'pages.models.deployments.col.age': '运行时长',
   'pages.models.deployments.partialFail.title': '部分集群查询失败',
-  'pages.models.deployments.action.chat': '打开 chat 调试',
+  'pages.models.deployments.action.chat': '打开模型调试',
   'pages.models.deployments.action.chatDisabled': '实例就绪后可调试',
   'pages.models.deployments.action.describe': '在工作负载页查看详情',
   'pages.models.deployments.delete.confirm':
@@ -805,10 +801,10 @@ export default {
     '只会删除 Deployment；同名 Service / PVC / Secret 会留下需手动清理。',
   'pages.models.deployments.delete.success': '已删除 Deployment',
 
-  // P16-B — Chat 调试 page (full-page playground, replaces the
+  // P16-B — 模型调试 page (full-page playground, replaces the
   // per-model ChatDrawer from v1)
-  'pages.models.chat.title': 'Chat 调试',
-  'pages.models.chat.subtitle': '选一个运行中的部署实例直接对话验证',
+  'pages.models.chat.title': '模型调试',
+  'pages.models.chat.subtitle': '选一个运行中的模型实例直接对话验证',
   'pages.models.chat.target': '目标实例',
   'pages.models.chat.target.placeholder': '选择推理部署',
   'pages.models.chat.systemPrompt': '系统提示词（可选）',

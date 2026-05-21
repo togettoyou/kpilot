@@ -60,18 +60,6 @@ interface ChatMsg {
   id: string;
 }
 
-// modelFieldFor returns the value to put in the `model` field of
-// the chat request body. vLLM / SGLang / TGI accept any string
-// here (the Service hosts a single model), but echo it back in
-// logs — a recognisable name keeps debugging readable. Prefer the
-// HF id when present, fall back to deployment name.
-function modelFieldFor(row: ModelInstance): string {
-  // model_display_name comes from the DB and might be a human
-  // name with spaces ("Qwen3 0.6B Instruct"); deployment.name is
-  // DNS-1123-safe and what the Service actually uses.
-  return row.name;
-}
-
 interface ChatChoice {
   message?: { role: string; content?: string };
   text?: string;
@@ -269,7 +257,10 @@ const ModelChatPage: React.FC = () => {
 
     try {
       const body: Record<string, unknown> = {
-        model: modelFieldFor(instance),
+        // model_field is what the inference Service was started
+        // with (--model <HF id>); sending anything else gets a 404
+        // from vLLM. Server resolves the right value per row.
+        model: instance.model_field,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
         stream: false,
         temperature,
@@ -331,8 +322,10 @@ const ModelChatPage: React.FC = () => {
   if (!listLoading && rows.length === 0) {
     return (
       <PageContainer
+        breadcrumbRender={false}
         header={{
           title: intl.formatMessage({ id: 'pages.models.chat.title' }),
+          breadcrumb: undefined,
         }}
       >
         <Result
@@ -358,18 +351,32 @@ const ModelChatPage: React.FC = () => {
 
   return (
     <PageContainer
+      breadcrumbRender={false}
       header={{
         title: intl.formatMessage({ id: 'pages.models.chat.title' }),
         subTitle: intl.formatMessage({ id: 'pages.models.chat.subtitle' }),
+        breadcrumb: undefined,
       }}
     >
-      <Row gutter={[16, 16]}>
-        {/* Left rail — instance picker + inference knobs.
-           Sticky on tall viewports so the user can pick + tweak
-           without losing chat context. */}
-        <Col xs={24} lg={8} xl={7}>
+      {/* Both panels pinned to the same calc'd viewport height +
+         align="stretch" so the left knob Card matches the right
+         conversation Card no matter which side has more content.
+         Earlier we let the left Card grow with content while the
+         right Card was the only one with an explicit height —
+         result was visibly misaligned on tall viewports. */}
+      <Row
+        gutter={[16, 16]}
+        align="stretch"
+        style={{ height: 'calc(100vh - 200px)' }}
+      >
+        {/* Left rail — instance picker + inference knobs. */}
+        <Col xs={24} lg={8} xl={7} style={{ display: 'flex' }}>
           <Card
             size="small"
+            style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+            styles={{
+              body: { flex: 1, overflowY: 'auto' },
+            }}
             title={intl.formatMessage({ id: 'pages.models.chat.target' })}
             extra={
               <Button
@@ -473,15 +480,17 @@ const ModelChatPage: React.FC = () => {
           </Card>
         </Col>
 
-        {/* Right pane — conversation. Fixed height so the input
-           doesn't push out of view on tall histories. */}
-        <Col xs={24} lg={16} xl={17}>
+        {/* Right pane — conversation. Inherits its height from the
+           stretched Row (left + right always equal). */}
+        <Col xs={24} lg={16} xl={17} style={{ display: 'flex' }}>
           <Card
             size="small"
+            style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
             styles={{
               body: {
                 padding: 0,
-                height: 'calc(100vh - 220px)',
+                flex: 1,
+                minHeight: 0,
                 display: 'flex',
                 flexDirection: 'column',
               },

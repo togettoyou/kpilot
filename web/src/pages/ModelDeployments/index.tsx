@@ -348,11 +348,13 @@ const ModelDeploymentsPage: React.FC = () => {
 
   return (
     <PageContainer
+      breadcrumbRender={false}
       header={{
         title: intl.formatMessage({ id: 'pages.models.deployments.title' }),
         subTitle: intl.formatMessage({
           id: 'pages.models.deployments.subtitle',
         }),
+        breadcrumb: undefined,
       }}
     >
       {errors.length > 0 && (

@@ -291,6 +291,11 @@ export interface ModelInstance {
   model_display_name: string;
   model_family?: string;
   model_runtime?: string;
+  // model_field is the exact string the inference Service expects
+  // in the chat/completions request body's `model` field — server
+  // resolves it from `HuggingFaceID || deployment.name` so the
+  // chat page doesn't have to know about runtime quirks.
+  model_field: string;
 
   cluster_id: string;
   cluster_name: string;

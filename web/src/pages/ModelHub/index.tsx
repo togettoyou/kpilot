@@ -2,7 +2,6 @@ import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { useIntl, useRequest } from '@umijs/max';
 import {
-  Alert,
   App,
   Badge,
   Button,
@@ -266,9 +265,10 @@ const ModelHubPage: React.FC = () => {
 
   return (
     <PageContainer
+      breadcrumbRender={false}
       header={{
         title: intl.formatMessage({ id: 'pages.models.registry.title' }),
-        subTitle: intl.formatMessage({ id: 'pages.models.registry.subtitle' }),
+        breadcrumb: undefined,
       }}
     >
       {/* Toolbar — search + filters + sort + new */}
@@ -357,19 +357,6 @@ const ModelHubPage: React.FC = () => {
           style={{ background: 'transparent' }}
         />
       )}
-
-      {/* Roadmap reminder — kept from previous layout for honesty */}
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginTop: 24 }}
-        message={intl.formatMessage({
-          id: 'pages.models.registry.roadmap.title',
-        })}
-        description={intl.formatMessage({
-          id: 'pages.models.registry.roadmap.desc',
-        })}
-      />
 
       <ModelDetailDrawer
         open={detailOpen}
