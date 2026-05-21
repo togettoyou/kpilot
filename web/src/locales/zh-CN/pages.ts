@@ -17,9 +17,11 @@ export default {
 
   // 算力调度
   'pages.compute.landing.title': '算力调度',
-  'pages.compute.landing.subtitle': '基于 Volcano 的批量调度 + GPU 虚拟化，选择一个集群进入',
+  'pages.compute.landing.subtitle':
+    '基于 Volcano 的批量调度 + GPU 虚拟化，选择一个集群进入',
   'pages.compute.landing.empty.title': '暂无集群',
-  'pages.compute.landing.empty.hint': '先在「集群管理」中添加并连接一个集群，再回到这里进入算力调度',
+  'pages.compute.landing.empty.hint':
+    '先在「集群管理」中添加并连接一个集群，再回到这里进入算力调度',
   'pages.compute.landing.empty.action': '前往集群管理',
   'pages.compute.volcano.notInstalled.title': '集群尚未安装 Volcano',
   'pages.compute.volcano.notInstalled.subTitle':
@@ -37,8 +39,10 @@ export default {
   'pages.compute.queue.col.detail': '配置 / 资源',
   'pages.compute.queue.action.open': '开启',
   'pages.compute.queue.action.close': '关闭',
-  'pages.compute.queue.confirm.open': '开启队列「{name}」？开启后队列内的 PodGroup 可被调度。',
-  'pages.compute.queue.confirm.close': '关闭队列「{name}」？关闭后队列内不会再有新的 PodGroup 被调度，已运行的不受影响。',
+  'pages.compute.queue.confirm.open':
+    '开启队列「{name}」？开启后队列内的 PodGroup 可被调度。',
+  'pages.compute.queue.confirm.close':
+    '关闭队列「{name}」？关闭后队列内不会再有新的 PodGroup 被调度，已运行的不受影响。',
   'pages.compute.queue.opened': '已发起开启操作',
   'pages.compute.queue.closed': '已发起关闭操作',
   'pages.compute.queueForm.title': '新建 Volcano 队列',
@@ -48,7 +52,8 @@ export default {
   'pages.compute.queueForm.success': '队列已创建',
   'pages.compute.queueForm.updated': '队列已更新',
   'pages.compute.queueForm.name': '名称',
-  'pages.compute.queueForm.name.extra': 'DNS-1123，小写字母 / 数字 / 短横线，最多 63 字符',
+  'pages.compute.queueForm.name.extra':
+    'DNS-1123，小写字母 / 数字 / 短横线，最多 63 字符',
   // ResourceIntro — 每个 CR 页顶部的"这是啥"说明
   'pages.compute.intro.queue':
     '资源池抽象。给作业划分独占/共享配额；capacity / proportion 插件按权重切分集群资源。',
@@ -134,12 +139,14 @@ export default {
   'pages.compute.vgpu.notInstalled.action': '前往插件管理',
 
   'pages.compute.queueForm.weight': '权重 (Weight)',
-  'pages.compute.queueForm.weight.extra': '调度时按权重比例分配资源；越大越优先',
+  'pages.compute.queueForm.weight.extra':
+    '调度时按权重比例分配资源；越大越优先',
   'pages.compute.queueForm.priority': '优先级 (Priority)',
   'pages.compute.queueForm.priority.extra':
     '可选；非负整数，默认 0。值越大调度越优先；同时在资源回收时越晚被回收（高优先级队列资源最后被抢）。',
   'pages.compute.queueForm.reclaimable': '可回收 (Reclaimable)',
-  'pages.compute.queueForm.reclaimable.extra': '是否允许其它队列在资源紧张时回收本队列的资源',
+  'pages.compute.queueForm.reclaimable.extra':
+    '是否允许其它队列在资源紧张时回收本队列的资源',
   'pages.compute.queueForm.parent': '父队列 (Parent)',
   'pages.compute.queueForm.parent.extra': '可选，构建分级队列时填写父队列名称',
   'pages.compute.queueForm.capability': '资源上限 (Capability)',
@@ -164,7 +171,8 @@ export default {
   'pages.compute.queueForm.affinity.preferred': '亲和 - 优先 (preferred)',
   'pages.compute.queueForm.antiAffinity.required': '反亲和 - 必选 (required)',
   'pages.compute.queueForm.antiAffinity.preferred': '反亲和 - 优先 (preferred)',
-  'pages.compute.queueForm.affinity.placeholder': '回车 / 逗号分隔的 nodeGroup 名称',
+  'pages.compute.queueForm.affinity.placeholder':
+    '回车 / 逗号分隔的 nodeGroup 名称',
 
   // Job 表单 + 操作
   'pages.compute.job.create': '新建作业',
@@ -205,16 +213,14 @@ export default {
   'pages.compute.jobForm.runningEstimate': '预估运行时长 (runningEstimate)',
   'pages.compute.jobForm.runningEstimate.extra':
     'Go duration 格式，例如 1h30m / 45m / 2h。提供给 sla 等调度插件做参考',
-  'pages.compute.jobForm.networkTopology':
-    '网络拓扑感知 (networkTopology)',
+  'pages.compute.jobForm.networkTopology': '网络拓扑感知 (networkTopology)',
   'pages.compute.jobForm.networkTopology.extra':
     '配合 HyperNode 使用：作业的 pod 优先收紧到同一拓扑层级，控制器会传播到生成的 PodGroup',
   'pages.compute.jobForm.ntMode': '模式 (mode)',
   'pages.compute.jobForm.ntMode.placeholder': '不启用',
   'pages.compute.jobForm.ntTierAllowed':
     '最高允许跨越层级 (highestTierAllowed)',
-  'pages.compute.jobForm.ntTierName':
-    '最高允许跨越层级名称 (highestTierName)',
+  'pages.compute.jobForm.ntTierName': '最高允许跨越层级名称 (highestTierName)',
   'pages.compute.jobForm.plugins': '启用插件',
   'pages.compute.jobForm.plugins.extra':
     'Volcano 内置插件：env 注入索引环境变量、svc 自动建 headless service、ssh 注入 sshkey、mpi/pytorch/tensorflow 等用于分布式训练',
@@ -269,7 +275,8 @@ export default {
   'pages.compute.cronJob.col.state': '状态',
   'pages.compute.cronJob.action.suspend': '暂停',
   'pages.compute.cronJob.action.resume': '恢复',
-  'pages.compute.cronJob.confirm.suspend': '暂停定时作业「{name}」？暂停后将不再触发新的作业。',
+  'pages.compute.cronJob.confirm.suspend':
+    '暂停定时作业「{name}」？暂停后将不再触发新的作业。',
   'pages.compute.cronJob.confirm.resume': '恢复定时作业「{name}」？',
   'pages.compute.cronJob.suspended': '已暂停',
   'pages.compute.cronJob.resumed': '已恢复',
@@ -280,7 +287,8 @@ export default {
   'pages.compute.cronJobForm.success': '定时作业已创建',
   'pages.compute.cronJobForm.updated': '定时作业已更新',
   'pages.compute.cronJobForm.schedule': 'Cron 表达式',
-  'pages.compute.cronJobForm.schedule.extra': '标准 5 段 cron，例：0 * * * * 每小时整点',
+  'pages.compute.cronJobForm.schedule.extra':
+    '标准 5 段 cron，例：0 * * * * 每小时整点',
   'pages.compute.cronJobForm.concurrency': '并发策略',
   'pages.compute.cronJobForm.timeZone': '时区 (timeZone)',
   'pages.compute.cronJobForm.timeZone.extra':
@@ -333,16 +341,14 @@ export default {
   'pages.compute.overview.scheduler.actions': 'Actions',
   'pages.compute.overview.scheduler.tier': 'Tier {n}',
   'pages.compute.overview.jobByQueue.title': '队列 × 作业状态',
-  'pages.compute.overview.jobByQueue.subtitle':
-    '按队列分组的作业状态堆叠分布',
+  'pages.compute.overview.jobByQueue.subtitle': '按队列分组的作业状态堆叠分布',
   'pages.compute.overview.jobByQueue.empty': '没有可统计的作业',
   'pages.compute.overview.hierarchy.title': '队列层级结构',
   'pages.compute.overview.hierarchy.subtitle': '按 spec.parent 关系绘制',
   'pages.compute.overview.hierarchy.empty':
     '当前没有队列，或所有队列都是平铺无父子关系',
   'pages.compute.overview.failed.title': '失败作业',
-  'pages.compute.overview.failed.empty':
-    '没有失败 / 终止 / 中止 的作业 ✓',
+  'pages.compute.overview.failed.empty': '没有失败 / 终止 / 中止 的作业 ✓',
   'pages.compute.overview.failed.jump': '查看所有作业',
   'pages.compute.overview.recent.title': '最近创建作业',
   'pages.compute.overview.recent.empty': '当前命名空间下没有作业',
@@ -353,7 +359,8 @@ export default {
   'pages.compute.overview.phases.kind.podgroup': 'PodGroup',
   'pages.compute.overview.phases.kind.jobflow': 'JobFlow',
   'pages.compute.overview.pendingByQueue.title': '各队列 Pending Pod',
-  'pages.compute.overview.pendingByQueue.subtitle': '按 Pending 数量倒序，Top 10',
+  'pages.compute.overview.pendingByQueue.subtitle':
+    '按 Pending 数量倒序，Top 10',
   'pages.compute.overview.pendingByQueue.empty': '没有 Pending 中的 Pod ✓',
   'pages.compute.overview.hierarchy.flat': '当前所有队列均无父子关系',
   'pages.compute.overview.unused.title': '尚未使用的资源：',
@@ -363,18 +370,19 @@ export default {
   'pages.compute.scheduler.intro':
     'Volcano 调度器分两层做决策：① actions 控制每轮调度的工作流程（什么时候入队、何时分配资源、何时抢占）；② plugins 按 tier 分组叠加打分与约束（按顺序评估，前一 tier 通过才进入后一 tier）。每个选项右侧的 ⓘ 鼠标悬停可看作用说明，下方的「调度阶段一览 / 调度插件一览」是完整参考手册。',
   'pages.compute.scheduler.save': '保存',
-  'pages.compute.scheduler.saved': '配置已保存，Volcano 调度器会在数秒内自动重载',
+  'pages.compute.scheduler.saved':
+    '配置已保存，Volcano 调度器会在数秒内自动重载',
   'pages.compute.scheduler.addTier': '添加 Tier',
   'pages.compute.scheduler.actions': 'Actions',
   'pages.compute.scheduler.actions.tip':
     '每轮调度按顺序执行的阶段。常见组合：enqueue → allocate → backfill；要支持抢占再加 preempt + reclaim。',
-  'pages.compute.scheduler.actions.placeholder':
-    '选择本集群启用的调度阶段',
+  'pages.compute.scheduler.actions.placeholder': '选择本集群启用的调度阶段',
   'pages.compute.scheduler.tiers': 'Plugin Tiers',
   'pages.compute.scheduler.tiers.tip':
     '一个 tier 是一组 plugin，调度器按顺序评估各 tier，前一 tier 通过后才进入下一个。常见的做法：tier 1 放硬性约束（priority / gang），tier 2 放打分与公平共享（drf / proportion / nodeorder）。',
   'pages.compute.scheduler.plugins.placeholder': '选择 tier 内启用的 plugin',
-  'pages.compute.scheduler.noTiers': '当前没有任何 tier。点上方「添加 Tier」开始。',
+  'pages.compute.scheduler.noTiers':
+    '当前没有任何 tier。点上方「添加 Tier」开始。',
   'pages.compute.scheduler.help.actions': '调度阶段一览（actions）',
   'pages.compute.scheduler.help.plugins': '调度插件一览（plugins）',
   'pages.compute.scheduler.notFound.title': '未找到调度策略 ConfigMap',
@@ -407,7 +415,8 @@ export default {
   'pages.compute.scheduler.metrics.tip':
     '为 usage 等依赖节点实时利用率的插件指定指标数据源。Volcano 会定时从这里拉取每个节点的 CPU / 内存使用率作为打分输入。常见 key：type（prometheus / prometheus_adaptor / elasticsearch）、address、interval、tls.insecureSkipVerify；elasticsearch 还支持 elasticsearch.index / .username / .password 等。不配则 usage 类插件无数据可用。',
   'pages.compute.scheduler.metrics.add': '添加',
-  'pages.compute.scheduler.metrics.empty': '未配置指标数据源（usage 等需要实时利用率的插件将不可用）',
+  'pages.compute.scheduler.metrics.empty':
+    '未配置指标数据源（usage 等需要实时利用率的插件将不可用）',
 
   // 共享文案：list 端点的截断提示
   'pages.compute.list.truncated':
@@ -438,7 +447,8 @@ export default {
 
   // QueueForm capability tooltip
   'pages.compute.queueForm.tooltip.cpu': 'K8s 资源数量字符串。例如 10、500m',
-  'pages.compute.queueForm.tooltip.memory': 'K8s 资源数量字符串。例如 100Gi、512Mi',
+  'pages.compute.queueForm.tooltip.memory':
+    'K8s 资源数量字符串。例如 100Gi、512Mi',
   'pages.compute.queueForm.tooltip.vgpuMemory': '单位 MiB',
   'pages.compute.queueForm.tooltip.vgpuCores': '百分比 0-100',
 
@@ -496,10 +506,12 @@ export default {
   'pages.compute.podGroupForm.ntMode.placeholder': '不启用',
   'pages.compute.podGroupForm.ntMode.extra':
     'hard：强制；soft：尽量满足。不选则禁用拓扑感知',
-  'pages.compute.podGroupForm.ntTierAllowed': '最高允许跨越层级 (highestTierAllowed)',
+  'pages.compute.podGroupForm.ntTierAllowed':
+    '最高允许跨越层级 (highestTierAllowed)',
   'pages.compute.podGroupForm.ntTierAllowed.extra':
     'pod 最多可以跨到第几层 HyperNode；数字越小越紧凑。与 highestTierName 二选一',
-  'pages.compute.podGroupForm.ntTierName': '最高允许跨越层级名称 (highestTierName)',
+  'pages.compute.podGroupForm.ntTierName':
+    '最高允许跨越层级名称 (highestTierName)',
   'pages.compute.podGroupForm.ntTierName.extra':
     '与 highestTierAllowed 二选一；按 HyperNode.spec.tierName 匹配',
 
@@ -532,7 +544,8 @@ export default {
   'pages.compute.hyperNodeForm.member.type': '类型',
   'pages.compute.hyperNode.selector.exactMatch': 'exactMatch（按名匹配）',
   'pages.compute.hyperNode.selector.regexMatch': 'regexMatch（正则匹配）',
-  'pages.compute.hyperNode.selector.labelMatch': 'labelMatch（按标签匹配,仅 Node）',
+  'pages.compute.hyperNode.selector.labelMatch':
+    'labelMatch（按标签匹配,仅 Node）',
   'pages.compute.hyperNodeForm.member.selectorType': '选择方式',
   'pages.compute.hyperNodeForm.member.exactName': '精确名称',
   'pages.compute.hyperNodeForm.member.exactName.extra':
@@ -588,7 +601,8 @@ export default {
   'pages.compute.nodeShard.created': 'NodeShard 已创建',
   'pages.compute.nodeShard.updated': 'NodeShard 已更新',
   'pages.compute.nodeShard.name': '名称',
-  'pages.compute.nodeShard.name.extra': 'DNS-1123，多调度器场景下用作 shard 标识',
+  'pages.compute.nodeShard.name.extra':
+    'DNS-1123，多调度器场景下用作 shard 标识',
   'pages.compute.nodeShard.nodesDesired': '期望节点',
   'pages.compute.nodeShard.nodesDesired.required': '至少填写一个节点',
   'pages.compute.nodeShard.nodesDesired.extra':
@@ -636,7 +650,8 @@ export default {
 
   // models registry (P15) — catalog of deployable model presets, no deployment yet
   'pages.models.registry.title': '模型仓库',
-  'pages.models.registry.subtitle': '全局可部署模型清单 —— 运行时、镜像、推荐 GPU、默认启动参数。模型部署 / 调试 / 路由在后续版本落地。',
+  'pages.models.registry.subtitle':
+    '全局可部署模型清单 —— 运行时、镜像、推荐 GPU、默认启动参数。模型部署 / 调试 / 路由在后续版本落地。',
   'pages.models.registry.new': '新建模型',
   'pages.models.registry.edit': '编辑模型',
   'pages.models.registry.duplicate': '复制为自定义',
@@ -652,7 +667,8 @@ export default {
   'pages.models.deploy.tab.config': '配置',
   'pages.models.deploy.tab.preview': 'YAML 预览',
   'pages.models.deploy.tab.result': '部署结果',
-  'pages.models.deploy.preview.notReady': '请先在「配置」tab 选择目标集群并填完必填项，再来这里看 YAML 预览',
+  'pages.models.deploy.preview.notReady':
+    '请先在「配置」tab 选择目标集群并填完必填项，再来这里看 YAML 预览',
   'pages.models.deploy.result.empty': '尚无结果',
   'pages.models.deploy.result.allOk': '所有资源已成功应用',
   'pages.models.deploy.cluster': '目标集群',
@@ -661,26 +677,33 @@ export default {
   'pages.models.deploy.namespace.help': '不存在会自动创建（如下方勾选）',
   'pages.models.deploy.createNamespace': '不存在时自动创建',
   'pages.models.deploy.instance': '实例名（可选）',
-  'pages.models.deploy.instance.help': '留空 = 单实例（部署名 = 模型名）；填了 = 部署名为「模型名-实例名」，允许同集群多实例共存',
+  'pages.models.deploy.instance.help':
+    '留空 = 单实例（部署名 = 模型名）；填了 = 部署名为「模型名-实例名」，允许同集群多实例共存',
   'pages.models.deploy.replicas': '副本数',
   'pages.models.deploy.gpuCount': 'GPU 数量',
   'pages.models.deploy.gpuType': 'GPU 资源类型',
   'pages.models.deploy.gpuType.nvidia': 'nvidia.com/gpu（原生）',
   'pages.models.deploy.gpuType.volcano': 'volcano.sh/vgpu-*（vGPU 切分）',
-  'pages.models.deploy.gpuType.help': 'volcano 选项要求集群安装了 volcano-vgpu-device-plugin 插件',
+  'pages.models.deploy.gpuType.help':
+    'volcano 选项要求集群安装了 volcano-vgpu-device-plugin 插件',
   'pages.models.deploy.vgpu.memory': '单卡显存',
-  'pages.models.deploy.vgpu.memory.help': 'volcano.sh/vgpu-memory，每个 vGPU slot 可用显存（MiB）。留空 = 整卡',
+  'pages.models.deploy.vgpu.memory.help':
+    'volcano.sh/vgpu-memory，每个 vGPU slot 可用显存（MiB）。留空 = 整卡',
   'pages.models.deploy.vgpu.cores': '单卡算力',
-  'pages.models.deploy.vgpu.cores.help': 'volcano.sh/vgpu-cores，每个 vGPU slot 可用 SM 百分比（0-100）。留空 = 整卡',
-  'pages.models.deploy.resources': 'CPU / 内存 request / limit（留空 = 不设置，由调度器决定）',
+  'pages.models.deploy.vgpu.cores.help':
+    'volcano.sh/vgpu-cores，每个 vGPU slot 可用 SM 百分比（0-100）。留空 = 整卡',
+  'pages.models.deploy.resources':
+    'CPU / 内存 request / limit（留空 = 不设置，由调度器决定）',
   'pages.models.deploy.resources.cpu.request': 'CPU request',
   'pages.models.deploy.resources.cpu.limit': 'CPU limit',
   'pages.models.deploy.resources.memory.request': 'Memory request',
   'pages.models.deploy.resources.memory.limit': 'Memory limit',
   'pages.models.deploy.hfToken': 'HuggingFace Token（可选）',
-  'pages.models.deploy.hfToken.help': '门控模型（Llama 4 等）从 HF 下载权重时必填；落 Secret，容器通过 envFrom 拿到 HF_TOKEN',
+  'pages.models.deploy.hfToken.help':
+    '门控模型（Llama 4 等）从 HF 下载权重时必填；落 Secret，容器通过 envFrom 拿到 HF_TOKEN',
   'pages.models.deploy.extraArgs': '附加启动参数（可选）',
-  'pages.models.deploy.extraArgs.help': '每行一个，会追加到模型的 default_args 之后；vLLM 同名 flag 后者覆盖前者，可用于覆盖默认',
+  'pages.models.deploy.extraArgs.help':
+    '每行一个，会追加到模型的 default_args 之后；vLLM 同名 flag 后者覆盖前者，可用于覆盖默认',
   'pages.models.deploy.pvc.section': '权重缓存 PVC',
   'pages.models.deploy.pvc.enabled': '启用 PVC 缓存',
   'pages.models.deploy.pvc.help':
@@ -712,29 +735,35 @@ export default {
   'pages.models.registry.filter.license': '许可证',
   // form labels
   'pages.models.registry.form.name': '名称（DNS-1035 label）',
-  'pages.models.registry.form.name.help': '小写字母开头，可含小写字母 / 数字 / 连字符，以字母数字结尾（不能含点；后续会直接作为 Service / Deployment 的 name 使用）',
+  'pages.models.registry.form.name.help':
+    '小写字母开头，可含小写字母 / 数字 / 连字符，以字母数字结尾（不能含点；后续会直接作为 Service / Deployment 的 name 使用）',
   'pages.models.registry.form.displayName': '展示名',
   'pages.models.registry.form.description': '描述',
   'pages.models.registry.form.family': '系列',
   'pages.models.registry.form.runtime': '运行时',
   'pages.models.registry.form.image': '容器镜像',
-  'pages.models.registry.form.image.help': '完整镜像引用（含 tag）。vLLM 官方镜像为 vllm/vllm-openai:<version>',
+  'pages.models.registry.form.image.help':
+    '完整镜像引用（含 tag）。vLLM 官方镜像为 vllm/vllm-openai:<version>',
   'pages.models.registry.form.hf': 'HuggingFace 仓库 ID',
-  'pages.models.registry.form.hf.help': '如 Qwen/Qwen2.5-7B-Instruct；留空可在 default_args 中传入本地模型路径',
+  'pages.models.registry.form.hf.help':
+    '如 Qwen/Qwen2.5-7B-Instruct；留空可在 default_args 中传入本地模型路径',
   'pages.models.registry.form.defaultArgs': '默认启动参数',
-  'pages.models.registry.form.defaultArgs.help': '每行一个参数（flag 与值各占一行）。不要在此处加 --model（部署时由 HuggingFace ID 自动注入）',
+  'pages.models.registry.form.defaultArgs.help':
+    '每行一个参数（flag 与值各占一行）。不要在此处加 --model（部署时由 HuggingFace ID 自动注入）',
   'pages.models.registry.form.recommendedGPU': '推荐 GPU',
   'pages.models.registry.form.recommendedGPU.help': '数量 × 显存 × 型号',
   'pages.models.registry.form.recommendedGPU.count': '数量',
   'pages.models.registry.form.recommendedGPU.memory': '显存 (GiB)',
   'pages.models.registry.form.recommendedGPU.model': '型号',
   'pages.models.registry.form.license': '许可证',
-  'pages.models.registry.form.license.placeholder': '如 apache-2.0 / llama3.1 / deepseek',
+  'pages.models.registry.form.license.placeholder':
+    '如 apache-2.0 / llama3.1 / deepseek',
   // empty state
   'pages.models.registry.empty.title': '暂无模型',
   // roadmap banner
   'pages.models.registry.roadmap.title': '即将推出',
-  'pages.models.registry.roadmap.desc': '模型部署、在线 chat 调试、OpenAI 兼容路由、Volcano gang scheduling 分布式微调',
+  'pages.models.registry.roadmap.desc':
+    '模型部署、在线 chat 调试、OpenAI 兼容路由、Volcano gang scheduling 分布式微调',
   // pages.common.* — shared UI verbs / section headers used by P15+
   // pages. New pages should reach for these first instead of redefining
   // identical strings under their own namespace.
@@ -748,6 +777,46 @@ export default {
   'pages.common.runtime': '运行时配置',
   'pages.common.tuning': '调优参数',
   'pages.common.loading': '加载中…',
+  'pages.common.refresh': '刷新',
+  'pages.common.actions': '操作',
+
+  // P16-B — deployed-instance discovery (DeploymentsDrawer)
+  'pages.models.deployments.title': '已部署实例',
+  'pages.models.deployments.empty': '该模型当前没有正在运行的实例',
+  'pages.models.deployments.instanceSuffix': '实例后缀：{v}',
+  'pages.models.deployments.col.status': '状态',
+  'pages.models.deployments.col.cluster': '集群',
+  'pages.models.deployments.col.namespace': '命名空间',
+  'pages.models.deployments.col.name': '部署名',
+  'pages.models.deployments.col.age': '运行时长',
+  'pages.models.deployments.partialFail.title': '部分集群查询失败',
+  'pages.models.deployments.action.viewAll': '查看已部署实例',
+  'pages.models.deployments.action.chat': '打开 chat 调试',
+  'pages.models.deployments.action.chatDisabled': '实例就绪后可调试',
+  'pages.models.deployments.action.describe': '在工作负载页查看详情',
+  'pages.models.deployments.delete.confirm':
+    '确认删除 {name}（集群 {cluster}）的 Deployment？',
+  'pages.models.deployments.delete.note':
+    '只会删除 Deployment；同名 Service / PVC / Secret 会留下需手动清理。',
+  'pages.models.deployments.delete.success': '已删除 Deployment',
+
+  // P16-B — chat 调试 (ChatDrawer)
+  'pages.models.chat.title': 'Chat 调试',
+  'pages.models.chat.clear': '清空对话',
+  'pages.models.chat.send': '发送',
+  'pages.models.chat.thinking': '推理中…',
+  'pages.models.chat.input.placeholder':
+    '输入消息，Enter 发送 / Shift+Enter 换行',
+  'pages.models.chat.streamNote':
+    '当前为非流式：完整回复返回后一次性显示。流式输出在 P16-C 上线。',
+  'pages.models.chat.usage':
+    '本轮 tokens：输入 {in} / 输出 {out} / 合计 {total}',
+  'pages.models.chat.empty.title': '开始一轮对话',
+  'pages.models.chat.empty.desc': '直接和该实例聊天用来快速验证推理是否正常。',
+  'pages.models.chat.error.title': '请求失败',
+  'pages.models.chat.error.emptyReply':
+    '推理后端返回空回复，可能是 prompt 被截断或 model 参数不匹配。',
+  'pages.models.chat.error.unknown': '未知错误',
 
   // monitoring page — 自绘，依赖 victoria-metrics（硬）+ node-exporter
   // / kube-state-metrics（软：缺哪个就对应面板空）
@@ -765,7 +834,8 @@ export default {
   'pages.monitoring.kpi.mem.absolute': '{used} / {total} GiB',
   'pages.monitoring.kpi.absolute.unavailable': '需要 node-exporter',
   'pages.monitoring.kpi.pods': 'Pods',
-  'pages.monitoring.kpi.pods.empty': 'kube-state-metrics 未启用，无 Pod 状态数据',
+  'pages.monitoring.kpi.pods.empty':
+    'kube-state-metrics 未启用，无 Pod 状态数据',
   'pages.monitoring.filter.node.placeholder': '搜索节点名',
   'pages.monitoring.filter.pod.placeholder': '搜索 Pod（按 namespace/name）',
   'pages.monitoring.section.nodes': '节点',
@@ -837,7 +907,8 @@ export default {
   'pages.logging.results.title': '结果',
   'pages.logging.results.count': '{n} 条',
   'pages.logging.results.empty': '无匹配的日志条目',
-  'pages.logging.truncated': '结果已截断到前 {n} 条；调整查询或缩小窗口以获取更精确的结果',
+  'pages.logging.truncated':
+    '结果已截断到前 {n} 条；调整查询或缩小窗口以获取更精确的结果',
   'pages.logging.error.title': '日志查询失败',
 
   // Grafana 主页（escape hatch）
@@ -957,7 +1028,6 @@ export default {
   'pages.gpuHour.col.hours': 'GPU-Hours',
   'pages.gpuHour.col.share': '占比',
 
-
   // plugin management
   'pages.plugins.title': '插件管理',
   'pages.plugins.subtitle': '管理 Helm Chart 插件',
@@ -1073,7 +1143,8 @@ export default {
   'errors.PROXY_UPSTREAM_ERROR': '反向代理上游错误',
 
   // login
-  'pages.login.subtitle': 'Kubernetes 多集群管理 + GPU 算力调度 + 模型服务的一体化控制面',
+  'pages.login.subtitle':
+    'Kubernetes 多集群管理 + GPU 算力调度 + 模型服务的一体化控制面',
   'pages.login.username.placeholder': '用户名',
   'pages.login.username.required': '请输入用户名',
   'pages.login.password.placeholder': '密码',
@@ -1081,7 +1152,8 @@ export default {
   'pages.login.submit': '登录',
   'pages.login.error.incorrect': '用户名或密码错误',
   'pages.login.error.failed': '登录失败，请重试',
-  'pages.login.defaults.hint': '当前部署仍在使用默认凭据：{username} / {password}，登录后请尽快修改。',
+  'pages.login.defaults.hint':
+    '当前部署仍在使用默认凭据：{username} / {password}，登录后请尽快修改。',
 
   // clusters
   'pages.clusters.title': '集群管理',
@@ -1160,7 +1232,8 @@ export default {
   'pages.nodes.cordon.cancel': '取消',
   'pages.nodes.cordon.success': '已禁用调度',
   'pages.nodes.uncordon.confirmTitle': '启用调度（uncordon）',
-  'pages.nodes.uncordon.confirmBody': '允许调度器再次往节点 {name} 上排 Pod。继续吗？',
+  'pages.nodes.uncordon.confirmBody':
+    '允许调度器再次往节点 {name} 上排 Pod。继续吗？',
   'pages.nodes.uncordon.ok': '启用调度',
   'pages.nodes.uncordon.success': '已启用调度',
   'pages.nodes.detail.basic': '基本信息',
@@ -1204,7 +1277,8 @@ export default {
   'pages.workloads.top.col.memory': '内存',
   'pages.workloads.top.meta': '采样时间: {ts} · 窗口: {window}',
   'pages.workloads.top.unavailable.title': '指标暂不可用',
-  'pages.workloads.top.unavailable.subtitle': '请确认 Metrics Server 插件已启用',
+  'pages.workloads.top.unavailable.subtitle':
+    '请确认 Metrics Server 插件已启用',
   'pages.workloads.top.unavailable.action': '前往插件管理',
   'pages.workloads.describe': '详情',
   'pages.workloads.crd.viewInstances': '查看实例',
@@ -1253,7 +1327,6 @@ export default {
   'pages.workloads.col.reason': '原因',
   'pages.workloads.col.volumeMode': '卷模式',
   'pages.workloads.col.volumeAttributesClass': '卷属性类',
-
 
   // global namespace picker (top bar)
   'namespacePicker.label': '命名空间',

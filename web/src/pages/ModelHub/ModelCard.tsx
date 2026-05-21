@@ -3,6 +3,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
+  RocketOutlined,
 } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import { Avatar, Button, Card, Space, Tag, Tooltip, Typography } from 'antd';
@@ -20,6 +21,11 @@ interface Props {
   onDuplicate: (m: Model) => void;
   onDelete: (m: Model) => void;
   onDeploy: (m: Model) => void;
+  // Optional — when present, opens the DeploymentsDrawer for this
+  // model. Omitting it hides the "已部署" icon entirely so contexts
+  // that don't wire the drawer (e.g. a future picker mode) don't
+  // show a dead button.
+  onViewDeployments?: (m: Model) => void;
 }
 
 // ModelCard renders one catalog entry in the family-grouped grid.
@@ -36,6 +42,7 @@ const ModelCard: React.FC<Props> = ({
   onDuplicate,
   onDelete,
   onDeploy,
+  onViewDeployments,
 }) => {
   const intl = useIntl();
   const meta =
@@ -203,6 +210,20 @@ const ModelCard: React.FC<Props> = ({
             />
           </Tooltip>
           <Space size={0}>
+            {onViewDeployments && (
+              <Tooltip
+                title={intl.formatMessage({
+                  id: 'pages.models.deployments.action.viewAll',
+                })}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<RocketOutlined />}
+                  onClick={() => onViewDeployments(model)}
+                />
+              </Tooltip>
+            )}
             <Tooltip
               title={intl.formatMessage({
                 id: 'pages.models.registry.action.duplicate',

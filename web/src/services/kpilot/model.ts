@@ -277,3 +277,68 @@ export function deployModel(
     params: dryRun ? { dry_run: 'true' } : undefined,
   });
 }
+
+// ----- P16-B: cross-cluster deployed instance discovery -----
+
+export type ModelInstanceStatus = 'Running' | 'Progressing' | 'Failed';
+
+export interface ModelInstance {
+  cluster_id: string;
+  cluster_name: string;
+  namespace: string;
+  name: string;
+  instance_suffix: string;
+  image?: string;
+  replicas: number;
+  ready_replicas: number;
+  available_replicas: number;
+  created_at: string;
+  service_port: number;
+  status: ModelInstanceStatus;
+}
+
+export interface ModelInstanceError {
+  cluster_id: string;
+  cluster_name: string;
+  error: string;
+}
+
+export interface ModelInstancesResponse {
+  model_id: number;
+  instances: ModelInstance[];
+  errors?: ModelInstanceError[];
+}
+
+// listModelDeployments fans out across every online worker on the
+// server side; the response groups all hits into a flat instances
+// array plus a per-cluster errors array for partial failures.
+export function listModelDeployments(id: number) {
+  return request<ModelInstancesResponse>(
+    `/api/v1/models/${id}/deployments`,
+    { method: 'GET' },
+  );
+}
+
+// ----- P16-B: chat completions reverse proxy -----
+
+// chatCompletions targets the inference Service the deployment
+// generator created. Body shape is OpenAI-compat; we don't model
+// it here (frontend passes a free object) because vLLM / SGLang /
+// TGI each support slightly different extension fields. The
+// server proxy is fully buffered so stream:true still works but
+// yields a single end-of-turn payload; streaming UI lands in P16-C.
+export interface ChatTarget {
+  clusterId: string;
+  namespace: string;
+  name: string;
+}
+
+export function chatCompletions<T = unknown>(target: ChatTarget, body: unknown) {
+  return request<T>(
+    `/api/v1/clusters/${encodeURIComponent(target.clusterId)}/inference/${encodeURIComponent(target.namespace)}/${encodeURIComponent(target.name)}/chat/completions`,
+    {
+      method: 'POST',
+      data: body,
+    },
+  );
+}

@@ -19,7 +19,8 @@ export default {
   'pages.compute.landing.empty.hint':
     'Add and connect a cluster in Cluster Management first, then come back here',
   'pages.compute.landing.empty.action': 'Go to Cluster Management',
-  'pages.compute.volcano.notInstalled.title': 'Volcano is not installed on this cluster',
+  'pages.compute.volcano.notInstalled.title':
+    'Volcano is not installed on this cluster',
   'pages.compute.volcano.notInstalled.subTitle':
     'Queue / Job / PodGroup are provided by the Volcano scheduler. Enable the Volcano plugin on this cluster, then come back.',
   'pages.compute.volcano.notInstalled.action': 'Open Plugins',
@@ -27,7 +28,7 @@ export default {
   // Form / YAML dual-view shared copy
   'pages.compute.form.tab.form': 'Form',
   'pages.compute.form.tab.yaml': 'YAML',
-  'pages.compute.form.yamlError': 'YAML parse failed, can\'t switch view',
+  'pages.compute.form.yamlError': "YAML parse failed, can't switch view",
 
   // Queue form + actions
   'pages.compute.queue.create': 'New Queue',
@@ -35,8 +36,10 @@ export default {
   'pages.compute.queue.col.detail': 'Spec / Allocated',
   'pages.compute.queue.action.open': 'Open',
   'pages.compute.queue.action.close': 'Close',
-  'pages.compute.queue.confirm.open': 'Open queue "{name}"? PodGroups in this queue can be scheduled again.',
-  'pages.compute.queue.confirm.close': 'Close queue "{name}"? No new PodGroups will be scheduled; running ones are unaffected.',
+  'pages.compute.queue.confirm.open':
+    'Open queue "{name}"? PodGroups in this queue can be scheduled again.',
+  'pages.compute.queue.confirm.close':
+    'Close queue "{name}"? No new PodGroups will be scheduled; running ones are unaffected.',
   'pages.compute.queue.opened': 'Open command sent',
   'pages.compute.queue.closed': 'Close command sent',
   'pages.compute.queueForm.title': 'New Volcano Queue',
@@ -46,7 +49,8 @@ export default {
   'pages.compute.queueForm.success': 'Queue created',
   'pages.compute.queueForm.updated': 'Queue updated',
   'pages.compute.queueForm.name': 'Name',
-  'pages.compute.queueForm.name.extra': 'DNS-1123: lowercase, digits, hyphens, up to 63 chars',
+  'pages.compute.queueForm.name.extra':
+    'DNS-1123: lowercase, digits, hyphens, up to 63 chars',
   // ResourceIntro — one-line "what is this" hint at the top of each CR page
   'pages.compute.intro.queue':
     'Resource-pool abstraction. Allocates exclusive/shared quotas to workloads; the capacity / proportion plugins divide cluster resources by weight.',
@@ -61,7 +65,7 @@ export default {
   'pages.compute.intro.jobflow':
     'DAG orchestration over Volcano Jobs. Each node references a JobTemplate; dependsOn (optionally with HTTP / TCP / task-status probes) defines edges. Fits pipelines like data-prep → train → eval. Requires the jobflow sub-chart to be enabled.',
   'pages.compute.intro.jobtemplate':
-    'Reusable Volcano Job blueprint. Does nothing on its own — referenced by JobFlow, so you don\'t inline a full JobSpec in every flow node. Requires the jobflow sub-chart.',
+    "Reusable Volcano Job blueprint. Does nothing on its own — referenced by JobFlow, so you don't inline a full JobSpec in every flow node. Requires the jobflow sub-chart.",
   'pages.compute.intro.numatopology':
     'Per-node NUMA topology + CPU layout. Auto-maintained by the volcano-resource-exporter DaemonSet (read-only). The numa-aware plugin scores nodes using this data.',
   'pages.compute.intro.nodeshard':
@@ -69,7 +73,7 @@ export default {
   'pages.compute.intro.colocationconfiguration':
     'Memory-QoS overlay for online/offline colocation. Configures memory.high / memory.low / memory.min cgroup ratios for the matchLabels-selected pods. Requires volcano-agent + kernel cgroup memory support.',
   'pages.compute.intro.vgpu':
-    'Live Volcano vGPU breakdown: every physical card\'s UUID / model / memory + compute utilization, and the Pods currently slicing it. Requires the volcano-vgpu-device-plugin installed cluster-side (Plugins → vGPU), and deviceshare.VGPUEnable turned on in the scheduler config.',
+    "Live Volcano vGPU breakdown: every physical card's UUID / model / memory + compute utilization, and the Pods currently slicing it. Requires the volcano-vgpu-device-plugin installed cluster-side (Plugins → vGPU), and deviceshare.VGPUEnable turned on in the scheduler config.",
 
   // vGPU page
   'pages.compute.vgpu.kpi.nodes.healthy': '{n} healthy',
@@ -102,7 +106,7 @@ export default {
   'pages.compute.jobForm.immutable.banner.title':
     'Most Volcano Job fields are immutable after creation',
   'pages.compute.jobForm.immutable.banner.desc':
-    'Only minAvailable, each task\'s replicas, and priorityClassName can be updated. To change the image, command, env, resources, imagePullPolicy, or any other field, delete this Job and create a new one.',
+    "Only minAvailable, each task's replicas, and priorityClassName can be updated. To change the image, command, env, resources, imagePullPolicy, or any other field, delete this Job and create a new one.",
   'pages.compute.jobForm.immutable.violation':
     'These fields are immutable on a Volcano Job: {fields}. Delete the Job and recreate it.',
   'pages.compute.vgpu.card.col.cores.tip':
@@ -134,14 +138,17 @@ export default {
   'pages.compute.vgpu.notInstalled.action': 'Open Plugins',
 
   'pages.compute.queueForm.weight': 'Weight',
-  'pages.compute.queueForm.weight.extra': 'Resources are split between queues proportional to weight; higher = preferred',
+  'pages.compute.queueForm.weight.extra':
+    'Resources are split between queues proportional to weight; higher = preferred',
   'pages.compute.queueForm.priority': 'Priority',
   'pages.compute.queueForm.priority.extra':
     'Optional, non-negative integer (default 0). Higher = scheduled first AND reclaimed last (counter-intuitive: high-priority queues lose resources last).',
   'pages.compute.queueForm.reclaimable': 'Reclaimable',
-  'pages.compute.queueForm.reclaimable.extra': 'Allow other queues to reclaim this queue\'s resources under contention',
+  'pages.compute.queueForm.reclaimable.extra':
+    "Allow other queues to reclaim this queue's resources under contention",
   'pages.compute.queueForm.parent': 'Parent queue',
-  'pages.compute.queueForm.parent.extra': 'Optional — set when building hierarchical queues',
+  'pages.compute.queueForm.parent.extra':
+    'Optional — set when building hierarchical queues',
   'pages.compute.queueForm.capability': 'Capability (resource cap)',
   'pages.compute.queueForm.capability.extra':
     'Upper resource bound. Keys can be any K8s resource: cpu / memory / nvidia.com/gpu / volcano.sh/vgpu-{number,memory,cores}. Leave empty to keep unlimited.',
@@ -164,7 +171,8 @@ export default {
   'pages.compute.queueForm.affinity.preferred': 'Affinity – preferred',
   'pages.compute.queueForm.antiAffinity.required': 'Anti-affinity – required',
   'pages.compute.queueForm.antiAffinity.preferred': 'Anti-affinity – preferred',
-  'pages.compute.queueForm.affinity.placeholder': 'Comma- or enter-separated nodeGroup names',
+  'pages.compute.queueForm.affinity.placeholder':
+    'Comma- or enter-separated nodeGroup names',
 
   // Job form + actions
   'pages.compute.job.create': 'New Job',
@@ -175,7 +183,8 @@ export default {
   'pages.compute.job.action.complete': 'Complete',
   'pages.compute.job.action.terminate': 'Terminate',
   'pages.compute.job.action.confirm': 'Run "{action}" on job "{name}"?',
-  'pages.compute.job.commandSent': 'Command sent — the controller will process it shortly',
+  'pages.compute.job.commandSent':
+    'Command sent — the controller will process it shortly',
   'pages.compute.jobForm.title': 'New Volcano Job',
   'pages.compute.jobForm.editTitle': 'Edit Volcano Job',
   'pages.compute.jobForm.submit': 'Submit',
@@ -207,7 +216,7 @@ export default {
     'Go duration string (e.g. 1h30m / 45m / 2h). Hint consumed by the sla plugin and estimate-aware schedulers.',
   'pages.compute.jobForm.networkTopology': 'Network topology',
   'pages.compute.jobForm.networkTopology.extra':
-    'Works with HyperNode CRD: bind the Job\'s pods to a topology domain. Volcano propagates this to the generated PodGroup.',
+    "Works with HyperNode CRD: bind the Job's pods to a topology domain. Volcano propagates this to the generated PodGroup.",
   'pages.compute.jobForm.ntMode': 'Mode',
   'pages.compute.jobForm.ntMode.placeholder': 'Disabled',
   'pages.compute.jobForm.ntTierAllowed': 'highestTierAllowed',
@@ -236,10 +245,10 @@ export default {
     'Other resources (nvidia.com/gpu / ephemeral-storage / custom extended)',
   'pages.compute.queueForm.gpu.number': 'vGPU slots',
   'pages.compute.queueForm.gpu.number.tip':
-    'Queue-wide vGPU slot quota (volcano.sh/vgpu-number). Sum of all running pods\' vgpu-number cannot exceed this. Empty = no limit.',
+    "Queue-wide vGPU slot quota (volcano.sh/vgpu-number). Sum of all running pods' vgpu-number cannot exceed this. Empty = no limit.",
   'pages.compute.queueForm.gpu.memory': 'vGPU memory',
   'pages.compute.queueForm.gpu.memory.tip':
-    'Queue-wide vGPU memory quota in MiB (volcano.sh/vgpu-memory). Sum of all running pods\' vgpu-memory cannot exceed this. Empty = no limit.',
+    "Queue-wide vGPU memory quota in MiB (volcano.sh/vgpu-memory). Sum of all running pods' vgpu-memory cannot exceed this. Empty = no limit.",
   'pages.compute.queueForm.gpu.cores': 'vGPU cores',
   'pages.compute.queueForm.gpu.cores.tip':
     'Queue-wide vGPU compute share quota (volcano.sh/vgpu-cores, summed %). Empty = no limit. Advisory: HAMi does not hard-enforce SM time-slicing by default.',
@@ -250,7 +259,8 @@ export default {
     'imagePullPolicy. Leave empty to let kubelet derive from the image tag (:latest / no tag → Always; otherwise → IfNotPresent).',
   'pages.compute.jobForm.task.command': 'command',
   'pages.compute.jobForm.task.args': 'args',
-  'pages.compute.jobForm.task.resources': 'Resource requests (empty = unlimited)',
+  'pages.compute.jobForm.task.resources':
+    'Resource requests (empty = unlimited)',
   'pages.compute.jobForm.task.gpu.number': 'GPU count',
   'pages.compute.jobForm.task.gpu.number.tip':
     'Requested vGPU slots (volcano.sh/vgpu-number). 1 = whole card on a non-shared cluster; under HAMi this is the number of slices. Empty = no GPU.',
@@ -266,7 +276,8 @@ export default {
   'pages.compute.cronJob.col.state': 'State',
   'pages.compute.cronJob.action.suspend': 'Suspend',
   'pages.compute.cronJob.action.resume': 'Resume',
-  'pages.compute.cronJob.confirm.suspend': 'Suspend cronjob "{name}"? No new jobs will trigger until you resume.',
+  'pages.compute.cronJob.confirm.suspend':
+    'Suspend cronjob "{name}"? No new jobs will trigger until you resume.',
   'pages.compute.cronJob.confirm.resume': 'Resume cronjob "{name}"?',
   'pages.compute.cronJob.suspended': 'Suspended',
   'pages.compute.cronJob.resumed': 'Resumed',
@@ -277,11 +288,12 @@ export default {
   'pages.compute.cronJobForm.success': 'CronJob created',
   'pages.compute.cronJobForm.updated': 'CronJob updated',
   'pages.compute.cronJobForm.schedule': 'Cron schedule',
-  'pages.compute.cronJobForm.schedule.extra': 'Standard 5-field cron, e.g. "0 * * * *" = every hour at :00',
+  'pages.compute.cronJobForm.schedule.extra':
+    'Standard 5-field cron, e.g. "0 * * * *" = every hour at :00',
   'pages.compute.cronJobForm.concurrency': 'Concurrency policy',
   'pages.compute.cronJobForm.timeZone': 'Time zone',
   'pages.compute.cronJobForm.timeZone.extra':
-    'IANA TZ name (e.g. Asia/Shanghai). Leave empty to use the controller-manager container\'s local TZ.',
+    "IANA TZ name (e.g. Asia/Shanghai). Leave empty to use the controller-manager container's local TZ.",
   'pages.compute.cronJobForm.startingDeadline': 'startingDeadlineSeconds',
   'pages.compute.cronJobForm.startingDeadline.extra':
     'Max seconds late a missed trigger can be before it counts as Failed. Empty = no limit.',
@@ -316,8 +328,7 @@ export default {
   'pages.compute.overview.queues.empty':
     'No queues, or no capability / allocated data on any queue',
   'pages.compute.overview.queues.col.queue': 'Queue',
-  'pages.compute.overview.jobs.empty':
-    'No Volcano jobs in this namespace',
+  'pages.compute.overview.jobs.empty': 'No Volcano jobs in this namespace',
   'pages.compute.overview.hypernodes.title': 'HyperNode tier distribution',
   'pages.compute.overview.hypernodes.subtitle': '{n} HyperNode(s)',
   'pages.compute.overview.kpi.wait.max': 'Max wait',
@@ -365,7 +376,8 @@ export default {
   'pages.compute.scheduler.intro':
     'Volcano schedules in two layers: actions control the per-round workflow (when to enqueue / allocate / preempt); plugins layer scoring + constraints in tiers (a tier must pass before the next one runs). Hover the ⓘ icons for one-liners; the collapsible reference at the bottom lists every action and plugin.',
   'pages.compute.scheduler.save': 'Save',
-  'pages.compute.scheduler.saved': 'Saved — Volcano will pick up the new config in a few seconds',
+  'pages.compute.scheduler.saved':
+    'Saved — Volcano will pick up the new config in a few seconds',
   'pages.compute.scheduler.addTier': 'Add Tier',
   'pages.compute.scheduler.actions': 'Actions',
   'pages.compute.scheduler.actions.tip':
@@ -374,8 +386,10 @@ export default {
   'pages.compute.scheduler.tiers': 'Plugin Tiers',
   'pages.compute.scheduler.tiers.tip':
     'A tier is a group of plugins. Tiers are evaluated in order; a tier must pass before the next one runs. Convention: tier 1 holds hard constraints (priority / gang), tier 2 holds scoring + fairness (drf / proportion / nodeorder).',
-  'pages.compute.scheduler.plugins.placeholder': 'Pick the plugins for this tier',
-  'pages.compute.scheduler.noTiers': 'No tiers yet. Click "Add Tier" above to start.',
+  'pages.compute.scheduler.plugins.placeholder':
+    'Pick the plugins for this tier',
+  'pages.compute.scheduler.noTiers':
+    'No tiers yet. Click "Add Tier" above to start.',
   'pages.compute.scheduler.help.actions': 'Action reference',
   'pages.compute.scheduler.help.plugins': 'Plugin reference',
   'pages.compute.scheduler.notFound.title': 'Scheduler ConfigMap not found',
@@ -403,7 +417,7 @@ export default {
     'This plugin does not register any session callbacks gated by enable switches.',
   'pages.compute.scheduler.plugin.extras': 'Other fields',
   'pages.compute.scheduler.plugin.extras.hint':
-    'The following keys are outside KPilot\'s known schema and are preserved as-is. Switch to the YAML view to edit them.',
+    "The following keys are outside KPilot's known schema and are preserved as-is. Switch to the YAML view to edit them.",
   'pages.compute.scheduler.action.params': 'Action arguments (configurations)',
   'pages.compute.scheduler.metrics': 'Metrics data source',
   'pages.compute.scheduler.metrics.tip':
@@ -441,7 +455,8 @@ export default {
 
   // QueueForm capability tooltips
   'pages.compute.queueForm.tooltip.cpu': 'K8s quantity string. e.g. 10, 500m',
-  'pages.compute.queueForm.tooltip.memory': 'K8s quantity string. e.g. 100Gi, 512Mi',
+  'pages.compute.queueForm.tooltip.memory':
+    'K8s quantity string. e.g. 100Gi, 512Mi',
   'pages.compute.queueForm.tooltip.vgpuMemory': 'Unit: MiB',
   'pages.compute.queueForm.tooltip.vgpuCores': 'Percentage 0-100',
 
@@ -478,12 +493,15 @@ export default {
   'pages.compute.podGroupForm.name': 'Name',
   'pages.compute.podGroupForm.namespace': 'Namespace',
   'pages.compute.podGroupForm.queue': 'Queue',
-  'pages.compute.podGroupForm.queue.extra': 'Leave empty to use the default queue',
+  'pages.compute.podGroupForm.queue.extra':
+    'Leave empty to use the default queue',
   'pages.compute.podGroupForm.priority': 'priorityClassName',
-  'pages.compute.podGroupForm.minMember': 'Min members to co-schedule (minMember)',
+  'pages.compute.podGroupForm.minMember':
+    'Min members to co-schedule (minMember)',
   'pages.compute.podGroupForm.minMember.extra':
     'Gang minimum pods. 0 disables gang scheduling — pods schedule independently',
-  'pages.compute.podGroupForm.minTaskMember': 'Per-task minimums (minTaskMember)',
+  'pages.compute.podGroupForm.minTaskMember':
+    'Per-task minimums (minTaskMember)',
   'pages.compute.podGroupForm.minTaskMember.extra':
     'Per-task name → minimum count. Pick one of minTaskMember or subGroupPolicy; new configs should prefer subGroupPolicy (edit via YAML view)',
   'pages.compute.podGroupForm.minTaskMember.add': 'Add task',
@@ -493,7 +511,7 @@ export default {
   'pages.compute.podGroupForm.minResources.add': 'Add resource',
   'pages.compute.podGroupForm.networkTopology': 'Network topology',
   'pages.compute.podGroupForm.networkTopology.extra':
-    'Works with HyperNode CRD: constrain the PodGroup\'s pods to a network topology domain (rack / spine / ...)',
+    "Works with HyperNode CRD: constrain the PodGroup's pods to a network topology domain (rack / spine / ...)",
   'pages.compute.podGroupForm.ntMode': 'Mode',
   'pages.compute.podGroupForm.ntMode.placeholder': 'Disabled',
   'pages.compute.podGroupForm.ntMode.extra':
@@ -534,7 +552,8 @@ export default {
   'pages.compute.hyperNodeForm.member.type': 'Type',
   'pages.compute.hyperNode.selector.exactMatch': 'exactMatch (by name)',
   'pages.compute.hyperNode.selector.regexMatch': 'regexMatch (regex)',
-  'pages.compute.hyperNode.selector.labelMatch': 'labelMatch (by label, Node only)',
+  'pages.compute.hyperNode.selector.labelMatch':
+    'labelMatch (by label, Node only)',
   'pages.compute.hyperNodeForm.member.selectorType': 'Selector',
   'pages.compute.hyperNodeForm.member.exactName': 'Exact name',
   'pages.compute.hyperNodeForm.member.exactName.extra':
@@ -593,9 +612,10 @@ export default {
   'pages.compute.nodeShard.name.extra':
     'DNS-1123 — shard identifier for multi-scheduler setups',
   'pages.compute.nodeShard.nodesDesired': 'Desired nodes',
-  'pages.compute.nodeShard.nodesDesired.required': 'At least one node is required',
+  'pages.compute.nodeShard.nodesDesired.required':
+    'At least one node is required',
   'pages.compute.nodeShard.nodesDesired.extra':
-    "Names of nodes this shard should manage. The controller diffs against the live node set and surfaces toAdd / toRemove.",
+    'Names of nodes this shard should manage. The controller diffs against the live node set and surfaces toAdd / toRemove.',
   'pages.compute.nodeShard.nodesDesired.placeholder':
     'Comma- or enter-separated node names',
   'pages.compute.nodeShard.col.name': 'Name',
@@ -649,9 +669,11 @@ export default {
   'pages.models.registry.edit': 'Edit model',
   'pages.models.registry.duplicate': 'Duplicate as custom',
   'pages.models.registry.action.duplicate': 'Duplicate',
-  'pages.models.registry.search.placeholder': 'Search model / HF ID / description',
+  'pages.models.registry.search.placeholder':
+    'Search model / HF ID / description',
   'pages.models.registry.toolbar.count': '{n} / {total}',
-  'pages.models.registry.empty.noMatch': 'No matches — try clearing the filters',
+  'pages.models.registry.empty.noMatch':
+    'No matches — try clearing the filters',
   'pages.models.registry.noDescription': '(no description)',
   'pages.models.registry.noArgs': '(no launch args — vLLM uses defaults)',
 
@@ -705,8 +727,7 @@ export default {
     '⚠️ Cold start downloads the full model from HuggingFace (Qwen3-0.6B ~1.5 GB / Qwen3-32B ~65 GB / DeepSeek-R1 ~1.3 TB). With PVC enabled it downloads once and pod restarts reuse the cache; with it disabled every pod restart re-downloads.',
   'pages.models.deploy.pvc.size': 'PVC size (GiB)',
   'pages.models.deploy.pvc.storageClass': 'StorageClass (optional)',
-  'pages.models.deploy.pvc.storageClass.placeholder':
-    'Empty = cluster default',
+  'pages.models.deploy.pvc.storageClass.placeholder': 'Empty = cluster default',
   'pages.models.deploy.action.deploy': 'Deploy to cluster',
   'pages.models.deploy.success': 'Deployed {name} to namespace {ns}',
   'pages.models.deploy.partial':
@@ -722,7 +743,8 @@ export default {
   'pages.models.registry.custom': 'Custom',
   'pages.models.registry.delete.confirm': 'Delete model "{name}"?',
   'pages.models.registry.delete.success': 'Deleted',
-  'pages.models.registry.builtinHint': 'Built-in entries cannot be edited or deleted',
+  'pages.models.registry.builtinHint':
+    'Built-in entries cannot be edited or deleted',
   // detail drawer field labels (also used as Descriptions labels)
   'pages.models.registry.col.image': 'Image',
   'pages.models.registry.col.hf': 'HuggingFace ID',
@@ -774,6 +796,49 @@ export default {
   'pages.common.runtime': 'Runtime',
   'pages.common.tuning': 'Tuning',
   'pages.common.loading': 'Loading…',
+  'pages.common.refresh': 'Refresh',
+  'pages.common.actions': 'Actions',
+
+  // P16-B — deployed-instance discovery (DeploymentsDrawer)
+  'pages.models.deployments.title': 'Deployed instances',
+  'pages.models.deployments.empty':
+    'This model has no running instances right now.',
+  'pages.models.deployments.instanceSuffix': 'instance: {v}',
+  'pages.models.deployments.col.status': 'Status',
+  'pages.models.deployments.col.cluster': 'Cluster',
+  'pages.models.deployments.col.namespace': 'Namespace',
+  'pages.models.deployments.col.name': 'Name',
+  'pages.models.deployments.col.age': 'Age',
+  'pages.models.deployments.partialFail.title': 'Some clusters failed to list',
+  'pages.models.deployments.action.viewAll': 'View deployed instances',
+  'pages.models.deployments.action.chat': 'Open chat debug',
+  'pages.models.deployments.action.chatDisabled':
+    'Available once the instance is ready',
+  'pages.models.deployments.action.describe': 'Open in Workloads',
+  'pages.models.deployments.delete.confirm':
+    'Delete the {name} Deployment on cluster {cluster}?',
+  'pages.models.deployments.delete.note':
+    'Only the Deployment is deleted; matching Service / PVC / Secret are left for you to clean up manually.',
+  'pages.models.deployments.delete.success': 'Deployment deleted',
+
+  // P16-B — chat debug (ChatDrawer)
+  'pages.models.chat.title': 'Chat debug',
+  'pages.models.chat.clear': 'Clear conversation',
+  'pages.models.chat.send': 'Send',
+  'pages.models.chat.thinking': 'Thinking…',
+  'pages.models.chat.input.placeholder':
+    'Type a message. Enter to send / Shift+Enter for newline',
+  'pages.models.chat.streamNote':
+    'Non-streaming for now: the full reply lands at once. Streaming arrives in P16-C.',
+  'pages.models.chat.usage':
+    'This turn: {in} in / {out} out / {total} total tokens',
+  'pages.models.chat.empty.title': 'Start a conversation',
+  'pages.models.chat.empty.desc':
+    'Chat directly with this instance to confirm inference is healthy.',
+  'pages.models.chat.error.title': 'Request failed',
+  'pages.models.chat.error.emptyReply':
+    'Backend returned an empty reply — prompt was likely truncated or `model` field mismatched.',
+  'pages.models.chat.error.unknown': 'Unknown error',
 
   // monitoring page — self-rendered. Hard dep: victoria-metrics.
   // Soft deps: node-exporter / kube-state-metrics (each missing
@@ -828,7 +893,8 @@ export default {
   'pages.monitoring.chart.pendingPods': 'Pending pods trend',
   'pages.monitoring.kpi.pods.pending': '{n} pending',
   'pages.monitoring.section.podHealth': 'Pod health (restarts / OOM)',
-  'pages.monitoring.podHealth.empty': 'No restarting or OOM-killed pods in this namespace',
+  'pages.monitoring.podHealth.empty':
+    'No restarting or OOM-killed pods in this namespace',
   'pages.monitoring.podHealth.col.pod': 'Pod',
   'pages.monitoring.podHealth.col.restarts': 'Restarts',
   'pages.monitoring.podHealth.col.ooms': 'OOMs',
@@ -1095,7 +1161,8 @@ export default {
   'errors.WORKER_ERROR': 'Worker returned an error',
   'errors.WORKER_CONFLICT':
     'Resource was modified by someone else. Close and reopen the editor to retry.',
-  'errors.RESOURCE_NOT_AVAILABLE': 'Resource type not available on this cluster',
+  'errors.RESOURCE_NOT_AVAILABLE':
+    'Resource type not available on this cluster',
   'errors.RESOURCE_NOT_AVAILABLE.subtitle':
     'The corresponding CRD is not installed, or the required K8s feature gate (e.g. DRA / MutatingAdmissionPolicy) is not enabled. Enable it on the cluster first.',
   'errors.PLUGIN_NOT_FOUND': 'Plugin not found',
@@ -1127,7 +1194,8 @@ export default {
   'pages.login.submit': 'Login',
   'pages.login.error.incorrect': 'Incorrect username or password',
   'pages.login.error.failed': 'Login failed, please try again',
-  'pages.login.defaults.hint': 'This deployment still uses the default credentials: {username} / {password}. Please rotate the password after signing in.',
+  'pages.login.defaults.hint':
+    'This deployment still uses the default credentials: {username} / {password}. Please rotate the password after signing in.',
 
   // clusters
   'pages.clusters.title': 'Clusters',
@@ -1209,7 +1277,8 @@ export default {
   'pages.nodes.cordon.cancel': 'Cancel',
   'pages.nodes.cordon.success': 'Node cordoned',
   'pages.nodes.uncordon.confirmTitle': 'Uncordon node',
-  'pages.nodes.uncordon.confirmBody': 'Allow the scheduler to place pods on {name} again. Continue?',
+  'pages.nodes.uncordon.confirmBody':
+    'Allow the scheduler to place pods on {name} again. Continue?',
   'pages.nodes.uncordon.ok': 'Uncordon',
   'pages.nodes.uncordon.success': 'Node uncordoned',
   'pages.nodes.detail.basic': 'Basic',
@@ -1304,7 +1373,6 @@ export default {
   'pages.workloads.col.reason': 'Reason',
   'pages.workloads.col.volumeMode': 'Volume Mode',
   'pages.workloads.col.volumeAttributesClass': 'Volume Attributes Class',
-
 
   // global namespace picker (top bar)
   'namespacePicker.label': 'Namespace',
