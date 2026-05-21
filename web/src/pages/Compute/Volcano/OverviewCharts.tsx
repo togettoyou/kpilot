@@ -41,10 +41,16 @@ export default function OverviewCharts({ data }: { data: BundleData }) {
           renders when at least one queue declared GPU resources. */}
       <ClusterCapacityCard cluster={cluster} />
 
+      {/* Hierarchy directly below the cluster capacity card — the
+          tree's per-row chips (cpu/mem/gpu) carry the same numbers
+          the gauges above aggregate, so the eye reads gauge first,
+          tree second for "which queue is doing what". The previous
+          QueueResourceCard was a redundant flat table; dropped. */}
+      <div style={{ marginBottom: 12 }}>
+        <QueueHierarchyCard data={data} />
+      </div>
+
       <Row gutter={[12, 12]} align="stretch">
-        <Col xs={24}>
-          <QueueResourceCard data={data} />
-        </Col>
         {/* Consolidated phase distribution: Job + PodGroup +
             (optionally) JobFlow rendered as horizontal stacked bars
             in one card. Replaces the 3 separate pie charts so phases
@@ -57,10 +63,7 @@ export default function OverviewCharts({ data }: { data: BundleData }) {
         <Col xs={24}>
           <JobByQueueCard data={data} />
         </Col>
-        <Col xs={24} lg={12}>
-          <QueueHierarchyCard data={data} />
-        </Col>
-        <Col xs={24} lg={12}>
+        <Col xs={24}>
           <PendingByQueueCard data={data} />
         </Col>
         {hasHyperNode && (
@@ -341,324 +344,6 @@ function clusterCapacity(data: BundleData): ClusterCapacity {
     gpuUnit: hasVgpuMemory ? 'GiB' : 'count',
     hasGpu,
   };
-}
-
-// ─── Queue resource usage (queue × resource table) ────────────────────
-
-interface QueueResourceRow {
-  name: string;
-  cpu: { allocated: number; total: number };
-  memory: { allocated: number; total: number }; // GiB
-  gpu: { allocated: number; total: number };
-  // Pre-computed for sorting. `maxUtil` is the highest utilization
-  // across resource types when *any* resource is bounded — that
-  // queue can hit a cap, so it sorts by pressure. `unboundedLoad` is
-  // a synthetic score for fully-unbounded queues (no caps anywhere);
-  // they're ranked by absolute consumption so the largest still
-  // surfaces above the idle ones.
-  maxUtil: number;
-  fullyUnbounded: boolean;
-  unboundedLoad: number;
-}
-
-function QueueResourceCard({ data }: { data: BundleData }) {
-  const intl = useIntl();
-  // Build one row per queue with cpu/mem/gpu allocated + total.
-  // The earlier stacked-facet Column chart became hard to read on
-  // realistic clusters (10+ queues × 3-4 facets = a wall of narrow
-  // bars on three different y scales). The table form gives every
-  // queue one row and every resource its own mini utilization bar,
-  // so "which queue × which resource is hot" is a single eye scan.
-  // Same vGPU-memory-preferred mode detection as the cluster
-  // capacity card: if any queue declared vgpu-memory OR the cluster
-  // Nodes advertise it, we render GPU as memory (GiB) rather than
-  // slot/card counts.
-  const clusterCap = data.clusterAllocatable ?? {};
-  const hasVgpuMemory = useMemo(
-    () =>
-      data.queues.some(
-        (q) =>
-          q.capability?.['volcano.sh/vgpu-memory'] ||
-          q.allocated?.['volcano.sh/vgpu-memory'],
-      ) || !!clusterCap['volcano.sh/vgpu-memory'],
-    [data.queues, clusterCap],
-  );
-
-  const { rows, hasGpu } = useMemo(() => {
-    let _hasGpu = false;
-    const out: QueueResourceRow[] = [];
-    // pick = explicit Queue cap when set, else fall back to the
-    // cluster physical Allocatable for the same resource. Mirrors
-    // clusterCapacity() above + the QueueQuota page's row logic so
-    // every "what's my cap" surface tells the same story.
-    const pick = (qVal: string | undefined, clusterKey: string): number => {
-      const q = parseQuantity(qVal);
-      if (q > 0) return q;
-      return parseQuantity(clusterCap[clusterKey]);
-    };
-    for (const q of data.queues) {
-      const cpuAlloc = parseQuantity(q.allocated?.cpu);
-      const cpuCap = pick(q.capability?.cpu, 'cpu');
-      const memAlloc = parseQuantity(q.allocated?.memory) / 1024 ** 3;
-      const memCap = pick(q.capability?.memory, 'memory') / 1024 ** 3;
-      // GPU axis: memory (GiB) when vGPU-memory mode is active,
-      // otherwise slot/card counts. Same detection as
-      // clusterCapacity() so the cluster card and the per-queue
-      // table tell the same story.
-      let gpuAlloc: number;
-      let gpuCap: number;
-      if (hasVgpuMemory) {
-        gpuAlloc =
-          parseQuantity(q.allocated?.['volcano.sh/vgpu-memory']) / 1024;
-        gpuCap =
-          pick(
-            q.capability?.['volcano.sh/vgpu-memory'],
-            'volcano.sh/vgpu-memory',
-          ) / 1024;
-      } else {
-        gpuAlloc =
-          parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
-          parseQuantity(q.allocated?.['nvidia.com/gpu']);
-        gpuCap =
-          pick(
-            q.capability?.['volcano.sh/vgpu-number'],
-            'volcano.sh/vgpu-number',
-          ) + pick(q.capability?.['nvidia.com/gpu'], 'nvidia.com/gpu');
-      }
-      if (gpuAlloc > 0 || gpuCap > 0) _hasGpu = true;
-      const u = (a: number, t: number) => (t > 0 ? a / t : 0);
-      const maxUtil = Math.max(
-        u(cpuAlloc, cpuCap),
-        u(memAlloc, memCap),
-        u(gpuAlloc, gpuCap),
-      );
-      // Fully unbounded = no capability AND no cluster fallback on
-      // any resource. With the cluster-Allocatable fallback in
-      // place this branch is now rare (most clusters always have
-      // some Node resource a queue could consume), but keep the
-      // ordering logic for the truly resource-less case.
-      const fullyUnbounded = cpuCap <= 0 && memCap <= 0 && gpuCap <= 0;
-      const unboundedLoad = cpuAlloc + memAlloc + gpuAlloc;
-      out.push({
-        name: q.name,
-        cpu: { allocated: cpuAlloc, total: cpuCap },
-        memory: { allocated: memAlloc, total: memCap },
-        gpu: { allocated: gpuAlloc, total: gpuCap },
-        maxUtil,
-        fullyUnbounded,
-        unboundedLoad,
-      });
-    }
-    // Sort: bounded queues first (by utilization desc — who's
-    // closest to their cap), then fully-unbounded queues (by raw
-    // consumption desc — who's eating the most). Name tie-breaks
-    // within each block for stable rendering.
-    out.sort((a, b) => {
-      if (a.fullyUnbounded !== b.fullyUnbounded) {
-        return a.fullyUnbounded ? 1 : -1;
-      }
-      if (a.fullyUnbounded) {
-        return (
-          b.unboundedLoad - a.unboundedLoad || a.name.localeCompare(b.name)
-        );
-      }
-      return b.maxUtil - a.maxUtil || a.name.localeCompare(b.name);
-    });
-    return { rows: out, hasGpu: _hasGpu };
-  }, [data.queues, hasVgpuMemory, clusterCap]);
-
-  // Grid columns: queue (160px) + N resource columns (1fr each).
-  const cols = hasGpu ? '160px 1fr 1fr 1fr' : '160px 1fr 1fr';
-
-  return (
-    <Card
-      size="small"
-      style={{ height: '100%' }}
-      title={intl.formatMessage({ id: 'pages.compute.overview.queues.title' })}
-      extra={
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {intl.formatMessage(
-            { id: 'pages.compute.overview.queues.subtitle' },
-            { n: data.queues.length },
-          )}
-        </Text>
-      }
-      styles={{
-        body: { padding: '8px 16px 12px', maxHeight: 420, overflow: 'auto' },
-      }}
-    >
-      {rows.length === 0 ? (
-        <EmptyHint id="pages.compute.overview.queues.empty" />
-      ) : (
-        <div>
-          {/* Header — same grid as data rows so columns align. */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: cols,
-              gap: 16,
-              padding: '6px 0',
-              fontSize: 12,
-              color: 'var(--ant-color-text-tertiary)',
-              borderBottom: '1px solid var(--ant-color-split)',
-            }}
-          >
-            <div>
-              {intl.formatMessage({
-                id: 'pages.compute.overview.queues.col.queue',
-              })}
-            </div>
-            <div>
-              {intl.formatMessage({ id: 'pages.compute.overview.gauge.cpu' })}
-            </div>
-            <div>
-              {intl.formatMessage({
-                id: 'pages.compute.overview.gauge.memory',
-              })}
-            </div>
-            {hasGpu && (
-              <div>
-                {intl.formatMessage({
-                  id: 'pages.compute.overview.gauge.gpu',
-                })}
-              </div>
-            )}
-          </div>
-          {rows.map((r) => (
-            <div
-              key={r.name}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: cols,
-                gap: 16,
-                alignItems: 'center',
-                padding: '8px 0',
-                borderBottom: '1px solid var(--ant-color-split)',
-              }}
-            >
-              <Text
-                strong
-                style={{ fontSize: 13 }}
-                ellipsis={{ tooltip: r.name }}
-              >
-                {r.name}
-              </Text>
-              <UtilCell
-                allocated={r.cpu.allocated}
-                total={r.cpu.total}
-                unit=""
-              />
-              <UtilCell
-                allocated={r.memory.allocated}
-                total={r.memory.total}
-                unit="GiB"
-              />
-              {hasGpu && (
-                <UtilCell
-                  allocated={r.gpu.allocated}
-                  total={r.gpu.total}
-                  unit={hasVgpuMemory ? 'GiB' : ''}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// UtilCell is one cell of the queue × resource table: thin
-// utilization bar + "X / Y unit" + percentage + warning glyph at
-// ≥85%. Renders an em-dash when the queue didn't declare capability
-// for this resource (so the row stays aligned across queues).
-function UtilCell({
-  allocated,
-  total,
-  unit,
-}: {
-  allocated: number;
-  total: number;
-  unit: string;
-}) {
-  const { token } = theme.useToken();
-  if (total <= 0 && allocated <= 0) {
-    return (
-      <span style={{ color: 'var(--ant-color-text-quaternary)', fontSize: 13 }}>
-        —
-      </span>
-    );
-  }
-  const unbounded = total <= 0;
-  const pct = unbounded ? 0 : Math.min(allocated / total, 1);
-  const color = usageColor(pct, token);
-  const overloaded = pct >= 0.85;
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-      }}
-    >
-      <div
-        style={{
-          flex: 1,
-          minWidth: 40,
-          height: 8,
-          // Unbounded queues get a faint diagonal-stripe track so the
-          // empty bar doesn't read as "0% used" (which was the bug
-          // root with allocated=1 / capability=∞ surfaced). Bounded
-          // queues keep the solid neutral track.
-          background: unbounded
-            ? 'repeating-linear-gradient(45deg, var(--ant-color-fill-tertiary) 0 4px, transparent 4px 8px)'
-            : 'var(--ant-color-fill-tertiary)',
-          borderRadius: 2,
-          overflow: 'hidden',
-        }}
-      >
-        {!unbounded && (
-          <div
-            style={{
-              width: `${pct * 100}%`,
-              height: '100%',
-              background: color,
-            }}
-          />
-        )}
-      </div>
-      <div
-        style={{
-          fontSize: 12,
-          fontVariantNumeric: 'tabular-nums',
-          color: 'var(--ant-color-text-secondary)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {unbounded ? (
-          // X/∞ reads as "X out of unlimited" — same shape as the
-          // bounded "X/Y" so the row alignment + scanning rhythm is
-          // preserved, and it can't be mistaken for "limit = X".
-          <>
-            {formatNum(allocated)}/∞{unit ? ` ${unit}` : ''}
-          </>
-        ) : (
-          <>
-            {formatNum(allocated)}/{formatNum(total)}
-            {unit ? ` ${unit}` : ''}{' '}
-            <span style={{ color, fontWeight: 600, marginInlineStart: 2 }}>
-              {(pct * 100).toFixed(0)}%
-            </span>
-          </>
-        )}
-      </div>
-      {overloaded && (
-        <ExclamationCircleFilled
-          style={{ color: token.colorError, fontSize: 12, flexShrink: 0 }}
-        />
-      )}
-    </div>
-  );
 }
 
 // ─── Phase distribution (horizontal stacked bars) ─────────────────────
@@ -971,6 +656,13 @@ interface QueueNodeBuild {
   cpuCap: number;
   memAlloc: number; // GiB
   memCap: number; // GiB
+  // gpu value semantics depend on gpuUnit: 'GiB' = vGPU framebuffer
+  // (used when any queue OR the cluster declares vgpu-memory);
+  // 'count' = slot/card units (sum of vgpu-number + nvidia.com/gpu).
+  // Hidden in the label when both alloc and cap are 0.
+  gpuAlloc: number;
+  gpuCap: number;
+  gpuUnit: 'GiB' | 'count';
   children: QueueNodeBuild[];
 }
 
@@ -980,9 +672,22 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
   // hierarchies are shallow (1-2 levels) and a tree gives us per-row
   // affordances (state chip, cpu allocated/cap) that a polar chart
   // can't.
-  // Same cluster-cap fallback as the cluster gauge + the per-queue
-  // table above — keeps the three Overview surfaces consistent.
+  // Same cluster-cap fallback as the cluster gauge — three
+  // Overview surfaces (gauge / hierarchy / per-row chip) now all
+  // read from the same source-of-truth: explicit Queue cap when
+  // set, cluster Node Allocatable when not.
   const clusterCap = data.clusterAllocatable ?? {};
+  // GPU axis: MiB→GiB when either a queue declares vgpu-memory OR
+  // the cluster Nodes advertise it. Slot/card counts otherwise.
+  const hasVgpuMemory = useMemo(
+    () =>
+      data.queues.some(
+        (q) =>
+          q.capability?.['volcano.sh/vgpu-memory'] ||
+          q.allocated?.['volcano.sh/vgpu-memory'],
+      ) || !!clusterCap['volcano.sh/vgpu-memory'],
+    [data.queues, clusterCap],
+  );
   const { treeData, hasHierarchy } = useMemo<{
     treeData: DataNode[];
     hasHierarchy: boolean;
@@ -997,6 +702,26 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
     };
     const byName = new Map<string, QueueNodeBuild>();
     for (const q of data.queues) {
+      let gpuAlloc: number;
+      let gpuCap: number;
+      if (hasVgpuMemory) {
+        gpuAlloc =
+          parseQuantity(q.allocated?.['volcano.sh/vgpu-memory']) / 1024;
+        gpuCap =
+          pick(
+            q.capability?.['volcano.sh/vgpu-memory'],
+            'volcano.sh/vgpu-memory',
+          ) / 1024;
+      } else {
+        gpuAlloc =
+          parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
+          parseQuantity(q.allocated?.['nvidia.com/gpu']);
+        gpuCap =
+          pick(
+            q.capability?.['volcano.sh/vgpu-number'],
+            'volcano.sh/vgpu-number',
+          ) + pick(q.capability?.['nvidia.com/gpu'], 'nvidia.com/gpu');
+      }
       byName.set(q.name, {
         name: q.name,
         parent: q.parent || undefined,
@@ -1005,6 +730,9 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
         cpuCap: pick(q.capability?.cpu, 'cpu'),
         memAlloc: parseQuantity(q.allocated?.memory) / 1024 ** 3,
         memCap: pick(q.capability?.memory, 'memory') / 1024 ** 3,
+        gpuAlloc,
+        gpuCap,
+        gpuUnit: hasVgpuMemory ? 'GiB' : 'count',
         children: [],
       });
     }
@@ -1024,7 +752,7 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
       children: n.children.length > 0 ? n.children.map(toNode) : undefined,
     });
     return { treeData: roots.map(toNode), hasHierarchy: nested };
-  }, [data.queues, clusterCap]);
+  }, [data.queues, clusterCap, hasVgpuMemory]);
   return (
     <Card
       size="small"
@@ -1087,6 +815,15 @@ function QueueTreeLabel({ node }: { node: QueueNodeBuild }) {
         allocated={node.memAlloc}
         total={node.memCap}
         unit="Gi"
+      />
+      {/* GPU unit suffix matches the value semantics — "Gi" when in
+         vGPU-memory mode (mirrors the mem chip), no suffix when in
+         slot/card count mode (cards aren't a memory unit). */}
+      <ResourceChip
+        name="gpu"
+        allocated={node.gpuAlloc}
+        total={node.gpuCap}
+        unit={node.gpuUnit === 'GiB' ? 'Gi' : ''}
       />
     </Space>
   );
