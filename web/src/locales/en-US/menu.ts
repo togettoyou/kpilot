@@ -98,5 +98,10 @@ export default {
   'menu.compute.resources.nodeshards': 'NodeShard',
   'menu.compute.resources.colocationconfigurations': 'ColocationConfig',
 
+  // Model service platform sider — three static peer pages.
+  'menu.models.catalog': 'Catalog',
+  'menu.models.deployments': 'Deployments',
+  'menu.models.chat': 'Chat',
+
   'menu.account.logout': 'Logout',
 };

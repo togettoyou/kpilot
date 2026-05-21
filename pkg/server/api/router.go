@@ -233,10 +233,12 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// from a catalog row and apply through the worker tunnel.
 		// `?dry_run=true` returns manifests without applying.
 		models.POST("/:id/deploy", handler.DeployModel(gw))
-		// P16-B — cross-cluster fan-out: list every Deployment
-		// labelled `kpilot.io/model-id=<id>` across online workers.
-		// Source of truth is the cluster, not a ModelDeployment table.
-		models.GET("/:id/deployments", handler.ListModelDeployments(gw))
+		// P16-B — cross-cluster + cross-model deployment survey.
+		// Optional ?model_id=N narrows to a single model; no
+		// param returns every KPilot-managed inference Deployment
+		// labelled component=inference. Source of truth is the
+		// cluster, not a ModelDeployment table.
+		models.GET("/deployments", handler.ListAllDeployments(gw))
 	}
 
 	// SPA static fallback — only mounted when STATIC_DIR points at a

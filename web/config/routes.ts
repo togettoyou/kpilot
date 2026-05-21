@@ -189,20 +189,43 @@ export default [
       },
     ],
   },
-  // ─── 模型管理 — global model serving platform ─────────────────────────
-  // Global (not per-cluster) — registry is fleet-wide; deployment will
-  // pick a target cluster as a step inside the workflow rather than at
-  // the top of the URL.
+  // ─── 模型服务 — global model serving platform ─────────────────────────
+  // Global (not per-cluster). Three peer pages under one platform menu,
+  // sibling pattern to /clusters and /compute but with a static sub-menu
+  // (no per-X context to inject dynamically):
+  //   - /models/catalog     模型仓库   (the registry of model presets)
+  //   - /models/deployments 部署实例   (cross-model + cross-cluster survey)
+  //   - /models/chat        Chat 调试  (full-page playground)
   //
-  // Component lives at pages/ModelHub/ rather than pages/Models/ —
-  // Umi's plugin-model auto-scans pages/**/models/** as state-hook
-  // files, and on case-insensitive macOS filesystems "Models" matches
-  // that glob and breaks the build (CaseSensitivePathsPlugin fires).
+  // Pages live under pages/ModelHub/, pages/ModelDeployments/,
+  // pages/ModelChat/ — never under pages/Models/, because Umi's
+  // plugin-model auto-scans pages/**/models/** as state-hook files
+  // and the case-insensitive macOS FS collision breaks the build.
   {
     path: '/models',
     name: 'models',
     icon: 'bulb',
-    component: './ModelHub/index',
+    routes: [
+      {
+        path: '/models',
+        redirect: '/models/catalog',
+      },
+      {
+        path: '/models/catalog',
+        name: 'catalog',
+        component: './ModelHub/index',
+      },
+      {
+        path: '/models/deployments',
+        name: 'deployments',
+        component: './ModelDeployments/index',
+      },
+      {
+        path: '/models/chat',
+        name: 'chat',
+        component: './ModelChat/index',
+      },
+    ],
   },
   // ─── 插件管理 — global Helm chart registry ────────────────────────────
   {

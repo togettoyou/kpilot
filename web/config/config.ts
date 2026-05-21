@@ -64,9 +64,7 @@ export default defineConfig({
   },
   request: {},
   access: {},
-  headScripts: [
-    { src: join('/', 'scripts/loading.js'), async: true },
-  ],
+  headScripts: [{ src: join('/', 'scripts/loading.js'), async: true }],
   mock: {
     include: ['src/pages/**/_mock.ts'],
   },

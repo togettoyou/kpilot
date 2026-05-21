@@ -17,6 +17,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -279,6 +280,18 @@ const listDeploymentsTimeout = 8 * time.Second
 // show a flat list. Replicas + ready_replicas come straight out
 // of `status` — no extra Pod list needed for v1.
 type modelInstance struct {
+	// Model identity (per-row since the aggregate listing can
+	// span multiple models). ModelDisplayName / ModelFamily come
+	// from the DB lookup so the table can show "Qwen3-0.6B" + a
+	// family chip without an extra round-trip per row.
+	// ModelDisplayName falls back to the deployment name when the
+	// catalog row was deleted but the cluster still has the
+	// deployment (orphan); ModelFamily becomes empty string then.
+	ModelID          int64  `json:"model_id"`
+	ModelDisplayName string `json:"model_display_name"`
+	ModelFamily      string `json:"model_family,omitempty"`
+	ModelRuntime     string `json:"model_runtime,omitempty"`
+
 	ClusterID         string    `json:"cluster_id"`
 	ClusterName       string    `json:"cluster_name"`
 	Namespace         string    `json:"namespace"`
@@ -302,7 +315,6 @@ type modelInstance struct {
 }
 
 type modelInstancesResponse struct {
-	ModelID   int64           `json:"model_id"`
 	Instances []modelInstance `json:"instances"`
 	// Errors lists clusters we tried but failed (worker offline,
 	// list timeout, RBAC missing apps/v1). The frontend renders
@@ -317,29 +329,41 @@ type modelInstanceErr struct {
 	Error       string `json:"error"`
 }
 
-// ListModelDeployments handles GET /api/v1/models/:id/deployments.
-// Fans out a labelled Deployment list across every online worker,
-// merges into a flat instance array. Cluster is the source of
-// truth — we don't keep a ModelDeployment table; the generator
-// stamps `kpilot.io/model-id=<id>` so this query is sufficient.
+// ListAllDeployments handles GET /api/v1/models/deployments
+// [?model_id=N]. Fans out a labelled Deployment list across
+// every online worker, merging into a flat row array. Two query
+// modes share one handler:
 //
-// Offline clusters are silently skipped (the frontend already
-// shows offline state on the cluster page). Worker errors land
-// in the errors array so a partial result is still useful.
-func ListModelDeployments(gw *gateway.GatewayServer) gin.HandlerFunc {
+//   - no model_id          → label selector requires only
+//                            `app.kubernetes.io/managed-by=kpilot,
+//                            app.kubernetes.io/component=inference`.
+//                            Used by the platform-level deployments
+//                            page (cross-model survey).
+//   - ?model_id=N          → narrows with `kpilot.io/model-id=N`.
+//                            Used by anything that wants only one
+//                            model's instances.
+//
+// The per-row Model* fields come from a single up-front
+// `store.ListModels` so we don't fan out N+1 DB lookups when the
+// listing covers many models. Orphan deployments (model row
+// deleted but cluster still has the Deployment) fall back to the
+// deployment name as ModelDisplayName + empty family.
+//
+// Offline clusters are silently skipped (the cluster page is the
+// place to see online/offline state). Worker errors land in the
+// errors array so a partial result is still useful.
+func ListAllDeployments(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := parseModelID(c)
-		if err != nil {
-			return
-		}
-		model, err := store.GetModelByID(id)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				apiErr(c, http.StatusNotFound, CodeModelNotFound)
+		// Build the selector — always require managed-by+component;
+		// optionally narrow to a single model.
+		selector := "app.kubernetes.io/managed-by=kpilot,app.kubernetes.io/component=inference"
+		if mid := c.Query("model_id"); mid != "" {
+			id, err := strconv.ParseUint(mid, 10, 64)
+			if err != nil {
+				apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 				return
 			}
-			apiErrInternal(c, err)
-			return
+			selector += fmt.Sprintf(",kpilot.io/model-id=%d", id)
 		}
 
 		clusters, err := store.ListClusters()
@@ -348,7 +372,18 @@ func ListModelDeployments(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		selector := fmt.Sprintf("app.kubernetes.io/managed-by=kpilot,kpilot.io/model-id=%d", model.ID)
+		// Pre-load all catalog rows once so per-row enrichment is
+		// an O(1) map lookup. ListModels("","") returns built-ins
+		// + custom; small (~12-30 rows), cheap.
+		models, err := store.ListModels("", "")
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+		modelsByID := make(map[uint]*store.Model, len(models))
+		for i := range models {
+			modelsByID[models[i].ID] = &models[i]
+		}
 
 		var (
 			mu        sync.Mutex
@@ -372,7 +407,7 @@ func ListModelDeployments(gw *gateway.GatewayServer) gin.HandlerFunc {
 				defer wg.Done()
 				ctx, cancel := context.WithTimeout(c.Request.Context(), listDeploymentsTimeout)
 				defer cancel()
-				rows, err := listInstancesInCluster(ctx, gw, &cl, selector)
+				rows, err := listInstancesInCluster(ctx, gw, &cl, selector, modelsByID)
 				mu.Lock()
 				defer mu.Unlock()
 				if err != nil {
@@ -389,7 +424,6 @@ func ListModelDeployments(gw *gateway.GatewayServer) gin.HandlerFunc {
 		wg.Wait()
 
 		c.JSON(http.StatusOK, modelInstancesResponse{
-			ModelID:   int64(model.ID),
 			Instances: instances,
 			Errors:    errs,
 		})
@@ -402,11 +436,18 @@ func ListModelDeployments(gw *gateway.GatewayServer) gin.HandlerFunc {
 // API drops .spec.template.spec.containers[0].image and
 // .status.{readyReplicas,availableReplicas} that we need for the
 // row. The selector is narrow so payload stays small.
+//
+// modelsByID enriches each row with display name + family without
+// a per-row DB hit. Rows whose `kpilot.io/model-id` label points
+// at a deleted catalog row keep ModelID=0 + ModelDisplayName =
+// deployment name (orphan presentation) so the table still
+// surfaces them.
 func listInstancesInCluster(
 	ctx context.Context,
 	gw *gateway.GatewayServer,
 	cl *store.Cluster,
 	selector string,
+	modelsByID map[uint]*store.Model,
 ) ([]modelInstance, error) {
 	resp, err := gw.SendResourceRequest(ctx, cl.ID, &gateway.ResourceRequest{
 		Action:        "list-full",
@@ -480,7 +521,35 @@ func listInstancesInCluster(
 		default:
 			status = "Progressing"
 		}
+		// Enrich with model identity. The model-id label is
+		// what the generator stamps; missing / unparseable label
+		// keeps the row as an orphan (still useful to see).
+		var modelID int64
+		var displayName, family, runtime string
+		if midStr := d.Metadata.Labels["kpilot.io/model-id"]; midStr != "" {
+			if mid, err := strconv.ParseUint(midStr, 10, 64); err == nil {
+				if m, ok := modelsByID[uint(mid)]; ok {
+					modelID = int64(m.ID)
+					displayName = m.DisplayName
+					family = string(m.Family)
+					runtime = string(m.Runtime)
+				} else {
+					// Orphan: catalog row deleted but cluster still
+					// has the Deployment. Surface anyway so the user
+					// can clean it up; ModelID=0 lets the frontend
+					// disable model-scoped actions.
+					modelID = int64(mid)
+				}
+			}
+		}
+		if displayName == "" {
+			displayName = d.Metadata.Name
+		}
 		rows = append(rows, modelInstance{
+			ModelID:           modelID,
+			ModelDisplayName:  displayName,
+			ModelFamily:       family,
+			ModelRuntime:      runtime,
 			ClusterID:         cl.ID,
 			ClusterName:       cl.Name,
 			Namespace:         d.Metadata.Namespace,

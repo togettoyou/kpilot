@@ -18,12 +18,7 @@ import {
 } from 'antd';
 import React, { useMemo, useState } from 'react';
 
-import type {
-  Model,
-  ModelFamily,
-  ModelInstance,
-  ModelRuntime,
-} from '@/services/kpilot/model';
+import type { Model, ModelFamily, ModelRuntime } from '@/services/kpilot/model';
 import {
   deleteModel,
   FAMILY_META,
@@ -33,9 +28,7 @@ import {
   RUNTIME_LABELS,
 } from '@/services/kpilot/model';
 
-import ChatDrawer from './ChatDrawer';
 import DeployDrawer from './DeployDrawer';
-import DeploymentsDrawer from './DeploymentsDrawer';
 import ModelCard from './ModelCard';
 import ModelDetailDrawer from './ModelDetailDrawer';
 import type { ModelDrawerMode } from './ModelDrawer';
@@ -71,16 +64,6 @@ const ModelHubPage: React.FC = () => {
 
   const [deployOpen, setDeployOpen] = useState(false);
   const [deploySource, setDeploySource] = useState<Model | null>(null);
-
-  // P16-B — deployed-instance discovery + chat debug. Both
-  // drawers are reactive to a Model + (chat only) ModelInstance
-  // pair; closing either preserves the other so a quick Chat →
-  // back-to-list → another Chat flow doesn't re-fetch every time.
-  const [deploymentsOpen, setDeploymentsOpen] = useState(false);
-  const [deploymentsModel, setDeploymentsModel] = useState<Model | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatModel, setChatModel] = useState<Model | null>(null);
-  const [chatInstance, setChatInstance] = useState<ModelInstance | null>(null);
 
   // Filter state. Within-section card order is fixed (built-ins
   // first, then sort_order, then name) — exposing it as a Select
@@ -190,16 +173,6 @@ const ModelHubPage: React.FC = () => {
     setDeployOpen(true);
     setDetailOpen(false);
   };
-  const openDeployments = (m: Model) => {
-    setDeploymentsModel(m);
-    setDeploymentsOpen(true);
-    setDetailOpen(false);
-  };
-  const openChat = (m: Model, inst: ModelInstance) => {
-    setChatModel(m);
-    setChatInstance(inst);
-    setChatOpen(true);
-  };
   const handleDelete = (m: Model) => {
     modal.confirm({
       title: intl.formatMessage(
@@ -278,7 +251,6 @@ const ModelHubPage: React.FC = () => {
                 onDuplicate={openDuplicate}
                 onDelete={handleDelete}
                 onDeploy={openDeploy}
-                onViewDeployments={openDeployments}
               />
             </Col>
           ))}
@@ -412,20 +384,6 @@ const ModelHubPage: React.FC = () => {
         open={deployOpen}
         model={deploySource}
         onClose={() => setDeployOpen(false)}
-      />
-
-      <DeploymentsDrawer
-        open={deploymentsOpen}
-        model={deploymentsModel}
-        onClose={() => setDeploymentsOpen(false)}
-        onOpenChat={openChat}
-      />
-
-      <ChatDrawer
-        open={chatOpen}
-        model={chatModel}
-        instance={chatInstance}
-        onClose={() => setChatOpen(false)}
       />
 
       <ModelDrawer

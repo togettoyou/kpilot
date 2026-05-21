@@ -283,6 +283,15 @@ export function deployModel(
 export type ModelInstanceStatus = 'Running' | 'Progressing' | 'Failed';
 
 export interface ModelInstance {
+  // Model identity per row (server enriches via DB lookup so the
+  // table doesn't need to fetch the catalog separately). ModelID=0
+  // means orphan: deployment exists in cluster but catalog row was
+  // deleted — display_name then falls back to deployment name.
+  model_id: number;
+  model_display_name: string;
+  model_family?: string;
+  model_runtime?: string;
+
   cluster_id: string;
   cluster_name: string;
   namespace: string;
@@ -304,19 +313,19 @@ export interface ModelInstanceError {
 }
 
 export interface ModelInstancesResponse {
-  model_id: number;
   instances: ModelInstance[];
   errors?: ModelInstanceError[];
 }
 
-// listModelDeployments fans out across every online worker on the
-// server side; the response groups all hits into a flat instances
-// array plus a per-cluster errors array for partial failures.
-export function listModelDeployments(id: number) {
-  return request<ModelInstancesResponse>(
-    `/api/v1/models/${id}/deployments`,
-    { method: 'GET' },
-  );
+// listDeployments fans out across every online worker server-side.
+// No filter = every KPilot-managed inference Deployment across all
+// models (used by the platform-level Deployments page). Pass
+// modelId to narrow to a single model.
+export function listDeployments(opts?: { modelId?: number }) {
+  return request<ModelInstancesResponse>('/api/v1/models/deployments', {
+    method: 'GET',
+    params: opts?.modelId ? { model_id: opts.modelId } : undefined,
+  });
 }
 
 // ----- P16-B: chat completions reverse proxy -----

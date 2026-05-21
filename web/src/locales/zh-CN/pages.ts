@@ -780,17 +780,22 @@ export default {
   'pages.common.refresh': '刷新',
   'pages.common.actions': '操作',
 
-  // P16-B — deployed-instance discovery (DeploymentsDrawer)
-  'pages.models.deployments.title': '已部署实例',
-  'pages.models.deployments.empty': '该模型当前没有正在运行的实例',
+  // P16-B — 部署实例 page (cross-model, cross-cluster survey,
+  // moved from a per-model drawer to a top-level platform page)
+  'pages.models.deployments.title': '部署实例',
+  'pages.models.deployments.subtitle': '跨模型、跨集群的推理部署总览',
+  'pages.models.deployments.empty': '当前没有运行中的推理实例',
   'pages.models.deployments.instanceSuffix': '实例后缀：{v}',
+  'pages.models.deployments.orphanTag': '孤立',
+  'pages.models.deployments.familyAll': '全部家族',
+  'pages.models.deployments.col.model': '模型',
+  'pages.models.deployments.col.runtime': '运行时',
   'pages.models.deployments.col.status': '状态',
   'pages.models.deployments.col.cluster': '集群',
   'pages.models.deployments.col.namespace': '命名空间',
   'pages.models.deployments.col.name': '部署名',
   'pages.models.deployments.col.age': '运行时长',
   'pages.models.deployments.partialFail.title': '部分集群查询失败',
-  'pages.models.deployments.action.viewAll': '查看已部署实例',
   'pages.models.deployments.action.chat': '打开 chat 调试',
   'pages.models.deployments.action.chatDisabled': '实例就绪后可调试',
   'pages.models.deployments.action.describe': '在工作负载页查看详情',
@@ -800,8 +805,24 @@ export default {
     '只会删除 Deployment；同名 Service / PVC / Secret 会留下需手动清理。',
   'pages.models.deployments.delete.success': '已删除 Deployment',
 
-  // P16-B — chat 调试 (ChatDrawer)
+  // P16-B — Chat 调试 page (full-page playground, replaces the
+  // per-model ChatDrawer from v1)
   'pages.models.chat.title': 'Chat 调试',
+  'pages.models.chat.subtitle': '选一个运行中的部署实例直接对话验证',
+  'pages.models.chat.target': '目标实例',
+  'pages.models.chat.target.placeholder': '选择推理部署',
+  'pages.models.chat.systemPrompt': '系统提示词（可选）',
+  'pages.models.chat.systemPrompt.placeholder':
+    '例：你是一个简洁的代码审查助理',
+  'pages.models.chat.temperature': '温度',
+  'pages.models.chat.maxTokens': '最大 tokens',
+  'pages.models.chat.maxTokens.placeholder': '默认',
+  'pages.models.chat.conversation': '对话',
+  'pages.models.chat.pickFirst': '从左侧选择一个部署实例开始对话',
+  'pages.models.chat.noDeploys.title': '当前还没有任何部署实例',
+  'pages.models.chat.noDeploys.desc':
+    '先去模型仓库选一个模型部署到目标集群，再回来开聊',
+  'pages.models.chat.noDeploys.cta': '前往模型仓库',
   'pages.models.chat.clear': '清空对话',
   'pages.models.chat.send': '发送',
   'pages.models.chat.thinking': '推理中…',

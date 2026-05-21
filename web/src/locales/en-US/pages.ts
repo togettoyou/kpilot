@@ -799,18 +799,23 @@ export default {
   'pages.common.refresh': 'Refresh',
   'pages.common.actions': 'Actions',
 
-  // P16-B — deployed-instance discovery (DeploymentsDrawer)
-  'pages.models.deployments.title': 'Deployed instances',
-  'pages.models.deployments.empty':
-    'This model has no running instances right now.',
+  // P16-B — Deployments page (cross-model, cross-cluster survey,
+  // moved from a per-model drawer to a top-level platform page)
+  'pages.models.deployments.title': 'Deployments',
+  'pages.models.deployments.subtitle':
+    'Inference deployments across all models and clusters',
+  'pages.models.deployments.empty': 'No running inference instances right now.',
   'pages.models.deployments.instanceSuffix': 'instance: {v}',
+  'pages.models.deployments.orphanTag': 'orphan',
+  'pages.models.deployments.familyAll': 'All families',
+  'pages.models.deployments.col.model': 'Model',
+  'pages.models.deployments.col.runtime': 'Runtime',
   'pages.models.deployments.col.status': 'Status',
   'pages.models.deployments.col.cluster': 'Cluster',
   'pages.models.deployments.col.namespace': 'Namespace',
   'pages.models.deployments.col.name': 'Name',
   'pages.models.deployments.col.age': 'Age',
   'pages.models.deployments.partialFail.title': 'Some clusters failed to list',
-  'pages.models.deployments.action.viewAll': 'View deployed instances',
   'pages.models.deployments.action.chat': 'Open chat debug',
   'pages.models.deployments.action.chatDisabled':
     'Available once the instance is ready',
@@ -821,8 +826,25 @@ export default {
     'Only the Deployment is deleted; matching Service / PVC / Secret are left for you to clean up manually.',
   'pages.models.deployments.delete.success': 'Deployment deleted',
 
-  // P16-B — chat debug (ChatDrawer)
-  'pages.models.chat.title': 'Chat debug',
+  // P16-B — Chat page (full-page playground, replaces the
+  // per-model ChatDrawer from v1)
+  'pages.models.chat.title': 'Chat',
+  'pages.models.chat.subtitle':
+    'Pick a running deployment and talk to it directly',
+  'pages.models.chat.target': 'Target instance',
+  'pages.models.chat.target.placeholder': 'Select an inference deployment',
+  'pages.models.chat.systemPrompt': 'System prompt (optional)',
+  'pages.models.chat.systemPrompt.placeholder':
+    'e.g. You are a concise code review assistant',
+  'pages.models.chat.temperature': 'Temperature',
+  'pages.models.chat.maxTokens': 'Max tokens',
+  'pages.models.chat.maxTokens.placeholder': 'default',
+  'pages.models.chat.conversation': 'Conversation',
+  'pages.models.chat.pickFirst': 'Pick a deployment on the left to start',
+  'pages.models.chat.noDeploys.title': 'No deployments yet',
+  'pages.models.chat.noDeploys.desc':
+    'Deploy a model to a cluster from the Catalog, then come back here to chat.',
+  'pages.models.chat.noDeploys.cta': 'Go to Catalog',
   'pages.models.chat.clear': 'Clear conversation',
   'pages.models.chat.send': 'Send',
   'pages.models.chat.thinking': 'Thinking…',
