@@ -1166,6 +1166,7 @@ export default {
   'errors.API_KEY_MISSING': '缺少 API Key（Authorization: Bearer …）',
   'errors.API_KEY_SCOPE_MISMATCH':
     'API Key 与请求路径的集群 / 命名空间 / 部署不匹配',
+  'errors.API_KEY_NAME_EXISTS': 'API Key 名称已存在',
 
   // login
   'pages.login.subtitle':
@@ -1397,6 +1398,67 @@ export default {
   'pages.podExec.reconnect': '重连',
   'pages.podExec.error.connection': 'WebSocket 连接失败',
   'pages.podExec.error.closed': '连接已断开（{code} {reason}）',
+
+  // API Keys (P16-D) — operator-facing CRUD for the external
+  // OpenAI-compatible inference proxy. Plaintext token shown once
+  // on create; lifecycle is mint → revoke → (optionally) delete.
+  'pages.apikeys.title': 'API Keys',
+  'pages.apikeys.subtitle':
+    '为外部 OpenAI 兼容接口签发 Bearer 令牌。每个令牌只授权一个推理实例（cluster / namespace / deployment）。',
+  'pages.apikeys.new': '新建 API Key',
+  'pages.apikeys.refresh': '刷新',
+  'pages.apikeys.column.name': '名称',
+  'pages.apikeys.column.prefix': '前缀',
+  'pages.apikeys.column.scope': '授权范围',
+  'pages.apikeys.column.cluster': '集群',
+  'pages.apikeys.column.namespace': '命名空间',
+  'pages.apikeys.column.deployment': '推理实例',
+  'pages.apikeys.column.status': '状态',
+  'pages.apikeys.column.lastUsed': '最近使用',
+  'pages.apikeys.column.createdAt': '创建时间',
+  'pages.apikeys.column.actions': '操作',
+  'pages.apikeys.status.active': '活跃',
+  'pages.apikeys.status.revoked': '已撤销',
+  'pages.apikeys.lastUsed.never': '从未使用',
+  'pages.apikeys.action.revoke': '撤销',
+  'pages.apikeys.action.delete': '删除',
+  'pages.apikeys.action.copy': '复制',
+  'pages.apikeys.action.copied': '已复制',
+  // Create drawer
+  'pages.apikeys.create.title': '新建 API Key',
+  'pages.apikeys.create.submit': '签发',
+  'pages.apikeys.create.cancel': '取消',
+  'pages.apikeys.field.name': '名称',
+  'pages.apikeys.field.name.placeholder': '便于识别的标签，如 prod-chatbot',
+  'pages.apikeys.field.name.required': '请输入名称',
+  'pages.apikeys.field.cluster': '集群',
+  'pages.apikeys.field.cluster.placeholder': '选择集群',
+  'pages.apikeys.field.cluster.required': '请选择集群',
+  'pages.apikeys.field.deployment': '推理实例',
+  'pages.apikeys.field.deployment.placeholder': '选择该集群下的推理实例',
+  'pages.apikeys.field.deployment.required': '请选择推理实例',
+  'pages.apikeys.field.deployment.empty':
+    '该集群下还没有 KPilot 管理的推理实例。请先到「模型仓库」部署模型。',
+  // Result modal — one-shot plaintext token reveal
+  'pages.apikeys.result.title': 'API Key 已生成',
+  'pages.apikeys.result.warning':
+    '这是查看明文 Token 的唯一机会。请立即复制并妥善保存，关闭后无法再次查看。如不慎丢失需重新生成。',
+  'pages.apikeys.result.tokenLabel': '令牌（仅显示一次）',
+  'pages.apikeys.result.usageLabel': '调用示例',
+  'pages.apikeys.result.close': '我已复制并保存',
+  // Confirmation modals
+  'pages.apikeys.confirm.revoke.title': '撤销 API Key',
+  'pages.apikeys.confirm.revoke.content':
+    '撤销后使用此令牌的请求将立即被拒绝。此操作不可恢复。',
+  'pages.apikeys.confirm.revoke.ok': '撤销',
+  'pages.apikeys.confirm.delete.title': '删除 API Key',
+  'pages.apikeys.confirm.delete.content':
+    '删除后此令牌行将永久消失，不留审计记录。如果只是想停用建议改用「撤销」。',
+  'pages.apikeys.confirm.delete.ok': '删除',
+  // Toasts
+  'pages.apikeys.toast.created': 'API Key 已生成',
+  'pages.apikeys.toast.revoked': '已撤销',
+  'pages.apikeys.toast.deleted': '已删除',
 
   // 404
   'pages.404.subTitle': '抱歉，您访问的页面不存在。',

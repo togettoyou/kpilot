@@ -104,6 +104,12 @@ func CreateAPIKey(c *gin.Context) {
 		DeployName:  req.DeployName,
 	}
 	if err := store.CreateAPIKey(row); err != nil {
+		// Name uniqueIndex collision — same handling as
+		// Plugin / Model / Cluster name collisions.
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			apiErr(c, http.StatusConflict, CodeAPIKeyNameExists)
+			return
+		}
 		apiErrInternal(c, err)
 		return
 	}

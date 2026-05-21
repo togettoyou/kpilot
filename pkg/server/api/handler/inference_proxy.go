@@ -13,6 +13,17 @@
 // through the worker tunnel. Bearer auth is enforced upstream by
 // the BearerAPIKey middleware (api/middleware/bearer_api_key.go).
 //
+// URL path semantics: this endpoint forwards `*subpath` AS-IS to the
+// upstream — including the `/v1` segment. OpenAI SDKs (Python, JS,
+// LangChain, etc.) follow the convention `base_url = ".../v1"` and
+// then append `/chat/completions` themselves, so the wildcard
+// naturally captures `/v1/chat/completions`. The cookie-authed
+// playground endpoint (model_chat.go) takes the opposite contract
+// — its frontend sends `/chat/completions` without the `/v1`
+// prefix and the handler prepends it. They differ because the
+// playground is an internal client we control, while this endpoint
+// must match what OpenAI clients in the wild expect.
+//
 // Streaming:
 //   This handler ALWAYS asks the worker for streaming responses
 //   (gateway.SendHTTPRequestStream) so vLLM's `stream:true` chunks
@@ -114,9 +125,12 @@ func ProxyInferenceOpenAI(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
+		// subPath includes the `/v1` segment from the client URL (see
+		// package doc). Forward it AS-IS — adding `/v1` here would
+		// double the prefix to `/v1/v1/...` and vLLM 404s.
 		url := "http://" + name + "." + namespace + ".svc." +
 			workerClusterDomain(gw, clusterID) + ":" +
-			strconv.Itoa(inferenceServicePort) + "/v1" + subPath
+			strconv.Itoa(inferenceServicePort) + subPath
 		if rq := c.Request.URL.RawQuery; rq != "" {
 			url += "?" + rq
 		}

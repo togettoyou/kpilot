@@ -1195,6 +1195,7 @@ export default {
   'errors.API_KEY_MISSING': 'Missing API key (Authorization: Bearer …)',
   'errors.API_KEY_SCOPE_MISMATCH':
     'API key not authorised for this cluster / namespace / deployment',
+  'errors.API_KEY_NAME_EXISTS': 'API key name already exists',
   'errors.MODEL_NOT_FOUND': 'Model not found',
   'errors.MODEL_NAME_EXISTS': 'Model name already exists',
   'errors.MODEL_BUILTIN_LOCKED':
@@ -1444,6 +1445,67 @@ export default {
   'pages.podExec.reconnect': 'Reconnect',
   'pages.podExec.error.connection': 'WebSocket connection failed',
   'pages.podExec.error.closed': 'Connection closed ({code} {reason})',
+
+  // API Keys (P16-D)
+  'pages.apikeys.title': 'API Keys',
+  'pages.apikeys.subtitle':
+    'Issue Bearer tokens for the external OpenAI-compatible inference proxy. Each token authorises exactly one inference instance (cluster / namespace / deployment).',
+  'pages.apikeys.new': 'New API Key',
+  'pages.apikeys.refresh': 'Refresh',
+  'pages.apikeys.column.name': 'Name',
+  'pages.apikeys.column.prefix': 'Prefix',
+  'pages.apikeys.column.scope': 'Scope',
+  'pages.apikeys.column.cluster': 'Cluster',
+  'pages.apikeys.column.namespace': 'Namespace',
+  'pages.apikeys.column.deployment': 'Deployment',
+  'pages.apikeys.column.status': 'Status',
+  'pages.apikeys.column.lastUsed': 'Last used',
+  'pages.apikeys.column.createdAt': 'Created at',
+  'pages.apikeys.column.actions': 'Actions',
+  'pages.apikeys.status.active': 'Active',
+  'pages.apikeys.status.revoked': 'Revoked',
+  'pages.apikeys.lastUsed.never': 'Never used',
+  'pages.apikeys.action.revoke': 'Revoke',
+  'pages.apikeys.action.delete': 'Delete',
+  'pages.apikeys.action.copy': 'Copy',
+  'pages.apikeys.action.copied': 'Copied',
+  // Create drawer
+  'pages.apikeys.create.title': 'New API Key',
+  'pages.apikeys.create.submit': 'Issue',
+  'pages.apikeys.create.cancel': 'Cancel',
+  'pages.apikeys.field.name': 'Name',
+  'pages.apikeys.field.name.placeholder':
+    'A human-friendly label, e.g. prod-chatbot',
+  'pages.apikeys.field.name.required': 'Name is required',
+  'pages.apikeys.field.cluster': 'Cluster',
+  'pages.apikeys.field.cluster.placeholder': 'Pick a cluster',
+  'pages.apikeys.field.cluster.required': 'Cluster is required',
+  'pages.apikeys.field.deployment': 'Deployment',
+  'pages.apikeys.field.deployment.placeholder':
+    'Pick an inference deployment in this cluster',
+  'pages.apikeys.field.deployment.required': 'Deployment is required',
+  'pages.apikeys.field.deployment.empty':
+    'No KPilot-managed inference deployments on this cluster yet. Deploy one from the Catalog first.',
+  // Result modal — one-shot plaintext token reveal
+  'pages.apikeys.result.title': 'API Key created',
+  'pages.apikeys.result.warning':
+    'This is the only time the plaintext token will be shown. Copy and store it now — you cannot retrieve it again. If lost, generate a new key.',
+  'pages.apikeys.result.tokenLabel': 'Token (shown only once)',
+  'pages.apikeys.result.usageLabel': 'Usage',
+  'pages.apikeys.result.close': "I've copied and saved it",
+  // Confirmation modals
+  'pages.apikeys.confirm.revoke.title': 'Revoke API key',
+  'pages.apikeys.confirm.revoke.content':
+    'Requests using this token will be rejected immediately after revoking. This action cannot be undone.',
+  'pages.apikeys.confirm.revoke.ok': 'Revoke',
+  'pages.apikeys.confirm.delete.title': 'Delete API key',
+  'pages.apikeys.confirm.delete.content':
+    "Deleting removes the row entirely with no audit trail. If you only want to disable the key, prefer Revoke.",
+  'pages.apikeys.confirm.delete.ok': 'Delete',
+  // Toasts
+  'pages.apikeys.toast.created': 'API key created',
+  'pages.apikeys.toast.revoked': 'Revoked',
+  'pages.apikeys.toast.deleted': 'Deleted',
 
   // 404
   'pages.404.subTitle': 'Sorry, the page you visited does not exist.',

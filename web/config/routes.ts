@@ -233,6 +233,15 @@ export default [
         icon: 'message',
         component: './ModelChat/index',
       },
+      {
+        // P16-D — operator CRUD for Bearer-token API keys that
+        // gate /api/v1/clusters/:id/proxy/inference/... external
+        // calls. JWT cookie-protected like the rest of /models/*.
+        path: '/models/api-keys',
+        name: 'apiKeys',
+        icon: 'key',
+        component: './APIKeys/index',
+      },
     ],
   },
   // ─── 插件管理 — global Helm chart registry ────────────────────────────

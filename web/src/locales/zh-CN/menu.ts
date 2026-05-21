@@ -108,6 +108,7 @@ export default {
   'menu.models.catalog': '模型仓库',
   'menu.models.deployments': '模型实例',
   'menu.models.chat': '模型调试',
+  'menu.models.apiKeys': 'API Keys',
 
   'menu.account.logout': '退出登录',
 };

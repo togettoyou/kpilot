@@ -34,8 +34,12 @@ import (
 type APIKey struct {
 	ID uint `gorm:"primaryKey;autoIncrement" json:"id"`
 
-	// Name is the operator-facing label. Free-form, 255 char cap.
-	Name string `gorm:"type:varchar(255);not null" json:"name"`
+	// Name is the operator-facing label. Free-form, 255 char cap,
+	// globally unique so the operator's list never shows two rows
+	// they can't tell apart at a glance. If they want one logical
+	// "production" key per deployment, naming convention is
+	// "production-<deploy>" not multiple bare "production".
+	Name string `gorm:"type:varchar(255);not null;uniqueIndex" json:"name"`
 
 	// TokenHash is sha256-hex of the plaintext token. Indexed for
 	// O(1) lookup in the middleware. Unique to make collisions a DB
@@ -106,10 +110,13 @@ func GenerateAPIKey() (plaintext, hashHex, displayPrefix string, err error) {
 	plaintext = apiKeyTokenPrefix + suffix
 	sum := sha256.Sum256([]byte(plaintext))
 	hashHex = hex.EncodeToString(sum[:])
-	// First 8 plaintext chars = "kp-sk-Ab" — enough to recognise
-	// the key in a list, not enough to brute-force the rest.
-	if len(plaintext) >= 8 {
-		displayPrefix = plaintext[:8]
+	// First 10 plaintext chars = "kp-sk-Abcd" — `kp-sk-` (6) plus
+	// 4 entropy chars. 2 entropy chars (the old 8-char prefix)
+	// turned out to be too few to disambiguate in a busy list;
+	// 4 gives ~16M combinations to eyeball-match, still nowhere
+	// near brute-forceable. DB column is varchar(16); fits.
+	if len(plaintext) >= 10 {
+		displayPrefix = plaintext[:10]
 	} else {
 		displayPrefix = plaintext
 	}
@@ -125,10 +132,10 @@ func HashAPIKey(plaintext string) string {
 }
 
 // CreateAPIKey inserts a new row. Caller fills name + scope +
-// hash + display prefix from GenerateAPIKey output. Name
-// uniqueness is NOT enforced (operators may want two keys named
-// "production" for two clusters); the hash uniqueIndex catches
-// the truly fatal collision case.
+// hash + display prefix from GenerateAPIKey output. Name is
+// globally unique (uniqueIndex on the column); GORM surfaces a
+// collision as gorm.ErrDuplicatedKey which the handler maps to
+// API_KEY_NAME_EXISTS.
 func CreateAPIKey(k *APIKey) error {
 	return DB.Create(k).Error
 }

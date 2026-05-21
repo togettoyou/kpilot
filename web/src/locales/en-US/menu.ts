@@ -102,6 +102,7 @@ export default {
   'menu.models.catalog': 'Catalog',
   'menu.models.deployments': 'Instances',
   'menu.models.chat': 'Playground',
+  'menu.models.apiKeys': 'API Keys',
 
   'menu.account.logout': 'Logout',
 };
