@@ -31,6 +31,11 @@ const (
 	CodeModelNameExists      = "MODEL_NAME_EXISTS"
 	CodeModelBuiltinLocked   = "MODEL_BUILTIN_LOCKED"
 	CodeLoginIncorrect       = "LOGIN_INCORRECT"
+	// API key (P16-C OpenAI-compatible inference proxy).
+	CodeAPIKeyNotFound = "API_KEY_NOT_FOUND"
+	CodeAPIKeyInvalid  = "API_KEY_INVALID"
+	CodeAPIKeyMissing  = "API_KEY_MISSING"
+	CodeAPIKeyScopeMismatch = "API_KEY_SCOPE_MISMATCH"
 	// CodeProxyUpstream is the 502-style code used when the in-cluster
 	// reverse proxy successfully dispatched through the worker but the
 	// worker reported the upstream Service unreachable (DNS, dial,

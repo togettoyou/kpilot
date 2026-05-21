@@ -71,6 +71,14 @@ type GatewayServer struct {
 	pendingHTTPMu sync.Mutex
 	pendingHTTP   map[string]chan *HTTPResponse
 
+	// httpStreamMu guards in-flight streaming HTTP sessions (P16-C
+	// inference SSE pass-through). Sessions are keyed by request_id
+	// and live alongside the buffered pendingHTTP map; the recv loop
+	// checks streaming first so streaming Start / BodyChunk / BodyEnd
+	// bypass the buffered rxAccumulator.
+	httpStreamMu sync.Mutex
+	httpStreams  map[string]*httpStreamSession
+
 	// streamMu guards active streaming sessions (Pod logs / Exec / WS).
 	streamMu sync.Mutex
 	streams  map[string]*Stream
@@ -86,6 +94,7 @@ func NewGatewayServer() *GatewayServer {
 		workers:           make(map[string]*ConnectedWorker),
 		pending:           make(map[string]chan *ResourceResponse),
 		pendingHTTP:       make(map[string]chan *HTTPResponse),
+		httpStreams:       make(map[string]*httpStreamSession),
 		streams:           make(map[string]*Stream),
 		pluginLogSessions: make(map[string]*pluginLogSession),
 	}
@@ -264,16 +273,42 @@ func (g *GatewayServer) handleWorkerMessage(w *ConnectedWorker, msg *proto.Worke
 		g.recordPluginLogEnd(w.ClusterID, p.PluginLogEnd)
 
 	// Chunked inbound responses: HTTPResponse / ResourceResponse arrive as
-	// *Start → BodyChunk* → BodyEnd. The accumulator holds per-request_id
-	// state until BodyEnd; only then do we deliver to the pending channel.
+	// *Start → BodyChunk* → BodyEnd. Streaming HTTP responses (P16-C
+	// inference SSE) take precedence: an httpStreamSession was pre-
+	// registered before HTTPRequestStart went out, so HTTPResponseStart /
+	// BodyChunk / BodyEnd for the same request_id route there. Buffered
+	// HTTP / ResourceResponse continue to use the rxAccumulator path.
 	case *proto.WorkerMessage_HttpRespStart:
-		w.rxAsm.open(msg.RequestId, rxKindHTTP, p.HttpRespStart)
+		if sess, ok := g.getHTTPStream(msg.RequestId); ok {
+			// markStarted is sync.Once-guarded — a worker bug that
+			// re-emits Start for the same request_id won't panic
+			// the recv goroutine on a double close(started). First
+			// call fires; subsequent ones log + drop.
+			if !sess.markStarted(p.HttpRespStart) {
+				log.Printf("[gateway] duplicate HTTPResponseStart for streaming request, dropping: request=%s cluster=%s",
+					msg.RequestId, w.ClusterID)
+			}
+		} else {
+			w.rxAsm.open(msg.RequestId, rxKindHTTP, p.HttpRespStart)
+		}
 	case *proto.WorkerMessage_ResourceRespStart:
 		w.rxAsm.open(msg.RequestId, rxKindResource, p.ResourceRespStart)
 	case *proto.WorkerMessage_BodyChunk:
-		w.rxAsm.appendChunk(msg.RequestId, p.BodyChunk.Data)
+		if sess, ok := g.getHTTPStream(msg.RequestId); ok {
+			// push blocks until either accepted or session torn down.
+			// Slow consumer pauses THIS worker's recv loop only —
+			// other workers' goroutines are independent. Acceptable
+			// trade-off for in-order, no-loss SSE delivery.
+			sess.push(p.BodyChunk.Data)
+		} else {
+			w.rxAsm.appendChunk(msg.RequestId, p.BodyChunk.Data)
+		}
 	case *proto.WorkerMessage_BodyEnd:
-		g.finalizeChunkedResponse(w, msg.RequestId, p.BodyEnd.Error)
+		if sess, ok := g.takeHTTPStream(msg.RequestId); ok {
+			sess.finalize(p.BodyEnd.Error)
+		} else {
+			g.finalizeChunkedResponse(w, msg.RequestId, p.BodyEnd.Error)
+		}
 
 	case *proto.WorkerMessage_LogsChunk, *proto.WorkerMessage_LogsEnd,
 		*proto.WorkerMessage_ExecOutput, *proto.WorkerMessage_ExecEnd,
@@ -379,6 +414,12 @@ func (g *GatewayServer) unregister(w *ConnectedWorker) {
 	if w.rxAsm != nil {
 		w.rxAsm.reset()
 	}
+	// Force-close streaming HTTP sessions owned BY THIS WORKER so
+	// SendHTTPRequestStream callers blocked on Chunks / EndErr
+	// unblock with a synthetic "stream closed" error instead of
+	// hanging until upstream timeout. Strictly scoped to clusterID
+	// — other clusters' in-flight streams stay untouched.
+	g.closeWorkerHTTPStreams(clusterID)
 	log.Printf("[gateway] worker disconnected: cluster=%s", clusterID)
 }
 
@@ -466,6 +507,7 @@ type MetricsSnapshot struct {
 	PerClusterStreams map[string]int `json:"perClusterStreams"`
 	Pending           int            `json:"pending"`
 	PendingHTTP       int            `json:"pendingHTTP"`
+	HTTPStreams       int            `json:"httpStreams"`
 	Streams           int            `json:"streams"`
 	PluginLogSessions int            `json:"pluginLogSessions"`
 }
@@ -485,6 +527,10 @@ func (g *GatewayServer) MetricsSnapshot() MetricsSnapshot {
 	g.pendingHTTPMu.Lock()
 	snap.PendingHTTP = len(g.pendingHTTP)
 	g.pendingHTTPMu.Unlock()
+
+	g.httpStreamMu.Lock()
+	snap.HTTPStreams = len(g.httpStreams)
+	g.httpStreamMu.Unlock()
 
 	g.streamMu.Lock()
 	snap.Streams = len(g.streams)
@@ -523,7 +569,7 @@ func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, r
 		g.pendingHTTPMu.Unlock()
 	}()
 
-	if err := sendChunkedHTTPRequest(ctx, w, requestID, req.Method, req.URL, req.Headers, req.Body); err != nil {
+	if err := sendChunkedHTTPRequest(ctx, w, requestID, req.Method, req.URL, req.Headers, req.Body, false); err != nil {
 		return nil, fmt.Errorf("send to worker: %w", err)
 	}
 

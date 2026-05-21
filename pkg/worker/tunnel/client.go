@@ -187,6 +187,31 @@ func (c *Client) SendHTTPResponse(requestID string, status int32, headers []*pro
 	}
 }
 
+// SendHTTPResponseStart emits ONLY the HTTPResponseStart frame for a
+// streaming HTTP response. Callers (the inference proxy SSE path) then
+// emit BodyChunk frames via SendHTTPResponseChunk and finally
+// SendHTTPResponseEnd. status / headers / errMsg follow the same
+// semantics as SendHTTPResponse.
+func (c *Client) SendHTTPResponseStart(requestID string, status int32, headers []*proto.HTTPHeader, errMsg string) error {
+	return c.sendHTTPResponseStart(c.StreamContext(), requestID, status, headers, errMsg)
+}
+
+// SendHTTPResponseChunk emits one BodyChunk on a streaming HTTP
+// response. data must be a freshly-allocated slice — the sender keeps
+// the reference until the slow lane drains the frame, so reusing the
+// underlying buffer would corrupt in-flight data.
+func (c *Client) SendHTTPResponseChunk(requestID string, data []byte) error {
+	return c.sendHTTPResponseChunk(c.StreamContext(), requestID, data)
+}
+
+// SendHTTPResponseEnd closes a streaming HTTP response. errMsg is empty
+// on clean EOF; populated when the upstream connection failed mid-body
+// (truncated SSE / TCP RST) so the gateway can surface the partial-
+// read condition to its caller.
+func (c *Client) SendHTTPResponseEnd(requestID string, errMsg string) error {
+	return c.sendHTTPResponseEnd(c.StreamContext(), requestID, errMsg)
+}
+
 // SetWSHandlers wires up the reverse-proxy WebSocket dispatch.
 func (c *Client) SetWSHandlers(
 	start func(sessionID string, req *proto.WSStartRequest),
@@ -578,10 +603,11 @@ func (c *Client) dispatchAssembled(requestID string, asm *inboundAssembler) {
 			return
 		}
 		req := &HTTPRequest{
-			Method:  start.Method,
-			URL:     start.Url,
-			Headers: start.Headers,
-			Body:    asm.body,
+			Method:         start.Method,
+			URL:            start.Url,
+			Headers:        start.Headers,
+			Body:           asm.body,
+			StreamResponse: start.StreamResponse,
 		}
 		go c.httpHandler(requestID, req)
 	case kindResource:

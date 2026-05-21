@@ -356,3 +356,157 @@ export function chatCompletions<T = unknown>(target: ChatTarget, body: unknown) 
     },
   );
 }
+
+// ----- P16-C: streaming chat completions (SSE) -----
+//
+// streamChatCompletions opens a `stream:true` chat completion call
+// and surfaces each `data: {...}` SSE event back to the caller as a
+// per-token delta. We use raw fetch + ReadableStream (not the
+// `request` helper from @umijs/max because that buffers the body
+// before returning).
+//
+// The server (handler/model_chat.go::ProxyInference) was rewired in
+// P16-C to use gateway.SendHTTPRequestStream end-to-end, so each
+// chunk lands in the browser with sub-second latency from the
+// upstream vLLM flush. Without this client-side hook we'd still
+// hit the buffered path of `request` and lose the live cadence.
+//
+// Auth: cookie-only (browser session). The OpenAI-compat external
+// path uses Bearer tokens at /api/v1/clusters/<id>/proxy/inference/
+// — that's a different endpoint shape and not what the playground
+// targets.
+
+export interface ChatUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
+export interface StreamChatHandler {
+  // onDelta is fired with each new content fragment from
+  // choices[0].delta.content. Called inside a React render cycle —
+  // accumulate into local state via the functional setState form
+  // so successive deltas don't drop frames.
+  onDelta: (text: string) => void;
+  // onUsage fires once with the final usage payload, which vLLM
+  // emits in the last SSE event (after delta is empty).
+  onUsage?: (usage: ChatUsage) => void;
+  // onDone fires exactly once — either after the `data: [DONE]`
+  // sentinel arrives, or after the stream closes cleanly without
+  // a finish_reason (some runtimes elide it). Receives the
+  // upstream finish_reason if present (`stop` / `length` / …).
+  onDone?: (reason: string | null) => void;
+}
+
+// streamChatCompletions resolves when the stream closes cleanly
+// (DONE / EOF), or rejects with an Error on HTTP failure / abort /
+// truncation. Caller supplies an AbortSignal to cancel mid-stream
+// (Stop button in the playground UI).
+export async function streamChatCompletions(
+  target: ChatTarget,
+  body: unknown,
+  handler: StreamChatHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const url = `/api/v1/clusters/${encodeURIComponent(target.clusterId)}/inference/${encodeURIComponent(target.namespace)}/${encodeURIComponent(target.name)}/chat/completions`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    // Browsers don't send the kpilot_token cookie on cross-origin
+    // fetch unless we explicitly include credentials; dev proxy +
+    // prod same-origin both work with `include` (no `same-origin`
+    // confusion).
+    credentials: 'include',
+    signal,
+  });
+  if (!resp.ok) {
+    // Try to extract a structured error code; fall back to plain
+    // text so the UI sees something useful either way.
+    let detail = `HTTP ${resp.status}`;
+    try {
+      const txt = await resp.text();
+      if (txt) detail = txt;
+    } catch {
+      // ignore; detail keeps the status code only
+    }
+    throw new Error(detail);
+  }
+  if (!resp.body) {
+    throw new Error('streaming response has no body');
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let doneFired = false;
+  const fireDone = (reason: string | null) => {
+    if (doneFired) return;
+    doneFired = true;
+    handler.onDone?.(reason);
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // SSE events are delimited by a blank line. Some upstreams
+      // emit \r\n\r\n; handle both by normalising before split.
+      let idx: number;
+      let sep: number;
+      while (true) {
+        const a = buffer.indexOf('\n\n');
+        const b = buffer.indexOf('\r\n\r\n');
+        if (a < 0 && b < 0) break;
+        if (a >= 0 && (b < 0 || a < b)) {
+          idx = a;
+          sep = 2;
+        } else {
+          idx = b;
+          sep = 4;
+        }
+        const event = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + sep);
+        for (const line of event.split(/\r?\n/)) {
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trimStart();
+          if (payload === '[DONE]') {
+            fireDone(null);
+            return;
+          }
+          try {
+            const obj = JSON.parse(payload) as {
+              choices?: Array<{
+                delta?: { content?: string };
+                text?: string;
+                finish_reason?: string | null;
+              }>;
+              usage?: ChatUsage;
+            };
+            const choice = obj.choices?.[0];
+            const delta = choice?.delta?.content ?? choice?.text;
+            if (delta) handler.onDelta(delta);
+            if (choice?.finish_reason) {
+              fireDone(choice.finish_reason);
+            }
+            if (obj.usage) handler.onUsage?.(obj.usage);
+          } catch {
+            // Skip malformed events — vLLM occasionally emits
+            // keepalive pings or empty events; ignore rather than
+            // tear down the stream.
+          }
+        }
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // releaseLock throws if cancelled — fine.
+    }
+  }
+  // Stream closed without an explicit DONE — surface to caller so
+  // UI can stop the spinner.
+  fireDone(null);
+}

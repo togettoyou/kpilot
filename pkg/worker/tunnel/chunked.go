@@ -31,6 +31,12 @@ type HTTPRequest struct {
 	URL     string
 	Headers []*proto.HTTPHeader
 	Body    []byte
+	// StreamResponse signals the response body should be forwarded
+	// live as BodyChunk frames (Start + chunks + End) instead of being
+	// fully buffered before reply. Set by P16-C inference proxy paths
+	// for vLLM SSE; default false retains P14 buffered semantics for
+	// Grafana / VictoriaMetrics / VL etc.
+	StreamResponse bool
 }
 
 // ResourceRequest is the assembled K8s resource action received from
@@ -164,11 +170,34 @@ func (c *Client) sendChunkedHTTPResponse(
 	body []byte,
 	errMsg string,
 ) error {
+	if err := c.sendHTTPResponseStart(ctx, requestID, status, headers, errMsg); err != nil {
+		return err
+	}
 	sender := c.currentSender()
 	if sender == nil {
 		return fmt.Errorf("tunnel not connected")
 	}
-	if err := sender.sendSlow(ctx, &proto.WorkerMessage{
+	if err := sendBodyChunks(ctx, sender, requestID, body); err != nil {
+		return err
+	}
+	return c.sendHTTPResponseEnd(ctx, requestID, "")
+}
+
+// sendHTTPResponseStart emits ONLY the HTTPResponseStart frame —
+// callers that want to stream the body in pieces (P16-C SSE pass-
+// through) drive their own BodyChunk + BodyEnd cadence.
+func (c *Client) sendHTTPResponseStart(
+	ctx context.Context,
+	requestID string,
+	status int32,
+	headers []*proto.HTTPHeader,
+	errMsg string,
+) error {
+	sender := c.currentSender()
+	if sender == nil {
+		return fmt.Errorf("tunnel not connected")
+	}
+	return sender.sendSlow(ctx, &proto.WorkerMessage{
 		RequestId: requestID,
 		Payload: &proto.WorkerMessage_HttpRespStart{
 			HttpRespStart: &proto.HTTPResponseStart{
@@ -177,16 +206,48 @@ func (c *Client) sendChunkedHTTPResponse(
 				Error:   errMsg,
 			},
 		},
-	}); err != nil {
-		return err
+	})
+}
+
+// sendHTTPResponseChunk emits ONE BodyChunk for a streaming HTTP
+// response. data must be a freshly-allocated slice (caller doesn't
+// reuse the underlying array); the sender retains the reference until
+// the slow-lane drains the frame.
+func (c *Client) sendHTTPResponseChunk(
+	ctx context.Context,
+	requestID string,
+	data []byte,
+) error {
+	if len(data) == 0 {
+		return nil
 	}
-	if err := sendBodyChunks(ctx, sender, requestID, body); err != nil {
-		return err
+	sender := c.currentSender()
+	if sender == nil {
+		return fmt.Errorf("tunnel not connected")
+	}
+	// Split into ≤chunkSize frames if the caller handed us a bigger
+	// buffer. Streaming readers typically use small (~32 KiB) reads so
+	// this is usually a single iteration.
+	return sendBodyChunks(ctx, sender, requestID, data)
+}
+
+// sendHTTPResponseEnd emits BodyEnd to close a streaming HTTP
+// response. errMsg is empty on clean EOF; non-empty when the upstream
+// connection failed mid-body (gateway surfaces it to its caller so
+// the partial response isn't mistaken for a clean termination).
+func (c *Client) sendHTTPResponseEnd(
+	ctx context.Context,
+	requestID string,
+	errMsg string,
+) error {
+	sender := c.currentSender()
+	if sender == nil {
+		return fmt.Errorf("tunnel not connected")
 	}
 	return sender.sendSlow(ctx, &proto.WorkerMessage{
 		RequestId: requestID,
 		Payload: &proto.WorkerMessage_BodyEnd{
-			BodyEnd: &proto.BodyEnd{},
+			BodyEnd: &proto.BodyEnd{Error: errMsg},
 		},
 	})
 }

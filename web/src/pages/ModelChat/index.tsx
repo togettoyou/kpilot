@@ -2,6 +2,7 @@ import {
   ClearOutlined,
   ReloadOutlined,
   SendOutlined,
+  StopOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { history, useIntl, useLocation } from '@umijs/max';
@@ -31,11 +32,15 @@ import React, {
   useState,
 } from 'react';
 
-import type { ModelFamily, ModelInstance } from '@/services/kpilot/model';
+import type {
+  ChatUsage,
+  ModelFamily,
+  ModelInstance,
+} from '@/services/kpilot/model';
 import {
-  chatCompletions,
   FAMILY_META,
   listDeployments,
+  streamChatCompletions,
 } from '@/services/kpilot/model';
 
 const { Text, Paragraph } = Typography;
@@ -49,34 +54,16 @@ const { Text, Paragraph } = Typography;
 //     instances of multiple deployed models in one session
 //   - Inference knobs (system prompt, temperature, max_tokens) that
 //     didn't fit in a drawer footer
-//   - Same buffered (stream:false) round-trip — true SSE pass-through
-//     is a P16-C concern (needs HTTPResponse.IsStream + worker framing)
+//   - True SSE pass-through (P16-C): vLLM `stream:true` chunks flow
+//     through gateway.SendHTTPRequestStream end-to-end, parsed here
+//     via streamChatCompletions + ReadableStream. Tokens render as
+//     they arrive; Stop button aborts mid-stream via AbortController.
 
 type ChatRole = 'user' | 'assistant' | 'system';
 interface ChatMsg {
   role: ChatRole;
   content: string;
   id: string;
-}
-
-interface ChatChoice {
-  message?: { role: string; content?: string };
-  text?: string;
-  finish_reason?: string | null;
-}
-interface ChatResponse {
-  choices?: ChatChoice[];
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
-}
-
-function extractAssistantText(resp: ChatResponse): string {
-  const c = resp.choices?.[0];
-  if (!c) return '';
-  return c.message?.content || c.text || '';
 }
 
 // pickInstance from URL params + row list. Falls back to the first
@@ -118,8 +105,12 @@ const ModelChatPage: React.FC = () => {
   const [maxTokens, setMaxTokens] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [usage, setUsage] = useState<ChatResponse['usage'] | null>(null);
+  const [usage, setUsage] = useState<ChatUsage | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // AbortController for the in-flight stream. Stop button calls
+  // abort(); switching instance / clearing also aborts so the
+  // user can't end up streaming into a stale assistant slot.
+  const abortRef = useRef<AbortController | null>(null);
 
   // Full-bleed layout — same pattern as ClusterDetail/Logging.
   // Measure the actual available viewport height after mount so
@@ -287,6 +278,17 @@ const ModelChatPage: React.FC = () => {
       content: text,
       id: `u-${Date.now()}`,
     };
+    // Pre-allocate the assistant slot so the first delta has a
+    // stable React key to append into. Without this we'd thrash
+    // through "user", then "user + empty assistant", then "user +
+    // partial assistant" — and React's reconciler would re-mount
+    // the bubble on each id change.
+    const assistantId = `a-${Date.now()}`;
+    const assistantMsg: ChatMsg = {
+      role: 'assistant',
+      content: '',
+      id: assistantId,
+    };
     const messages: ChatMsg[] = [];
     if (systemPrompt.trim()) {
       messages.push({
@@ -296,10 +298,15 @@ const ModelChatPage: React.FC = () => {
       });
     }
     messages.push(...history_, userMsg);
-    setHistory([...history_, userMsg]);
+    setHistory([...history_, userMsg, assistantMsg]);
     setInput('');
     setSending(true);
     setError(null);
+    setUsage(null);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let receivedAny = false;
 
     try {
       const body: Record<string, unknown> = {
@@ -307,42 +314,85 @@ const ModelChatPage: React.FC = () => {
         // with (--model <HF id>); sending anything else gets a 404
         // from vLLM. Server resolves the right value per row.
         model: instance.model_field,
+        // Don't include the empty assistant placeholder in the
+        // request — that'd make the model think it already
+        // started replying.
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        stream: false,
+        stream: true,
         temperature,
       };
       if (maxTokens && maxTokens > 0) body.max_tokens = maxTokens;
-      const resp = await chatCompletions<ChatResponse>(
+      await streamChatCompletions(
         {
           clusterId: instance.cluster_id,
           namespace: instance.namespace,
           name: instance.name,
         },
         body,
+        {
+          onDelta: (delta) => {
+            receivedAny = true;
+            setHistory((prev) => {
+              // Functional update — coalesce consecutive deltas
+              // without dropping any. We only update the LAST
+              // message (the pre-allocated assistant slot).
+              if (
+                prev.length === 0 ||
+                prev[prev.length - 1].id !== assistantId
+              ) {
+                return prev;
+              }
+              const next = prev.slice();
+              const last = next[next.length - 1];
+              next[next.length - 1] = {
+                ...last,
+                content: last.content + delta,
+              };
+              return next;
+            });
+          },
+          onUsage: (u) => setUsage(u),
+          onDone: () => {
+            // No-op; finally block flips sending → false.
+          },
+        },
+        controller.signal,
       );
-      const reply = extractAssistantText(resp);
-      if (!reply) {
+      if (!receivedAny) {
         setError(
           intl.formatMessage({ id: 'pages.models.chat.error.emptyReply' }),
         );
-      } else {
-        setHistory((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            content: reply,
-            id: `a-${Date.now()}`,
-          },
-        ]);
+        // Drop the empty assistant placeholder.
+        setHistory((prev) =>
+          prev.filter((m) => m.id !== assistantId || m.content !== ''),
+        );
       }
-      setUsage(resp.usage ?? null);
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : intl.formatMessage({ id: 'pages.models.chat.error.unknown' });
-      setError(msg);
+      // AbortError → user hit Stop, keep whatever was streamed so
+      // far + don't surface as an error.
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        // Drop empty placeholder if abort fired before any delta.
+        if (!receivedAny) {
+          setHistory((prev) =>
+            prev.filter((m) => m.id !== assistantId || m.content !== ''),
+          );
+        }
+      } else {
+        const msg =
+          e instanceof Error
+            ? e.message
+            : intl.formatMessage({ id: 'pages.models.chat.error.unknown' });
+        setError(msg);
+        // Drop empty placeholder on error so the user doesn't see
+        // a permanently blank assistant bubble.
+        if (!receivedAny) {
+          setHistory((prev) =>
+            prev.filter((m) => m.id !== assistantId || m.content !== ''),
+          );
+        }
+      }
     } finally {
+      abortRef.current = null;
       setSending(false);
     }
   }, [
@@ -355,6 +405,11 @@ const ModelChatPage: React.FC = () => {
     sending,
     intl,
   ]);
+
+  // Stop button — abort the in-flight stream.
+  const onStop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   const onKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -548,13 +603,6 @@ const ModelChatPage: React.FC = () => {
               </Col>
             </Row>
 
-            <Alert
-              type="info"
-              showIcon
-              message={intl.formatMessage({
-                id: 'pages.models.chat.streamNote',
-              })}
-            />
           </Space>
         </Card>
       </div>
@@ -635,26 +683,33 @@ const ModelChatPage: React.FC = () => {
                 token={token}
               />
             ))}
-            {sending && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <Avatar
-                  size={28}
-                  style={{ background: familyColor, flexShrink: 0 }}
+            {sending &&
+              // Only show the standalone "thinking" indicator while
+              // the pre-allocated assistant bubble is still empty.
+              // Once tokens start streaming, the bubble itself is
+              // visible feedback and another spinner becomes noise.
+              history_.length > 0 &&
+              history_[history_.length - 1].role === 'assistant' &&
+              history_[history_.length - 1].content === '' && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
                 >
-                  {instance?.model_display_name.charAt(0).toUpperCase()}
-                </Avatar>
-                <Spin size="small" />
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {intl.formatMessage({ id: 'pages.models.chat.thinking' })}
-                </Text>
-              </div>
-            )}
+                  <Avatar
+                    size={28}
+                    style={{ background: familyColor, flexShrink: 0 }}
+                  >
+                    {instance?.model_display_name.charAt(0).toUpperCase()}
+                  </Avatar>
+                  <Spin size="small" />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {intl.formatMessage({ id: 'pages.models.chat.thinking' })}
+                  </Text>
+                </div>
+              )}
             {error && (
               <Alert
                 type="error"
@@ -703,16 +758,26 @@ const ModelChatPage: React.FC = () => {
                 onKeyDown={onKeyDown}
                 disabled={sending || !instance}
               />
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                loading={sending}
-                disabled={!input.trim() || !instance}
-                onClick={send}
-                style={{ height: 'auto' }}
-              >
-                {intl.formatMessage({ id: 'pages.models.chat.send' })}
-              </Button>
+              {sending ? (
+                <Button
+                  danger
+                  icon={<StopOutlined />}
+                  onClick={onStop}
+                  style={{ height: 'auto' }}
+                >
+                  {intl.formatMessage({ id: 'pages.models.chat.stop' })}
+                </Button>
+              ) : (
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  disabled={!input.trim() || !instance}
+                  onClick={send}
+                  style={{ height: 'auto' }}
+                >
+                  {intl.formatMessage({ id: 'pages.models.chat.send' })}
+                </Button>
+              )}
             </div>
           </div>
         </Card>

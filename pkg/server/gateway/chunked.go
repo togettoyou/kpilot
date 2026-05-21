@@ -31,6 +31,12 @@ type HTTPRequest struct {
 	URL     string
 	Headers []*proto.HTTPHeader
 	Body    []byte
+	// StreamResponse asks the worker to forward upstream body bytes
+	// live as BodyChunk frames rather than buffering the full response
+	// before reply. SendHTTPRequestStream sets this; the unary
+	// SendHTTPRequest leaves it false so existing buffered callers
+	// (Grafana / VM / VL queries) are unaffected.
+	StreamResponse bool
 }
 
 // HTTPResponse is the assembled reverse-proxy response delivered to
@@ -140,7 +146,9 @@ func (r *rxAccumulators) reset() {
 // sendChunkedHTTPRequest emits HTTPRequestStart + BodyChunk* + BodyEnd
 // to the worker through its prioritySender's slow lane. Body may be nil
 // (GET/HEAD); zero chunks are emitted in that case and BodyEnd closes.
-func sendChunkedHTTPRequest(ctx context.Context, w *ConnectedWorker, requestID, method, url string, headers []*proto.HTTPHeader, body []byte) error {
+// streamResponse=true tells the worker to forward the upstream response
+// body live (P16-C SSE pass-through) instead of buffering.
+func sendChunkedHTTPRequest(ctx context.Context, w *ConnectedWorker, requestID, method, url string, headers []*proto.HTTPHeader, body []byte, streamResponse bool) error {
 	if w.sender == nil {
 		return fmt.Errorf("worker sender not ready")
 	}
@@ -148,9 +156,10 @@ func sendChunkedHTTPRequest(ctx context.Context, w *ConnectedWorker, requestID, 
 		RequestId: requestID,
 		Payload: &proto.ServerMessage_HttpReqStart{
 			HttpReqStart: &proto.HTTPRequestStart{
-				Method:  method,
-				Url:     url,
-				Headers: headers,
+				Method:         method,
+				Url:            url,
+				Headers:        headers,
+				StreamResponse: streamResponse,
 			},
 		},
 	}); err != nil {

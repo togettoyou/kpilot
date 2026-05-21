@@ -843,11 +843,10 @@ export default {
   'pages.models.chat.noDeploys.cta': 'Go to Catalog',
   'pages.models.chat.clear': 'Clear conversation',
   'pages.models.chat.send': 'Send',
+  'pages.models.chat.stop': 'Stop',
   'pages.models.chat.thinking': 'Thinking…',
   'pages.models.chat.input.placeholder':
     'Type a message. Enter to send / Shift+Enter for newline',
-  'pages.models.chat.streamNote':
-    'Non-streaming for now: the full reply lands at once. Streaming arrives in P16-C.',
   'pages.models.chat.usage':
     'This turn: {in} in / {out} out / {total} total tokens',
   'pages.models.chat.empty.title': 'Start a conversation',
@@ -1187,6 +1186,11 @@ export default {
   'errors.PLUGIN_NAME_EXISTS': 'Plugin name already exists',
   'errors.PLUGIN_BUILTIN_LOCKED':
     'Built-in plugins cannot be modified or deleted',
+  'errors.API_KEY_NOT_FOUND': 'API key not found',
+  'errors.API_KEY_INVALID': 'API key invalid or revoked',
+  'errors.API_KEY_MISSING': 'Missing API key (Authorization: Bearer …)',
+  'errors.API_KEY_SCOPE_MISMATCH':
+    'API key not authorised for this cluster / namespace / deployment',
   'errors.MODEL_NOT_FOUND': 'Model not found',
   'errors.MODEL_NAME_EXISTS': 'Model name already exists',
   'errors.MODEL_BUILTIN_LOCKED':

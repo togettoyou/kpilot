@@ -821,11 +821,10 @@ export default {
   'pages.models.chat.noDeploys.cta': '前往模型仓库',
   'pages.models.chat.clear': '清空对话',
   'pages.models.chat.send': '发送',
+  'pages.models.chat.stop': '停止',
   'pages.models.chat.thinking': '推理中…',
   'pages.models.chat.input.placeholder':
     '输入消息，Enter 发送 / Shift+Enter 换行',
-  'pages.models.chat.streamNote':
-    '当前为非流式：完整回复返回后一次性显示。流式输出在 P16-C 上线。',
   'pages.models.chat.usage':
     '本轮 tokens：输入 {in} / 输出 {out} / 合计 {total}',
   'pages.models.chat.empty.title': '开始一轮对话',
@@ -1158,6 +1157,11 @@ export default {
   'errors.MODEL_NAME_EXISTS': '模型名称已存在',
   'errors.MODEL_BUILTIN_LOCKED': '内置模型不允许修改或删除',
   'errors.PROXY_UPSTREAM_ERROR': '反向代理上游错误',
+  'errors.API_KEY_NOT_FOUND': 'API Key 不存在',
+  'errors.API_KEY_INVALID': 'API Key 无效或已撤销',
+  'errors.API_KEY_MISSING': '缺少 API Key（Authorization: Bearer …）',
+  'errors.API_KEY_SCOPE_MISMATCH':
+    'API Key 与请求路径的集群 / 命名空间 / 部署不匹配',
 
   // login
   'pages.login.subtitle':

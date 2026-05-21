@@ -109,6 +109,9 @@ func main() {
 			func(requestID string, r *proxy.HTTPResponse) {
 				tunnelClient.SendHTTPResponse(requestID, r.Status, r.Headers, r.Body, r.Error)
 			},
+			tunnelClient.SendHTTPResponseStart,
+			tunnelClient.SendHTTPResponseChunk,
+			tunnelClient.SendHTTPResponseEnd,
 			tunnelClient.StreamContext,
 			k8sCfg,
 			router,

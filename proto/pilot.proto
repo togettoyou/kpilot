@@ -336,6 +336,20 @@ message HTTPRequestStart {
 
   // Request headers (Host is rewritten by the Worker to match url's host).
   repeated HTTPHeader headers = 3;
+
+  // When true, Worker forwards the upstream response body live as
+  // BodyChunk frames instead of buffering it whole before replying.
+  // Used by the inference proxy to give SSE pass-through (vLLM
+  // `stream: true`) real per-token feedback. Default false keeps the
+  // P14 buffered semantics for Grafana / VictoriaMetrics / VL etc.,
+  // which expect a single HTTPResponse with the full body.
+  //
+  // Backward-compatible: old workers ignore the field and buffer as
+  // before; new servers must not require streaming responses from old
+  // workers (the registry of which clusters support it isn't visible
+  // here — callers that need streaming should be tolerant of getting
+  // the whole body in one BodyEnd if the worker happens to be old).
+  bool stream_response = 4;
 }
 
 message HTTPResponseStart {

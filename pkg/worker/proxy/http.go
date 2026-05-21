@@ -61,9 +61,28 @@ const proxyMaxRespBytes = 31 * 1024 * 1024
 // Hop-by-hop headers (Connection / Keep-Alive / TE / etc.) are stripped on
 // both sides per RFC 7230 §6.1; if the client wants to upgrade to a
 // WebSocket, that goes through the streaming proxy in Step C, not here.
+//
+// Two response modes:
+//   - Buffered (req.StreamResponse=false, default): the proxy reads the
+//     entire upstream body, builds an HTTPResponse, and hands it to
+//     sendFn. This is what Grafana / VictoriaMetrics / VL etc. need —
+//     the gateway caller expects one assembled response.
+//   - Streaming (req.StreamResponse=true, P16-C inference path): the
+//     proxy emits HTTPResponseStart with the status + headers
+//     immediately (sendStartFn), then forwards body bytes live as
+//     BodyChunk frames (sendChunkFn) as they arrive from the upstream,
+//     terminating with sendEndFn. SSE pass-through depends on this —
+//     buffering swallows the per-token cadence.
 type HTTPProxy struct {
 	client *http.Client
 	sendFn func(requestID string, resp *HTTPResponse)
+	// Streaming sends. nil-tolerant in tests; production wires them
+	// to tunnelClient.SendHTTPResponseStart/Chunk/End. Errors here
+	// usually mean the tunnel went down mid-stream — caller logs and
+	// aborts the read loop.
+	sendStartFn func(requestID string, status int32, headers []*proto.HTTPHeader, errMsg string) error
+	sendChunkFn func(requestID string, data []byte) error
+	sendEndFn   func(requestID string, errMsg string) error
 	// streamCtxFn returns the tunnel's current stream context, so each
 	// proxied request can derive its ctx from it. When the tunnel
 	// disconnects, in-flight upstream HTTP requests get cancelled
@@ -102,6 +121,9 @@ type HTTPProxy struct {
 // SSH tunnel.
 func NewHTTPProxy(
 	sendFn func(string, *HTTPResponse),
+	sendStartFn func(requestID string, status int32, headers []*proto.HTTPHeader, errMsg string) error,
+	sendChunkFn func(requestID string, data []byte) error,
+	sendEndFn func(requestID string, errMsg string) error,
 	streamCtxFn func() context.Context,
 	k8sCfg *rest.Config,
 	router *InClusterRouter,
@@ -135,6 +157,9 @@ func NewHTTPProxy(
 			Timeout: 5 * time.Minute,
 		},
 		sendFn:      sendFn,
+		sendStartFn: sendStartFn,
+		sendChunkFn: sendChunkFn,
+		sendEndFn:   sendEndFn,
 		streamCtxFn: streamCtxFn,
 		k8sCfg:      k8sCfg,
 		router:      router,
@@ -248,7 +273,23 @@ var hopByHopHeaders = map[string]struct{}{
 
 // Handle is the tunnel HTTP handler. Always replies, even on error — Server
 // is blocked waiting for HTTPResponse and would time out otherwise.
+//
+// req.StreamResponse selects between two response shapes:
+//   - false (default): buffered — read upstream body fully, ship one
+//     HTTPResponse with everything to gateway via sendFn.
+//   - true: streaming — emit HTTPResponseStart with upstream status +
+//     headers, then forward body bytes live as BodyChunk frames, end
+//     with BodyEnd. SSE pass-through (vLLM `stream: true`, P16-C)
+//     depends on this: buffering swallows the per-token cadence.
+//
+// Streaming always replies too — failures before any body read emit
+// HTTPResponseStart with the error string set + zero-chunk BodyEnd, so
+// the gateway side surfaces the failure cleanly instead of timing out.
 func (p *HTTPProxy) Handle(requestID string, req *tunnel.HTTPRequest) {
+	if req.StreamResponse {
+		p.handleStreaming(requestID, req)
+		return
+	}
 	resp, err := p.do(req)
 	if err != nil {
 		log.Printf("[http-proxy] dispatch failed: url=%s err=%v", req.URL, err)
@@ -259,6 +300,240 @@ func (p *HTTPProxy) Handle(requestID string, req *tunnel.HTTPRequest) {
 		return
 	}
 	p.sendFn(requestID, resp)
+}
+
+// handleStreaming dispatches the upstream HTTP request the same way as
+// the buffered path, then forwards the response body live in BodyChunk
+// frames. Always emits HTTPResponseStart + BodyEnd so the gateway side
+// can finalize cleanly — even on dispatch failure (Start with errMsg +
+// zero-chunk End).
+func (p *HTTPProxy) handleStreaming(requestID string, req *tunnel.HTTPRequest) {
+	if p.sendStartFn == nil || p.sendChunkFn == nil || p.sendEndFn == nil {
+		// Misconfigured worker (or test stub). Fall back to buffered so
+		// gateway still gets *something* — better than a wedged request.
+		log.Printf("[http-proxy] streaming requested but stream send fns nil; falling back to buffered: url=%s", req.URL)
+		resp, err := p.do(req)
+		if err != nil {
+			p.sendFn(requestID, &HTTPResponse{
+				Status: http.StatusBadGateway,
+				Error:  err.Error(),
+			})
+			return
+		}
+		p.sendFn(requestID, resp)
+		return
+	}
+
+	if req.Method == "" || req.URL == "" {
+		p.failStream(requestID, "method and url are required")
+		return
+	}
+	if scheme, ok := schemeOf(req.URL); !ok || (scheme != "http" && scheme != "https") {
+		p.failStream(requestID, fmt.Sprintf("unsupported url scheme: %s", req.URL))
+		return
+	}
+
+	parent := context.Background()
+	if p.streamCtxFn != nil {
+		parent = p.streamCtxFn()
+	}
+	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
+	defer cancel()
+
+	hresp, err := p.dispatchForStream(ctx, req)
+	if err != nil {
+		log.Printf("[http-proxy] stream dispatch failed: url=%s err=%v", req.URL, err)
+		p.failStream(requestID, err.Error())
+		return
+	}
+	defer hresp.Body.Close()
+
+	headers := extractResponseHeaders(hresp)
+	if err := p.sendStartFn(requestID, int32(hresp.StatusCode), headers, ""); err != nil {
+		log.Printf("[http-proxy] stream start send failed: request=%s err=%v", requestID, err)
+		return
+	}
+
+	// 32 KiB read buffer — small enough that SSE events (typically a
+	// few hundred bytes each, `data: {...}\n\n`) get forwarded almost
+	// as soon as the upstream flushes them, big enough that bulk
+	// non-streaming JSON responses don't fragment into wasteful
+	// hundreds of frames. The slow lane chunks ≤64 KiB anyway, so
+	// going larger here wouldn't help wire efficiency.
+	buf := make([]byte, 32*1024)
+	var totalBytes int64
+	for {
+		n, readErr := hresp.Body.Read(buf)
+		if n > 0 {
+			totalBytes += int64(n)
+			if totalBytes > proxyMaxRespBytes {
+				_ = p.sendEndFn(requestID, fmt.Sprintf("upstream body exceeds %d bytes", proxyMaxRespBytes))
+				return
+			}
+			// Copy out — buf is reused next iteration, and the sender
+			// retains the slice reference until the slow lane drains
+			// it. Skipping the copy would corrupt prior in-flight
+			// frames as soon as Read fills buf again.
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			if err := p.sendChunkFn(requestID, chunk); err != nil {
+				log.Printf("[http-proxy] stream chunk send failed: request=%s err=%v", requestID, err)
+				return
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				_ = p.sendEndFn(requestID, "")
+			} else {
+				_ = p.sendEndFn(requestID, "read body: "+readErr.Error())
+			}
+			return
+		}
+	}
+}
+
+// failStream emits a synthetic 502 Start + empty BodyEnd so the gateway
+// side delivers a cleanly-terminated stream with the error attached
+// to Start (matches HTTPResponseStart.error semantics). Used for
+// validation failures and pre-dispatch errors where we have no
+// upstream response to forward.
+func (p *HTTPProxy) failStream(requestID, errMsg string) {
+	if p.sendStartFn != nil {
+		_ = p.sendStartFn(requestID, http.StatusBadGateway, nil, errMsg)
+	}
+	if p.sendEndFn != nil {
+		_ = p.sendEndFn(requestID, "")
+	}
+}
+
+// dispatchForStream picks routing the same way `do()` does but returns
+// the raw *http.Response (caller closes Body). Direct + service-proxy
+// fallback share the buffered path's `parseInClusterService` parser;
+// the router-cache demotion behavior is simplified for streaming —
+// we honor the current cached mode and fail the stream rather than
+// transparently retry, because the inference path is hot enough that
+// the cache should already be warm. If it's cold (routingUnknown) we
+// probe direct first, same as buffered.
+func (p *HTTPProxy) dispatchForStream(ctx context.Context, req *tunnel.HTTPRequest) (*http.Response, error) {
+	if svc := parseInClusterService(req.URL); svc != nil && p.apiClient != nil && p.router != nil {
+		switch p.router.Mode() {
+		case routingProxy:
+			return p.dispatchViaServiceProxy(ctx, req, svc)
+		case routingDirect:
+			return p.dispatchDirect(ctx, req)
+		}
+		// routingUnknown — probe direct, demote on DNS failure.
+		hresp, err := p.dispatchDirect(ctx, req)
+		if err == nil {
+			p.router.SetMode(routingDirect)
+			return hresp, nil
+		}
+		if !isDNSFailure(err) {
+			return nil, err
+		}
+		log.Printf("[http-proxy] stream direct dial failed (DNS), falling back to service-proxy: host=%s err=%v",
+			svc.namespace+"/"+svc.name, err)
+		p.router.SetMode(routingProxy)
+		return p.dispatchViaServiceProxy(ctx, req, svc)
+	}
+	return p.dispatchDirect(ctx, req)
+}
+
+// dispatchDirect builds the http.Request from `req` and dispatches it
+// via p.client. Caller owns hresp.Body close. Shared by the buffered
+// path (doDirect, via the io.ReadAll body capture below) and the
+// streaming path (handleStreaming reads incrementally).
+func (p *HTTPProxy) dispatchDirect(ctx context.Context, req *tunnel.HTTPRequest) (*http.Response, error) {
+	var body io.Reader
+	if len(req.Body) > 0 {
+		body = bytes.NewReader(req.Body)
+	}
+	hreq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, body)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	for _, h := range req.Headers {
+		if _, hop := hopByHopHeaders[http.CanonicalHeaderKey(h.Name)]; hop {
+			continue
+		}
+		if http.CanonicalHeaderKey(h.Name) == "Host" {
+			hreq.Host = h.Value
+			continue
+		}
+		hreq.Header.Add(h.Name, h.Value)
+	}
+	hresp, err := p.client.Do(hreq)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch: %w", err)
+	}
+	return hresp, nil
+}
+
+// dispatchViaServiceProxy is the service-proxy counterpart of
+// dispatchDirect — builds an http.Request aimed at the apiserver's
+// `/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/...` endpoint
+// and dispatches it on p.apiClient (the auth-wrapped, independent-
+// transport client built in NewHTTPProxy).
+func (p *HTTPProxy) dispatchViaServiceProxy(
+	ctx context.Context,
+	req *tunnel.HTTPRequest,
+	svc *inClusterService,
+) (*http.Response, error) {
+	if p.apiClient == nil || p.apiHost == nil {
+		return nil, errors.New("service-proxy fallback unavailable: no api client")
+	}
+	target := url.URL{
+		Scheme:   p.apiHost.Scheme,
+		Host:     p.apiHost.Host,
+		Path:     fmt.Sprintf("/api/v1/namespaces/%s/services/%s:%s/proxy%s", svc.namespace, svc.name, svc.port, ensureLeadingSlash(svc.path)),
+		RawQuery: svc.query.Encode(),
+	}
+	var body io.Reader
+	if len(req.Body) > 0 {
+		body = bytes.NewReader(req.Body)
+	}
+	hreq, err := http.NewRequestWithContext(ctx, strings.ToUpper(req.Method), target.String(), body)
+	if err != nil {
+		return nil, fmt.Errorf("build svc-proxy request: %w", err)
+	}
+	for _, h := range req.Headers {
+		canon := http.CanonicalHeaderKey(h.Name)
+		if _, hop := hopByHopHeaders[canon]; hop {
+			continue
+		}
+		switch canon {
+		case "Host", "Cookie", "Content-Length", "Authorization":
+			continue
+		case "Accept-Encoding":
+			continue
+		}
+		hreq.Header.Add(h.Name, h.Value)
+	}
+	hresp, err := p.apiClient.Do(hreq)
+	if err != nil {
+		return nil, fmt.Errorf("svc-proxy dispatch: %w", err)
+	}
+	return hresp, nil
+}
+
+// extractResponseHeaders flattens hresp.Header into the proto repeated-
+// HTTPHeader shape, stripping hop-by-hop + Content-Length (gateway /
+// gin both compute their own). Shared by streaming and (indirectly via
+// inline duplication for the html-rewrite case) buffered paths.
+func extractResponseHeaders(hresp *http.Response) []*proto.HTTPHeader {
+	headers := make([]*proto.HTTPHeader, 0, len(hresp.Header))
+	for name, values := range hresp.Header {
+		if _, hop := hopByHopHeaders[name]; hop {
+			continue
+		}
+		if name == "Content-Length" {
+			continue
+		}
+		for _, v := range values {
+			headers = append(headers, &proto.HTTPHeader{Name: name, Value: v})
+		}
+	}
+	return headers
 }
 
 func (p *HTTPProxy) do(req *tunnel.HTTPRequest) (*HTTPResponse, error) {
@@ -346,32 +621,11 @@ func (p *HTTPProxy) doInClusterService(
 // indirection. Extracted from do() so doInClusterService can reuse it
 // for the "try direct first" probe.
 func (p *HTTPProxy) doDirect(ctx context.Context, req *tunnel.HTTPRequest) (*HTTPResponse, error) {
-	var body io.Reader
-	if len(req.Body) > 0 {
-		body = bytes.NewReader(req.Body)
-	}
-	hreq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, body)
+	hresp, err := p.dispatchDirect(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-
-	for _, h := range req.Headers {
-		if _, hop := hopByHopHeaders[http.CanonicalHeaderKey(h.Name)]; hop {
-			continue
-		}
-		if http.CanonicalHeaderKey(h.Name) == "Host" {
-			hreq.Host = h.Value
-			continue
-		}
-		hreq.Header.Add(h.Name, h.Value)
-	}
-
-	hresp, err := p.client.Do(hreq)
-	if err != nil {
-		return nil, fmt.Errorf("dispatch: %w", err)
+		return nil, err
 	}
 	defer hresp.Body.Close()
-
 	respBody, err := io.ReadAll(io.LimitReader(hresp.Body, proxyMaxRespBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
@@ -379,22 +633,9 @@ func (p *HTTPProxy) doDirect(ctx context.Context, req *tunnel.HTTPRequest) (*HTT
 	if int64(len(respBody)) > proxyMaxRespBytes {
 		return nil, fmt.Errorf("upstream body exceeds %d bytes", proxyMaxRespBytes)
 	}
-
-	headers := make([]*proto.HTTPHeader, 0, len(hresp.Header))
-	for name, values := range hresp.Header {
-		if _, hop := hopByHopHeaders[name]; hop {
-			continue
-		}
-		if name == "Content-Length" {
-			continue
-		}
-		for _, v := range values {
-			headers = append(headers, &proto.HTTPHeader{Name: name, Value: v})
-		}
-	}
 	return &HTTPResponse{
 		Status:  int32(hresp.StatusCode),
-		Headers: headers,
+		Headers: extractResponseHeaders(hresp),
 		Body:    respBody,
 	}, nil
 }
@@ -480,54 +721,9 @@ func (p *HTTPProxy) doViaServiceProxy(
 	req *tunnel.HTTPRequest,
 	svc *inClusterService,
 ) (*HTTPResponse, error) {
-	if p.apiClient == nil || p.apiHost == nil {
-		return nil, errors.New("service-proxy fallback unavailable: no api client")
-	}
-	target := url.URL{
-		Scheme:   p.apiHost.Scheme,
-		Host:     p.apiHost.Host,
-		Path:     fmt.Sprintf("/api/v1/namespaces/%s/services/%s:%s/proxy%s", svc.namespace, svc.name, svc.port, ensureLeadingSlash(svc.path)),
-		RawQuery: svc.query.Encode(),
-	}
-	var body io.Reader
-	if len(req.Body) > 0 {
-		body = bytes.NewReader(req.Body)
-	}
-	hreq, err := http.NewRequestWithContext(ctx, strings.ToUpper(req.Method), target.String(), body)
+	hresp, err := p.dispatchViaServiceProxy(ctx, req, svc)
 	if err != nil {
-		return nil, fmt.Errorf("build svc-proxy request: %w", err)
-	}
-	// Replay non-hop-by-hop headers. Host / Content-Length / Cookie
-	// don't make sense through the API proxy (it manages those for
-	// us). Authorization is stripped too — rest.HTTPClientFor's
-	// transport sets the apiserver bearer token; forwarding the
-	// browser's would either be empty or wrong for the apiserver.
-	for _, h := range req.Headers {
-		canon := http.CanonicalHeaderKey(h.Name)
-		if _, hop := hopByHopHeaders[canon]; hop {
-			continue
-		}
-		switch canon {
-		case "Host", "Cookie", "Content-Length", "Authorization":
-			continue
-		case "Accept-Encoding":
-			// Strip the browser's Accept-Encoding so Go's transport
-			// is free to negotiate gzip itself. The transport then
-			// transparently decompresses the response body and strips
-			// Content-Encoding from the headers, so we forward
-			// plaintext bytes + plaintext Content-Type to the server.
-			// Leaving the browser's encoding through would suppress
-			// the auto-decompress path → compressed body + no
-			// Content-Encoding header reaching the browser → "save
-			// as .gz".
-			continue
-		}
-		hreq.Header.Add(h.Name, h.Value)
-	}
-
-	hresp, err := p.apiClient.Do(hreq)
-	if err != nil {
-		return nil, fmt.Errorf("svc-proxy dispatch: %w", err)
+		return nil, err
 	}
 	defer hresp.Body.Close()
 
@@ -558,21 +754,9 @@ func (p *HTTPProxy) doViaServiceProxy(
 		respBody = bytes.ReplaceAll(respBody, []byte(prefix), nil)
 	}
 
-	headers := make([]*proto.HTTPHeader, 0, len(hresp.Header))
-	for name, values := range hresp.Header {
-		if _, hop := hopByHopHeaders[name]; hop {
-			continue
-		}
-		if name == "Content-Length" {
-			continue
-		}
-		for _, v := range values {
-			headers = append(headers, &proto.HTTPHeader{Name: name, Value: v})
-		}
-	}
 	return &HTTPResponse{
 		Status:  int32(hresp.StatusCode),
-		Headers: headers,
+		Headers: extractResponseHeaders(hresp),
 		Body:    respBody,
 	}, nil
 }

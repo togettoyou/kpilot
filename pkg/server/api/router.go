@@ -192,12 +192,12 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// API uses all of them.
 		clusters.Any("/:id/proxy/:plugin/*path", handler.ProxyPlugin(gw))
 
-		// P16-B — reverse proxy to inference Services. The browser POSTs
-		// /api/v1/clusters/<id>/inference/<ns>/<name>/chat/completions
-		// (any /v1 sub-path works) and the server forwards through the
-		// worker tunnel to http://<name>.<ns>.svc.<cluster-domain>:8000/v1...
-		// Body is buffered end-to-end (no SSE pass-through) — fine for
-		// non-streaming chat debug; streaming wakes up in P16-C.
+		// P16-B — reverse proxy to inference Services for the in-app
+		// chat playground. Cookie-authed (Auth middleware above) so
+		// the browser session works without minting API keys. P16-C
+		// turned this into a streaming pass-through too, so the
+		// playground gets real per-token feedback alongside the
+		// external OpenAI-compat endpoint below.
 		clusters.Any("/:id/inference/:namespace/:name/*subpath", handler.ProxyInference(gw))
 
 		// In-process observability snapshot. Auth-protected (admin-only
@@ -239,7 +239,38 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// labelled component=inference. Source of truth is the
 		// cluster, not a ModelDeployment table.
 		models.GET("/deployments", handler.ListAllDeployments(gw))
+
+		// P16-C — API keys for the external OpenAI-compatible
+		// inference proxy. Operator-only CRUD (JWT cookie auth);
+		// the keys themselves authorise external Bearer calls to
+		// the /proxy/inference/ endpoint registered below.
+		apiKeys := protected.Group("/api-keys")
+		apiKeys.POST("", handler.CreateAPIKey)
+		apiKeys.GET("", handler.ListAPIKeys)
+		apiKeys.POST("/:id/revoke", handler.RevokeAPIKey)
+		apiKeys.DELETE("/:id", handler.DeleteAPIKey)
 	}
+
+	// P16-C — OpenAI-compatible inference reverse proxy.
+	//
+	// Lives OUTSIDE the JWT-protected group: auth is Bearer-only
+	// (BearerAPIKey middleware) so external SDKs / curl / langchain
+	// clients can call it without a browser session. The middleware
+	// enforces the key's (cluster, namespace, deploy) scope matches
+	// the URL path before forwarding.
+	//
+	// URL shape:
+	//   /api/v1/clusters/<id>/proxy/inference/<ns>/<name>/v1/chat/completions
+	// Forwarded as:
+	//   http://<name>.<ns>.svc.<cluster-domain>:8000/v1/chat/completions
+	//
+	// Streaming end-to-end: gateway.SendHTTPRequestStream emits
+	// HTTPResponseStart + BodyChunks live, handler flushes each
+	// chunk to the client. vLLM `stream:true` SSE arrives with
+	// per-token latency.
+	api.Any("/clusters/:id/proxy/inference/:namespace/:name/*subpath",
+		middleware.BearerAPIKey("id", "namespace", "name"),
+		handler.ProxyInferenceOpenAI(gw))
 
 	// SPA static fallback — only mounted when STATIC_DIR points at a
 	// real directory with an index.html. In dev the frontend runs on

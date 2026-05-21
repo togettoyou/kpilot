@@ -1,4 +1,4 @@
-// Package handler — model chat reverse proxy (P16-B).
+// Package handler — model chat reverse proxy (P16-B, upgraded by P16-C).
 //
 // Thin reverse proxy from the browser to an in-cluster inference
 // Service's OpenAI-compatible API. URL shape:
@@ -9,19 +9,21 @@
 //
 //   <method> http://<name>.<namespace>.svc.<cluster-domain>:8000/v1<subpath>
 //
-// through the worker tunnel via gw.SendHTTPRequest. We hardcode
-// port 8000 because that's the only port the P16-A generator
-// exposes; the frontend doesn't need to discover it. The /v1
-// prefix matches the OpenAI convention every supported runtime
+// through the worker tunnel via gateway.SendHTTPRequestStream. We
+// hardcode port 8000 because that's the only port the P16-A
+// generator exposes; the frontend doesn't need to discover it. The
+// /v1 prefix matches the OpenAI convention every supported runtime
 // (vLLM, SGLang, TGI) speaks.
 //
-// Streaming note: the current HTTPRequest/HTTPResponse plumbing
-// is fully buffered — the worker collects the entire upstream
-// response before returning, so vLLM `stream: true` works but
-// yields zero live token feedback. For P16-B chat 调试 we accept
-// that — short turns finish in a few seconds. True SSE pass-through
-// is a P16-C concern (will need extending HTTPResponse with an
-// IsStream flag + worker-side framing).
+// Auth: JWT cookie (Auth middleware in router.go). This handler is
+// the cookie-authed counterpart to the Bearer-authed
+// inference_proxy.go::ProxyInferenceOpenAI — both share
+// writeStreamingResponse via the gateway streaming primitives.
+//
+// P16-C swapped this from the buffered SendHTTPRequest path to
+// SendHTTPRequestStream so the playground sees real per-token SSE
+// from vLLM `stream: true`. Frontend ModelChat consumes the
+// response via fetch's ReadableStream + TextDecoder pair.
 package handler
 
 import (
@@ -35,16 +37,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
 // inferenceProxyTimeout is the worker-tunnel deadline for one
-// inference call. LLM generation can be slow on cold cache; 5 min
-// is roomy for a typical chat-debug turn but still finite so a
-// wedged backend can't pile up forever. Tune via env later if
-// long-context summarization needs more.
-const inferenceProxyTimeout = 5 * time.Minute
+// inference call. LLM generation can be slow on cold cache; 10 min
+// matches the OpenAI-compat external proxy budget so the two paths
+// share lifetime semantics. Tune via env later if long-context
+// summarization needs more.
+const inferenceProxyTimeout = 10 * time.Minute
 
 // inferenceServicePort matches deploy.containerPort — the single
 // port the inference Service exposes. Don't accept a port query
@@ -110,60 +111,26 @@ func ProxyInference(gw *gateway.GatewayServer) gin.HandlerFunc {
 			url += "?" + rq
 		}
 
-		// Headers: only forward Content-Type + Accept. Strip
-		// everything else to avoid leaking KPilot session cookies
-		// or Authorization tokens into the inference backend. The
-		// upstream is single-tenant by deployment, no per-request
-		// auth needed (vLLM has API key support but the generator
-		// doesn't wire it up).
-		headers := []*proto.HTTPHeader{}
-		if ct := c.GetHeader("Content-Type"); ct != "" {
-			headers = append(headers, &proto.HTTPHeader{Name: "Content-Type", Value: ct})
-		} else {
-			headers = append(headers, &proto.HTTPHeader{Name: "Content-Type", Value: "application/json"})
-		}
-		if ac := c.GetHeader("Accept"); ac != "" {
-			headers = append(headers, &proto.HTTPHeader{Name: "Accept", Value: ac})
-		}
-
 		req := &gateway.HTTPRequest{
-			Method:  c.Request.Method,
-			URL:     url,
-			Headers: headers,
-			Body:    body,
+			Method:         c.Request.Method,
+			URL:            url,
+			Headers:        buildUpstreamInferenceHeaders(c),
+			Body:           body,
+			StreamResponse: true,
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), inferenceProxyTimeout)
 		defer cancel()
 
-		resp, err := gw.SendHTTPRequest(ctx, clusterID, req)
+		stream, err := gw.SendHTTPRequestStream(ctx, clusterID, req)
 		if err != nil {
-			log.Printf("[model-chat] gateway send failed: cluster=%s ns=%s name=%s err=%v",
+			log.Printf("[model-chat] gateway open stream failed: cluster=%s ns=%s name=%s err=%v",
 				clusterID, namespace, name, err)
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
 		}
-		if resp.Error != "" {
-			log.Printf("[model-chat] worker dispatch failed: cluster=%s ns=%s name=%s err=%s",
-				clusterID, namespace, name, resp.Error)
-			apiErrDetail(c, http.StatusBadGateway, CodeProxyUpstream, resp.Error)
-			return
-		}
+		defer stream.Close()
 
-		// Replay headers selectively: pass Content-Type so the
-		// browser knows it's JSON / event-stream; drop hop-by-hop
-		// + Content-Length (Gin recomputes).
-		for _, h := range resp.Headers {
-			canon := http.CanonicalHeaderKey(h.Name)
-			if _, hop := hopByHopHeadersServer[canon]; hop {
-				continue
-			}
-			if canon == "Content-Length" {
-				continue
-			}
-			c.Writer.Header().Add(h.Name, h.Value)
-		}
-		c.Writer.WriteHeader(int(resp.Status))
-		_, _ = c.Writer.Write(resp.Body)
+		writeStreamingResponse(c, stream, clusterID, namespace, name)
 	}
 }
 
