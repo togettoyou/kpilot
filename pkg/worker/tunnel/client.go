@@ -130,6 +130,24 @@ type Client struct {
 	streamCtxMu     sync.RWMutex
 	streamCtx       context.Context
 	streamCtxCancel context.CancelFunc
+
+	// httpCancelers tracks the in-flight streaming HTTP requests
+	// (handleStreaming in pkg/worker/proxy/http.go) whose http.Request
+	// ctx can be cancelled out from under them by an HttpCancel frame
+	// from the server. Without this registry, a client clicking Stop
+	// on a 10k-row log query closes the EventSource on the browser
+	// side but the worker keeps reading from upstream + spraying
+	// orphan chunks at the gateway until the worker's own 5 min
+	// request ctx expires — wasted CPU, wire, and upstream resources.
+	//
+	// Lifetime: handleStreaming registers on entry, deregisters on
+	// exit (defer). Stale entries past worker disconnect are not a
+	// concern because the streaming handlers also derive their ctx
+	// from StreamContext() — disconnect cancels them anyway, and
+	// the map gets garbage-collected with the Client when reconnect
+	// builds a fresh one.
+	httpCancelMu  sync.Mutex
+	httpCancelers map[string]func()
 }
 
 // StreamContext returns a context tied to the current gRPC stream.
@@ -160,7 +178,52 @@ func NewClient(serverAddr, clusterToken, clusterDomain string) *Client {
 		clusterToken:  clusterToken,
 		clusterDomain: clusterDomain,
 		rxAsm:         newRxAssemblers(),
+		httpCancelers: make(map[string]func()),
 	}
+}
+
+// RegisterHTTPCancel exposes the cancel function for an in-flight
+// streaming HTTP request so a server-side HttpCancel frame can yank
+// it. handleStreaming calls this on entry, paired with
+// DeregisterHTTPCancel on exit (defer). Idempotent re-register
+// overwrites the previous canceler (shouldn't happen — request_id
+// is unique per call — but defensive).
+//
+// Accepts `func()` rather than the named context.CancelFunc so
+// callers (HTTPProxy field type is `func()`) can pass it without
+// a wrapping closure / explicit conversion. The two types have the
+// same underlying signature.
+func (c *Client) RegisterHTTPCancel(requestID string, cancel func()) {
+	c.httpCancelMu.Lock()
+	c.httpCancelers[requestID] = cancel
+	c.httpCancelMu.Unlock()
+}
+
+// DeregisterHTTPCancel removes the canceler for requestID. Called
+// from handleStreaming's defer so a normal-EOF return doesn't leave
+// a stale entry. Idempotent.
+func (c *Client) DeregisterHTTPCancel(requestID string) {
+	c.httpCancelMu.Lock()
+	delete(c.httpCancelers, requestID)
+	c.httpCancelMu.Unlock()
+}
+
+// cancelHTTPRequest is invoked from the recv loop on HttpCancel.
+// Looks up the registered canceler and calls it; the streaming
+// handler's hresp.Body.Read returns an error, the loop exits, defer
+// closes the upstream conn + deregisters this entry. Missing entry
+// is silently ignored (request already finished naturally — late
+// cancel is benign).
+func (c *Client) cancelHTTPRequest(requestID, reason string) {
+	c.httpCancelMu.Lock()
+	cancel, ok := c.httpCancelers[requestID]
+	delete(c.httpCancelers, requestID)
+	c.httpCancelMu.Unlock()
+	if !ok {
+		return
+	}
+	log.Printf("[tunnel] http stream cancelled by server: request=%s reason=%s", requestID, reason)
+	cancel()
 }
 
 // SetResourceHandler registers the callback invoked once a complete
@@ -537,6 +600,8 @@ func (c *Client) handleServerMessage(msg *proto.ServerMessage) {
 		c.rxAsm.open(msg.RequestId, kindPlugin, p.PluginCmdStart)
 	case *proto.ServerMessage_HttpReqStart:
 		c.rxAsm.open(msg.RequestId, kindHTTP, p.HttpReqStart)
+	case *proto.ServerMessage_HttpCancel:
+		c.cancelHTTPRequest(msg.RequestId, p.HttpCancel.Reason)
 	case *proto.ServerMessage_BodyChunk:
 		c.rxAsm.appendChunk(msg.RequestId, p.BodyChunk.Data)
 	case *proto.ServerMessage_BodyEnd:

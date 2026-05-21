@@ -101,10 +101,30 @@ type HTTPStream struct {
 	sess      *httpStreamSession
 }
 
-// Close releases the session-tracking state. Idempotent. Late chunks
-// for this requestID after Close are orphans and dropped silently.
+// Close releases the session-tracking state and tells the worker to
+// stop reading from upstream. Idempotent. Late chunks for this
+// requestID after Close are orphans and dropped silently.
+//
+// Sends an HttpCancel frame BEFORE clearing local state so the
+// worker sees a valid in-flight request to cancel. Best-effort: if
+// the worker disconnected, sendSlow returns ErrSenderClosed and we
+// move on — gateway's unregister already force-closed our session
+// in that path via closeWorkerHTTPStreams.
 func (s *HTTPStream) Close() {
 	s.closeOnce.Do(func() {
+		// Look up the worker by the session's cluster id. If the
+		// worker already disconnected, the lookup misses and we
+		// skip the cancel frame — there's no one left to receive it.
+		if w, ok := s.gw.GetWorker(s.sess.clusterID); ok && w.sender != nil {
+			_ = w.sender.sendSlow(context.Background(), &proto.ServerMessage{
+				RequestId: s.requestID,
+				Payload: &proto.ServerMessage_HttpCancel{
+					HttpCancel: &proto.HTTPCancelRequest{
+						Reason: "stream closed by server",
+					},
+				},
+			})
+		}
 		s.gw.removeHTTPStream(s.requestID)
 		s.sess.close()
 	})

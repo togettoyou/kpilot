@@ -4,6 +4,7 @@ import {
   FullscreenOutlined,
   ReloadOutlined,
   SearchOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import { useIntl, useParams } from '@umijs/max';
 import {
@@ -47,18 +48,20 @@ import {
   type LogLine,
   logsHistogram,
   type LogsHistogramResponse,
-  type LogSearchResponse,
-  searchLogs,
+  type LogsResult,
+  streamLogsSearch,
 } from '@/services/kpilot/logs';
 import { listNamespaces, listWorkloads } from '@/services/kpilot/workload';
 
 // Heavy chart split off to keep the cluster-detail bundle lean.
 const LoggingHistogram = lazy(() => import('./LoggingHistogram'));
 
-// 10000 is the server-side cap (parseTimeWindow in logs.go). VL itself
-// has no hard limit, but beyond 10k lines browser DOM rendering becomes
-// the bottleneck; if you really need more, narrow the search.
-const LIMIT_CAP = 10000;
+// 50000 is the server-side cap (parseTimeWindow in logs.go) after
+// the streaming refactor. With virtuoso + streaming + a Stop
+// button, the browser stays responsive even on multi-thousand-row
+// result sets; the cap protects VL from a runaway query rather
+// than the browser from a DOM dump.
+const LIMIT_CAP = 50000;
 
 // triggerDownload pipes a string blob into a browser download. Pure
 // client-side — the log lines are already in memory, no second server
@@ -178,21 +181,39 @@ const LoggingPage: React.FC = () => {
     limit: number;
   } | null>(null);
 
-  // 加载状态 + 数据;两个请求是手动触发的 useState fetch,而不是
-  // useClusterRequest——因为 logging 不应该在打开页面那一刻自动跑
-  // 大查询,等用户敲 Enter 再发。
+  // 流式 + 直方图状态:lines 用单独的 useState 持续 append(streaming
+  // path),search.summary 在结果事件到达后填充。直方图是非流式独立请求。
+  // 不用 useClusterRequest 因为 logging 不该一进页面就跑大查询,
+  // 用户敲 Enter 才发。
+  const [lines, setLines] = useState<LogLine[]>([]);
   const [search, setSearch] = useState<{
-    data: LogSearchResponse | null;
+    summary: LogsResult | null;
     error: any;
     loading: boolean;
-  }>({ data: null, error: null, loading: false });
+    elapsedMs: number;
+  }>({ summary: null, error: null, loading: false, elapsedMs: 0 });
   const [histo, setHisto] = useState<{
     data: LogsHistogramResponse | null;
     loading: boolean;
   }>({ data: null, loading: false });
 
+  // AbortController for the in-flight stream — Stop button calls
+  // abort(); switching cluster also aborts so a half-loaded result
+  // doesn't bleed into the next cluster's view.
+  const abortRef = useRef<AbortController | null>(null);
+  // Wall-clock start of the current query (or last completed one),
+  // captured at runQuery start so a 200 ms ticker can derive
+  // elapsedMs LIVE without waiting for the server's 25 s `progress`
+  // heartbeat. Without this the caption is stuck at 0.0s for any
+  // sub-25-second query (i.e. most of them).
+  const startRef = useRef<number | null>(null);
+
   const runQuery = useCallback(async () => {
     if (!clusterId) return;
+    // If a previous stream is still going, abort it before starting
+    // a new one (user mashed Enter / Search rapidly).
+    abortRef.current?.abort();
+
     // Empty input → ask for everything. Backend mirrors this default
     // so the server-side LogsQL parser sees `*` even on first load.
     const q = query.trim() || '*';
@@ -204,21 +225,87 @@ const LoggingPage: React.FC = () => {
     const to = toDate.toISOString();
     setSubmitted({ query: q, range, limit });
 
-    setSearch({ data: null, error: null, loading: true });
+    // Reset stream-derived state before kicking off a new run.
+    setLines([]);
+    startRef.current = Date.now();
+    setSearch({
+      summary: null,
+      error: null,
+      loading: true,
+      elapsedMs: 0,
+    });
     setHisto({ data: null, loading: true });
-    // Parallel — histogram is cheap, search dominates wall clock.
-    void Promise.allSettled([
-      searchLogs(clusterId, { query: q, from, to, limit }).then(
-        (data) =>
-          setSearch({ data, error: null, loading: false }),
-        (error) => setSearch({ data: null, error, loading: false }),
-      ),
-      logsHistogram(clusterId, { query: q, from, to }).then(
-        (data) => setHisto({ data, loading: false }),
-        () => setHisto({ data: null, loading: false }),
-      ),
-    ]);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Parallel — histogram is independent of streaming search.
+    void logsHistogram(clusterId, { query: q, from, to }).then(
+      (data) => setHisto({ data, loading: false }),
+      () => setHisto({ data: null, loading: false }),
+    );
+
+    try {
+      const summary = await streamLogsSearch(
+        clusterId,
+        { query: q, from, to, limit },
+        {
+          // onLine receives batched arrays (50ms / 100-row windows)
+          // so concat-into-state happens at most ~20×/sec —
+          // virtuoso handles that comfortably.
+          onLine: (batch) =>
+            setLines((prev) => {
+              if (batch.length === 0) return prev;
+              const next = prev.slice();
+              for (const ln of batch) next.push(ln);
+              return next;
+            }),
+          // onProgress intentionally omitted — server's 25 s
+          // heartbeat is too coarse for a live caption. The
+          // 200 ms wall-clock ticker below updates elapsedMs
+          // from Date.now() instead, and works even when the
+          // query is so fast no progress event ever arrives.
+        },
+        { signal: controller.signal },
+      );
+      // Identity-check the controller before writing state: a
+      // newer runQuery may have aborted us and started its own
+      // stream. Without this check, the stale resolve/reject of
+      // an older run clobbers the newer run's state (loading flag
+      // flickers off, summary disappears, etc.). The finally
+      // block does the same check for abortRef cleanup.
+      if (abortRef.current !== controller) return;
+      setSearch({
+        summary,
+        error: null,
+        loading: false,
+        elapsedMs: summary.elapsedMs,
+      });
+    } catch (e: any) {
+      if (abortRef.current !== controller) return;
+      // AbortError = user clicked Stop. Keep whatever streamed so
+      // far, just flip loading off — don't surface as an error.
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        setSearch((prev) => ({ ...prev, loading: false }));
+      } else {
+        setSearch({
+          summary: null,
+          error: e,
+          loading: false,
+          elapsedMs: 0,
+        });
+      }
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+    }
   }, [clusterId, query, range, limit]);
+
+  // Stop button — abort the in-flight stream. Lines already
+  // displayed stay; summary stays null so the truncation banner
+  // doesn't fire spuriously.
+  const onStop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   // Fetch the namespace list once per cluster for the structured
   // picker. Same pattern as Monitoring page — local state, not the
@@ -322,7 +409,12 @@ const LoggingPage: React.FC = () => {
     }).catch((error) => {
       if (cancelled) return;
       if (isResourceNotAvailable(error)) {
-        setSearch({ data: null, error, loading: false });
+        setSearch({
+          summary: null,
+          error,
+          loading: false,
+          elapsedMs: 0,
+        });
       }
     });
     return () => {
@@ -330,8 +422,35 @@ const LoggingPage: React.FC = () => {
     };
   }, [clusterId]);
 
-  // Format the result lines once per response.
-  const lines = useMemo<LogLine[]>(() => search.data?.lines ?? [], [search.data]);
+  // Abort any in-flight stream when the page unmounts or the cluster
+  // switches — otherwise the EventSource keeps running in the
+  // background even though no one is consuming it.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  // Wall-clock ticker for the live elapsed caption. Runs only while
+  // a query is in flight; updates search.elapsedMs every 200 ms from
+  // Date.now() - startRef.current. Server's `progress` event only
+  // fires every 25 s so it's useless for sub-25 s queries, which
+  // is most of them. After completion, search.elapsedMs is snapped
+  // to the server-reported summary.elapsedMs in the success path
+  // (slightly more accurate; ignores our wall-clock estimate).
+  useEffect(() => {
+    if (!search.loading || startRef.current === null) return;
+    const id = setInterval(() => {
+      const start = startRef.current;
+      if (start === null) return;
+      const now = Date.now();
+      setSearch((prev) => {
+        if (!prev.loading) return prev;
+        return { ...prev, elapsedMs: now - start };
+      });
+    }, 200);
+    return () => clearInterval(id);
+  }, [search.loading]);
 
   // Wrapper height = viewport - wrapper.top - footer.height - (gap
   // between wrapper bottom and footer top). The gap is a CONSTANT
@@ -558,18 +677,27 @@ const LoggingPage: React.FC = () => {
                       }
                     }}
                   />
-                  <Button
-                    type="primary"
-                    icon={<SearchOutlined />}
-                    onClick={runQuery}
-                    loading={search.loading}
-                  >
-                    {intl.formatMessage({ id: 'pages.logging.search' })}
-                  </Button>
+                  {search.loading ? (
+                    <Button
+                      danger
+                      icon={<StopOutlined />}
+                      onClick={onStop}
+                    >
+                      {intl.formatMessage({ id: 'pages.logging.stop' })}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="primary"
+                      icon={<SearchOutlined />}
+                      onClick={runQuery}
+                    >
+                      {intl.formatMessage({ id: 'pages.logging.search' })}
+                    </Button>
+                  )}
                   <Button
                     icon={<ReloadOutlined />}
                     onClick={runQuery}
-                    disabled={!submitted}
+                    disabled={!submitted || search.loading}
                   />
                 </Space>
               </Col>
@@ -652,14 +780,31 @@ const LoggingPage: React.FC = () => {
           />
         )}
 
-        {/* Truncation banner */}
-        {search.data?.truncated && (
+        {/* Truncation banner — only after a complete run lands a
+            summary. While streaming we don't know yet whether we'll
+            hit the cap, so the banner stays hidden. */}
+        {search.summary?.truncated && (
           <Alert
             type="info"
             showIcon
             message={intl.formatMessage(
               { id: 'pages.logging.truncated' },
-              { n: search.data.lines.length },
+              { n: lines.length },
+            )}
+          />
+        )}
+
+        {/* Partial-result banner — fires when the worker reported
+            the upstream connection died mid-stream. Shows alongside
+            the rows that DID arrive so the investigator knows the
+            view isn't complete. */}
+        {search.summary?.endErr && (
+          <Alert
+            type="warning"
+            showIcon
+            message={intl.formatMessage(
+              { id: 'pages.logging.partialResult' },
+              { n: lines.length, err: search.summary.endErr },
             )}
           />
         )}
@@ -683,9 +828,21 @@ const LoggingPage: React.FC = () => {
                 {intl.formatMessage({ id: 'pages.logging.results.title' })}
               </Typography.Text>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {/* Same caption shape during streaming and after
+                    completion — only the verb differs ("loaded"
+                    while in flight, just "N rows" after done).
+                    The elapsed-time tail stays so a quick query
+                    still shows its duration after it finishes. */}
                 {intl.formatMessage(
-                  { id: 'pages.logging.results.count' },
-                  { n: lines.length },
+                  {
+                    id: search.loading
+                      ? 'pages.logging.results.streaming'
+                      : 'pages.logging.results.count',
+                  },
+                  {
+                    n: lines.length,
+                    sec: ((search.elapsedMs || 0) / 1000).toFixed(1),
+                  },
                 )}
               </Typography.Text>
               {search.loading && <Spin size="small" />}
@@ -786,7 +943,16 @@ const LoggingPage: React.FC = () => {
 // hostname/namespace/pod chips prefixed for context. Keeps things
 // compact — full structured fields go behind a click-to-expand later
 // if anyone asks.
-function LogRow({ line }: { line: LogLine }) {
+//
+// React.memo — CRITICAL for streaming search performance. setLines
+// fires ~20×/sec while a query is in flight; without memo, virtuoso's
+// itemContent re-creates LogRow JSX on every render, and React walks
+// the antd Tag / Typography subtree for every visible row even though
+// the row's data didn't change. With memo + the append-only lines[]
+// pattern (prev.slice() copies REFERENCES, so lines[i] === oldLines[i]
+// for unchanged indices), React skips the reconcile for non-tail rows.
+// Trims ~6 % CPU on a 10k-row stream.
+const LogRow = React.memo(function LogRow({ line }: { line: LogLine }) {
   const t = new Date(line.time);
   const ts = Number.isNaN(t.getTime())
     ? line.time
@@ -825,6 +991,6 @@ function LogRow({ line }: { line: LogLine }) {
       <span>{line.message}</span>
     </div>
   );
-}
+});
 
 export default LoggingPage;

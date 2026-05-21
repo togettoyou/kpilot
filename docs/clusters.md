@@ -138,18 +138,27 @@ Scoped action 端点的安全模式：
 自绘 LogsQL 搜索 UI，**不嵌 Grafana**。硬依赖 `victoria-logs`；chart 自带 Vector DaemonSet 收集所有 Pod 日志，零额外插件。
 
 - **后端两条端点**（`pkg/server/api/handler/logs.go`）：
-  - `GET /logs/search?query=...&from=...&to=...&limit=...` —— 匹配的日志行（默认 200，cap 10000）
-  - `GET /logs/histogram?query=...&from=...&to=...` —— 时间桶 count，桶宽 = `(to-from)/50` 自适应
+  - `GET /logs/search?query=...&from=...&to=...&limit=...` —— 匹配的日志行（默认 200，cap **50000**），**端到端真流式**（见下）
+  - `GET /logs/histogram?query=...&from=...&to=...` —— 时间桶 count，桶宽 = `(to-from)/50` 自适应；非流式(数据小,~50 个 bucket)
   - **空 query**：后端默认转 `*`（=全部），与前端"留空 = 全部日志"一致；用户不用记得敲星号
-  - **响应是 SSE,不是 JSON**(`pkg/server/api/handler/sse.go` 共享 helper):headers 立即 flush + 25s 一次 `event: progress\ndata: {"elapsedMs": ...}` 心跳穿透 ingress idle timeout(Sealos/nginx-ingress 常见 ~60–300s 静默连接 RST,跨 WAN 大查询会撞)+ 终态 `event: result\ndata: {<原 JSON>}` 或 `event: error\ndata: {code,message,status}`。前端 `services/kpilot/logs.ts` 用 EventSource 包成 Promise,`isResourceNotAvailable` 同时识别 REST 和 SSE 两种错误形状
+- **`/logs/search` 真流式协议**(`vmlogs_stream.go::streamVMLogs` + `logs.go::GetLogsSearch`):
+  - 走 P16-C 的 `gateway.SendHTTPRequestStream` 接 VL `/select/logsql/query` 的 NDJSON 响应,**不再全缓冲**。worker 边读 VL 32 KiB chunk 边发 BodyChunk,server 端 accumulator 按 `\n` 切完整行(跨 chunk 边界半截行留 buffer 等下一个),投影成 vmLogLine 后立刻 `sse.send("line", ...)` 流出
+  - 单行 cap **1 MiB**(stack trace 异常长行的兜底),超限丢弃 + log,不影响后续解析
+  - **SSE 事件 5 种**:`meta`(首发,query/from/to/limit 让 UI 立刻渲染 caption 不等首条)→ `progress`(25s 一次心跳穿透 ingress idle timeout)→ `line`(每条日志一发)→ `result`(终态总结 total/truncated/elapsedMs/endErr;**不带 lines[]**,已经流走了)→ `error`(dispatch 级失败)。前端 `services/kpilot/logs.ts::streamLogsSearch` 用 EventSource 解析这 5 个事件,**按 50ms / 100 行 batch onLine** 给 virtuoso(直接 per-line setState 会打爆 React reconciliation)
+  - **Stop 按钮**:`AbortController` → EventSource.close() → server `c.Request.Context().Done()` → ctx 撤销 → 已 defer 的 `stream.Close()` 释放 gateway session。已加载的行保留显示。**P16-D HTTPCancel 帧已落地**:`HTTPStream.Close()` 在清理本地 state 前向 worker 发 `ServerMessage.HttpCancel` 帧,worker 端 tunnel client 查 httpCancelers 注册表(handleStreaming 进入时注册 ctx cancel,退出 defer 注销)→ 立刻 cancel http.Request ctx → upstream conn 立刻断 → 不再浪费 wire + 上游资源
+  - **健壮性继承 P16-C**:gateway streaming session per-request_id 公平调度,大日志查询不 HOL block 其它请求;`stream.Close()` defer 严格保证不漏;`closeWorkerHTTPStreams` 按 cluster scope 关 session(跨集群隔离);chunks channel buffer 32 上限
 - **VL 未启用 / install 探测**：mount 时跑一个 60s 窗口的小直方图探测 RESOURCE_NOT_AVAILABLE，命中就走 `<NotInstalled>`，用户不用先敲 query 才知道未启用
 - **页面布局**（`pages/ClusterDetail/Logging/index.tsx`）：
   - **顶部 LogsQL 输入框**：留空 = 全部，placeholder 给示例。按 Enter 或点搜索触发
   - **命名空间 + Pod 选择器**：**本地 state**（不连全局 namespace model），自动构建 LogsQL stream selector 并**回填到输入框**（用户能继续在末尾加管道过滤如 `| error`）。字段名用 `kubernetes.pod_namespace` / `kubernetes.pod_name`，与 Vector kubernetes_logs source 默认 schema + 内置 dashboard JSON 同款。Pod 列表来自 `/workloads/pods`，**注意它返回 K8s Table 表示**（`rows[].object.metadata.name`），不是 List with `.items`
   - **range** preset：5m / 15m / 1h / 6h / 24h
-  - **行数 limit**：默认 200，cap 1000
-  - **直方图**：上方一张 Vector + 总数 caption（`LoggingHistogram.tsx` lazy load）
-  - **结果列表**：每行带 timestamp + namespace Tag + pod Tag + container Tag + message，等宽字体，垂直滚动 600px
+  - **行数 limit**：默认 200，cap **50000**(P14 流式重写后从 10000 提上来,流式 + virtuoso + Stop 按钮兜底)
+  - **搜索按钮**:loading 时变 **Stop 按钮**(P14 流式后),用户可以中途停;已加载的行保留
+  - **结果计数**:loading 时显示`已加载 N 条 · Xs`(progress 事件驱动 elapsedMs),完成后变`N 条`
+  - **直方图**:上方一张 Vector + 总数 caption(`LoggingHistogram.tsx` lazy load)
+  - **结果列表**:每行带 timestamp + namespace Tag + pod Tag + container Tag + message,等宽字体,virtuoso 虚拟列表(N 条行 DOM 恒定)
+  - **截断 banner**:只在 result 事件返回 `truncated=true` 时显示;流式中不显示(不知道会不会到 cap)
+  - **partial-result banner**:result 事件 endErr 非空时显示`上游中途中断,已加载 N 条`(VL 进程挂 / worker 断连 mid-stream)
 
 ### 5.3 Grafana 兜底（`/clusters/:id/grafana`）
 

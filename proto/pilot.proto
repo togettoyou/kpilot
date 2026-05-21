@@ -154,6 +154,18 @@ message ServerMessage {
 
     // tag 60 reserved — was unary HTTPRequest with bytes body.
     HTTPRequestStart       http_req_start       = 61;
+    // Cancels an in-flight chunked HTTP request keyed by request_id.
+    // Server emits this when the originating handler decides the
+    // response is no longer wanted (typical: client disconnected,
+    // streaming consumer hit Stop). Worker cancels the http.Request's
+    // ctx, which unwinds the upstream connection AND its
+    // SendHTTPResponseChunk loop so we stop wasting wire + upstream
+    // resources for an unread stream.
+    //
+    // No-op on the BUFFERED path — that path is bounded by
+    // proxyMaxRespBytes anyway, and the worker's response is already
+    // in flight when we'd want to cancel.
+    HTTPCancelRequest      http_cancel          = 62;
 
     // Reverse-proxy WebSocket.
     WSStartRequest         ws_start             = 70;
@@ -350,6 +362,13 @@ message HTTPRequestStart {
   // here — callers that need streaming should be tolerant of getting
   // the whole body in one BodyEnd if the worker happens to be old).
   bool stream_response = 4;
+}
+
+// HTTPCancelRequest carries no body — request_id is the key. Reason
+// is free-text for the worker's logs ("client disconnected",
+// "consumer stopped", …); not surfaced anywhere user-facing.
+message HTTPCancelRequest {
+  string reason = 1;
 }
 
 message HTTPResponseStart {

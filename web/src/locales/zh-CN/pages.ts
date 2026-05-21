@@ -910,6 +910,7 @@ export default {
   'pages.logging.range': '时间范围',
   'pages.logging.limit': '行数',
   'pages.logging.search': '搜索',
+  'pages.logging.stop': '停止',
   'pages.logging.histogram.title': '匹配量随时间分布',
   'pages.logging.histogram.total': '共 {n} 条',
   'pages.logging.histogram.empty': '所选窗口内无匹配',
@@ -921,10 +922,13 @@ export default {
   'pages.logging.fullscreen.enter': '大屏模式',
   'pages.logging.fullscreen.exit': '退出大屏模式 (Esc)',
   'pages.logging.results.title': '结果',
-  'pages.logging.results.count': '{n} 条',
+  'pages.logging.results.count': '{n} 条 · {sec}s',
+  'pages.logging.results.streaming': '已加载 {n} 条 · {sec}s',
   'pages.logging.results.empty': '无匹配的日志条目',
   'pages.logging.truncated':
     '结果已截断到前 {n} 条；调整查询或缩小窗口以获取更精确的结果',
+  'pages.logging.partialResult':
+    '上游中途中断，已加载 {n} 条（{err}）。建议重试或缩小时间窗口',
   'pages.logging.error.title': '日志查询失败',
 
   // Grafana 主页（escape hatch）

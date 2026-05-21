@@ -112,6 +112,8 @@ func main() {
 			tunnelClient.SendHTTPResponseStart,
 			tunnelClient.SendHTTPResponseChunk,
 			tunnelClient.SendHTTPResponseEnd,
+			tunnelClient.RegisterHTTPCancel,
+			tunnelClient.DeregisterHTTPCancel,
 			tunnelClient.StreamContext,
 			k8sCfg,
 			router,

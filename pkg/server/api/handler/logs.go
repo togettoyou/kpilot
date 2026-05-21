@@ -16,6 +16,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,18 +26,34 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
-// logSearchResponse mirrors the shape the frontend renders directly.
-type logSearchResponse struct {
-	Query       string      `json:"query"`
-	From        string      `json:"from"`
-	To          string      `json:"to"`
-	GeneratedAt string      `json:"generatedAt"`
-	Limit       int         `json:"limit"`
-	Lines       []vmLogLine `json:"lines"`
-	// Truncated=true when len(Lines) hit the limit so the frontend
-	// can show a "results may be truncated" banner — VL doesn't tell
-	// us total matches without a separate stats query.
-	Truncated bool `json:"truncated"`
+// logsMetaPayload fires as the very first SSE event on a streaming
+// search. Echoes back the resolved query parameters so the frontend
+// can render the "showing N lines from <from> to <to>" caption
+// before any line arrives. Helps users tell "no matches" from "the
+// query is slow" — the caption proves the request reached the
+// server and parsed cleanly.
+type logsMetaPayload struct {
+	Query       string `json:"query"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+	GeneratedAt string `json:"generatedAt"`
+	Limit       int    `json:"limit"`
+}
+
+// logsResultPayload is the terminal SSE event of a streaming
+// search. By the time it fires the frontend has already received
+// `total` `line` events (or fewer if Truncated/EndErr fired
+// early), so we don't need to ship lines[] here — just the
+// summary.
+type logsResultPayload struct {
+	Total     int    `json:"total"`
+	Truncated bool   `json:"truncated"`
+	ElapsedMs int64  `json:"elapsedMs"`
+	// EndErr is non-empty when the worker reported the upstream
+	// connection failed partway through (truncated VL response).
+	// The frontend shows a "results may be incomplete" banner
+	// alongside whatever lines DID arrive.
+	EndErr string `json:"endErr,omitempty"`
 }
 
 // parseTimeWindow extracts from / to / limit from the URL query.
@@ -74,7 +91,13 @@ func parseTimeWindow(c *gin.Context) (from, to time.Time, limit int, ok bool) {
 	limit = 200
 	if s := c.Query("limit"); s != "" {
 		v, err := strconv.Atoi(s)
-		if err != nil || v <= 0 || v > 10000 {
+		if err != nil || v <= 0 || v > 50000 {
+			// Cap bumped from 10k → 50k after the search path was
+			// rewired to true streaming. The old cap protected the
+			// browser from a 10k-row dump landing in one shot;
+			// streaming + virtuoso + the Stop button mean users
+			// can comfortably handle larger result sets and bail
+			// mid-stream if they don't need them all.
 			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 			return
 		}
@@ -87,19 +110,30 @@ func parseTimeWindow(c *gin.Context) (from, to time.Time, limit int, ok bool) {
 // GetLogsSearch serves /api/v1/clusters/:id/logs/search?query=…&from=…&to=…&limit=…
 //
 // Response is Server-Sent Events (text/event-stream), NOT JSON. The
-// frontend opens it with EventSource and listens for three events:
+// frontend opens it with EventSource and listens for five events:
 //
-//   progress  — heartbeat every ~25 s while the query is in flight,
+//   meta      — fires once on connection open before any line.
+//               Echoes back the resolved query parameters so the
+//               UI can render the caption "showing N lines from X
+//               to Y" before the first line lands.
+//   progress  — heartbeat every ~25 s while the query is in flight.
 //               payload {"elapsedMs": <ms since handler start>}
-//   result    — terminal success event, payload = logSearchResponse
-//   error     — terminal failure event, payload {code, message, status}
+//   line      — one per upstream NDJSON record, fired LIVE as the
+//               worker tunnel streams chunks. payload = vmLogLine.
+//               High-frequency on busy queries — the frontend
+//               batches into virtuoso (50 ms / 100 rows) to keep
+//               render cost bounded.
+//   result    — terminal success event with the run summary.
+//               payload = logsResultPayload {total, truncated,
+//               elapsedMs, endErr?}. NO lines[] — they all flew
+//               via `line` events already.
+//   error     — terminal failure event for dispatch-level errors
+//               (cluster offline, VL missing, …).
 //
-// Why SSE instead of JSON: this query can legitimately take several
-// minutes on a cross-WAN tunnel; many managed HTTPS ingresses RST
-// connections that send no bytes for ~60–300 s, which trips before
-// our own 5 min vmlogsTimeout and surfaces as http=000 with no error
-// body. SSE keeps the connection live with the progress events so
-// the ingress sees activity.
+// Why SSE: managed HTTPS ingresses RST connections that send no
+// bytes for ~60–300 s. The progress keepalive prevents that, and
+// streaming `line` events keep activity flowing anyway during busy
+// queries.
 func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")
@@ -142,21 +176,48 @@ func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), vmlogsTimeout)
-		defer cancel()
-		lines, err := queryVMLogs(ctx, gw, clusterID, vlURL, query, from, to, limit)
-		if err != nil {
-			sse.sendInternalError(err)
-			return
-		}
-		_ = sse.send("result", logSearchResponse{
+		// Emit meta FIRST so the UI has parameters to render before
+		// any line arrives. send() failure here means the client
+		// already disconnected — bail rather than continue running
+		// the expensive query.
+		if err := sse.send("meta", logsMetaPayload{
 			Query:       query,
 			From:        from.UTC().Format(time.RFC3339),
 			To:          to.UTC().Format(time.RFC3339),
 			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 			Limit:       limit,
-			Lines:       lines,
-			Truncated:   len(lines) >= limit,
+		}); err != nil {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), vmlogsTimeout)
+		defer cancel()
+
+		start := time.Now()
+		total, endErr, sErr := streamVMLogs(ctx, gw, clusterID, vlURL,
+			query, from, to, limit,
+			func(ln vmLogLine) {
+				// Best-effort: a send error here means the client
+				// disconnected mid-stream. The deferred stream.Close
+				// in streamVMLogs + ctx cancellation will tear the
+				// upstream down; we just stop emitting.
+				_ = sse.send("line", ln)
+			})
+		if sErr != nil {
+			// Dispatch / upstream failure that occurred BEFORE any
+			// line was sent. ctx.Done from client disconnect maps to
+			// "user gave up" — no error event needed.
+			if errors.Is(sErr, context.Canceled) {
+				return
+			}
+			sse.sendInternalError(sErr)
+			return
+		}
+		_ = sse.send("result", logsResultPayload{
+			Total:     total,
+			Truncated: limit > 0 && total >= limit,
+			ElapsedMs: time.Since(start).Milliseconds(),
+			EndErr:    endErr,
 		})
 	}
 }

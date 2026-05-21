@@ -937,6 +937,7 @@ export default {
   'pages.logging.range': 'Range',
   'pages.logging.limit': 'Limit',
   'pages.logging.search': 'Search',
+  'pages.logging.stop': 'Stop',
   'pages.logging.histogram.title': 'Volume over time',
   'pages.logging.histogram.total': '{n} matches',
   'pages.logging.histogram.empty': 'No matches in this window',
@@ -948,10 +949,13 @@ export default {
   'pages.logging.fullscreen.enter': 'Fullscreen',
   'pages.logging.fullscreen.exit': 'Exit fullscreen (Esc)',
   'pages.logging.results.title': 'Results',
-  'pages.logging.results.count': '{n} rows',
+  'pages.logging.results.count': '{n} rows · {sec}s',
+  'pages.logging.results.streaming': 'Loaded {n} rows · {sec}s',
   'pages.logging.results.empty': 'No matching log lines',
   'pages.logging.truncated':
     'Showing the first {n} matches. Narrow the query or shorten the time window for precise results.',
+  'pages.logging.partialResult':
+    'Upstream connection ended mid-stream; loaded {n} rows ({err}). Retry or narrow the time window.',
   'pages.logging.error.title': 'Log query failed',
 
   // Grafana home (escape hatch).

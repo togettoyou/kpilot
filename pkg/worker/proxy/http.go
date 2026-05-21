@@ -83,6 +83,16 @@ type HTTPProxy struct {
 	sendStartFn func(requestID string, status int32, headers []*proto.HTTPHeader, errMsg string) error
 	sendChunkFn func(requestID string, data []byte) error
 	sendEndFn   func(requestID string, errMsg string) error
+	// Cancel registry hooks for the server-side HttpCancel frame.
+	// handleStreaming registers its ctx cancel on entry so the tunnel
+	// recv loop can pull the rug when the originating request's
+	// caller (a frontend Stop button, a closed EventSource, etc.)
+	// no longer wants the response. Without these, the worker keeps
+	// reading from upstream + spraying orphan chunks at the gateway
+	// until its own 5 min ctx expires. nil-tolerant: tests + the
+	// buffered path don't need them.
+	registerCancelFn   func(requestID string, cancel func())
+	deregisterCancelFn func(requestID string)
 	// streamCtxFn returns the tunnel's current stream context, so each
 	// proxied request can derive its ctx from it. When the tunnel
 	// disconnects, in-flight upstream HTTP requests get cancelled
@@ -124,6 +134,8 @@ func NewHTTPProxy(
 	sendStartFn func(requestID string, status int32, headers []*proto.HTTPHeader, errMsg string) error,
 	sendChunkFn func(requestID string, data []byte) error,
 	sendEndFn func(requestID string, errMsg string) error,
+	registerCancelFn func(requestID string, cancel func()),
+	deregisterCancelFn func(requestID string),
 	streamCtxFn func() context.Context,
 	k8sCfg *rest.Config,
 	router *InClusterRouter,
@@ -156,13 +168,15 @@ func NewHTTPProxy(
 			// with no overall timeout.
 			Timeout: 5 * time.Minute,
 		},
-		sendFn:      sendFn,
-		sendStartFn: sendStartFn,
-		sendChunkFn: sendChunkFn,
-		sendEndFn:   sendEndFn,
-		streamCtxFn: streamCtxFn,
-		k8sCfg:      k8sCfg,
-		router:      router,
+		sendFn:             sendFn,
+		sendStartFn:        sendStartFn,
+		sendChunkFn:        sendChunkFn,
+		sendEndFn:          sendEndFn,
+		registerCancelFn:   registerCancelFn,
+		deregisterCancelFn: deregisterCancelFn,
+		streamCtxFn:        streamCtxFn,
+		k8sCfg:             k8sCfg,
+		router:             router,
 	}
 	// Pre-build the apiserver-bound client once. We DON'T use
 	// `rest.HTTPClientFor(k8sCfg)` here because client-go caches its
@@ -340,6 +354,21 @@ func (p *HTTPProxy) handleStreaming(requestID string, req *tunnel.HTTPRequest) {
 	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 
+	// Register `cancel` so a server-side HttpCancel frame
+	// (sent when the originating handler's caller — frontend Stop
+	// button, closed EventSource, etc. — no longer wants the
+	// response) yanks our http.Request ctx. Read returns error,
+	// loop exits, defer closes the upstream conn. Deregister on
+	// exit so a clean EOF doesn't leave a stale map entry.
+	if p.registerCancelFn != nil {
+		p.registerCancelFn(requestID, cancel)
+		defer func() {
+			if p.deregisterCancelFn != nil {
+				p.deregisterCancelFn(requestID)
+			}
+		}()
+	}
+
 	hresp, err := p.dispatchForStream(ctx, req)
 	if err != nil {
 		log.Printf("[http-proxy] stream dispatch failed: url=%s err=%v", req.URL, err)
@@ -360,16 +389,19 @@ func (p *HTTPProxy) handleStreaming(requestID string, req *tunnel.HTTPRequest) {
 	// non-streaming JSON responses don't fragment into wasteful
 	// hundreds of frames. The slow lane chunks ≤64 KiB anyway, so
 	// going larger here wouldn't help wire efficiency.
+	//
+	// Deliberately NO total-bytes cap here. proxyMaxRespBytes (31 MiB)
+	// guards the BUFFERED path against `io.ReadAll` OOM-ing the worker
+	// — semantics that don't transfer to streaming, where peak worker
+	// memory is one buf (32 KiB) regardless of upstream size. Capping
+	// the stream at 31 MiB just chops long log queries (15k rows × ~2 KiB
+	// = right at the limit) for no safety win — total wire time is
+	// already bounded by the worker's 5 min request ctx, and downstream
+	// memory by the gateway's per-stream chunks channel (2 MiB worst).
 	buf := make([]byte, 32*1024)
-	var totalBytes int64
 	for {
 		n, readErr := hresp.Body.Read(buf)
 		if n > 0 {
-			totalBytes += int64(n)
-			if totalBytes > proxyMaxRespBytes {
-				_ = p.sendEndFn(requestID, fmt.Sprintf("upstream body exceeds %d bytes", proxyMaxRespBytes))
-				return
-			}
 			// Copy out — buf is reused next iteration, and the sender
 			// retains the slice reference until the slow lane drains
 			// it. Skipping the copy would corrupt prior in-flight

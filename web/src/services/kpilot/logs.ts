@@ -22,14 +22,29 @@ export interface LogLine {
   fields?: Record<string, string>;
 }
 
-export interface LogSearchResponse {
+// LogsMeta — payload of the first SSE event on a streaming search.
+// Tells the UI what query / range / limit the server resolved to,
+// so the caption can render before the first line lands.
+export interface LogsMeta {
   query: string;
   from: string;
   to: string;
   generatedAt: string;
   limit: number;
-  lines: LogLine[];
+}
+
+// LogsResult — payload of the terminal SSE event on a streaming
+// search. By the time it fires the frontend already received `total`
+// `line` events (or fewer if truncated/endErr fired early).
+export interface LogsResult {
+  total: number;
   truncated: boolean;
+  elapsedMs: number;
+  // Non-empty when the worker reported the upstream connection
+  // failed partway through (truncated VL response). The UI shows
+  // a "results may be incomplete" banner alongside the rows that
+  // DID arrive.
+  endErr?: string;
 }
 
 export interface LogsHistogramPoint {
@@ -163,21 +178,162 @@ function buildQueryString(params: Record<string, string | number | undefined>): 
   return parts.length ? `?${parts.join('&')}` : '';
 }
 
-export function searchLogs(
+// streamLogsSearch is the streaming-variant of the old `searchLogs`.
+// The server emits one SSE `line` event per matching log record live
+// as the worker tunnel delivers chunks from VictoriaLogs, plus a
+// `meta` event up front and a `result` summary at the end.
+//
+// onLine receives lines in BATCHES (not one-by-one) so the UI can
+// append to virtuoso at a sustainable cadence — for high-volume
+// queries firing setState per line trashes React reconciliation +
+// the virtuoso list rebuild. Batching window is 50 ms or 100 lines,
+// whichever fires first; flush also happens on `result` so the
+// final tail isn't dropped.
+//
+// Promise resolves on `result`, rejects on `error` or
+// connection-level failure. AbortSignal closes the EventSource,
+// which propagates server-side via the request context (and
+// eventually winds down the worker upstream connection on its
+// 5 min vmlogsTimeout — see P16-D for proper cancel-frame).
+export interface LogsStreamHandler {
+  onMeta?: (meta: LogsMeta) => void;
+  onLine: (lines: LogLine[]) => void;
+  onProgress?: (elapsedMs: number) => void;
+}
+
+export function streamLogsSearch(
   clusterId: string,
   p: LogQueryParams,
-  opts?: SseQueryOptions,
-): Promise<LogSearchResponse> {
+  handler: LogsStreamHandler,
+  opts?: { signal?: AbortSignal },
+): Promise<LogsResult> {
   const qs = buildQueryString({
     query: p.query,
     from: p.from,
     to: p.to,
     limit: p.limit,
   });
-  return runSseQuery<LogSearchResponse>(
-    `/api/v1/clusters/${clusterId}/logs/search${qs}`,
-    opts,
-  );
+  const url = `/api/v1/clusters/${clusterId}/logs/search${qs}`;
+
+  return new Promise<LogsResult>((resolve, reject) => {
+    const es = new EventSource(url, { withCredentials: true });
+    let settled = false;
+
+    // Batching state for onLine.
+    const batchMs = 50;
+    const batchMax = 100;
+    let pending: LogLine[] = [];
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      if (flushTimer !== null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      if (pending.length === 0) return;
+      const out = pending;
+      pending = [];
+      try {
+        handler.onLine(out);
+      } catch (err) {
+        // Don't let a bad handler tear down the stream — log + carry on.
+        // eslint-disable-next-line no-console
+        console.error('[logs-stream] onLine handler threw', err);
+      }
+    };
+    const scheduleFlush = () => {
+      if (flushTimer !== null) return;
+      flushTimer = setTimeout(flush, batchMs);
+    };
+
+    const cleanup = () => {
+      settled = true;
+      flush();
+      es.close();
+      if (opts?.signal) {
+        opts.signal.removeEventListener('abort', onAbort);
+      }
+    };
+
+    const onAbort = () => {
+      if (settled) return;
+      cleanup();
+      reject(new DOMException('aborted', 'AbortError'));
+    };
+    if (opts?.signal) {
+      if (opts.signal.aborted) {
+        es.close();
+        reject(new DOMException('aborted', 'AbortError'));
+        return;
+      }
+      opts.signal.addEventListener('abort', onAbort);
+    }
+
+    es.addEventListener('meta', (e: MessageEvent) => {
+      if (!handler.onMeta) return;
+      try {
+        handler.onMeta(JSON.parse(e.data) as LogsMeta);
+      } catch {
+        /* malformed meta — non-fatal */
+      }
+    });
+
+    es.addEventListener('progress', (e: MessageEvent) => {
+      if (!handler.onProgress) return;
+      try {
+        const data = JSON.parse(e.data);
+        handler.onProgress(
+          typeof data.elapsedMs === 'number' ? data.elapsedMs : 0,
+        );
+      } catch {
+        /* malformed progress — non-fatal */
+      }
+    });
+
+    es.addEventListener('line', (e: MessageEvent) => {
+      if (settled) return;
+      try {
+        const ln = JSON.parse(e.data) as LogLine;
+        pending.push(ln);
+        if (pending.length >= batchMax) {
+          flush();
+        } else {
+          scheduleFlush();
+        }
+      } catch {
+        /* malformed line — skip silently */
+      }
+    });
+
+    es.addEventListener('result', (e: MessageEvent) => {
+      if (settled) return;
+      cleanup();
+      try {
+        resolve(JSON.parse(e.data) as LogsResult);
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    // Standard `error` event covers BOTH server-emitted terminal
+    // errors AND connection-level failures. Same distinction as
+    // runSseQuery: presence of `.data` ⇒ (a), absence ⇒ (b).
+    es.addEventListener('error', (e: MessageEvent) => {
+      if (settled) return;
+      if (e?.data) {
+        cleanup();
+        let err: SseError;
+        try {
+          err = JSON.parse(e.data) as SseError;
+        } catch {
+          err = { code: 'INTERNAL_ERROR', status: 500 };
+        }
+        reject(err);
+        return;
+      }
+      cleanup();
+      reject({ code: 'CONNECTION_LOST', status: 0 } as SseError);
+    });
+  });
 }
 
 export function logsHistogram(

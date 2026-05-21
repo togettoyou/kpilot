@@ -13,8 +13,6 @@
 package handler
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -64,69 +62,6 @@ type vmLogLine struct {
 	Container string            `json:"container,omitempty"`
 	Node      string            `json:"node,omitempty"`
 	Fields    map[string]string `json:"fields,omitempty"`
-}
-
-// queryVMLogs runs a LogsQL `query` over [from, to], returning at most
-// `limit` lines. VL streams its response as one NDJSON object per line
-// — we decode them all in one shot because the limit caps memory.
-func queryVMLogs(
-	ctx context.Context,
-	gw *gateway.GatewayServer,
-	clusterID, baseURL, query string,
-	from, to time.Time,
-	limit int,
-) ([]vmLogLine, error) {
-	if limit <= 0 {
-		limit = 200
-	}
-	// VL parses bare integers as seconds-since-epoch (suffix "ns"/"us"/
-	// "ms" needed for sub-second resolution). UnixNano() without a
-	// suffix sends a number ~10^9 too large — VL would interpret it as
-	// far-future seconds and return zero matches. queryVMLogsHistogram
-	// uses Unix() correctly; align here.
-	u := fmt.Sprintf("%s/select/logsql/query?query=%s&start=%d&end=%d&limit=%d",
-		baseURL,
-		urlQueryEscape(query),
-		from.Unix(), to.Unix(),
-		limit,
-	)
-	resp, err := gw.SendHTTPRequest(ctx, clusterID, &gateway.HTTPRequest{
-		Method: http.MethodGet,
-		URL:    u,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("send VL query: %w", err)
-	}
-	if resp.Error != "" {
-		return nil, fmt.Errorf("worker VL dispatch: %s", resp.Error)
-	}
-	if int(resp.Status) != http.StatusOK {
-		body := string(resp.Body)
-		if len(body) > 200 {
-			body = body[:200] + "…"
-		}
-		return nil, fmt.Errorf("VL HTTP %d: %s", resp.Status, body)
-	}
-	out := make([]vmLogLine, 0, limit)
-	scanner := bufio.NewScanner(bytes.NewReader(resp.Body))
-	// Single log lines can be quite long (stack traces, JSON payloads);
-	// raise the bufio scanner limit so we don't truncate.
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		raw := scanner.Bytes()
-		if len(raw) == 0 {
-			continue
-		}
-		var rec map[string]any
-		if err := json.Unmarshal(raw, &rec); err != nil {
-			continue
-		}
-		out = append(out, projectLogLine(rec))
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out, nil
 }
 
 // projectLogLine pulls the well-known fields Vector emits for K8s pod
