@@ -217,9 +217,14 @@ export default [
         component: './ModelHub/index',
       },
       {
+        // Icon must be camelCase ("deploymentUnit") not kebab
+        // ("deployment-unit") — umi's runtime `formatIcon` has a
+        // broken regex (`/-(w)/g` instead of `/-(\w)/g`) so kebab
+        // names with hyphens never get converted to PascalCase
+        // and the icon silently disappears from the sider.
         path: '/models/deployments',
         name: 'deployments',
-        icon: 'deployment-unit',
+        icon: 'deploymentUnit',
         component: './ModelDeployments/index',
       },
       {

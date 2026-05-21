@@ -358,37 +358,39 @@ const ModelChatPage: React.FC = () => {
         breadcrumb: undefined,
       }}
     >
-      {/* Both panels pinned to the same calc'd viewport height +
-         align="stretch" so the left knob Card matches the right
-         conversation Card. minWidth:0 on every flex node so the
-         left Card actually honors its 1/3 column allocation —
-         without it a long deployment name pushes the Card wider
-         than the Col and visually overlaps the right pane. */}
-      <Row
-        gutter={[16, 16]}
-        align="stretch"
-        style={{ height: 'calc(100vh - 200px)' }}
+      {/* CSS Grid (not antd Row/Col) for the two-pane layout —
+         antd Row with align="stretch" + flex-wrap:wrap doesn't
+         reliably enforce its explicit height when children push
+         past it, so the right Card's scroll area was growing
+         with content instead of scrolling.
+         Grid `1fr 2fr` + `minmax(0, ...)` makes both cells share
+         the fixed grid height and minmax(0,...) lets them shrink
+         (otherwise a long Select / Tag inflates the cell width). */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)',
+          gap: 16,
+          height: 'calc(100vh - 200px)',
+        }}
       >
-        {/* Left rail — instance picker + inference knobs.
-           lg/xl bumped vs first pass so the Select / deployment
-           Tag have breathing room on common laptop widths. */}
-        <Col
-          xs={24}
-          lg={10}
-          xl={9}
-          xxl={8}
-          style={{ display: 'flex', minWidth: 0 }}
-        >
+        {/* Left rail — instance picker + inference knobs. */}
+        <div style={{ minWidth: 0, minHeight: 0 }}>
           <Card
             size="small"
             style={{
-              flex: 1,
+              height: '100%',
               display: 'flex',
               flexDirection: 'column',
               minWidth: 0,
             }}
             styles={{
-              body: { flex: 1, overflowY: 'auto', overflowX: 'hidden' },
+              body: {
+                flex: 1,
+                minHeight: 0,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+              },
             }}
             title={intl.formatMessage({ id: 'pages.models.chat.target' })}
             extra={
@@ -502,21 +504,16 @@ const ModelChatPage: React.FC = () => {
               />
             </Space>
           </Card>
-        </Col>
+        </div>
 
-        {/* Right pane — conversation. Inherits its height from the
-           stretched Row (left + right always equal). */}
-        <Col
-          xs={24}
-          lg={14}
-          xl={15}
-          xxl={16}
-          style={{ display: 'flex', minWidth: 0 }}
-        >
+        {/* Right pane — conversation. Same height as left via the
+           parent grid; the scroll div inside takes whatever's left
+           of the body after the input footer. */}
+        <div style={{ minWidth: 0, minHeight: 0 }}>
           <Card
             size="small"
             style={{
-              flex: 1,
+              height: '100%',
               display: 'flex',
               flexDirection: 'column',
               minWidth: 0,
@@ -666,8 +663,8 @@ const ModelChatPage: React.FC = () => {
               </div>
             </div>
           </Card>
-        </Col>
-      </Row>
+        </div>
+      </div>
     </PageContainer>
   );
 };
