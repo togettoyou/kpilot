@@ -192,6 +192,14 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// API uses all of them.
 		clusters.Any("/:id/proxy/:plugin/*path", handler.ProxyPlugin(gw))
 
+		// P16-B — reverse proxy to inference Services. The browser POSTs
+		// /api/v1/clusters/<id>/inference/<ns>/<name>/chat/completions
+		// (any /v1 sub-path works) and the server forwards through the
+		// worker tunnel to http://<name>.<ns>.svc.<cluster-domain>:8000/v1...
+		// Body is buffered end-to-end (no SSE pass-through) — fine for
+		// non-streaming chat debug; streaming wakes up in P16-C.
+		clusters.Any("/:id/inference/:namespace/:name/*subpath", handler.ProxyInference(gw))
+
 		// In-process observability snapshot. Auth-protected (admin-only
 		// in the single-tenant model). Returns JSON; not Prometheus text
 		// format — this is a debug surface for the human operator.
