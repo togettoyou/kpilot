@@ -12,7 +12,7 @@ import {
   theme,
 } from 'antd';
 import { useThemeMode } from 'antd-style';
-import React, { lazy, Suspense, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import TimeRangePicker, {
   type TimeRangeValue,
 } from '@/components/TimeRangePicker';
@@ -77,6 +77,57 @@ function dashboardColor(
   token: { colorSuccess: string; colorWarning: string; colorError: string },
 ): string {
   return usageColor(pct / 100, token);
+}
+
+// KpiTile is the shared layout for every snapshot KPI card. The
+// previous inline pattern (`<div flex justify-between><Statistic/>
+// <Progress/></div>`) let the Statistic shrink to its character
+// wrap width because Progress took its natural ~64px and Statistic
+// had no `flex: 1` to claim the rest — on a narrow card you ended
+// up with vertically-stacked single characters in both the title
+// ("平/均/利/用/率") and the value ("0.0/%"). Centralising the
+// layout fixes it in one place:
+//   - text side: flex:1 + min-width:0 so it owns the leftover width
+//   - title + value: whiteSpace:nowrap so they stay on one line and
+//     antd's text-overflow takes care of the rare wide-title case
+//   - dashboard side: flex-shrink:0 so its 56px never gets crushed
+//   - omit the dashboard prop entirely for the count-only cards
+//     (activeGPUs / totalPower) and the same component lays them out
+//     without the right-side slot
+function KpiTile({
+  title,
+  value,
+  precision,
+  suffix,
+  dashboard,
+}: {
+  title: string;
+  value: number;
+  precision?: number;
+  suffix?: string;
+  dashboard?: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <Statistic
+          title={<span style={{ whiteSpace: 'nowrap' }}>{title}</span>}
+          value={value}
+          precision={precision}
+          suffix={suffix}
+          valueStyle={{ whiteSpace: 'nowrap' }}
+        />
+      </div>
+      {dashboard && <div style={{ flexShrink: 0 }}>{dashboard}</div>}
+    </div>
+  );
 }
 
 const GPUMonitoringPage: React.FC = () => {
@@ -169,9 +220,9 @@ const GPUMonitoringPage: React.FC = () => {
                 a sibling Text under the Statistic, which would bump
                 that card +16px and break the alignment. */}
           <Row gutter={[16, 16]} align="stretch">
-            <Col xs={24} sm={12} md={8} lg={4}>
+            <Col xs={24} sm={12} md={12} lg={8} xl={6} xxl={4}>
               <Card style={{ height: '100%' }}>
-                <Statistic
+                <KpiTile
                   title={intl.formatMessage({
                     id: 'pages.gpuMonitoring.snap.activeGPUs',
                   })}
@@ -179,85 +230,90 @@ const GPUMonitoringPage: React.FC = () => {
                 />
               </Card>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={4}>
+            <Col xs={24} sm={12} md={12} lg={8} xl={6} xxl={4}>
               <Card style={{ height: '100%' }}>
-                <div className="flex items-center justify-between">
-                  <Statistic
-                    title={intl.formatMessage({
-                      id: 'pages.gpuMonitoring.snap.avgUtil',
-                    })}
-                    value={snap?.avgUtilPct ?? 0}
-                    precision={1}
-                    suffix="%"
-                  />
-                  <Progress
-                    type="dashboard"
-                    percent={Math.min(snap?.avgUtilPct ?? 0, 100)}
-                    size={64}
-                    strokeColor={dashboardColor(snap?.avgUtilPct ?? 0, token)}
-                    format={() => ''}
-                  />
-                </div>
+                <KpiTile
+                  title={intl.formatMessage({
+                    id: 'pages.gpuMonitoring.snap.avgUtil',
+                  })}
+                  value={snap?.avgUtilPct ?? 0}
+                  precision={1}
+                  suffix="%"
+                  dashboard={
+                    <Progress
+                      type="dashboard"
+                      percent={Math.min(snap?.avgUtilPct ?? 0, 100)}
+                      size={56}
+                      strokeColor={dashboardColor(snap?.avgUtilPct ?? 0, token)}
+                      format={() => ''}
+                    />
+                  }
+                />
               </Card>
             </Col>
             {/* Memory — its own card (was lumped with power before).
                Absolute "x/yG" rendered inside the ring instead of
                as a sibling Text line; keeps this card's height
                identical to the other ring cards. */}
-            <Col xs={24} sm={12} md={8} lg={4}>
+            <Col xs={24} sm={12} md={12} lg={8} xl={6} xxl={4}>
               <Card style={{ height: '100%' }}>
-                <div className="flex items-center justify-between">
-                  <Statistic
-                    title={intl.formatMessage({
-                      id: 'pages.gpuMonitoring.snap.fbUsage',
-                    })}
-                    value={snap?.fbUsagePct ?? 0}
-                    precision={1}
-                    suffix="%"
-                  />
-                  <Progress
-                    type="dashboard"
-                    percent={Math.min(snap?.fbUsagePct ?? 0, 100)}
-                    size={64}
-                    strokeColor={dashboardColor(snap?.fbUsagePct ?? 0, token)}
-                    format={() => {
-                      const used = ((snap?.fbUsedMiB ?? 0) / 1024).toFixed(0);
-                      const total = ((snap?.fbTotalMiB ?? 0) / 1024).toFixed(0);
-                      return `${used}/${total}G`;
-                    }}
-                  />
-                </div>
+                <KpiTile
+                  title={intl.formatMessage({
+                    id: 'pages.gpuMonitoring.snap.fbUsage',
+                  })}
+                  value={snap?.fbUsagePct ?? 0}
+                  precision={1}
+                  suffix="%"
+                  dashboard={
+                    <Progress
+                      type="dashboard"
+                      percent={Math.min(snap?.fbUsagePct ?? 0, 100)}
+                      size={56}
+                      strokeColor={dashboardColor(snap?.fbUsagePct ?? 0, token)}
+                      format={() => {
+                        const used = ((snap?.fbUsedMiB ?? 0) / 1024).toFixed(0);
+                        const total = ((snap?.fbTotalMiB ?? 0) / 1024).toFixed(
+                          0,
+                        );
+                        return `${used}/${total}G`;
+                      }}
+                    />
+                  }
+                />
               </Card>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={4}>
+            <Col xs={24} sm={12} md={12} lg={8} xl={6} xxl={4}>
               <Card style={{ height: '100%' }}>
-                <div className="flex items-center justify-between">
-                  <Statistic
-                    title={intl.formatMessage({
-                      id: 'pages.gpuMonitoring.snap.avgTemp',
-                    })}
-                    value={snap?.avgTempC ?? 0}
-                    precision={1}
-                    suffix="°C"
-                  />
-                  <Progress
-                    type="dashboard"
-                    // Soft scale: 60°C → 50%, 90°C → 100% so the dial
-                    // saturates at the bundled overheat threshold.
-                    percent={Math.min(((snap?.avgTempC ?? 0) / 90) * 100, 100)}
-                    size={64}
-                    strokeColor={dashboardColor(
-                      ((snap?.avgTempC ?? 0) / 90) * 100,
-                      token,
-                    )}
-                    format={() => `↑${(snap?.maxTempC ?? 0).toFixed(0)}`}
-                  />
-                </div>
+                <KpiTile
+                  title={intl.formatMessage({
+                    id: 'pages.gpuMonitoring.snap.avgTemp',
+                  })}
+                  value={snap?.avgTempC ?? 0}
+                  precision={1}
+                  suffix="°C"
+                  dashboard={
+                    <Progress
+                      type="dashboard"
+                      // Soft scale: 60°C → 50%, 90°C → 100% so the
+                      // dial saturates at the bundled overheat threshold.
+                      percent={Math.min(
+                        ((snap?.avgTempC ?? 0) / 90) * 100,
+                        100,
+                      )}
+                      size={56}
+                      strokeColor={dashboardColor(
+                        ((snap?.avgTempC ?? 0) / 90) * 100,
+                        token,
+                      )}
+                      format={() => `↑${(snap?.maxTempC ?? 0).toFixed(0)}`}
+                    />
+                  }
+                />
               </Card>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={4}>
+            <Col xs={24} sm={12} md={12} lg={8} xl={6} xxl={4}>
               <Card style={{ height: '100%' }}>
-                <Statistic
+                <KpiTile
                   title={intl.formatMessage({
                     id: 'pages.gpuMonitoring.snap.totalPower',
                   })}
@@ -273,28 +329,28 @@ const GPUMonitoringPage: React.FC = () => {
                vision training. Low tensor + high util usually means
                memory-bound or non-tensor workload. DCGM only emits
                this on Volta+ cards; older GPUs surface as zero. */}
-            <Col xs={24} sm={12} md={8} lg={4}>
+            <Col xs={24} sm={12} md={12} lg={8} xl={6} xxl={4}>
               <Card style={{ height: '100%' }}>
-                <div className="flex items-center justify-between">
-                  <Statistic
-                    title={intl.formatMessage({
-                      id: 'pages.gpuMonitoring.snap.tensor',
-                    })}
-                    value={snap?.avgTensorActPct ?? 0}
-                    precision={1}
-                    suffix="%"
-                  />
-                  <Progress
-                    type="dashboard"
-                    percent={Math.min(snap?.avgTensorActPct ?? 0, 100)}
-                    size={64}
-                    strokeColor={dashboardColor(
-                      snap?.avgTensorActPct ?? 0,
-                      token,
-                    )}
-                    format={() => ''}
-                  />
-                </div>
+                <KpiTile
+                  title={intl.formatMessage({
+                    id: 'pages.gpuMonitoring.snap.tensor',
+                  })}
+                  value={snap?.avgTensorActPct ?? 0}
+                  precision={1}
+                  suffix="%"
+                  dashboard={
+                    <Progress
+                      type="dashboard"
+                      percent={Math.min(snap?.avgTensorActPct ?? 0, 100)}
+                      size={56}
+                      strokeColor={dashboardColor(
+                        snap?.avgTensorActPct ?? 0,
+                        token,
+                      )}
+                      format={() => ''}
+                    />
+                  }
+                />
               </Card>
             </Col>
           </Row>
