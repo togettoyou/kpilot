@@ -213,16 +213,19 @@ export default [
       {
         path: '/models/catalog',
         name: 'catalog',
+        icon: 'database',
         component: './ModelHub/index',
       },
       {
         path: '/models/deployments',
         name: 'deployments',
+        icon: 'deployment-unit',
         component: './ModelDeployments/index',
       },
       {
         path: '/models/chat',
         name: 'chat',
+        icon: 'message',
         component: './ModelChat/index',
       },
     ],

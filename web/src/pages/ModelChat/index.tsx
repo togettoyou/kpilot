@@ -360,22 +360,35 @@ const ModelChatPage: React.FC = () => {
     >
       {/* Both panels pinned to the same calc'd viewport height +
          align="stretch" so the left knob Card matches the right
-         conversation Card no matter which side has more content.
-         Earlier we let the left Card grow with content while the
-         right Card was the only one with an explicit height —
-         result was visibly misaligned on tall viewports. */}
+         conversation Card. minWidth:0 on every flex node so the
+         left Card actually honors its 1/3 column allocation —
+         without it a long deployment name pushes the Card wider
+         than the Col and visually overlaps the right pane. */}
       <Row
         gutter={[16, 16]}
         align="stretch"
         style={{ height: 'calc(100vh - 200px)' }}
       >
-        {/* Left rail — instance picker + inference knobs. */}
-        <Col xs={24} lg={8} xl={7} style={{ display: 'flex' }}>
+        {/* Left rail — instance picker + inference knobs.
+           lg/xl bumped vs first pass so the Select / deployment
+           Tag have breathing room on common laptop widths. */}
+        <Col
+          xs={24}
+          lg={10}
+          xl={9}
+          xxl={8}
+          style={{ display: 'flex', minWidth: 0 }}
+        >
           <Card
             size="small"
-            style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              minWidth: 0,
+            }}
             styles={{
-              body: { flex: 1, overflowY: 'auto' },
+              body: { flex: 1, overflowY: 'auto', overflowX: 'hidden' },
             }}
             title={intl.formatMessage({ id: 'pages.models.chat.target' })}
             extra={
@@ -406,13 +419,24 @@ const ModelChatPage: React.FC = () => {
                 optionFilterProp="label"
               />
               {instance && (
-                <Space wrap size={4}>
+                // maxWidth:100% + ellipsis Text so a long
+                // ns/name combo can't push past the Card body.
+                // Tag itself doesn't wrap, so without an explicit
+                // cap the tag overflows the Card horizontally.
+                <Space wrap size={4} style={{ maxWidth: '100%' }}>
                   <Tag color={familyColor} style={{ marginRight: 0 }}>
                     {instance.model_display_name}
                   </Tag>
                   <Tag style={{ marginRight: 0 }}>{instance.cluster_name}</Tag>
-                  <Tag style={{ marginRight: 0 }}>
-                    {instance.namespace}/{instance.name}
+                  <Tag style={{ marginRight: 0, maxWidth: '100%' }}>
+                    <Text
+                      ellipsis={{
+                        tooltip: `${instance.namespace}/${instance.name}`,
+                      }}
+                      style={{ maxWidth: '100%' }}
+                    >
+                      {instance.namespace}/{instance.name}
+                    </Text>
                   </Tag>
                 </Space>
               )}
@@ -482,10 +506,21 @@ const ModelChatPage: React.FC = () => {
 
         {/* Right pane — conversation. Inherits its height from the
            stretched Row (left + right always equal). */}
-        <Col xs={24} lg={16} xl={17} style={{ display: 'flex' }}>
+        <Col
+          xs={24}
+          lg={14}
+          xl={15}
+          xxl={16}
+          style={{ display: 'flex', minWidth: 0 }}
+        >
           <Card
             size="small"
-            style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              minWidth: 0,
+            }}
             styles={{
               body: {
                 padding: 0,
