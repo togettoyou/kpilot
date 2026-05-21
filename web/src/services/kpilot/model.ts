@@ -417,6 +417,14 @@ export async function streamChatCompletions(
     // fetch unless we explicitly include credentials; dev proxy +
     // prod same-origin both work with `include` (no `same-origin`
     // confusion).
+    //
+    // The server side adds `Cache-Control: no-cache, no-transform`
+    // on the response, which is what prevents umi /
+    // webpack-dev-server's bundled compression middleware (and
+    // nginx with `gzip_proxied off` on no-transform) from buffering
+    // the SSE stream. We do NOT try to set Accept-Encoding here —
+    // it's a forbidden header in the fetch spec and gets silently
+    // dropped by browsers.
     credentials: 'include',
     signal,
   });

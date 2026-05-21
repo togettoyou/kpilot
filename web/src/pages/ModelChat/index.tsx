@@ -278,17 +278,13 @@ const ModelChatPage: React.FC = () => {
       content: text,
       id: `u-${Date.now()}`,
     };
-    // Pre-allocate the assistant slot so the first delta has a
-    // stable React key to append into. Without this we'd thrash
-    // through "user", then "user + empty assistant", then "user +
-    // partial assistant" — and React's reconciler would re-mount
-    // the bubble on each id change.
+    // assistantId is stable for the whole turn; the assistant
+    // bubble is created LAZILY on the first delta (see onDelta
+    // below) so we don't render an empty placeholder bubble next
+    // to the "thinking…" spinner row — that double avatar was
+    // jarring. React's reconciler is happy as long as the bubble's
+    // key (m.id) doesn't change after creation, which holds here.
     const assistantId = `a-${Date.now()}`;
-    const assistantMsg: ChatMsg = {
-      role: 'assistant',
-      content: '',
-      id: assistantId,
-    };
     const messages: ChatMsg[] = [];
     if (systemPrompt.trim()) {
       messages.push({
@@ -298,7 +294,7 @@ const ModelChatPage: React.FC = () => {
       });
     }
     messages.push(...history_, userMsg);
-    setHistory([...history_, userMsg, assistantMsg]);
+    setHistory([...history_, userMsg]);
     setInput('');
     setSending(true);
     setError(null);
@@ -333,22 +329,27 @@ const ModelChatPage: React.FC = () => {
           onDelta: (delta) => {
             receivedAny = true;
             setHistory((prev) => {
-              // Functional update — coalesce consecutive deltas
-              // without dropping any. We only update the LAST
-              // message (the pre-allocated assistant slot).
-              if (
-                prev.length === 0 ||
-                prev[prev.length - 1].id !== assistantId
-              ) {
-                return prev;
+              const last = prev[prev.length - 1];
+              if (last && last.id === assistantId) {
+                // Append to the in-flight assistant bubble.
+                // Functional update keeps consecutive deltas
+                // coalesced without dropping any. Idempotent
+                // under React StrictMode's double-invoke because
+                // we always derive the next state from the prev
+                // we're given.
+                const next = prev.slice();
+                next[next.length - 1] = {
+                  ...last,
+                  content: last.content + delta,
+                };
+                return next;
               }
-              const next = prev.slice();
-              const last = next[next.length - 1];
-              next[next.length - 1] = {
-                ...last,
-                content: last.content + delta,
-              };
-              return next;
+              // First delta — create the assistant bubble lazily
+              // so no empty placeholder shows during "thinking".
+              return [
+                ...prev,
+                { role: 'assistant', content: delta, id: assistantId },
+              ];
             });
           },
           onUsage: (u) => setUsage(u),
@@ -362,34 +363,22 @@ const ModelChatPage: React.FC = () => {
         setError(
           intl.formatMessage({ id: 'pages.models.chat.error.emptyReply' }),
         );
-        // Drop the empty assistant placeholder.
-        setHistory((prev) =>
-          prev.filter((m) => m.id !== assistantId || m.content !== ''),
-        );
+        // No assistant bubble was ever created (lazy on first
+        // delta) so nothing to clean up here.
       }
     } catch (e: unknown) {
       // AbortError → user hit Stop, keep whatever was streamed so
-      // far + don't surface as an error.
+      // far + don't surface as an error. No cleanup needed for
+      // the "stopped before any token" case either — the bubble
+      // only exists if at least one delta arrived.
       if (e instanceof DOMException && e.name === 'AbortError') {
-        // Drop empty placeholder if abort fired before any delta.
-        if (!receivedAny) {
-          setHistory((prev) =>
-            prev.filter((m) => m.id !== assistantId || m.content !== ''),
-          );
-        }
+        // intentional no-op
       } else {
         const msg =
           e instanceof Error
             ? e.message
             : intl.formatMessage({ id: 'pages.models.chat.error.unknown' });
         setError(msg);
-        // Drop empty placeholder on error so the user doesn't see
-        // a permanently blank assistant bubble.
-        if (!receivedAny) {
-          setHistory((prev) =>
-            prev.filter((m) => m.id !== assistantId || m.content !== ''),
-          );
-        }
       }
     } finally {
       abortRef.current = null;
@@ -684,13 +673,13 @@ const ModelChatPage: React.FC = () => {
               />
             ))}
             {sending &&
-              // Only show the standalone "thinking" indicator while
-              // the pre-allocated assistant bubble is still empty.
-              // Once tokens start streaming, the bubble itself is
-              // visible feedback and another spinner becomes noise.
-              history_.length > 0 &&
-              history_[history_.length - 1].role === 'assistant' &&
-              history_[history_.length - 1].content === '' && (
+              // Show the "thinking" indicator only while no
+              // assistant bubble has materialised yet (the bubble
+              // is created lazily on the first delta). Once a
+              // bubble exists, the streaming text itself is
+              // visible feedback and another spinner is noise.
+              (history_.length === 0 ||
+                history_[history_.length - 1].role !== 'assistant') && (
                 <div
                   style={{
                     display: 'flex',

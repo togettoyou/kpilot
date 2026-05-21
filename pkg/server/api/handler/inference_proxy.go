@@ -202,11 +202,32 @@ func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterI
 		if canon == "Content-Length" {
 			continue
 		}
+		// Cache-Control gets a forced rewrite below; don't forward
+		// the upstream value here or Add would create a duplicate
+		// header pair and intermediaries pick whichever they like.
+		if canon == "Cache-Control" {
+			continue
+		}
 		c.Writer.Header().Add(h.Name, h.Value)
 	}
-	// Tell intermediaries (nginx-ingress etc.) not to buffer SSE.
-	// Harmless for non-streaming JSON. Sets in-place so it survives
-	// any later Header().Set call.
+	// CRITICAL for streaming pass-through to survive every
+	// compression / transformation middleware on the path:
+	//
+	// - `no-transform` is the documented RFC 7234 §5.2 opt-out.
+	//   umi / webpack-dev-server's bundled `compression` package
+	//   short-circuits on Cache-Control: no-transform (it calls
+	//   it `shouldTransform`); nginx's `gzip_proxied` also honors
+	//   it. Without it, the dev proxy gzip-buffers the whole SSE
+	//   response and collapses per-token chunks into one final
+	//   flush — exactly the bug we just chased.
+	// - `no-cache` keeps shared caches from coalescing a
+	//   long-lived response.
+	// We override unconditionally rather than appending to
+	// upstream's Cache-Control (vLLM sends `no-cache, private`)
+	// so no value ordering surprise can drop no-transform.
+	c.Writer.Header().Set("Cache-Control", "no-cache, no-transform")
+	// Tell nginx-style proxies not to buffer SSE. Harmless on
+	// non-nginx paths.
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 
 	c.Writer.WriteHeader(int(stream.Status))
