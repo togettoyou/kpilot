@@ -893,6 +893,7 @@ export default {
   'pages.gpuMonitoring.snap.avgTemp': 'Avg temperature',
   'pages.gpuMonitoring.snap.totalPower': 'Total power',
   'pages.gpuMonitoring.snap.fbUsage': 'FB usage',
+  'pages.gpuMonitoring.snap.tensor': 'Tensor activity',
   'pages.gpuMonitoring.metric.util': 'GPU utilization',
   'pages.gpuMonitoring.metric.temp': 'GPU temperature',
   'pages.gpuMonitoring.metric.power': 'GPU power',

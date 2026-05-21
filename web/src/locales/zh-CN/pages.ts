@@ -862,6 +862,7 @@ export default {
   'pages.gpuMonitoring.snap.avgTemp': '平均温度',
   'pages.gpuMonitoring.snap.totalPower': '总功耗',
   'pages.gpuMonitoring.snap.fbUsage': '显存占用',
+  'pages.gpuMonitoring.snap.tensor': 'Tensor 活动率',
   'pages.gpuMonitoring.metric.util': 'GPU 利用率',
   'pages.gpuMonitoring.metric.temp': 'GPU 温度',
   'pages.gpuMonitoring.metric.power': 'GPU 功耗',

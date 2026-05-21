@@ -1,6 +1,4 @@
 import { useIntl, useParams } from '@umijs/max';
-
-import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Card,
   Col,
@@ -11,24 +9,24 @@ import {
   Space,
   Spin,
   Statistic,
-  theme,
   Typography,
+  theme,
 } from 'antd';
 import { useThemeMode } from 'antd-style';
 import React, { lazy, Suspense, useMemo, useState } from 'react';
-
 import TimeRangePicker, {
   type TimeRangeValue,
 } from '@/components/TimeRangePicker';
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
-  getGPUMetrics,
   type GPUMetricKey,
+  getGPUMetrics,
 } from '@/services/kpilot/gpu-metrics';
 
 import {
+  isResourceNotAvailable,
   NotInstalled,
   RefreshControl,
-  isResourceNotAvailable,
   useAutoRefresh,
 } from './shared/Layout';
 import { usageColor } from './shared/utils';
@@ -127,7 +125,8 @@ const GPUMonitoringPage: React.FC = () => {
   const noData =
     !!data &&
     Object.values(series).every(
-      (rows) => !rows || rows.length === 0 || rows.every((r) => r.points.length === 0),
+      (rows) =>
+        !rows || rows.length === 0 || rows.every((r) => r.points.length === 0),
     );
 
   return (
@@ -158,9 +157,10 @@ const GPUMonitoringPage: React.FC = () => {
           </Card>
           {/* KPI row — snapshot is computed server-side from the last
              range point per series. activeGPUs comes from util series
-             cardinality (utilization reports even for idle GPUs). */}
+             cardinality (utilization reports even for idle GPUs).
+             Two rows of 3 cards on md, single row of 6 on lg+. */}
           <Row gutter={[16, 16]}>
-            <Col xs={24} sm={12} md={6}>
+            <Col xs={24} sm={12} md={8} lg={4}>
               <Card>
                 <Statistic
                   title={intl.formatMessage({
@@ -170,7 +170,7 @@ const GPUMonitoringPage: React.FC = () => {
                 />
               </Card>
             </Col>
-            <Col xs={24} sm={12} md={6}>
+            <Col xs={24} sm={12} md={8} lg={4}>
               <Card>
                 <div className="flex items-center justify-between">
                   <Statistic
@@ -191,7 +191,7 @@ const GPUMonitoringPage: React.FC = () => {
                 </div>
               </Card>
             </Col>
-            <Col xs={24} sm={12} md={6}>
+            <Col xs={24} sm={12} md={8} lg={4}>
               <Card>
                 <div className="flex items-center justify-between">
                   <Statistic
@@ -208,31 +208,90 @@ const GPUMonitoringPage: React.FC = () => {
                     // saturates at the bundled overheat threshold.
                     percent={Math.min(((snap?.avgTempC ?? 0) / 90) * 100, 100)}
                     size={64}
-                    strokeColor={dashboardColor(((snap?.avgTempC ?? 0) / 90) * 100, token)}
+                    strokeColor={dashboardColor(
+                      ((snap?.avgTempC ?? 0) / 90) * 100,
+                      token,
+                    )}
                     format={() => `↑${(snap?.maxTempC ?? 0).toFixed(0)}`}
                   />
                 </div>
               </Card>
             </Col>
-            <Col xs={24} sm={12} md={6}>
+            <Col xs={24} sm={12} md={8} lg={4}>
+              <Card>
+                <Statistic
+                  title={intl.formatMessage({
+                    id: 'pages.gpuMonitoring.snap.totalPower',
+                  })}
+                  value={snap?.totalPowerW ?? 0}
+                  precision={0}
+                  suffix="W"
+                />
+              </Card>
+            </Col>
+            {/* Memory utilisation — its own card now (was lumped with
+               power before, which buried it under the power digit).
+               Dashboard ring + percentage main value, with the
+               absolute "used / total GiB" as a secondary line so
+               capacity planning has the actual numbers in view. */}
+            <Col xs={24} sm={12} md={8} lg={4}>
+              <Card>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Statistic
+                      title={intl.formatMessage({
+                        id: 'pages.gpuMonitoring.snap.fbUsage',
+                      })}
+                      value={snap?.fbUsagePct ?? 0}
+                      precision={1}
+                      suffix="%"
+                    />
+                    <Typography.Text
+                      type="secondary"
+                      style={{
+                        fontSize: 12,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {((snap?.fbUsedMiB ?? 0) / 1024).toFixed(1)} /{' '}
+                      {((snap?.fbTotalMiB ?? 0) / 1024).toFixed(1)} GiB
+                    </Typography.Text>
+                  </div>
+                  <Progress
+                    type="dashboard"
+                    percent={Math.min(snap?.fbUsagePct ?? 0, 100)}
+                    size={64}
+                    strokeColor={dashboardColor(snap?.fbUsagePct ?? 0, token)}
+                    format={() => ''}
+                  />
+                </div>
+              </Card>
+            </Col>
+            {/* Tensor-core activity — distinct from generic GPU util:
+               util is "any SM busy", tensor is "tensor cores
+               specifically firing", which is what matters for LLM /
+               vision training. Low tensor + high util usually means
+               memory-bound or non-tensor workload. */}
+            <Col xs={24} sm={12} md={8} lg={4}>
               <Card>
                 <div className="flex items-center justify-between">
                   <Statistic
                     title={intl.formatMessage({
-                      id: 'pages.gpuMonitoring.snap.totalPower',
+                      id: 'pages.gpuMonitoring.snap.tensor',
                     })}
-                    value={snap?.totalPowerW ?? 0}
-                    precision={0}
-                    suffix="W"
-                  />
-                  <Statistic
-                    title={intl.formatMessage({
-                      id: 'pages.gpuMonitoring.snap.fbUsage',
-                    })}
-                    value={snap?.fbUsagePct ?? 0}
+                    value={snap?.avgTensorActPct ?? 0}
                     precision={1}
                     suffix="%"
-                    valueStyle={{ fontSize: 14 }}
+                  />
+                  <Progress
+                    type="dashboard"
+                    percent={Math.min(snap?.avgTensorActPct ?? 0, 100)}
+                    size={64}
+                    strokeColor={dashboardColor(
+                      snap?.avgTensorActPct ?? 0,
+                      token,
+                    )}
+                    format={() => ''}
                   />
                 </div>
               </Card>
