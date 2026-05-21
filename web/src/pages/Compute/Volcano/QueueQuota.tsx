@@ -34,7 +34,7 @@ import {
   RefreshControl,
   useAutoRefresh,
 } from './shared/Layout';
-import { parseQuantity } from './shared/utils';
+import { parseQuantity, usageColor } from './shared/utils';
 
 // QueueQuota — cluster-scoped专题页 for inspecting per-queue capacity,
 // guarantee and allocated for every resource the queue references.
@@ -604,14 +604,20 @@ function ResourceQuotaRow({
   const guarPct = unbounded ? 0 : guarN > 0 ? clamp01(guarN / denom) : 0;
   const desPct = unbounded ? 0 : desN > 0 ? clamp01(desN / denom) : 0;
 
-  // Colours via antd theme tokens so dark / light mode share the same
-  // semantic meaning. Track stays a flat fill (no token equivalent for
-  // "muted neutral track" — colorFillSecondary is the closest match).
-  const fillColor = overcommit
-    ? token.colorError
-    : unmetGuarantee
-      ? token.colorWarning
-      : token.colorPrimary;
+  // Bar fill: usage-band colored (success/warning/error) so a
+  // glance across rows reveals which queue × resource is hot,
+  // instead of every healthy queue painting the same flat blue.
+  //   - usage <60% → success (green)
+  //   - 60-85%    → warning (orange)
+  //   - ≥85%      → error   (red, also covers overcommit since
+  //                          allocPct is clamped to 1)
+  //   - unmet guarantee always reads as warning regardless of
+  //     usage band — it's a different alert ("queue isn't getting
+  //     its floor") that shouldn't be hidden by a "healthy 30%"
+  //     green bar.
+  const fillColor = unmetGuarantee
+    ? token.colorWarning
+    : usageColor(allocPct, token);
   const trackColor = dark ? token.colorFillSecondary : token.colorFillTertiary;
   const guaranteeColor = token.colorSuccess;
   // Deserved tick: brand purple. antd's default token set has no
