@@ -5,8 +5,6 @@ import {
   CrownOutlined,
 } from '@ant-design/icons';
 import { useIntl, useParams } from '@umijs/max';
-
-import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Alert,
   Badge,
@@ -16,12 +14,13 @@ import {
   Space,
   Spin,
   Tag,
-  theme,
   Tooltip,
   Typography,
+  theme,
 } from 'antd';
 import { useThemeMode } from 'antd-style';
 import React, { useMemo, useState } from 'react';
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 
 import {
   listVolcanoQueues,
@@ -29,9 +28,9 @@ import {
 } from '@/services/kpilot/volcano-list';
 
 import {
+  isResourceNotAvailable,
   NotInstalled,
   RefreshControl,
-  isResourceNotAvailable,
   useAutoRefresh,
 } from './shared/Layout';
 import { parseQuantity } from './shared/utils';
@@ -167,9 +166,9 @@ const QueueQuotaPage: React.FC = () => {
           </span>
         ),
       });
-      const kids = (childrenOf.get(q.name) ?? []).slice().sort((a, b) =>
-        a.name.localeCompare(b.name),
-      );
+      const kids = (childrenOf.get(q.name) ?? [])
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name));
       for (const k of kids) visit(k, depth + 1);
     };
     // Roots = queues with empty parent or parent not in cluster.
@@ -182,9 +181,9 @@ const QueueQuotaPage: React.FC = () => {
 
   const selected = selectedQueue ? byName.get(selectedQueue) : undefined;
   const selectedChildren = selectedQueue
-    ? (childrenOf.get(selectedQueue) ?? []).slice().sort((a, b) =>
-        a.name.localeCompare(b.name),
-      )
+    ? (childrenOf.get(selectedQueue) ?? [])
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
     : [];
 
   // All hooks above. From here it's safe to conditionally return
@@ -214,7 +213,9 @@ const QueueQuotaPage: React.FC = () => {
             >
               <Space wrap style={{ flex: 1, minWidth: 0 }}>
                 <span>
-                  {intl.formatMessage({ id: 'pages.queueQuota.selector.label' })}
+                  {intl.formatMessage({
+                    id: 'pages.queueQuota.selector.label',
+                  })}
                 </span>
                 <Select
                   style={{ minWidth: 280 }}
@@ -259,7 +260,12 @@ const QueueQuotaPage: React.FC = () => {
             </Card>
           ) : (
             <>
-              <QueueDetailCard queue={selected} dark={dark} primary />
+              <QueueDetailCard
+                queue={selected}
+                dark={dark}
+                primary
+                clusterCap={data?.clusterAllocatable}
+              />
               {selectedChildren.length > 0 && (
                 <Card
                   size="small"
@@ -273,13 +279,18 @@ const QueueQuotaPage: React.FC = () => {
                     </Space>
                   }
                 >
-                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Space
+                    direction="vertical"
+                    size="middle"
+                    style={{ width: '100%' }}
+                  >
                     {selectedChildren.map((c) => (
                       <QueueDetailCard
                         key={c.name}
                         queue={c}
                         dark={dark}
                         primary={false}
+                        clusterCap={data?.clusterAllocatable}
                       />
                     ))}
                   </Space>
@@ -304,20 +315,30 @@ function QueueDetailCard({
   queue,
   dark,
   primary,
+  clusterCap,
 }: {
   queue: QueueRow;
   dark: boolean;
   primary: boolean;
+  // Cluster-wide physical Allocatable per resource — used as the
+  // bar denominator when the queue itself has no spec.capability
+  // for that resource, so the UI shows "用了 X / 集群可用 Y"
+  // instead of the previous "unbounded" state which gave no
+  // actionable signal.
+  clusterCap?: Record<string, string>;
 }) {
   const intl = useIntl();
 
   const resources = useMemo(() => {
     const keys = new Set<string>();
-    [queue.capability, queue.guarantee, queue.allocated, queue.deserved].forEach(
-      (m) => {
-        if (m) for (const k of Object.keys(m)) keys.add(k);
-      },
-    );
+    [
+      queue.capability,
+      queue.guarantee,
+      queue.allocated,
+      queue.deserved,
+    ].forEach((m) => {
+      if (m) for (const k of Object.keys(m)) keys.add(k);
+    });
     return sortResourceKeys([...keys]);
   }, [queue]);
 
@@ -357,7 +378,9 @@ function QueueDetailCard({
           </Tag>
           {queue.reclaimable === false && (
             <Tag color="orange">
-              {intl.formatMessage({ id: 'pages.queueQuota.card.nonReclaimable' })}
+              {intl.formatMessage({
+                id: 'pages.queueQuota.card.nonReclaimable',
+              })}
             </Tag>
           )}
         </Space>
@@ -402,6 +425,7 @@ function QueueDetailCard({
               guarantee={queue.guarantee?.[k]}
               allocated={queue.allocated?.[k]}
               deserved={queue.deserved?.[k]}
+              clusterCap={clusterCap?.[k]}
               dark={dark}
             />
           ))}
@@ -430,6 +454,7 @@ function ResourceQuotaRow({
   guarantee,
   allocated,
   deserved,
+  clusterCap,
   dark,
 }: {
   resourceKey: string;
@@ -437,6 +462,11 @@ function ResourceQuotaRow({
   guarantee?: string;
   allocated?: string;
   deserved?: string;
+  // Cluster physical Allocatable for this resource (fallback
+  // when `capability` is unset). When both are absent the row
+  // genuinely has no upper bound and falls back to the old
+  // striped-track "unbounded" rendering.
+  clusterCap?: string;
   dark: boolean;
 }) {
   const intl = useIntl();
@@ -444,10 +474,17 @@ function ResourceQuotaRow({
   const meta = resourceMeta(resourceKey);
 
   const allocN = parseQuantity(allocated) * meta.scale;
-  const capN = parseQuantity(capability) * meta.scale;
+  const explicitCapN = parseQuantity(capability) * meta.scale;
+  const clusterCapN = parseQuantity(clusterCap) * meta.scale;
   const guarN = parseQuantity(guarantee) * meta.scale;
   const desN = parseQuantity(deserved) * meta.scale;
 
+  // Effective bound: prefer the queue's own spec.capability; fall
+  // back to the cluster physical Allocatable; show "unbounded"
+  // only when both are missing (rare — most clusters always have
+  // a Node Allocatable for the resource a queue's allocated against).
+  const capN = explicitCapN > 0 ? explicitCapN : clusterCapN;
+  const usingClusterCap = explicitCapN <= 0 && clusterCapN > 0;
   const unbounded = capN <= 0;
   const overcommit = !unbounded && allocN > capN;
   const unmetGuarantee = guarN > 0 && allocN < guarN;
@@ -504,14 +541,27 @@ function ResourceQuotaRow({
             </Typography.Text>
           )}
           {!unbounded ? (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              ·{' '}
-              {intl.formatMessage(
-                { id: 'pages.queueQuota.row.capability' },
-                { v: fmt(capN) },
+            <>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                ·{' '}
+                {intl.formatMessage(
+                  {
+                    id: usingClusterCap
+                      ? 'pages.queueQuota.row.clusterCap'
+                      : 'pages.queueQuota.row.capability',
+                  },
+                  { v: fmt(capN) },
+                )}
+                {unit}
+              </Typography.Text>
+              {usingClusterCap && (
+                <Tag color="blue" style={{ fontSize: 11 }}>
+                  {intl.formatMessage({
+                    id: 'pages.queueQuota.row.clusterCap.tag',
+                  })}
+                </Tag>
               )}
-              {unit}
-            </Typography.Text>
+            </>
           ) : (
             <Tag color="default" style={{ fontSize: 11 }}>
               {intl.formatMessage({ id: 'pages.queueQuota.row.unbounded' })}

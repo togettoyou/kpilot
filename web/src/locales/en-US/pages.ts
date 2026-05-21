@@ -920,6 +920,8 @@ export default {
   'pages.queueQuota.row.alloc': 'allocated {v}',
   'pages.queueQuota.row.guarantee': 'guarantee {v}',
   'pages.queueQuota.row.capability': 'capability {v}',
+  'pages.queueQuota.row.clusterCap': 'cluster cap {v}',
+  'pages.queueQuota.row.clusterCap.tag': 'physical',
   'pages.queueQuota.row.deserved': 'deserved {v}',
   'pages.queueQuota.row.unbounded': 'unbounded',
   'pages.queueQuota.row.overcommit':

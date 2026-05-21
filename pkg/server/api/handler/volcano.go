@@ -9,8 +9,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
@@ -45,6 +47,23 @@ type volcanoListResponse[T any] struct {
 	Items                []T    `json:"items"`
 	Continue             string `json:"continue,omitempty"`
 	RemainingItemCount   *int64 `json:"remainingItemCount,omitempty"`
+}
+
+// queueListResponse extends the generic list shape with cluster-wide
+// allocatable totals — the physical hard upper bound that applies
+// regardless of whether a Queue declared spec.capability. Used by the
+// frontend to render "no explicit cap → fall back to cluster bound"
+// instead of "未设上限 / unbounded" which gives the operator no
+// actionable signal.
+type queueListResponse struct {
+	volcanoListResponse[queueRow]
+	// Aggregated sum of Node.status.allocatable across every node in
+	// the cluster, keyed by K8s resource name (cpu / memory /
+	// nvidia.com/gpu / volcano.sh/vgpu-{number,memory,cores} / ...).
+	// Values are raw K8s Quantity strings, same shape as
+	// queueRow.Capability / Allocated; frontend reuses its existing
+	// parseQuantity.
+	ClusterAllocatable map[string]string `json:"clusterAllocatable,omitempty"`
 }
 
 // parseListParams pulls limit + continue from the request and applies
@@ -100,29 +119,57 @@ func ListVolcanoQueues(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
 		defer cancel()
 
-		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
-			Action:        "list-full",
-			Group:         "scheduling.volcano.sh",
-			Version:       "v1beta1",
-			Kind:          "Queue",
-			Limit:         limit,
-			ContinueToken: cont,
-		})
-		if err != nil {
-			handleWorkerErr(c, err)
+		// Queues + Nodes in parallel — frontend needs both for the
+		// quota bars (Queue spec.capability + Node status.allocatable
+		// fallback), and the worker tunnel is bidirectional so fan-out
+		// adds no wall-clock cost vs a single call.
+		var (
+			queueResp, nodeResp *gateway.ResourceResponse
+			queueErr, nodeErr   error
+			wg                  sync.WaitGroup
+		)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			queueResp, queueErr = gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
+				Action:        "list-full",
+				Group:         "scheduling.volcano.sh",
+				Version:       "v1beta1",
+				Kind:          "Queue",
+				Limit:         limit,
+				ContinueToken: cont,
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			// Nodes are cluster-scoped; no namespace, no pagination
+			// (typically <100 nodes per cluster). Soft-fail this
+			// branch — if the node fetch errors the queue page still
+			// renders, just without the cluster-cap fallback.
+			nodeResp, nodeErr = gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
+				Action:  "list-full",
+				Group:   "",
+				Version: "v1",
+				Kind:    "Node",
+			})
+		}()
+		wg.Wait()
+
+		if queueErr != nil {
+			handleWorkerErr(c, queueErr)
 			return
 		}
-		if !resp.Success {
-			if isNoMatchMessage(resp.Error) {
+		if !queueResp.Success {
+			if isNoMatchMessage(queueResp.Error) {
 				log.Printf("[volcano] CRD not available: cluster=%s kind=Queue", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
-			apiErrWorker(c, resp.Error)
+			apiErrWorker(c, queueResp.Error)
 			return
 		}
 
-		items, contNext, remaining, err := unstructuredItems(resp.Data)
+		items, contNext, remaining, err := unstructuredItems(queueResp.Data)
 		if err != nil {
 			apiErrInternal(c, err)
 			return
@@ -159,12 +206,66 @@ func ListVolcanoQueues(gw *gateway.GatewayServer) gin.HandlerFunc {
 			}
 			out = append(out, row)
 		}
-		c.JSON(http.StatusOK, volcanoListResponse[queueRow]{
-			Items:              out,
-			Continue:           contNext,
-			RemainingItemCount: remaining,
+
+		// Soft-fail: log + skip ClusterAllocatable if the node fetch
+		// failed; the queue page degrades gracefully to "no fallback
+		// cap" rather than blocking the whole list.
+		var clusterAllocatable map[string]string
+		if nodeErr != nil {
+			log.Printf("[volcano] node list failed (skipping cluster cap fallback): cluster=%s err=%v", clusterID, nodeErr)
+		} else if !nodeResp.Success {
+			log.Printf("[volcano] node list worker error (skipping cluster cap fallback): cluster=%s err=%s", clusterID, nodeResp.Error)
+		} else if nodes, _, _, err := unstructuredItems(nodeResp.Data); err == nil {
+			clusterAllocatable = aggregateNodeAllocatable(nodes)
+		} else {
+			log.Printf("[volcano] node list parse failed: cluster=%s err=%v", clusterID, err)
+		}
+
+		c.JSON(http.StatusOK, queueListResponse{
+			volcanoListResponse: volcanoListResponse[queueRow]{
+				Items:              out,
+				Continue:           contNext,
+				RemainingItemCount: remaining,
+			},
+			ClusterAllocatable: clusterAllocatable,
 		})
 	}
+}
+
+// aggregateNodeAllocatable sums status.allocatable across every node
+// into a single resource-keyed quantity map. Uses K8s'
+// resource.Quantity arithmetic to preserve unit/precision and emit
+// the canonical short-form back out — same shape the frontend's
+// parseQuantity already consumes for queueRow.Capability/Allocated.
+//
+// We include EVERY allocatable key the nodes advertise (cpu, memory,
+// nvidia.com/gpu, volcano.sh/vgpu-*, hugepages, ephemeral-storage,
+// pods, ...) so a future device-plugin gets covered automatically.
+// Malformed quantities are skipped silently — we'd rather under-
+// report one resource than fail the whole queue list.
+func aggregateNodeAllocatable(nodes []map[string]any) map[string]string {
+	totals := map[string]*resource.Quantity{}
+	for _, n := range nodes {
+		status := mapOf(n["status"])
+		alloc := stringMap(status["allocatable"])
+		for k, v := range alloc {
+			q, err := resource.ParseQuantity(v)
+			if err != nil {
+				continue
+			}
+			if t, ok := totals[k]; ok {
+				t.Add(q)
+			} else {
+				qCopy := q.DeepCopy()
+				totals[k] = &qCopy
+			}
+		}
+	}
+	out := make(map[string]string, len(totals))
+	for k, q := range totals {
+		out[k] = q.String()
+	}
+	return out
 }
 
 // ─── Job (batch.volcano.sh/v1alpha1) ───────────────────────────────────

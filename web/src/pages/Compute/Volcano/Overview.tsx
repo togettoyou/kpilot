@@ -1,7 +1,5 @@
 import { ArrowRightOutlined, ReloadOutlined } from '@ant-design/icons';
 import { history, useIntl, useModel, useParams } from '@umijs/max';
-
-import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Button,
   Card,
@@ -16,8 +14,7 @@ import {
 } from 'antd';
 import yaml from 'js-yaml';
 import React, { lazy, Suspense, useMemo } from 'react';
-
-import { getVolcanoStatus } from '@/services/kpilot/volcano-status';
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   type CronJobRow,
   type HyperNodeRow,
@@ -32,6 +29,7 @@ import {
   type PodGroupRow,
   type QueueRow,
 } from '@/services/kpilot/volcano-list';
+import { getVolcanoStatus } from '@/services/kpilot/volcano-status';
 import { getWorkload } from '@/services/kpilot/workload';
 import {
   formatAge,
@@ -68,6 +66,11 @@ export interface BundleData {
   scheduler: SchedulerConfSummary | null;
   // True if any list endpoint hit the server-side 500-row cap.
   truncated: boolean;
+  // Cluster-wide Node.status.allocatable totals, returned by
+  // /volcano/queues alongside the queue list. Lets the cluster
+  // capacity gauges use the physical hard upper bound when no
+  // Queue declared spec.capability — rather than reporting 0.
+  clusterAllocatable?: Record<string, string>;
 }
 
 export default function VolcanoOverviewPage() {
@@ -181,6 +184,7 @@ export default function VolcanoOverviewPage() {
           hyperNodes.continue ||
           jobFlows.continue
         ),
+        clusterAllocatable: (queues as any).clusterAllocatable,
       };
     },
     [clusterId, ns],
@@ -209,7 +213,9 @@ export default function VolcanoOverviewPage() {
         <Tag color="blue">
           {ns
             ? `ns=${ns}`
-            : intl.formatMessage({ id: 'pages.compute.overview.allNamespaces' })}
+            : intl.formatMessage({
+                id: 'pages.compute.overview.allNamespaces',
+              })}
         </Tag>
         <RefreshControl
           interval={interval}

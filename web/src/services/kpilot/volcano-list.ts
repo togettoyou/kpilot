@@ -61,8 +61,18 @@ export interface QueueRow {
   unknown: number;
 }
 
+// Queue list carries one extra field beyond the generic shape:
+// clusterAllocatable = aggregated Node.status.allocatable across
+// every node in the cluster. Used by the queue quota UI as the
+// "physical hard upper bound" fallback when a Queue's
+// spec.capability is unset — rendering an explicit cluster cap is
+// more actionable than rendering "unbounded".
+export interface QueueListResponse extends VolcanoListResponse<QueueRow> {
+  clusterAllocatable?: Record<string, string>;
+}
+
 export function listVolcanoQueues(clusterId: string, params?: VolcanoListParams) {
-  return request<VolcanoListResponse<QueueRow>>(
+  return request<QueueListResponse>(
     `/api/v1/clusters/${clusterId}/volcano/queues`,
     { method: 'GET', params: listParams(params) },
   );

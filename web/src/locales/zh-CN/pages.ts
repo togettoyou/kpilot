@@ -887,6 +887,8 @@ export default {
   'pages.queueQuota.row.alloc': '已分配 {v}',
   'pages.queueQuota.row.guarantee': '保障 {v}',
   'pages.queueQuota.row.capability': '上限 {v}',
+  'pages.queueQuota.row.clusterCap': '集群上限 {v}',
+  'pages.queueQuota.row.clusterCap.tag': '物理',
   'pages.queueQuota.row.deserved': '应得 {v}',
   'pages.queueQuota.row.unbounded': '未设上限',
   'pages.queueQuota.row.overcommit':

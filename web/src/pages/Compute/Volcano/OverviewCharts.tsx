@@ -8,10 +8,10 @@ import {
   Row,
   Space,
   Tag,
-  theme,
   Tooltip,
   Tree,
   Typography,
+  theme,
 } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import React, { useMemo } from 'react';
@@ -262,16 +262,28 @@ function clusterCapacity(data: BundleData): ClusterCapacity {
   // in our list. The root's rollup already covers everything below.
   const names = new Set(data.queues.map((q) => q.name));
 
-  // Detect vGPU memory mode first. If any queue advertises a vgpu
-  // memory cap or allocation, switch the GPU axis to MiB → GiB —
-  // for vGPU clusters, memory is what operators actually request
-  // and what runs out first. Slot counts are a coarse split-factor
-  // that doesn't track real allocation pressure.
-  const hasVgpuMemory = data.queues.some(
-    (q) =>
-      q.capability?.['volcano.sh/vgpu-memory'] ||
-      q.allocated?.['volcano.sh/vgpu-memory'],
-  );
+  // Decide whether to render GPU axis in MiB→GiB or in slot counts.
+  // Prefer "MiB" mode if EITHER a queue declared vgpu-memory OR the
+  // cluster Nodes advertise it (the latter catches the common case
+  // of no admin-set capability — pre-fix this returned `count` mode
+  // and the GPU row showed 0 / 0).
+  const clusterCap = data.clusterAllocatable ?? {};
+  const hasVgpuMemory =
+    data.queues.some(
+      (q) =>
+        q.capability?.['volcano.sh/vgpu-memory'] ||
+        q.allocated?.['volcano.sh/vgpu-memory'],
+    ) || !!clusterCap['volcano.sh/vgpu-memory'];
+
+  // pick = explicit Queue cap when set, else fall back to cluster
+  // physical Allocatable for the same resource. Mirrors what
+  // ResourceQuotaRow does in QueueQuota.tsx — keeps the headline
+  // gauge and the per-queue bars consistent.
+  const pick = (qVal: string | undefined, clusterKey: string): number => {
+    const q = parseQuantity(qVal);
+    if (q > 0) return q;
+    return parseQuantity(clusterCap[clusterKey]);
+  };
 
   let cpuT = 0,
     cpuA = 0,
@@ -282,20 +294,26 @@ function clusterCapacity(data: BundleData): ClusterCapacity {
     hasGpu = false;
   for (const q of data.queues) {
     if (q.parent && names.has(q.parent)) continue;
-    cpuT += parseQuantity(q.capability?.['cpu']);
-    cpuA += parseQuantity(q.allocated?.['cpu']);
-    memT += parseQuantity(q.capability?.['memory']);
-    memA += parseQuantity(q.allocated?.['memory']);
+    cpuT += pick(q.capability?.cpu, 'cpu');
+    cpuA += parseQuantity(q.allocated?.cpu);
+    memT += pick(q.capability?.memory, 'memory');
+    memA += parseQuantity(q.allocated?.memory);
     if (hasVgpuMemory) {
       // Volcano stores vgpu-memory as a unit-less integer in MiB;
       // /1024 to keep the GPU row's numbers in GiB like the memory
       // row above.
-      gpuT += parseQuantity(q.capability?.['volcano.sh/vgpu-memory']) / 1024;
+      gpuT +=
+        pick(
+          q.capability?.['volcano.sh/vgpu-memory'],
+          'volcano.sh/vgpu-memory',
+        ) / 1024;
       gpuA += parseQuantity(q.allocated?.['volcano.sh/vgpu-memory']) / 1024;
     } else {
       gpuT +=
-        parseQuantity(q.capability?.['volcano.sh/vgpu-number']) +
-        parseQuantity(q.capability?.['nvidia.com/gpu']);
+        pick(
+          q.capability?.['volcano.sh/vgpu-number'],
+          'volcano.sh/vgpu-number',
+        ) + pick(q.capability?.['nvidia.com/gpu'], 'nvidia.com/gpu');
       gpuA +=
         parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
         parseQuantity(q.allocated?.['nvidia.com/gpu']);
@@ -306,7 +324,10 @@ function clusterCapacity(data: BundleData): ClusterCapacity {
       q.capability?.['nvidia.com/gpu'] ||
       q.allocated?.['volcano.sh/vgpu-number'] ||
       q.allocated?.['volcano.sh/vgpu-memory'] ||
-      q.allocated?.['nvidia.com/gpu']
+      q.allocated?.['nvidia.com/gpu'] ||
+      clusterCap['volcano.sh/vgpu-number'] ||
+      clusterCap['volcano.sh/vgpu-memory'] ||
+      clusterCap['nvidia.com/gpu']
     ) {
       hasGpu = true;
     }
@@ -365,10 +386,10 @@ function QueueResourceCard({ data }: { data: BundleData }) {
     let _hasGpu = false;
     const out: QueueResourceRow[] = [];
     for (const q of data.queues) {
-      const cpuAlloc = parseQuantity(q.allocated?.['cpu']);
-      const cpuCap = parseQuantity(q.capability?.['cpu']);
-      const memAlloc = parseQuantity(q.allocated?.['memory']) / 1024 ** 3;
-      const memCap = parseQuantity(q.capability?.['memory']) / 1024 ** 3;
+      const cpuAlloc = parseQuantity(q.allocated?.cpu);
+      const cpuCap = parseQuantity(q.capability?.cpu);
+      const memAlloc = parseQuantity(q.allocated?.memory) / 1024 ** 3;
+      const memCap = parseQuantity(q.capability?.memory) / 1024 ** 3;
       // GPU axis: memory (GiB) when vGPU-memory mode is active,
       // otherwise slot/card counts. Same detection as
       // clusterCapacity() so the cluster card and the per-queue
@@ -378,8 +399,7 @@ function QueueResourceCard({ data }: { data: BundleData }) {
       if (hasVgpuMemory) {
         gpuAlloc =
           parseQuantity(q.allocated?.['volcano.sh/vgpu-memory']) / 1024;
-        gpuCap =
-          parseQuantity(q.capability?.['volcano.sh/vgpu-memory']) / 1024;
+        gpuCap = parseQuantity(q.capability?.['volcano.sh/vgpu-memory']) / 1024;
       } else {
         gpuAlloc =
           parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
@@ -401,8 +421,7 @@ function QueueResourceCard({ data }: { data: BundleData }) {
       // so a heavy-but-unlimited queue still beats an idle one. CPU
       // weighted 1:1 with memory GiB is a rough proxy for "load";
       // doesn't need to be exact, just stable and intuitive.
-      const fullyUnbounded =
-        cpuCap <= 0 && memCap <= 0 && gpuCap <= 0;
+      const fullyUnbounded = cpuCap <= 0 && memCap <= 0 && gpuCap <= 0;
       const unboundedLoad = cpuAlloc + memAlloc + gpuAlloc;
       out.push({
         name: q.name,
@@ -448,7 +467,9 @@ function QueueResourceCard({ data }: { data: BundleData }) {
           )}
         </Text>
       }
-      styles={{ body: { padding: '8px 16px 12px', maxHeight: 420, overflow: 'auto' } }}
+      styles={{
+        body: { padding: '8px 16px 12px', maxHeight: 420, overflow: 'auto' },
+      }}
     >
       {rows.length === 0 ? (
         <EmptyHint id="pages.compute.overview.queues.empty" />
@@ -506,7 +527,11 @@ function QueueResourceCard({ data }: { data: BundleData }) {
               >
                 {r.name}
               </Text>
-              <UtilCell allocated={r.cpu.allocated} total={r.cpu.total} unit="" />
+              <UtilCell
+                allocated={r.cpu.allocated}
+                total={r.cpu.total}
+                unit=""
+              />
               <UtilCell
                 allocated={r.memory.allocated}
                 total={r.memory.total}
@@ -952,10 +977,10 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
         name: q.name,
         parent: q.parent || undefined,
         state: q.state,
-        cpuAlloc: parseQuantity(q.allocated?.['cpu']),
-        cpuCap: parseQuantity(q.capability?.['cpu']),
-        memAlloc: parseQuantity(q.allocated?.['memory']) / 1024 ** 3,
-        memCap: parseQuantity(q.capability?.['memory']) / 1024 ** 3,
+        cpuAlloc: parseQuantity(q.allocated?.cpu),
+        cpuCap: parseQuantity(q.capability?.cpu),
+        memAlloc: parseQuantity(q.allocated?.memory) / 1024 ** 3,
+        memCap: parseQuantity(q.capability?.memory) / 1024 ** 3,
         children: [],
       });
     }
@@ -963,7 +988,7 @@ function QueueHierarchyCard({ data }: { data: BundleData }) {
     let nested = false;
     for (const node of byName.values()) {
       if (node.parent && byName.has(node.parent)) {
-        byName.get(node.parent)!.children.push(node);
+        byName.get(node.parent)?.children.push(node);
         nested = true;
       } else {
         roots.push(node);
