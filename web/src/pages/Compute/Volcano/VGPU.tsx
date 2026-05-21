@@ -4,8 +4,6 @@ import {
   RocketOutlined,
 } from '@ant-design/icons';
 import { history, useIntl, useParams } from '@umijs/max';
-
-import { useClusterRequest } from '@/hooks/useClusterRequest';
 import {
   Alert,
   Card as AntCard,
@@ -17,11 +15,12 @@ import {
   Row,
   Space,
   Tag,
-  theme,
   Tooltip,
   Typography,
+  theme,
 } from 'antd';
 import React, { memo, useCallback, useMemo, useState } from 'react';
+import { useClusterRequest } from '@/hooks/useClusterRequest';
 
 import { DescribeDrawer } from '@/pages/ClusterDetail/Workloads/DescribeDrawer';
 import {
@@ -322,7 +321,6 @@ function ClusterKPIs({
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [nodes]);
 
-
   const kpis: Array<{
     key: string;
     value: string | number;
@@ -358,8 +356,7 @@ function ClusterKPIs({
       key: 'slots',
       value: `${usedSlots} / ${totalSlots}`,
       ratio: slotRatio,
-      tone:
-        slotRatio >= 0.85 ? 'error' : slotRatio >= 0.6 ? 'warn' : undefined,
+      tone: slotRatio >= 0.85 ? 'error' : slotRatio >= 0.6 ? 'warn' : undefined,
     },
     {
       key: 'memory',
@@ -378,8 +375,7 @@ function ClusterKPIs({
       value: `${usedCores} / ${totalCores}`,
       suffix: '%',
       ratio: coreRatio,
-      tone:
-        coreRatio >= 0.85 ? 'error' : coreRatio >= 0.6 ? 'warn' : undefined,
+      tone: coreRatio >= 0.85 ? 'error' : coreRatio >= 0.6 ? 'warn' : undefined,
     },
   ];
 
@@ -433,7 +429,13 @@ function ClusterKPIs({
                     size={110}
                     strokeColor={utilColor(k.ratio, token)}
                     format={() => (
-                      <span style={{ color: toneColor, fontSize: 20, fontWeight: 600 }}>
+                      <span
+                        style={{
+                          color: toneColor,
+                          fontSize: 20,
+                          fontWeight: 600,
+                        }}
+                      >
                         {pct}%
                       </span>
                     )}
@@ -474,9 +476,7 @@ function ClusterKPIs({
                       </span>
                     )}
                   </div>
-                  {k.chips && (
-                    <div style={{ marginTop: 8 }}>{k.chips}</div>
-                  )}
+                  {k.chips && <div style={{ marginTop: 8 }}>{k.chips}</div>}
                 </div>
               )}
             </AntCard>
@@ -636,7 +636,11 @@ function NodeTable({
         // default. Replaces the nested-table-with-expand pattern
         // that hid GPU detail behind a click and made the page
         // unscannable for "how full is each card on each node".
-        <Space direction="vertical" size={12} style={{ width: '100%', padding: 12 }}>
+        <Space
+          direction="vertical"
+          size={12}
+          style={{ width: '100%', padding: 12 }}
+        >
           {filteredNodes.map((n) => (
             <NodeCard
               key={n.name}
@@ -680,7 +684,8 @@ const NodeCard = memo(function NodeCard({
   const typeBadges = useMemo<[string, number][]>(() => {
     if (singleType) return [[singleType, node.cards.length]];
     const counts = new Map<string, number>();
-    for (const c of node.cards) counts.set(c.type, (counts.get(c.type) ?? 0) + 1);
+    for (const c of node.cards)
+      counts.set(c.type, (counts.get(c.type) ?? 0) + 1);
     return [...counts.entries()];
   }, [node, singleType]);
 
@@ -732,7 +737,9 @@ const NodeCard = memo(function NodeCard({
         }}
       >
         <LabeledBar
-          label={intl.formatMessage({ id: 'pages.compute.vgpu.node.col.slots' })}
+          label={intl.formatMessage({
+            id: 'pages.compute.vgpu.node.col.slots',
+          })}
           used={node.usedNumber}
           total={node.totalNumber}
         />
@@ -745,7 +752,9 @@ const NodeCard = memo(function NodeCard({
           asGiB
         />
         <LabeledBar
-          label={intl.formatMessage({ id: 'pages.compute.vgpu.node.col.cores' })}
+          label={intl.formatMessage({
+            id: 'pages.compute.vgpu.node.col.cores',
+          })}
           used={cores.used}
           total={cores.total}
           percent
@@ -887,7 +896,12 @@ function PodsCell({
   pods,
   onPodClick,
 }: {
-  pods: { namespace: string; name: string; usedMemory: number; usedCores: number }[];
+  pods: {
+    namespace: string;
+    name: string;
+    usedMemory: number;
+    usedCores: number;
+  }[];
   onPodClick: (namespace: string, name: string) => void;
 }) {
   const intl = useIntl();
@@ -899,7 +913,13 @@ function PodsCell({
     );
   const counts = new Map<
     string,
-    { namespace: string; name: string; count: number; mem: number; cores: number }
+    {
+      namespace: string;
+      name: string;
+      count: number;
+      mem: number;
+      cores: number;
+    }
   >();
   for (const p of pods) {
     const key = `${p.namespace}/${p.name}`;
@@ -1002,20 +1022,32 @@ function UtilBar({
           whiteSpace: 'nowrap',
         }}
       >
-        {percent ? (
-          <>{used}%</>
-        ) : asGiB ? (
-          <>
-            {formatGiB(used)}/{formatGiB(total)}
-            {unit ? ` ${unit}` : ''}
-          </>
-        ) : (
-          <>
-            {used}/{total}
-            {unit ? ` ${unit}` : ''}
-          </>
-        )}
-        <span style={{ color, fontWeight: 600, marginInlineStart: 4 }}>
+        {/* In percent mode `used` is already 0-100, so showing it
+           here would just duplicate the trailing colored percentage
+           below + the bar fill (which is r*100% wide). Skip the
+           absolute-value line entirely — bar + percentage carry
+           everything. Other modes (number / memory) keep the
+           absolute "x/y" line since the percentage alone hides
+           the magnitudes that matter for capacity planning. */}
+        {!percent &&
+          (asGiB ? (
+            <>
+              {formatGiB(used)}/{formatGiB(total)}
+              {unit ? ` ${unit}` : ''}
+            </>
+          ) : (
+            <>
+              {used}/{total}
+              {unit ? ` ${unit}` : ''}
+            </>
+          ))}
+        <span
+          style={{
+            color,
+            fontWeight: 600,
+            marginInlineStart: percent ? 0 : 4,
+          }}
+        >
           {(r * 100).toFixed(0)}%
         </span>
       </div>
