@@ -370,26 +370,37 @@ function QueueResourceCard({ data }: { data: BundleData }) {
   // queue one row and every resource its own mini utilization bar,
   // so "which queue × which resource is hot" is a single eye scan.
   // Same vGPU-memory-preferred mode detection as the cluster
-  // capacity card: if any queue declared vgpu-memory we render GPU
-  // as memory (GiB) rather than slot/card counts.
+  // capacity card: if any queue declared vgpu-memory OR the cluster
+  // Nodes advertise it, we render GPU as memory (GiB) rather than
+  // slot/card counts.
+  const clusterCap = data.clusterAllocatable ?? {};
   const hasVgpuMemory = useMemo(
     () =>
       data.queues.some(
         (q) =>
           q.capability?.['volcano.sh/vgpu-memory'] ||
           q.allocated?.['volcano.sh/vgpu-memory'],
-      ),
-    [data.queues],
+      ) || !!clusterCap['volcano.sh/vgpu-memory'],
+    [data.queues, clusterCap],
   );
 
   const { rows, hasGpu } = useMemo(() => {
     let _hasGpu = false;
     const out: QueueResourceRow[] = [];
+    // pick = explicit Queue cap when set, else fall back to the
+    // cluster physical Allocatable for the same resource. Mirrors
+    // clusterCapacity() above + the QueueQuota page's row logic so
+    // every "what's my cap" surface tells the same story.
+    const pick = (qVal: string | undefined, clusterKey: string): number => {
+      const q = parseQuantity(qVal);
+      if (q > 0) return q;
+      return parseQuantity(clusterCap[clusterKey]);
+    };
     for (const q of data.queues) {
       const cpuAlloc = parseQuantity(q.allocated?.cpu);
-      const cpuCap = parseQuantity(q.capability?.cpu);
+      const cpuCap = pick(q.capability?.cpu, 'cpu');
       const memAlloc = parseQuantity(q.allocated?.memory) / 1024 ** 3;
-      const memCap = parseQuantity(q.capability?.memory) / 1024 ** 3;
+      const memCap = pick(q.capability?.memory, 'memory') / 1024 ** 3;
       // GPU axis: memory (GiB) when vGPU-memory mode is active,
       // otherwise slot/card counts. Same detection as
       // clusterCapacity() so the cluster card and the per-queue
@@ -399,14 +410,20 @@ function QueueResourceCard({ data }: { data: BundleData }) {
       if (hasVgpuMemory) {
         gpuAlloc =
           parseQuantity(q.allocated?.['volcano.sh/vgpu-memory']) / 1024;
-        gpuCap = parseQuantity(q.capability?.['volcano.sh/vgpu-memory']) / 1024;
+        gpuCap =
+          pick(
+            q.capability?.['volcano.sh/vgpu-memory'],
+            'volcano.sh/vgpu-memory',
+          ) / 1024;
       } else {
         gpuAlloc =
           parseQuantity(q.allocated?.['volcano.sh/vgpu-number']) +
           parseQuantity(q.allocated?.['nvidia.com/gpu']);
         gpuCap =
-          parseQuantity(q.capability?.['volcano.sh/vgpu-number']) +
-          parseQuantity(q.capability?.['nvidia.com/gpu']);
+          pick(
+            q.capability?.['volcano.sh/vgpu-number'],
+            'volcano.sh/vgpu-number',
+          ) + pick(q.capability?.['nvidia.com/gpu'], 'nvidia.com/gpu');
       }
       if (gpuAlloc > 0 || gpuCap > 0) _hasGpu = true;
       const u = (a: number, t: number) => (t > 0 ? a / t : 0);
@@ -415,12 +432,11 @@ function QueueResourceCard({ data }: { data: BundleData }) {
         u(memAlloc, memCap),
         u(gpuAlloc, gpuCap),
       );
-      // Fully unbounded = no capability set on any resource. These
-      // rank below every bounded queue (they have no "pressure"),
-      // but among themselves they're ordered by absolute consumption
-      // so a heavy-but-unlimited queue still beats an idle one. CPU
-      // weighted 1:1 with memory GiB is a rough proxy for "load";
-      // doesn't need to be exact, just stable and intuitive.
+      // Fully unbounded = no capability AND no cluster fallback on
+      // any resource. With the cluster-Allocatable fallback in
+      // place this branch is now rare (most clusters always have
+      // some Node resource a queue could consume), but keep the
+      // ordering logic for the truly resource-less case.
       const fullyUnbounded = cpuCap <= 0 && memCap <= 0 && gpuCap <= 0;
       const unboundedLoad = cpuAlloc + memAlloc + gpuAlloc;
       out.push({
@@ -449,7 +465,7 @@ function QueueResourceCard({ data }: { data: BundleData }) {
       return b.maxUtil - a.maxUtil || a.name.localeCompare(b.name);
     });
     return { rows: out, hasGpu: _hasGpu };
-  }, [data.queues, hasVgpuMemory]);
+  }, [data.queues, hasVgpuMemory, clusterCap]);
 
   // Grid columns: queue (160px) + N resource columns (1fr each).
   const cols = hasGpu ? '160px 1fr 1fr 1fr' : '160px 1fr 1fr';
