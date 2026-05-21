@@ -164,6 +164,66 @@ labels:
 
 ---
 
+## 已部署列表 + Chat 调试（P16-B 已落地）
+
+P16-A 把模型推到集群，但「同一个模型现在跑在哪些集群、什么实例、什么状态」需要自己去翻 workloads 页找。P16-B 在 ModelCard 上点 RocketOutlined 直接看，并且能就地 chat 调试一下确认推理跑起来了。
+
+### 数据模型 —— **零状态新表**
+
+不引入 `ModelDeployment` 表。P16-A 的生成器已经在每个 manifest 上打了完整标签集（[`buildLabels`](../pkg/server/deploy/generator.go) `app.kubernetes.io/managed-by=kpilot` + `kpilot.io/model-id=<numeric id>` + `kpilot.io/model-family` + `kpilot.io/model-runtime` + `kpilot.io/instance-suffix`），**集群本身是 source of truth** —— 用户在 kubectl 删了或者外面重命名了，下次刷新 drawer 就自然不显示。这是 P16-A 设计时就锚定的方向，到这里收割红利。
+
+### 跨集群 fan-out 端点
+
+`GET /api/v1/models/:id/deployments` —— `pkg/server/api/handler/model_deploy.go::ListModelDeployments`：
+- 遍历 `store.ListClusters()`；offline worker（`gw.GetWorker(id)` 找不到）**直接跳过**，不计入 errors（cluster 离线在集群管理页本来就显示，这里再喊一遍是噪音）
+- 每个在线 cluster 起一个 goroutine，8s 超时单独 ctx，**走新加的 LabelSelector 路径**：`list-full apps/v1 Deployment` + `app.kubernetes.io/managed-by=kpilot,kpilot.io/model-id=<id>`
+- 用 list-full 而不是 Table API —— 我们需要 `spec.replicas` + `status.{ready,unavailable}Replicas` + `spec.template.spec.containers[0].image`，Table 投影都把这些剥掉了
+- merge：每个 cluster 的命中扁平 append 到 `instances[]`；某个 cluster 出错（worker disconnect / RBAC 缺 apps/v1）落到 `errors[]`，前端按 `cluster_name + error` 渲染顶部黄色 Alert，partial result 仍然可用
+- 状态滚动：`Running`（replicas>0 且 ready>=replicas）/ `Failed`（unavailable>0 且 ready==0）/ `Progressing`（其余）—— 这层抽象避免前端反复 walk conditions
+
+### 协议改动 —— `ResourceRequestStart.label_selector`
+
+新加 proto 字段 `string label_selector = 9`（`proto/pilot.proto`），worker 端 [`proxy.listFull`](../pkg/worker/proxy/proxy.go) / `listTable` forward 到 `ListOptions.LabelSelector` / Table API `?labelSelector=` query。原来这个字段不存在 —— 集群管理页其它列表场景没 label 选择需求。
+
+**新加帧字段的回滚 / 兼容性**：老 worker 收到带 `label_selector` 的 Start frame会忽略未识别字段（protobuf 默认行为），列出全集然后被 server 端按 label 过滤会浪费带宽 —— 但 P16-B 的查询命中量小（典型 0-5 个 Deployment），代价可忽略。新 worker 兼容老 server（字段缺省 = 空串 = 不过滤），无回退风险。
+
+### Chat 反代端点
+
+`POST /api/v1/clusters/:id/inference/:namespace/:name/*subpath` —— `pkg/server/api/handler/model_chat.go::ProxyInference`：
+- 转发到 `http://<name>.<namespace>.svc.<cluster-domain>:8000/v1<subpath>`，**端口硬编码 8000**（与 `deploy.containerPort` 一致，防止这个端点被改造成通用集群内 HTTP 代理）
+- 走 `gw.SendHTTPRequest` 复用现有的 worker tunnel 路径（包括 in-cluster Service URL 路由 / 24h 决策缓存），HTTPS 入站、tunnel gzip 压缩等都白嫖
+- 仅转发 `Content-Type` + `Accept` header；KPilot session cookie / Authorization 全部剥掉 —— 推理后端是单租户单镜像，没必要把会话信息泄给用户提供的 container image
+- body 上限 2 MiB（防 runaway client）；超时 5min（LLM cold cache 慢，但要有上限防 wedged backend 堆积）
+- **流式 = 缓冲**：worker HTTP tunnel 当前是 `HTTPResponse{Body []byte}` 全缓冲设计 —— vLLM `stream:true` 仍能工作（worker 收完整个 SSE 流再一次返回），但**没有逐 token 体验**。短对话回合几秒返回，对 P16-B "调试" 场景够用；真正的 SSE pass-through 是 P16-C，需要给 `HTTPResponse` 加 `IsStream` 标志 + worker 端 chunked 转发
+
+### 前端
+
+**`pages/ModelHub/DeploymentsDrawer.tsx`**（`size=large`）：
+- 顶部刷新按钮 + 命中总数 Badge
+- 单一 Table 平铺所有 instance（小列表无需 group 折叠）：Status Tag + `ready/total` 比 / Cluster / Namespace / 部署名 + instance suffix / 运行时长 / Actions
+- Per-row actions：**Chat 调试**（Running 才 enable，否则 tooltip 提示 "实例就绪后可调试"）/ **Describe**（跳 `/clusters/:id/workloads?type=deployments&q=<name>` 新 tab，不内嵌；二级 drawer 体验臃肿）/ **Delete**（确认 modal 提示「只删除 Deployment，Service/PVC/Secret 留下」—— 用户想完全清理走 workloads 页或 kubectl）
+- partial-fail Alert：每条 `cluster_name: error` 列出，UI 不假装"全集群都查了"
+
+**`pages/ModelHub/ChatDrawer.tsx`**（`size=large`）：
+- 对话状态仅在 component state，每轮 send 整段 `messages[]` 上传（model 后端没有 session，KPilot 也不存 history）—— 关 drawer = 新会话
+- 输入框：Enter 发送 / Shift+Enter 换行 / IME composition 期间 Enter 不触发发送（中文输入正常）
+- 消息渲染：user 右对齐 + `colorPrimary` 头像；assistant 左对齐 + 家族色头像（`FAMILY_META[family].color`）；`whiteSpace: pre-wrap` 保留 LLM 常输出的 markdown 代码块换行（不上 markdown 渲染器避免 XSS 风险 + bundle 体积）
+- response 解析双路径兜底：`choices[0].message.content`（chat 路径 vLLM/SGLang/TGI 都遵循）+ `choices[0].text`（legacy completions 兜底，万一某 runtime 把 chat 端点路由到 completions）
+- 底部 footer：上一轮 token usage（prompt / completion / total）+ 「当前为非流式，P16-C 上线流式」一行说明 banner
+- model 字段：`hugging_face_id || name` —— 推理后端不校验值（单模型 Service），但日志里能看到一个识别度高的名字
+
+**`ModelCard.tsx`** 加 `RocketOutlined`「已部署」icon button（在 Deploy 旁），`onViewDeployments` 可选 prop 缺省时按钮隐藏（未来 picker 模式可复用 card 而不显示 dead button）。
+
+### 限制 / 已知边界
+
+- **删除是 partial**：只删 Deployment；同名 Service / PVC / Secret 留在集群里。文案显式说了。完整级联删除需要 worker 端实现 label-based delete-collection，留给 P16-C
+- **chat 历史不持久化**：drawer 关闭即丢；想保留可后续加 localStorage（key by `cluster_id+namespace+name`），但「调试」语义本来就是 ephemeral，不强需求
+- **流式输出**：见上文，P16-C
+- **跨 cluster 并发上限**：当前没有；几十集群同时 fan out 会瞬时打满 worker tunnel 配额，需要 `errgroup.WithLimit` 或 channel-based 令牌桶
+- **eager badge count**：ModelCard 上没显示 deployed count（"已部署 (N)"）—— 要么每张卡都触发一次 fetch（贵），要么加 `GET /api/v1/models/deployments/summary` 聚合端点。当前默认 lazy（点了 icon 才 fetch）
+
+---
+
 ## 命名 + 路径约定
 
 - ⚠️ **路径**：组件落在 `pages/ModelHub/` 而非 `pages/Models/`。Umi 的 plugin-model 自动扫描 `src/pages/**/models/**` 当 state-hook 文件，macOS 大小写不敏感 FS 上 `Models` 会命中 glob 触发 CaseSensitivePathsPlugin 报错。
