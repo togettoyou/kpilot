@@ -5,16 +5,18 @@ LAYOUT_WITH_LEGEND()
 title KPilot —— 容器视图
 
 Person(operator, "平台运维", "通过 KPilot UI 管理 GPU 集群与工作负载")
+Person(app, "应用 / SDK", "OpenAI 兼容 HTTP 客户端（curl、openai-python、LangChain 等），使用 UI 签发的受限范围 Bearer 令牌鉴权")
 
 System_Boundary(kpilot, "KPilot 控制面") {
-    Container(ui, "Web UI", "React + UmiJS + Ant Design", "集群运维、Volcano 调度、vGPU 治理、GPU 遥测、插件生命周期")
-    Container(server, "KPilot Server", "Go, Gin", "REST API、WebSocket 分发、Worker 注册表、插件流水线；不持有任何 kubeconfig")
-    ContainerDb(db, "PostgreSQL", "GORM", "集群注册表、插件元数据、账号、审计")
+    Container(ui, "Web UI", "React + UmiJS + Ant Design", "集群运维、Volcano 调度、vGPU 治理、GPU 遥测、插件生命周期、模型目录 + chat 调试")
+    Container(server, "KPilot Server", "Go, Gin", "REST API、WebSocket 分发、Worker 注册表、插件流水线、OpenAI 兼容反代（Bearer 鉴权）；不持有任何 kubeconfig")
+    ContainerDb(db, "PostgreSQL", "GORM", "集群注册表、插件元数据、账号、API 令牌、模型模板、审计")
 }
 
 System_Boundary(cluster_a, "纳管集群 A") {
-    Container(worker_a, "KPilot Worker", "Go, controller-runtime, Helm SDK", "协调 Plugin CRD、代理 K8s 操作、实时回传日志 / 指标 / 事件")
+    Container(worker_a, "KPilot Worker", "Go, controller-runtime, Helm SDK", "协调 Plugin CRD、代理 K8s 操作、实时回传日志 / 指标 / 事件、转发集群内 HTTP / WS")
     Container(k8s_a, "Kubernetes API", "kube-apiserver", "原生与自定义资源、RBAC 守门")
+    Container(vllm_a, "推理 Pod", "vLLM", "OpenAI 兼容 /v1/* API；每个部署一个 Pod")
 }
 
 System_Boundary(cluster_b, "纳管集群 B") {
@@ -23,6 +25,7 @@ System_Boundary(cluster_b, "纳管集群 B") {
 }
 
 Rel(operator, ui, "使用", "HTTPS")
+Rel(app, server, "POST /v1/chat/completions 等", "HTTPS + Bearer kp-sk-…")
 Rel(ui, server, "REST + WebSocket", "HTTPS / WSS")
 Rel(server, db, "读写", "SQL")
 
@@ -31,6 +34,7 @@ Rel_U(worker_b, server, "TCP+TLS 多路复用通道", "TCP+TLS")
 
 Rel(worker_a, k8s_a, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
 Rel(worker_b, k8s_b, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
+Rel(worker_a, vllm_a, "反代 /v1/* (SSE)", "HTTP")
 
 SHOW_LEGEND()
 @enduml

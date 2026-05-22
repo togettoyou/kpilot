@@ -5,16 +5,18 @@ LAYOUT_WITH_LEGEND()
 title KPilot — Container Diagram
 
 Person(operator, "Platform Operator", "Manages GPU clusters and workloads through the KPilot UI")
+Person(app, "Application / SDK", "OpenAI-compatible HTTP client (curl, openai-python, LangChain, …) authenticated with a scoped Bearer key minted from the UI")
 
 System_Boundary(kpilot, "KPilot Control Plane") {
-    Container(ui, "Web UI", "React + UmiJS + Ant Design", "Cluster ops, Volcano scheduling, vGPU governance, GPU telemetry, plugin lifecycle")
-    Container(server, "KPilot Server", "Go, Gin", "REST API, WebSocket fan-out, Worker registry, plugin pipeline; holds no kubeconfigs")
-    ContainerDb(db, "PostgreSQL", "GORM", "Cluster registry, plugin metadata, accounts, audit trail")
+    Container(ui, "Web UI", "React + UmiJS + Ant Design", "Cluster ops, Volcano scheduling, vGPU governance, GPU telemetry, plugin lifecycle, model catalog + chat playground")
+    Container(server, "KPilot Server", "Go, Gin", "REST API, WebSocket fan-out, Worker registry, plugin pipeline, OpenAI-compatible reverse proxy with Bearer-key auth; holds no kubeconfigs")
+    ContainerDb(db, "PostgreSQL", "GORM", "Cluster registry, plugin metadata, accounts, API keys, model templates, audit trail")
 }
 
 System_Boundary(cluster_a, "Managed Kubernetes Cluster A") {
-    Container(worker_a, "KPilot Worker", "Go, controller-runtime, Helm SDK", "Reconciles Plugin CRD, proxies K8s ops, streams logs / metrics / events")
+    Container(worker_a, "KPilot Worker", "Go, controller-runtime, Helm SDK", "Reconciles Plugin CRD, proxies K8s ops, streams logs / metrics / events, forwards in-cluster HTTP / WS")
     Container(k8s_a, "Kubernetes API", "kube-apiserver", "Native + custom resources, RBAC enforcement")
+    Container(vllm_a, "Inference Pod(s)", "vLLM", "OpenAI-compatible /v1/* API; one Pod per deployed model")
 }
 
 System_Boundary(cluster_b, "Managed Kubernetes Cluster B") {
@@ -23,6 +25,7 @@ System_Boundary(cluster_b, "Managed Kubernetes Cluster B") {
 }
 
 Rel(operator, ui, "Uses", "HTTPS")
+Rel(app, server, "POST /v1/chat/completions etc.", "HTTPS + Bearer kp-sk-…")
 Rel(ui, server, "REST + WebSocket", "HTTPS / WSS")
 Rel(server, db, "Reads / writes", "SQL")
 
@@ -31,6 +34,7 @@ Rel_U(worker_b, server, "Multiplexed TCP+TLS channel", "TCP+TLS")
 
 Rel(worker_a, k8s_a, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
 Rel(worker_b, k8s_b, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
+Rel(worker_a, vllm_a, "Reverse-proxy /v1/* (SSE)", "HTTP")
 
 SHOW_LEGEND()
 @enduml
