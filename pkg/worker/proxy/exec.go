@@ -169,10 +169,22 @@ func (m *ExecManager) HandleStream(ctx context.Context, st *transportv2.Stream) 
 		TerminalSizeQueue: &sizeQueue{ch: resizeCh},
 	})
 
-	// SPDY exec unwound — cancel ctx so stdin reader goroutine
-	// exits. Then write the end sentinel + ExecEnd.
+	// SPDY exec unwound. The stdin reader goroutine is parked in
+	// yamux's ReadRaw waiting for the next ExecStdin / ExecResize
+	// frame from the browser — neither cancel() nor stdinR.Close
+	// reach it (it doesn't observe sessCtx and isn't writing to
+	// stdinW at the moment). Force the read to error out with a
+	// past deadline so readWG.Wait below doesn't hang for the
+	// browser to disconnect.
+	//
+	// Hit by distroless / scratch containers (coredns, etc.):
+	// hasShell probes /bin/bash (5s timeout, fails), falls back to
+	// /bin/sh, SPDY exec errors instantly with "no such file" —
+	// before this we'd block here until the user closed the tab
+	// (~8s observed), then finally surface the error.
 	cancel()
 	_ = stdinR.Close()
+	_ = st.Raw().SetReadDeadline(time.Now())
 	readWG.Wait()
 
 	var exitCode int32
