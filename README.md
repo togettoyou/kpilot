@@ -21,9 +21,7 @@ Multi-cluster is the default — a single KPilot Server manages many clusters, w
 
 ## Why KPilot
 
-- **One reverse-connecting TCP+TLS connection per cluster, multiplexed via [yamux](https://github.com/hashicorp/yamux).** Worker dials Server outbound; no inbound ports on the cluster, no kubeconfig leaves it. Each RPC / streaming session opens its own yamux stream over the shared connection — K8s API proxying, Helm chart blobs, Pod logs / exec, HTTP / WebSocket reverse-proxy for embedded UIs (Grafana, VictoriaMetrics), inference SSE streams. See [`docs/transport-v2.md`](docs/transport-v2.md) for the architecture record.
-
-- **Per-stream isolation comes from the transport, not the app.** yamux provides per-stream flow-control windows, fair round-robin scheduling, and cancel via FIN; a 20 MiB log response can't head-of-line block a concurrent `/workloads/nodes` call, and a browser Stop tears down the upstream within milliseconds. Liveness via yamux KeepAlive PING — no application heartbeat.
+- **One reverse-connecting multiplexed TCP+TLS channel per cluster.** Worker dials Server outbound; no inbound ports on the cluster, no kubeconfig leaves it. Every request / streaming session runs concurrently on the same connection without head-of-line blocking — K8s API proxying, Helm chart blobs, Pod logs / exec, HTTP / WebSocket reverse-proxy for embedded UIs (Grafana, VictoriaMetrics), inference SSE streams. See [`docs/transport-v2.md`](docs/transport-v2.md) for the architecture record.
 
 - **Deep Volcano integration.** 10 CR browsers, 7 typed authoring forms, and a visual scheduler-policy editor covering every Volcano action / tier / plugin parameter. vGPU slices are parsed from device-plugin annotations and rendered card-by-card with the Pods currently holding them.
 
@@ -37,7 +35,7 @@ Multi-cluster is the default — a single KPilot Server manages many clusters, w
   <img src="docs/assets/architecture.en.svg" alt="KPilot architecture (C4 container diagram)" width="820">
 </p>
 
-**Server** owns the UI, API, and durable state (cluster registry, plugin metadata, accounts, API keys, model templates) but holds no kubeconfigs. **Worker** runs inside each managed cluster, dials the Server over a single long-lived TCP+TLS connection multiplexed with yamux, and brokers every Kubernetes operation on its behalf — no inbound ports, no shared credentials, no cross-cloud divergence. Plugins ship as Helm charts and reconcile via an in-cluster CRD, executing in the cluster's own RBAC context.
+**Server** owns the UI, API, and durable state (cluster registry, plugin metadata, accounts, API keys, model templates) but holds no kubeconfigs. **Worker** runs inside each managed cluster, dials the Server over a single long-lived multiplexed TCP+TLS channel, and brokers every Kubernetes operation on its behalf — no inbound ports, no shared credentials, no cross-cloud divergence. Plugins ship as Helm charts and reconcile via an in-cluster CRD, executing in the cluster's own RBAC context.
 
 ## Quick Start
 
@@ -128,9 +126,3 @@ Curated catalog → one-click deploy → in-browser chat → OpenAI-compatible r
 <td width="50%"><img src="docs/assets/screenshots/plugin.png" alt="Plugin install" width="480"></td>
 </tr>
 </table>
-
-## Roadmap
-
-- Distributed fine-tuning on Volcano gang scheduling
-- OpenAI-compatible routing with canary / A-B controls (today's gateway is one-to-one per Bearer key)
-- yamux session-level Prometheus metrics (num streams / bytes in-out / RTT)

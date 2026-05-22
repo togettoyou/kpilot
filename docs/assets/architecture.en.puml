@@ -8,7 +8,7 @@ Person(operator, "Platform Operator", "Manages GPU clusters and workloads throug
 
 System_Boundary(kpilot, "KPilot Control Plane") {
     Container(ui, "Web UI", "React + UmiJS + Ant Design", "Cluster ops, Volcano scheduling, vGPU governance, GPU telemetry, plugin lifecycle")
-    Container(server, "KPilot Server", "Go, Gin, yamux", "REST API, WebSocket fan-out, Worker registry, plugin pipeline; holds no kubeconfigs")
+    Container(server, "KPilot Server", "Go, Gin", "REST API, WebSocket fan-out, Worker registry, plugin pipeline; holds no kubeconfigs")
     ContainerDb(db, "PostgreSQL", "GORM", "Cluster registry, plugin metadata, accounts, audit trail")
 }
 
@@ -26,8 +26,8 @@ Rel(operator, ui, "Uses", "HTTPS")
 Rel(ui, server, "REST + WebSocket", "HTTPS / WSS")
 Rel(server, db, "Reads / writes", "SQL")
 
-Rel_U(worker_a, server, "yamux multiplex over TLS\n(Worker dials in; one stream per RPC)", "TCP+TLS+yamux")
-Rel_U(worker_b, server, "yamux multiplex over TLS", "TCP+TLS+yamux")
+Rel_U(worker_a, server, "Multiplexed TCP+TLS channel\n(Worker dials in; concurrent requests)", "TCP+TLS")
+Rel_U(worker_b, server, "Multiplexed TCP+TLS channel", "TCP+TLS")
 
 Rel(worker_a, k8s_a, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
 Rel(worker_b, k8s_b, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
