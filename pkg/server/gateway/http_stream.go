@@ -127,9 +127,22 @@ func (g *GatewayServer) SendHTTPRequestStream(ctx context.Context, clusterID str
 			return nil, fmt.Errorf("write http body: %w", err)
 		}
 	}
-	if err := st.CloseWrite(); err != nil {
-		return nil, fmt.Errorf("half-close http req: %w", err)
-	}
+	// NOTE: we intentionally do NOT CloseWrite() here, even though
+	// the request side is done. Reason: yamux's stream.Close /
+	// CloseWrite is a half-close FIN that the peer observes as
+	// Read returning io.EOF. The worker uses that EOF as its
+	// cancel signal — a goroutine on the worker side blocks on
+	// Read, EOF means "server gave up, abort upstream HTTP
+	// request now". If we sent FIN here (request body done), the
+	// worker would interpret it as immediate cancel and never run
+	// the response. The stream's write side stays open from server
+	// → worker; worker stays in streamEstablished state and writes
+	// response chunks back; eventually the HANDLER's HTTPStream.Close
+	// sends the only FIN, which IS the cancel signal.
+	//
+	// Request body bounding is via the BodySize field on
+	// HTTPRequestStart, not on a half-close — worker reads
+	// exactly BodySize bytes then moves on.
 
 	var startResp pbv2.HTTPResponseStart
 	if err := st.ReadMsg(&startResp); err != nil {

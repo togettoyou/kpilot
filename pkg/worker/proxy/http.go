@@ -320,13 +320,17 @@ func (p *HTTPProxy) handleBufferedResp(_ context.Context, st *transportv2.Stream
 // handleStreamingResp dispatches the upstream HTTP request, then
 // forwards the response body live as raw bytes through the yamux
 // stream. HTTPResponseStart's BodySize is -1 to signal "read until
-// close". Cancellation is LAZY: server stream.Close lands as a
-// write error on the NEXT forward attempt, so detection latency
-// is ~one upstream chunk for SSE (50-200 ms per token) and ~one
-// log line for streaming logs. A request blocked in
-// hresp.Body.Read with no upstream activity won't notice
-// cancellation until the worker's 5 min per-request ctx fires —
-// acceptable trade-off vs the v1 HttpCancel-frame complexity.
+// close".
+//
+// Cancellation: server side leaves its write half OPEN (no
+// CloseWrite after the request body) — so a Read on this side
+// blocks until server explicitly Closes the stream (cancel
+// signal). We spawn a watcher goroutine that does exactly one
+// Read and cancels the upstream-request ctx on return. The
+// watcher doesn't compete with anything (nothing ELSE reads on
+// this worker-side stream), so the EOF is unambiguously the
+// cancel signal. Replaces v1's HttpCancel frame + per-write
+// deadline tricks.
 func (p *HTTPProxy) handleStreamingResp(parent context.Context, st *transportv2.Stream, req *HTTPRequest) {
 	if req.Method == "" || req.URL == "" {
 		_ = st.WriteMsg(&pbv2.HTTPResponseStart{
@@ -345,6 +349,17 @@ func (p *HTTPProxy) handleStreamingResp(parent context.Context, st *transportv2.
 
 	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
+
+	// Cancel watcher: block on a Read from the stream — server side
+	// keeps its write half open, so the only thing that wakes this
+	// up is server Close (cancel). On EOF / any read return, cancel
+	// the upstream-HTTP ctx; that unwinds hresp.Body.Read and the
+	// write loop exits.
+	go func() {
+		buf := make([]byte, 1)
+		_, _ = st.Reader().Read(buf)
+		cancel()
+	}()
 
 	hresp, err := p.dispatchForStream(ctx, req)
 	if err != nil {
