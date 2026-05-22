@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -15,10 +14,6 @@ import (
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
-
-// wsCloseGrace is how long we wait for the worker to drain a final LogsEnd
-// after the client disconnects before tearing down the session.
-const wsCloseGrace = 2 * time.Second
 
 // upgrader for Pod logs / Exec / plugin install-log WS endpoints.
 // Origin is validated via the package-shared checkWSOrigin so cross-

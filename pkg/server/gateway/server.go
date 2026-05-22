@@ -57,9 +57,6 @@ type ConnectedWorker struct {
 }
 
 func (w *ConnectedWorker) markSeen() { w.lastSeenNS.Store(time.Now().UnixNano()) }
-func (w *ConnectedWorker) lastSeen() time.Time {
-	return time.Unix(0, w.lastSeenNS.Load())
-}
 
 // GatewayServer is the per-process registry of connected workers
 // and the entry point for handler-side Send* / Open* calls.

@@ -14,20 +14,16 @@ import (
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 )
 
-// AcceptYamux runs the v2 transport listener: plain TCP (TLS to be
-// added in a follow-up — phase B-1 ships unencrypted to match the
-// dev-mode v1 path; production deploys terminate TLS at the ingress
-// like the existing grpcs:// path). Each accepted connection
-// becomes one yamux session multiplexing N concurrent per-RPC
-// streams; the first stream the worker opens carries the
-// STREAM_REGISTER handshake. After register succeeds the session is
-// stored on GatewayServer.workers[clusterID].Session — the public
-// Send* methods then route through Session.Open instead of the v1
-// prioritySender + chunked frames.
+// AcceptYamux runs the v2 transport listener: plain TCP (TLS to
+// be terminated at the ingress in production — same posture as
+// the legacy grpcs:// path). Each accepted connection becomes one
+// yamux session multiplexing N concurrent per-RPC streams; the
+// first stream the worker opens carries the STREAM_REGISTER
+// handshake. After register succeeds the session is stored on
+// GatewayServer.workers[clusterID].Session and the public Send*
+// methods route through Session.Open.
 //
-// Blocks until ctx is cancelled or the listener fails. Run in a
-// goroutine from cmd/server/main.go alongside the existing gRPC
-// Serve so v1 and v2 workers can coexist during the migration.
+// Blocks until ctx is cancelled or the listener fails.
 func (g *GatewayServer) AcceptYamux(ctx context.Context, lis net.Listener) error {
 	go func() {
 		<-ctx.Done()
@@ -57,7 +53,7 @@ func (g *GatewayServer) AcceptYamux(ctx context.Context, lis net.Listener) error
 // we mark the cluster offline + tear down any open per-RPC state.
 //
 // One goroutine per connection; spawns N more goroutines per
-// per-RPC stream the worker opens (phase B-2/3/4 wire those up).
+// inbound stream the worker opens (dispatchInboundStream).
 func (g *GatewayServer) handleYamuxConn(ctx context.Context, conn net.Conn) {
 	sess, err := transportv2.NewServerSession(conn, nil)
 	if err != nil {
@@ -65,10 +61,9 @@ func (g *GatewayServer) handleYamuxConn(ctx context.Context, conn net.Conn) {
 		_ = conn.Close()
 		return
 	}
-	// Register handshake comes first. Bounded by ctx timeout so a
-	// silent dialer can't park a goroutine forever — 30s is more
-	// than enough for any real worker; v1 had implicit per-stream
-	// timeouts that gave the same bound.
+	// Register handshake bounded so a silent dialer can't park a
+	// goroutine forever. 30s is loose; a real worker handshakes
+	// in ms.
 	regCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cluster, w, err := g.acceptYamuxRegister(regCtx, sess, conn.RemoteAddr().String())
@@ -80,26 +75,25 @@ func (g *GatewayServer) handleYamuxConn(ctx context.Context, conn net.Conn) {
 	}
 	log.Printf("[yamux] cluster %s (%s) registered from %s", cluster.ID, cluster.Name, conn.RemoteAddr())
 
-	// Per-cluster status tracking: mirrors the v1 Connect handler so
-	// the rest of the system sees the worker as online via the same
-	// store row. Phase D removes the v1 path; both currently update
-	// the same Online flag.
 	if err := store.UpdateClusterStatus(cluster.ID, store.ClusterStatusOnline); err != nil {
 		log.Printf("[yamux] mark online: %v", err)
 	}
 
+	// Re-push any pending plugin commands the previous session
+	// couldn't deliver (e.g. worker crashed mid-Disable). Runs in a
+	// goroutine so SendPluginCommand calls inside don't block the
+	// accept loop — each command opens its own yamux stream.
+	go g.replayPendingPluginCommands(cluster.ID)
+
 	// Block until the session dies (worker disconnect, network drop,
 	// yamux keepalive timeout, server-side Close on cluster delete).
-	// AcceptStream loop runs in a sibling goroutine because Phase B-2+
-	// will add stream dispatch there.
 	streamLoop := g.acceptYamuxStreams(ctx, w)
 	select {
 	case <-sess.CloseChan():
 	case <-ctx.Done():
 	case <-streamLoop:
 	}
-	g.unregister(w)
-	_ = store.UpdateClusterStatus(cluster.ID, store.ClusterStatusOffline)
+	g.unregister(w) // also flips cluster row to Offline
 	_ = sess.Close()
 	_ = conn.Close()
 	log.Printf("[yamux] cluster %s disconnected", cluster.ID)

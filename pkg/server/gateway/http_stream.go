@@ -37,6 +37,24 @@ import (
 // the yamux stream, which the worker handles as "client gave up,
 // abort upstream request now". Without Close the upstream
 // connection lingers until the worker's per-request ctx fires.
+//
+// Caller is ALSO responsible for cancellation-on-disconnect:
+// yamux Read only reacts to wall-clock deadlines, not Go ctx
+// cancellation. The standard pattern is one watcher goroutine:
+//
+//	stream, err := gw.SendHTTPRequestStream(ctx, ...)
+//	if err != nil { return err }
+//	defer stream.Close()
+//	go func() {
+//	    <-c.Request.Context().Done()
+//	    stream.Close()   // unblocks Body.Read
+//	}()
+//	io.Copy(c.Writer, stream.Body)
+//
+// SendHTTPRequestStream itself watches ctx during the pre-Start
+// open + write + read-Start window (so a cancelled ctx returns
+// promptly even before Status is populated); once it hands the
+// HTTPStream back, the caller owns ctx watching.
 type HTTPStream struct {
 	Status  int32
 	Headers []*proto.HTTPHeader
@@ -90,6 +108,11 @@ func (g *GatewayServer) SendHTTPRequestStream(ctx context.Context, clusterID str
 		}
 	}()
 	applyCtxDeadline(ctx, st)
+	// Ctx watcher only spans the pre-Start window. After we hand
+	// back the HTTPStream, caller owns the lifetime — see the
+	// doc on HTTPStream for the post-Start watcher pattern.
+	releaseWatcher := watchCtx(ctx, st)
+	defer releaseWatcher()
 
 	if err := st.WriteMsg(&pbv2.HTTPRequestStart{
 		Method:         req.Method,

@@ -22,7 +22,7 @@ import (
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 )
 
-// resourceTimeoutGzip — JSON / unstructured / Table API responses
+// resourceUseGzip — JSON / unstructured / Table API responses
 // compress 5-8× on cross-WAN links; default to gzip on for
 // Resource RPCs.
 const resourceUseGzip = true
@@ -30,8 +30,29 @@ const resourceUseGzip = true
 // httpRequestUseGzip — Grafana / VM / VL responses are JSON or
 // text and compress well too. Inference SSE chunks are tiny
 // per-line and gzip per-line Flush amortises poorly; the SSE
-// path leaves gzip off via opts.
+// path leaves gzip off via SendHTTPRequestStream's hardcoded
+// false.
 const httpRequestUseGzip = true
+
+// watchCtx spawns a goroutine that closes the stream when ctx
+// fires. Returns a release func the caller defers — when the
+// real work is done, releasing unblocks the watcher so it exits
+// without touching the stream. Necessary because yamux's Read /
+// Write only react to wall-clock deadlines (via SetDeadline),
+// not Go context cancellation; without the watcher, a caller
+// that cancels the parent ctx waits until any explicit deadline
+// fires (or forever if none was set).
+func watchCtx(ctx context.Context, st *transportv2.Stream) func() {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = st.Close()
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
+}
 
 // SendResourceRequest opens a STREAM_RESOURCE_REQUEST yamux
 // stream, ships the request + optional body, then reads back
@@ -47,6 +68,7 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 	}
 	defer st.Close()
 	applyCtxDeadline(ctx, st)
+	defer watchCtx(ctx, st)()
 
 	if err := st.WriteMsg(&pbv2.ResourceRequest{
 		Action:        req.Action,
@@ -104,6 +126,7 @@ func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, r
 	}
 	defer st.Close()
 	applyCtxDeadline(ctx, st)
+	defer watchCtx(ctx, st)()
 
 	if err := st.WriteMsg(&pbv2.HTTPRequestStart{
 		Method:         req.Method,

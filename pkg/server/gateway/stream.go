@@ -15,12 +15,44 @@
 // (cancellation propagates as yamux FIN — replaces v1's custom
 // LogsCancel / ExecCancel frames).
 //
+// === Sentinel discriminator (Worker contract) ===
+//
 // Recv discriminates between the two message types each stream
 // can carry (e.g. LogsChunk vs LogsEnd) via a zero-payload
-// sentinel: worker sends a zero-byte LogsChunk to signal "next
-// frame is LogsEnd". v2 dropped proto oneofs so this is the
-// minimal-wire way to multiplex two message types on one
-// stream without bringing the oneof envelope back.
+// sentinel. v2 dropped proto oneofs, so to multiplex two message
+// types on one stream without re-introducing the oneof envelope,
+// the worker MUST follow this contract:
+//
+//   LogsStream:
+//     - Real LogsChunk frames have len(Data) > 0. The worker
+//       must never send a LogsChunk with empty Data as a real
+//       chunk — empty chunks are reserved as the "end-follows"
+//       sentinel, after which the worker writes exactly one
+//       LogsEnd frame and closes the stream.
+//
+//   ExecStream:
+//     - Real ExecOutput frames have either Stream != 0 (the
+//       stdout/stderr discriminator is always non-zero in
+//       practice) OR Data non-empty. A frame with Stream==0
+//       AND Data empty is the "end-follows" sentinel.
+//
+//   WSStream:
+//     - Real WSFrame frames have Opcode != 0 (RFC 6455 requires
+//       opcode 1 text or 2 binary; 0 is "continuation" which we
+//       reassemble on the worker side, never forward as-is) OR
+//       Data non-empty. Fully-zero WSFrame = end sentinel.
+//
+//   STREAM_PLUGIN_LOG_PUSH (handled inline in yamux_accept.go):
+//     - Real PluginLogChunk has at least one of Level / Message /
+//       Ts set; fully-zero chunk = end sentinel.
+//
+// On a peer that violates the contract, Recv would either treat
+// a real frame as an end sentinel (and block forever waiting
+// for an end-frame that never arrives) or vice versa. The
+// alternative — wrap each message in an envelope with an
+// explicit kind discriminator — costs a few bytes per frame
+// and an extra proto type per RPC; not worth it for the four
+// places we use this pattern.
 package gateway
 
 import (

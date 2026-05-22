@@ -26,13 +26,18 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
-// pluginCommandTimeout caps the time we'll wait for the worker
-// to ack a PluginCommand. Helm install of a chart with N CRDs +
-// post-install hooks can run several minutes (Grafana sidecar
-// pulling dashboards, VictoriaMetrics waiting for PVC bind, etc),
-// so 10 min is roomy. Worker also has its own internal Helm
-// timeout that fires first when actual install hangs.
-const pluginCommandTimeout = 10 * time.Minute
+// pluginCommandAckTimeout caps the wait for the worker's
+// receipt-ack on a PluginCommand. Worker contract: ack
+// IMMEDIATELY after parsing the frame + writing the chart
+// blob to disk; the Helm install / uninstall runs async and
+// posts its progress + final state via STREAM_PLUGIN_STATUS_PUSH
+// frames. So this timeout only covers blob-write + a small
+// validation pass — generous 60s tolerates a slow disk on the
+// worker side (5 MiB chart blob with default fsync). v1 was
+// fire-and-forget on the wire (no ack at all); v2 adds the ack
+// so the HTTP handler can surface "worker didn't receive the
+// command" instead of silently succeeding.
+const pluginCommandAckTimeout = 60 * time.Second
 
 // ClusterDomain implements ClusterDomainResolver (used by
 // pluginservice when expanding ${KPILOT_CLUSTER_DOMAIN}
@@ -46,9 +51,9 @@ func (g *GatewayServer) ClusterDomain(clusterID string) string {
 
 // SendPluginCommand opens a STREAM_PLUGIN_COMMAND stream, ships
 // the command + (for local-chart enables) the .tgz blob, then
-// reads back PluginCommandAck. Failure on the wire surfaces as
-// a returned error; functional Helm install failures show up
-// later as PluginStatusPush frames.
+// reads back PluginCommandAck. Returns when the worker confirms
+// receipt — NOT when Helm finishes. Helm install / uninstall
+// outcomes arrive asynchronously via STREAM_PLUGIN_STATUS_PUSH.
 //
 // Gzip is OFF — chart .tgz is already gzip-compressed and a
 // second pass would just add CPU without saving bytes.
@@ -57,7 +62,7 @@ func (g *GatewayServer) SendPluginCommand(clusterID string, cmd *pluginservice.C
 	if !ok {
 		return fmt.Errorf("cluster %s not connected", clusterID)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), pluginCommandTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), pluginCommandAckTimeout)
 	defer cancel()
 	st, err := w.Session.Open(ctx, pbv2.StreamKind_STREAM_PLUGIN_COMMAND, uuid.NewString(), false)
 	if err != nil {
