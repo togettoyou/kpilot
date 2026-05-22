@@ -1,8 +1,10 @@
 # Transport v2: server↔worker 通信层从 bidi gRPC 迁移到 yamux
 
-> 状态:**设计** — 尚未实现
+> 状态:**已上线**(2026-05,phase A–E 全部完成)
 > 关联讨论:CLAUDE.md "P14 跨境 worker HA 加固"系列 + P16-C/D streaming 改造
 > 触发事件:`/logs/search` Stop 级联卡死 bug(commit `6d293c24`)— 又一次证明现有 transport 的应用层多路复用代价过高
+>
+> 实际产出:净删 4000+ 行(超出原估算的 1700,因为 go mod tidy 顺手剥掉了 grpc-go / x/net/trace 的 vendored 39 kLOC)。功能 + 性能验证见文末第 16 节"上线后修订"。
 
 ## 1. 背景
 
@@ -841,4 +843,82 @@ func handleIncomingStream(s net.Conn) {
 | 性能预期 | 单 RPC 略好,并发 + 大流取消大幅好 |
 
 **核心收益不是性能,是把架构债一次性清掉**,以后新增 streaming endpoint / cancel 语义 / 流式协议变种,都不再需要手搓 transport 层补丁。
+
+---
+
+## 16. 上线后修订(2026-05)
+
+设计稿假设 `yamux.Stream.Close()` 类似 TCP RST —— 一关,对端立刻知道。phase E 的 integration test 把这个假设打穿:**yamux 是 FIN 不是 RST**,半关后对端可以继续写,读端则会收到 `io.EOF`。这条差别贯穿了所有 streaming 路径,逐个补完:
+
+### 16.1 取消语义(关键修订)
+
+| 路径 | 原设计 | 实际 | 修复 |
+|---|---|---|---|
+| HTTP streaming(`SendHTTPRequestStream`) | server `CloseWrite` 标记 req 体结束 → worker 后续 Read EOF 触发 cancel | server 永不 `CloseWrite` —— 否则 worker 立刻误判为 cancel,response 还没开始就被撤了 | server 不再 `CloseWrite`;worker `handleStreamingResp` 派一个 cancel-watcher goroutine 阻塞读 1 byte,EOF = cancel,触发 upstream HTTP ctx | 
+| Logs streaming(`OpenLogsStream`) | 同上 —— server `CloseWrite`,worker 看 Read EOF 退出 | 同样问题:server 早一秒发 FIN 就让 worker 误以为没人想看,kubectl-logs 还没拉就停 | 同样取消 server 端 `CloseWrite`;worker `LogsManager.HandleStream` 加 cancel-watcher,EOF → `cancel()` → `Pods().GetLogs().Stream(ctx)` 的 ctx 撤销 → 读循环 unwind |
+| Exec(`OpenExecStream`) | reader goroutine 读 yamux EOF 后只关 stdinW | bash 看 stdin EOF 不会退出 —— SPDY exec 仍在,用户看不到也输不进 | reader goroutine `defer cancel()`,sessCtx 撤销 → `StreamWithContext` 退出 |
+| WS(`OpenWSStream`) | reader pump 退出后 conn 还活着;writer pump 继续读上游写"虚空" | yamux 远端关后本端写永远成功(无 RST 反馈),writer pump 黑洞写到 ctx 超时 | reader pump `defer conn.Close()` 让 writer pump 的 `conn.ReadMessage` 立即返错;另发现一个 pre-existing 反向 bug:上游先关时 writer 退出但 reader 还卡在 `st.ReadMsg`,补 `st.Close()` 让两端互通 |
+
+**通用模式(写给未来的我们)**:
+
+```go
+// 任何 server-端打开的、worker 端长时阻塞的 yamux stream:
+//
+// 1. server 端开完 stream + 写完 start 帧 —— 不要 CloseWrite。
+//    FIN 是唯一的 cancel 信号,留给真正取消时用。
+// 2. worker 端的 HandleStream 派一个 cancel-watcher goroutine:
+//
+//        ctx, cancel := context.WithCancel(ctx)
+//        defer cancel()
+//        go func() {
+//            buf := make([]byte, 1)
+//            _, _ = st.Reader().Read(buf)
+//            cancel()
+//        }()
+//
+//    业务逻辑用这个 ctx;Read 返回(任何原因 —— EOF / 错 / 关)
+//    都视为 cancel。1 byte 是为了不消化任何真实数据 —— 这条流
+//    的 server→worker 方向除了 cancel FIN 不会再写东西。
+// 3. server 端 stream wrapper 的 Close 是真正的 cancel —— consumer
+//    `defer stream.Close()` 在 HTTP handler 返回时撤销 yamux 流。
+```
+
+### 16.2 测试覆盖
+
+phase E 加了 `pkg/server/gateway/integration_test.go` —— 5 个跑在 `net.Pipe` yamux pair 上的端到端测试:
+
+| 用例 | 覆盖 |
+|---|---|
+| `TestIntegrationRPCRoundtrip` | 普通 RPC 编解码 + worker 响应 |
+| `TestIntegrationStreamCancelPropagates` | server 关 stream,worker cancel-watcher 触发(就是这个用例打穿了原设计) |
+| `TestIntegrationConcurrentRPCs` | 100 个并发 RPC 各自隔离 |
+| `TestIntegrationLargeResponse` | 4 MiB 单响应跨 yamux flow-control window |
+| `TestIntegrationDisconnectCleansSessions` | session 关 → 所有 in-flight call 立即收到错误 |
+
+`-race` 跑通,无 leak。
+
+### 16.3 哨兵帧的语义(集中文档化)
+
+phase D review 发现"一条 yamux stream 上多种消息类型靠哨兵 0-payload 帧切换"的契约散在多个文件里。统一搬到 `pkg/server/gateway/stream.go` 的 package doc(去 grep `Sentinel discriminator (Worker contract)`),covers LogsChunk / ExecOutput / WSFrame / PluginLogChunk 四处。新增 streaming endpoint 用同样套路时遵这套约定即可,不要再造新的 oneof 包装。
+
+### 16.4 性能实测(Apple M1 loopback)
+
+| 用例 | 指标 |
+|---|---|
+| 普通 RPC | 79–82 µs/op |
+| HOL(并发大流 + 小请求) | 188–209 µs/op |
+| Stream cancel | 15–17 µs/op |
+| 每流内存 | ~10 KB |
+
+跨境实测 T4(深圳→腾讯云)端到端 latency 与 v1 大致持平(网络是瓶颈而非协议),但**取消时间从"客户端 Stop 到 worker 真正停 upstream"由 v1 的 ~5 min 降到 sub-second**(原 lazy detection 等到 per-write deadline 才发现 client 走了)。
+
+### 16.5 没做的(刻意留下)
+
+- yamux session 级 prometheus metrics —— 仍在第 14 节的 follow-up 里,不在 P-Transport-v2 范围
+- v1 / v2 灰度切换协议协商 —— 设计稿第 11 节就说不做,实际验证一次性切换 OK
+- 替换 worker dial 时的 TLS 配置(还是裸 TCP + 应用层 token);未来如果跨 untrusted 网络再加 TLS
+
+### 16.6 一句话给后来者
+
+> 用 yamux 不是为了快,是为了不再手搓 HTTP/2 的多流特性。FIN 不是 RST 这件事是 P-Transport-v2 上线时唯一翻车的设计假设,补 cancel-watcher 模式后再无类似问题。
 
