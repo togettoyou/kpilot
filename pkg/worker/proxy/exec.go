@@ -67,11 +67,18 @@ func (m *ExecManager) HandleStream(ctx context.Context, st *transportv2.Stream) 
 	}
 
 	// Reader goroutine: pumps incoming Stdin / Resize messages
-	// from the yamux stream into the SPDY exec.
+	// from the yamux stream into the SPDY exec. On exit (yamux
+	// FIN from the server = browser closed the tab, or any read
+	// error) we MUST cancel sessCtx — otherwise the SPDY executor
+	// keeps running the user's interactive shell even though
+	// nobody can see or type into it. stdinW.Close alone is not
+	// enough: bash treats stdin EOF as "no more keystrokes" and
+	// keeps the prompt alive waiting on stdout/stderr.
 	var readWG sync.WaitGroup
 	readWG.Add(1)
 	go func() {
 		defer readWG.Done()
+		defer cancel()
 		defer stdinW.Close()
 		// Close resizeCh under closeMu to avoid panicking the
 		// SPDY exec's TerminalSizeQueue.Next; closeOnce guarantees

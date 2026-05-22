@@ -108,11 +108,17 @@ func (m *WSManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
 	}
 	defer conn.Close()
 
-	// Reader pump: server → upstream.
+	// Reader pump: server → upstream. On exit we MUST close the
+	// upstream conn — otherwise the writer pump (main goroutine)
+	// keeps reading upstream frames forever even after the
+	// browser closed the tab. yamux writes after the server FIN
+	// succeed silently (data goes into a black hole), so the
+	// writer pump alone can't notice the disconnect.
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer conn.Close()
 		for {
 			var frame pbv2.WSFrame
 			if rerr := st.ReadMsg(&frame); rerr != nil {
@@ -171,8 +177,14 @@ func (m *WSManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
 			break
 		}
 	}
-	// Tear down upstream so reader pump's ReadRaw unblocks.
+	// Tear down both sides so the reader pump unblocks regardless
+	// of which side terminated first. conn.Close handles "yamux
+	// closed first" (reader pump already exits naturally on EOF);
+	// st.Close handles "upstream closed first" (reader pump is
+	// blocked on yamux ReadMsg with no other way to wake up).
+	// Both calls are idempotent.
 	_ = conn.Close()
+	_ = st.Close()
 	wg.Wait()
 }
 

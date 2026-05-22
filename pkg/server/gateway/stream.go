@@ -83,6 +83,15 @@ type LogsStream struct {
 // start request. Returns a LogsStream ready for Recv calls.
 // Caller MUST defer Close so the worker's kubectl-logs reader
 // tears down when the consumer goes away.
+//
+// Intentionally does NOT CloseWrite after the start request,
+// even though the request side is logically done. yamux Close
+// / CloseWrite is FIN, which the worker reads as io.EOF on its
+// cancel-watcher goroutine — if we sent it now, the worker
+// would think the consumer cancelled immediately and never
+// stream any logs. The cancel signal is the caller's
+// stream.Close() at the end of the consumer loop; that's the
+// only FIN the worker ever sees on this stream.
 func (g *GatewayServer) OpenLogsStream(ctx context.Context, clusterID string, start *pbv2.LogsStartRequest) (*LogsStream, error) {
 	w, ok := g.GetWorker(clusterID)
 	if !ok {
@@ -95,10 +104,6 @@ func (g *GatewayServer) OpenLogsStream(ctx context.Context, clusterID string, st
 	if err := st.WriteMsg(start); err != nil {
 		_ = st.Close()
 		return nil, fmt.Errorf("write logs start: %w", err)
-	}
-	if err := st.CloseWrite(); err != nil {
-		_ = st.Close()
-		return nil, fmt.Errorf("half-close logs req: %w", err)
 	}
 	return &LogsStream{stream: st}, nil
 }

@@ -46,6 +46,12 @@ func NewLogsManager(clientset kubernetes.Interface) *LogsManager {
 // real LogsChunk always has Data non-empty; the worker MUST
 // send a zero-byte chunk before LogsEnd so the server side can
 // switch frame types on its read loop.
+//
+// Cancellation: a watcher goroutine blocks on Read after the
+// start frame. Server side leaves its write half open (see
+// OpenLogsStream's doc); when the consumer calls stream.Close,
+// the watcher's Read returns and we cancel the K8s log stream's
+// ctx so the read loop unwinds.
 func (m *LogsManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
 	defer st.Close()
 	var req pbv2.LogsStartRequest
@@ -53,6 +59,14 @@ func (m *LogsManager) HandleStream(ctx context.Context, st *transportv2.Stream) 
 		log.Printf("[wire] logs read req failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
+
+	logCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		buf := make([]byte, 1)
+		_, _ = st.Reader().Read(buf)
+		cancel()
+	}()
 
 	opts := &corev1.PodLogOptions{
 		Container: req.GetContainer(),
@@ -67,7 +81,7 @@ func (m *LogsManager) HandleStream(ctx context.Context, st *transportv2.Stream) 
 	}
 
 	stream, err := m.clientset.CoreV1().Pods(req.GetNamespace()).
-		GetLogs(req.GetPod(), opts).Stream(ctx)
+		GetLogs(req.GetPod(), opts).Stream(logCtx)
 	if err != nil {
 		writeLogsEnd(st, err.Error())
 		return
