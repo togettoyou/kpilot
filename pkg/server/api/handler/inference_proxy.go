@@ -29,7 +29,7 @@
 //   (gateway.SendHTTPRequestStream) so vLLM's `stream:true` chunks
 //   reach the client with per-token latency. Non-streaming responses
 //   (a single chat completion JSON) flow through the same path and
-//   arrive as one BodyChunk + BodyEnd — no special case.
+//   arrive as one big read from the stream's Body — no special case.
 //
 //   The HTTP response to the SDK client is whatever the upstream
 //   sent — Content-Type comes from upstream (text/event-stream for
@@ -79,8 +79,9 @@ const inferenceWriteTimeout = 5 * time.Second
 // inferenceMaxRequestBytes is the per-call request body ceiling.
 // Long-context completions can have multi-MB prompts; 16 MiB covers
 // "I pasted a whole book in the system prompt" without enabling
-// runaway uploads. The worker tunnel's chunked transport handles
-// the on-wire framing, so this is a server-side memory cap only.
+// runaway uploads. Bytes flow through the yamux stream as raw
+// bytes after the HTTPRequestStart frame, so this is a server-side
+// memory cap only.
 const inferenceMaxRequestBytes = 16 << 20
 
 // ProxyInferenceOpenAI is the Bearer-authed external inference
@@ -220,11 +221,10 @@ func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterI
 	// (keep-alive reuse, mid-stream consumer abort path may leave the
 	// conn half-open); without this, c.Writer.Write blocks on a full
 	// kernel send buffer that never drains, wedging the handler
-	// indefinitely. That stuck handler → gateway chunks channel
-	// fills → recv loop blocks on push → every other request to that
-	// worker stalls. 5 s is plenty for any healthy write; on stall it
-	// surfaces fast and the deferred stream.Close → HttpCancel
-	// cascade tears the upstream down.
+	// indefinitely. 5 s is plenty for any healthy write; on stall it
+	// surfaces fast and the deferred stream.Close → yamux FIN to
+	// worker → worker's next upstream-body forward fails → upstream
+	// ctx cancels → upstream request torn down.
 	rc := http.NewResponseController(c.Writer)
 
 	for _, h := range stream.Headers {

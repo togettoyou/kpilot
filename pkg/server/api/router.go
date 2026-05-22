@@ -183,7 +183,7 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 
 		// Reverse proxy to plugin-managed in-cluster Services. The browser
 		// loads /api/v1/clusters/<id>/proxy/grafana/... and KPilot Server
-		// forwards through the gRPC tunnel to the cluster's Grafana
+		// forwards through the worker yamux tunnel to the cluster's Grafana
 		// Service. Auth lives in the JWT middleware above; the proxy
 		// handler injects X-WEBAUTH-USER so the upstream sees a logged-in
 		// session without ever asking for a password.
@@ -264,10 +264,10 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 	// Forwarded as:
 	//   http://<name>.<ns>.svc.<cluster-domain>:8000/v1/chat/completions
 	//
-	// Streaming end-to-end: gateway.SendHTTPRequestStream emits
-	// HTTPResponseStart + BodyChunks live, handler flushes each
-	// chunk to the client. vLLM `stream:true` SSE arrives with
-	// per-token latency.
+	// Streaming end-to-end: gateway.SendHTTPRequestStream returns
+	// an HTTPStream whose Body io.Reader is the live worker→server
+	// yamux byte stream; handler flushes each read to the client.
+	// vLLM `stream:true` SSE arrives with per-token latency.
 	api.Any("/clusters/:id/proxy/inference/:namespace/:name/*subpath",
 		middleware.BearerAPIKey("id", "namespace", "name"),
 		handler.ProxyInferenceOpenAI(gw))

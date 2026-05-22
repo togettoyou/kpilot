@@ -34,7 +34,7 @@ import (
 //     render a "vGPU plugin not enabled" empty state instead of an
 //     empty table that looks broken).
 //   - 500 with code WORKER_ERROR: worker reported a list error.
-//   - 504-ish via INTERNAL_ERROR: gRPC tunnel down or decode failed.
+//   - 504-ish via INTERNAL_ERROR: worker tunnel down or decode failed.
 func GetVGPUSnapshot(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := c.Param("id")

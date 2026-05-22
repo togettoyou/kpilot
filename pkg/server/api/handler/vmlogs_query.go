@@ -24,10 +24,10 @@ import (
 )
 
 // vmlogsTimeout caps a single LogsQL request. VL `query=*&limit=1000`
-// over a busy cluster's 1h window can legitimately take 30–60s; with
-// chunked transport the response body no longer starves Heartbeat
-// during transit, so the budget can be generous without operational
-// risk. 5 min is far longer than any UI-driven workflow would wait,
+// over a busy cluster's 1h window can legitimately take 30–60s; the
+// yamux per-stream flow control means the response body no longer
+// blocks other in-flight RPCs, so the budget can be generous without
+// operational risk. 5 min is far longer than any UI-driven workflow,
 // but it lets ad-hoc full-text searches over wide ranges complete
 // instead of failing the first time someone tries.
 const vmlogsTimeout = 5 * time.Minute

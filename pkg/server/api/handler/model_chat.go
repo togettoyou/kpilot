@@ -56,9 +56,9 @@ const inferenceServicePort = 8000
 
 // maxInferenceRequestBytes caps the request body the proxy will
 // forward. 2 MiB is far past any reasonable chat prompt (typical
-// turn = a few KiB) but keeps a runaway client from blowing up
-// the gRPC tunnel. The response side is bounded by the worker's
-// HTTPResponse buffer.
+// turn = a few KiB) but keeps a runaway client from filling the
+// yamux stream window. The response side flows live via the
+// stream's Body io.Reader and isn't subject to this cap.
 const maxInferenceRequestBytes = 2 << 20
 
 // ProxyInference handles POST/GET /api/v1/clusters/:id/inference/

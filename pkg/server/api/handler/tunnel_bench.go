@@ -2,7 +2,7 @@
 //
 // GET /api/v1/clusters/:id/debug/tunnel-bench?bytes=N times a single
 // round-trip of N uncompressible bytes from the worker back to the
-// server over the gRPC tunnel. Surfaces the effective worker→server
+// server over the yamux tunnel. Surfaces the effective worker→server
 // throughput — the direction that catastrophically degrades when the
 // server and worker are on opposite sides of a slow WAN (e.g. control
 // plane in one region, GPU cluster offshore). Operators run this

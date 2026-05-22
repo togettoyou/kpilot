@@ -185,11 +185,11 @@ func isWSUpgrade(req *http.Request) bool {
 }
 
 // ProxyPlugin reverse-proxies HTTP traffic from the browser through KPilot
-// Server, over the gRPC tunnel, into an in-cluster Service exposed by an
-// enabled plugin. Bound to /api/v1/clusters/:id/proxy/:plugin/*path.
+// Server, over the worker yamux tunnel, into an in-cluster Service exposed
+// by an enabled plugin. Bound to /api/v1/clusters/:id/proxy/:plugin/*path.
 //
 // Handles both the regular HTTP path and the WebSocket upgrade path. WS goes
-// through gateway.OpenStream (Pod logs / exec share the same machinery), HTTP
+// through gateway.OpenWSStream, HTTP
 // goes through gateway.SendHTTPRequest.
 //
 // Auth: the protected route group enforces JWT first; we then know the
@@ -408,8 +408,8 @@ func resolveUsername(c *gin.Context) string {
 }
 
 // proxyWebSocket runs the bidirectional WS pump for a single browser → KPilot
-// → gRPC tunnel → upstream WebSocket session. Returns when either side closes
-// or the gRPC stream goes away.
+// → worker yamux stream → upstream WebSocket session. Returns when either
+// side closes or the yamux session goes away.
 func proxyWebSocket(
 	c *gin.Context,
 	gw *gateway.GatewayServer,

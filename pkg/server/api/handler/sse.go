@@ -54,8 +54,9 @@ const sseKeepaliveInterval = 25 * time.Second
 // bytes, completes in microseconds) but short enough that a stuck
 // client surfaces fast. After a write-deadline timeout, Fprintf
 // returns an error → sse.send returns error → onLine returns error
-// → streamVMLogs exits → defer stream.Close → HttpCancel → worker
-// unwinds → cascading cleanup.
+// → streamVMLogs exits → defer stream.Close → yamux FIN to worker
+// → worker's next upstream write fails → upstream HTTP request
+// ctx is cancelled → cascading cleanup.
 const sseWriteTimeout = 5 * time.Second
 
 // sseStream wraps a gin response writer with the bits SSE needs:
