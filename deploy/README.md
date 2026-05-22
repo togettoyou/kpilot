@@ -41,7 +41,7 @@ helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
   --version 0.0.0-dev \
   --namespace kpilot-system --create-namespace \
   --set worker.enabled=true \
-  --set worker.serverAddr='kpilot-server-grpc.kpilot-system.svc:9090' \
+  --set worker.serverAddr='kpilot-server-transport.kpilot-system.svc:9090' \
   --set worker.clusterToken='<token-from-ui>'
 ```
 
@@ -50,7 +50,8 @@ helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
 This is the intended deployment shape.
 
 **Control-plane cluster** — install the Server with bundled Postgres
-(or an external one), expose the HTTP + gRPC services:
+(or an external one), expose the HTTP service for the UI and the
+transport service for Worker dial-in:
 
 ```bash
 helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
@@ -66,7 +67,8 @@ helm install kpilot oci://ghcr.io/togettoyou/charts/kpilot \
 ```
 
 **Each managed cluster** — install only the Worker, pointed at the
-Server's gRPC endpoint, with a one-time ClusterToken from the UI:
+Server's transport endpoint, with a one-time ClusterToken from the
+UI:
 
 ```bash
 helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
@@ -75,14 +77,24 @@ helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
   --set server.enabled=false \
   --set worker.enabled=true \
   --set postgresql.enabled=false \
-  --set worker.serverAddr='kpilot-grpc.example.com:443' \
+  --set worker.serverAddr='kpilot-transport.example.com:443' \
   --set worker.clusterToken='<paste-token>'
 ```
 
-`worker.serverAddr` must be reachable from inside the Worker Pod. If
-the Server's gRPC Service is exposed via an L7 gateway that strips TLS,
-the address is `<host>:443`. For a LoadBalancer-type Service the
-address is `<lb-ip>:9090`.
+`worker.serverAddr` must be reachable from inside the Worker Pod.
+The transport is TCP+TLS+yamux (NOT HTTP), so it needs L4 / TCP
+passthrough — NOT an HTTP ingress. Typical exposure:
+
+- **LoadBalancer Service** on the transport port (simplest): address
+  is `<lb-ip>:9090`.
+- **TCP-passthrough ingress** (nginx-ingress `stream` block, Cilium
+  Gateway API L4 listener, Traefik TCP entrypoint, …): address is
+  whatever hostname/port the L4 gateway exposes — TLS termination
+  is fine, but it must forward bytes verbatim (no HTTP rewriting).
+
+Worker accepts `tcp://host:port` or `tcps://host:port` URL forms via
+`SERVER_ADDR` env if scheme disambiguation is needed; bare `host:port`
+defaults to plaintext.
 
 ## External PostgreSQL
 

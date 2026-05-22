@@ -10,12 +10,15 @@ import (
 
 // Plugin install / upgrade / uninstall log fan-out.
 //
-// Worker pushes PluginLogChunk + PluginLogEnd via the existing tunnel
-// (see WorkerMessage oneof). Server keeps a per-(cluster, plugin) ring
-// buffer so a UI tab opened mid-install replays the lines it missed,
-// and fans live frames out to any currently-subscribed WebSocket
-// connection. No DB persistence in v1 — buffers TTL out 10 min after
-// the last activity.
+// Worker pushes PluginLogChunk one-per-line via short-lived
+// STREAM_PLUGIN_LOG_PUSH yamux streams (PushPluginLogLine); the
+// terminal PluginLogEnd arrives on a separate stream from
+// PushPluginLogEnd at install completion. Server keeps a per-
+// (cluster, plugin) ring buffer so a UI tab opened mid-install
+// replays the lines it missed, and fans live frames out to any
+// currently-subscribed WebSocket connection. No DB persistence —
+// buffers TTL out 10 min after the last activity (reapPluginLogs
+// goroutine spawned in NewGatewayServer).
 
 // PluginLogEntry is the wire shape the HTTP handler streams to the
 // browser. Mirrors the proto fields but adds a `kind` discriminator so

@@ -36,13 +36,13 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-            - name: grpc
+            - name: transport
               containerPort: 9090
               protocol: TCP
           env:
             - name: HTTP_ADDR
               value: ":8080"
-            - name: GRPC_ADDR
+            - name: YAMUX_ADDR
               value: ":9090"
             {{- with .Values.server.corsOrigins }}
             - name: CORS_ORIGINS

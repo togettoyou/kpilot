@@ -197,15 +197,15 @@ func buildUpstreamInferenceHeaders(c *gin.Context) []*pbv2.HTTPHeader {
 // of per-token delivery.
 //
 // Client disconnect: c.Request.Context() cancels when the TCP conn
-// closes; the deferred stream.Close() releases the worker session,
-// and stream.Chunks gets closed by gateway's unregister-on-disconnect
-// or naturally on BodyEnd.
+// closes; the deferred stream.Close() FINs the yamux stream, worker
+// cancel-watcher fires, upstream HTTP ctx cancels, upstream conn is
+// torn down. stream.Body's Read returns an error → io.Copy exits.
 //
-// Worker truncation: if BodyEnd carries an error we log it but
-// don't try to surface a structured error to the client — at that
-// point we've already sent 200 + partial body, and overwriting the
-// status is illegal. The client's SDK parser will see truncated SSE
-// and error out on its own.
+// Worker truncation: if io.Copy returns an error mid-stream we log
+// it but don't try to surface a structured error to the client — at
+// that point we've already sent 200 + partial body, and overwriting
+// the status is illegal. The client's SDK parser will see truncated
+// SSE and error out on its own.
 func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterID, namespace, name string) {
 	// Worker-side dispatch error: 502 + error body, no streaming.
 	if stream.Error != "" {

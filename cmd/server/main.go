@@ -33,22 +33,15 @@ func main() {
 
 	gw := gateway.NewGatewayServer()
 
-	// v2 transport (docs/transport-v2.md): plain TCP + hashicorp/yamux
-	// per-conn session. Replaces the v1 bidi gRPC stream + chunked
-	// framing + prioritySender stack with a SSH-style multiplexer
-	// that handles per-stream flow control, fair scheduling, and
-	// cancellation natively.
-	//
-	// Default port — YAMUX_ADDR may be set to override.
-	yamuxAddr := cfg.YamuxAddr
-	if yamuxAddr == "" {
-		yamuxAddr = ":9090"
-	}
-	ylis, err := net.Listen("tcp", yamuxAddr)
+	// Transport v2 (docs/transport-v2.md): TCP + hashicorp/yamux
+	// session-per-worker. One yamux stream per RPC / streaming
+	// session — flow control, fair scheduling, and cancellation all
+	// come from yamux natively.
+	ylis, err := net.Listen("tcp", cfg.YamuxAddr)
 	if err != nil {
-		log.Fatalf("yamux listen %s: %v", yamuxAddr, err)
+		log.Fatalf("yamux listen %s: %v", cfg.YamuxAddr, err)
 	}
-	log.Printf("yamux listening on %s", yamuxAddr)
+	log.Printf("yamux listening on %s", cfg.YamuxAddr)
 	go func() {
 		if err := gw.AcceptYamux(context.Background(), ylis); err != nil {
 			log.Fatalf("[yamux] accept loop failed: %v", err)

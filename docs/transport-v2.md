@@ -1,10 +1,15 @@
 # Transport v2: server↔worker 通信层从 bidi gRPC 迁移到 yamux
 
-> 状态:**已上线**(2026-05,phase A–E 全部完成)
-> 关联讨论:CLAUDE.md "P14 跨境 worker HA 加固"系列 + P16-C/D streaming 改造
-> 触发事件:`/logs/search` Stop 级联卡死 bug(commit `6d293c24`)— 又一次证明现有 transport 的应用层多路复用代价过高
+> 状态:**已上线**(2026-05,P17,phase A–E 全部完成)
+> 这份文档是 KPilot transport 层的架构记录 + v1 → v2 迁移的设计存档。**v1 的实现代码已全部删除**(`pkg/common/proto/pilot.pb.go` + `pilot_grpc.pb.go` + vendored grpc-go 共 4000+ 行),仅保留这份文档说明"为什么从 bidi gRPC 撤了"。
 >
-> 实际产出:净删 4000+ 行(超出原估算的 1700,因为 go mod tidy 顺手剥掉了 grpc-go / x/net/trace 的 vendored 39 kLOC)。功能 + 性能验证见文末第 16 节"上线后修订"。
+> 当前生效的代码:
+> - `pkg/transport/yamux/` —— 协议无关传输层
+> - `pkg/server/gateway/` —— server-side yamux Accept + 业务流分发
+> - `pkg/worker/tunnel/` —— worker-side yamux Dial + handler 注册
+> - `pkg/common/proto/v2/pilot.proto` —— wire schema
+>
+> 设计假设里**唯一翻车的**是"yamux.Stream.Close 是 RST"——实际是 FIN(半关),phase E integration test 才暴露,修复方案见 §16.1。其余 phase A–D 的实现基本符合设计稿。
 
 ## 1. 背景
 

@@ -2,8 +2,8 @@
 KPilot Server installed.
 
   Namespace: {{ .Release.Namespace }}
-  HTTP:      svc/{{ include "kpilot.serverFullname" . }}        port {{ .Values.server.http.service.port }}
-  gRPC:      svc/{{ include "kpilot.serverFullname" . }}-grpc   port {{ .Values.server.grpc.service.port }}
+  HTTP:      svc/{{ include "kpilot.serverFullname" . }}             port {{ .Values.server.http.service.port }}
+  Transport: svc/{{ include "kpilot.serverFullname" . }}-transport   port {{ .Values.server.transport.service.port }}  (TCP+TLS+yamux for Worker dial-in)
 {{- if .Values.server.ingress.enabled }}
   Ingress:   {{ range $i, $h := .Values.server.ingress.hosts }}{{ if $i }}, {{ end }}{{ $h.host }}{{ end }}
 {{- else }}
@@ -21,8 +21,8 @@ KPilot Server installed.
 
 Bundled local worker enabled. The server auto-created a cluster row
 named "{{ .Values.server.localCluster.name }}" matching the worker's bootstrap
-token; the worker dials the in-cluster gRPC Service on its own. The
-cluster should appear Online in the UI within a few seconds.
+token; the worker dials the in-cluster transport Service on its own.
+The cluster should appear Online in the UI within a few seconds.
 
 To add more managed clusters later, log into the UI, create a cluster
 row to get a one-time ClusterToken, then install this chart on the
@@ -30,7 +30,7 @@ target cluster with:
   worker.enabled=true
   server.enabled=false
   postgresql.enabled=false
-  worker.serverAddr=<this-server-grpc-host>:{{ .Values.server.grpc.service.port }}
+  worker.serverAddr=<this-server-transport-host>:{{ .Values.server.transport.service.port }}
   worker.clusterToken=<token-from-UI>
 {{- else }}
 
@@ -39,7 +39,7 @@ Next steps:
   2. Create a cluster row; the UI shows a one-time ClusterToken.
   3. Install KPilot Worker on the target cluster (this same chart with
      worker.enabled=true, server.enabled=false, postgresql.enabled=false,
-     worker.serverAddr=<server-grpc-host>:{{ .Values.server.grpc.service.port }},
+     worker.serverAddr=<server-transport-host>:{{ .Values.server.transport.service.port }},
      worker.clusterToken=<token>).
 {{- end }}
 {{- end }}
@@ -52,7 +52,7 @@ KPilot Worker installed.
   Server addr:  {{ include "kpilot.worker.serverAddr" . }}
   Data PVC:     {{ if .Values.worker.persistence.enabled }}{{ include "kpilot.workerFullname" . }}-data{{ else }}<emptyDir>{{ end }}
 
-The Worker dials the Server over gRPC. Check the rollout with:
+The Worker dials the Server (TCP+TLS+yamux). Check the rollout with:
   kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "kpilot.workerFullname" . }} -f
 
 Expected log lines: "tunnel: connected" → "registered cluster".

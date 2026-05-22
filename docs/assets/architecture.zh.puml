@@ -8,7 +8,7 @@ Person(operator, "平台运维", "通过 KPilot UI 管理 GPU 集群与工作负
 
 System_Boundary(kpilot, "KPilot 控制面") {
     Container(ui, "Web UI", "React + UmiJS + Ant Design", "集群运维、Volcano 调度、vGPU 治理、GPU 遥测、插件生命周期")
-    Container(server, "KPilot Server", "Go, Gin, gRPC", "REST API、WebSocket 分发、Worker 注册表、插件流水线；不持有任何 kubeconfig")
+    Container(server, "KPilot Server", "Go, Gin, yamux", "REST API、WebSocket 分发、Worker 注册表、插件流水线；不持有任何 kubeconfig")
     ContainerDb(db, "PostgreSQL", "GORM", "集群注册表、插件元数据、账号、审计")
 }
 
@@ -26,8 +26,8 @@ Rel(operator, ui, "使用", "HTTPS")
 Rel(ui, server, "REST + WebSocket", "HTTPS / WSS")
 Rel(server, db, "读写", "SQL")
 
-Rel_U(worker_a, server, "长连 gRPC 双向流\n(Worker 主动回连)", "gRPC / TLS")
-Rel_U(worker_b, server, "长连 gRPC 双向流", "gRPC / TLS")
+Rel_U(worker_a, server, "yamux 多路复用 over TLS\n(Worker 主动回连；每个 RPC 一条独立 stream)", "TCP+TLS+yamux")
+Rel_U(worker_b, server, "yamux 多路复用 over TLS", "TCP+TLS+yamux")
 
 Rel(worker_a, k8s_a, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
 Rel(worker_b, k8s_b, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")

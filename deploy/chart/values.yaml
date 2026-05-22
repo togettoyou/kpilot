@@ -11,9 +11,9 @@
 ##
 ##   2. Server + bundled local worker (single command, single
 ##      cluster). The chart auto-generates a shared bootstrap token
-##      and points the worker at the in-cluster gRPC Service, so the
-##      worker registers without the admin having to mint a token in
-##      the UI first:
+##      and points the worker at the in-cluster transport Service,
+##      so the worker registers without the admin having to mint a
+##      token in the UI first:
 ##        helm install kpilot ./chart --set worker.enabled=true
 ##
 ##   3. Worker-only for each remote managed cluster:
@@ -116,18 +116,21 @@ server:
       port: 80
       targetPort: 8080
 
-  ## gRPC service (Worker dial-in). Expose externally so Workers in
-  ## other clusters can reach the Server — typically via Service of
-  ## type LoadBalancer or an Ingress that supports gRPC.
-  grpc:
+  ## Transport service (Worker dial-in). One TCP+TLS connection per
+  ## worker carrying multiplexed yamux streams (see
+  ## docs/transport-v2.md). Expose externally so Workers in other
+  ## clusters can reach the Server — typically via Service of type
+  ## LoadBalancer or a TCP-passthrough L4 ingress (yamux is NOT
+  ## HTTP, so HTTP-only ingress controllers won't work; use
+  ## stream/TCP mode).
+  transport:
     service:
       type: ClusterIP
       port: 9090
       targetPort: 9090
 
-  ## Optional Ingress for the HTTP path. The gRPC service usually
-  ## needs its own L7 termination (e.g. an Ingress with gRPC
-  ## annotations or a LoadBalancer Service) — examples in deploy/README.md.
+  ## Optional Ingress for the HTTP path. The transport service needs
+  ## L4 / TCP termination (NOT HTTP) — examples in deploy/README.md.
   ingress:
     enabled: false
     className: ""
@@ -177,14 +180,14 @@ worker:
 
   replicaCount: 1
 
-  ## Server gRPC endpoint reachable from this cluster, and the
+  ## Server transport endpoint reachable from this cluster, and the
   ## ClusterToken from the Server UI's cluster row.
   ##
   ## Auto-derived when server.enabled=true is set in the same release
   ## (topology #2 in the header comment): serverAddr defaults to the
-  ## in-cluster Service `<release>-server-grpc.<ns>.svc:9090` and
-  ## clusterToken is shared with server.localCluster.token. Override
-  ## either to point at an external server.
+  ## in-cluster Service `<release>-server-transport.<ns>.svc:9090`
+  ## and clusterToken is shared with server.localCluster.token.
+  ## Override either to point at an external server.
   serverAddr: ""
   clusterToken: ""
   ## Override only when your cluster runs on a custom DNS suffix.

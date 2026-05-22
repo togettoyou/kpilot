@@ -59,7 +59,7 @@ COPY --from=go-build /work/server /app/server
 COPY --from=web-build /work/dist /app/web
 ENV STATIC_DIR=/app/web \
     HTTP_ADDR=:8080 \
-    GRPC_ADDR=:9090
+    YAMUX_ADDR=:9090
 EXPOSE 8080 9090
 USER nonroot:nonroot
 ENTRYPOINT ["/app/server"]

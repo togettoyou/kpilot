@@ -3,8 +3,8 @@
 # KPilot Worker image.
 #
 # The worker is a Kubernetes operator that dials back to the Server
-# over gRPC and brokers every cluster-side operation. It runs as a
-# regular Deployment inside each managed cluster.
+# over TCP+TLS+yamux and brokers every cluster-side operation. It
+# runs as a regular Deployment inside each managed cluster.
 #
 # DATA_DIR (default /var/lib/kpilot) holds the Helm chart cache and
 # Helm SDK working files; chart releases that pull repo charts grow

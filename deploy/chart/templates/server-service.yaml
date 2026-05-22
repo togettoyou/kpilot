@@ -18,16 +18,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "kpilot.serverFullname" . }}-grpc
+  name: {{ include "kpilot.serverFullname" . }}-transport
   labels:
     {{- include "kpilot.server.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.server.grpc.service.type }}
+  type: {{ .Values.server.transport.service.type }}
   selector:
     {{- include "kpilot.server.selectorLabels" . | nindent 4 }}
   ports:
-    - name: grpc
-      port: {{ .Values.server.grpc.service.port }}
-      targetPort: {{ .Values.server.grpc.service.targetPort }}
+    - name: transport
+      port: {{ .Values.server.transport.service.port }}
+      targetPort: {{ .Values.server.transport.service.targetPort }}
       protocol: TCP
 {{- end }}

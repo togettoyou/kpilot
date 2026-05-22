@@ -17,14 +17,11 @@ import (
 const DefaultAdminPassword = "kpilot123"
 
 type Config struct {
-	HTTPAddr      string
-	GRPCAddr      string
+	HTTPAddr string
 	// YamuxAddr — v2 transport listen address (docs/transport-v2.md).
-	// Empty disables the yamux listener entirely (legacy gRPC-only
-	// mode); typically set to ":9091" so it can coexist with GRPCAddr
-	// during the v1→v2 migration. Phase D will retire GRPCAddr.
-	YamuxAddr     string
-	DSN           string
+	// Empty falls back to the cmd/server/main.go default ":9090".
+	YamuxAddr string
+	DSN       string
 	AdminUsername string
 	AdminPassword string
 	// AdminPasswordIsDefault is true when ADMIN_PASSWORD wasn't set
@@ -84,8 +81,7 @@ func Load() *Config {
 
 	return &Config{
 		HTTPAddr:                   envOr("HTTP_ADDR", ":8080"),
-		GRPCAddr:                   envOr("GRPC_ADDR", ":9090"),
-		YamuxAddr:                  envOr("YAMUX_ADDR", ""),
+		YamuxAddr:                  envOr("YAMUX_ADDR", ":9090"),
 		DSN:                        envOr("DSN", "postgres://kpilot:kpilot123@localhost:5432/kpilot?sslmode=disable"),
 		AdminUsername:              envOr("ADMIN_USERNAME", "kpilot"),
 		AdminPassword:              adminPassword,

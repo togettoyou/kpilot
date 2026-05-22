@@ -242,57 +242,57 @@ proto 字段 `string label_selector = 9`（`proto/pilot.proto`），worker 端 [
 
 ## OpenAI 兼容反代 + 流式底座
 
-浏览器 chat playground 内部走 cookie 鉴权 + worker tunnel，但**外部 client（curl / OpenAI SDK / LangChain / 自家应用）调不动**。两件事一并解决：
+浏览器 chat playground 内部走 cookie 鉴权 + worker tunnel,但**外部 client(curl / OpenAI SDK / LangChain / 自家应用)调不动**。三件事一并解决:
 
-1. **传输层加流式底座**：gateway / worker tunnel 早期是 unary 全缓冲设计，vLLM `stream:true` 能跑但所有 token 攒齐才回包，失去流式价值。新增 `SendHTTPRequestStream` 平行 API，wire 协议复用 `HTTPResponseStart + BodyChunk* + BodyEnd` 三帧序列，worker 边读边吐。
-2. **暴露 OpenAI 兼容 endpoint** `/api/v1/clusters/:id/proxy/inference/:namespace/:name/*subpath`：Bearer 鉴权，每个 APIKey 绑死一个 (cluster, ns, deployment) 三元组，外部 SDK drop-in 可用。
-3. **chat playground 同步切到流式**：同一个 `SendHTTPRequestStream` 后端，前端 `fetch + ReadableStream + TextDecoder` 逐 token 渲染 + Stop 按钮 abort。
-4. **HTTPCancel 帧**：前端 Stop / EventSource 关闭 → server `c.Request.Context().Done()` → defer `stream.Close()` → HttpCancel 帧 → worker 立即断 upstream，不再傻读到 5min 超时。
+1. **传输层加流式底座**:`gateway.SendHTTPRequestStream` 开一条 `STREAM_HTTP_REQUEST` yamux stream,`HTTPRequestStart.stream_response=true` 告诉 worker 用 streaming 模式;worker 边读 upstream body 边把字节直接写进 yamux stream(yamux 内置 4 MiB per-stream flow-control window 自动反压);server 端把 yamux stream 的 `Body` 当 `io.Reader` 用 —— 不再有 chunks channel / accumulator。详见 [docs/transport-v2.md](transport-v2.md)。
+2. **暴露 OpenAI 兼容 endpoint** `/api/v1/clusters/:id/proxy/inference/:namespace/:name/*subpath`:Bearer 鉴权,每个 APIKey 绑死一个 (cluster, ns, deployment) 三元组,外部 SDK drop-in 可用。
+3. **chat playground 同步切到流式**:同一个 `SendHTTPRequestStream` 后端,前端 `fetch + ReadableStream + TextDecoder` 逐 token 渲染 + Stop 按钮 abort。
+4. **Cancel 走 yamux FIN cascade**:前端 Stop / EventSource 关闭 → server `c.Request.Context().Done()` → defer `stream.Close()` → yamux FIN → worker cancel-watcher 1-byte Read 返 EOF → upstream HTTP ctx 撤销 → upstream conn 立即断,不再傻读到 5min 超时。
 
-### 协议改动：`HTTPRequestStart.stream_response`
+### 协议:`HTTPRequestStart.stream_response`
 
-proto/pilot.proto `HTTPRequestStart` 加 `bool stream_response = 4`,**向后兼容**:老 worker 收到该字段忽略,继续走 buffered;老 server 不发,worker 默认 false。
+`proto/v2/pilot.proto` 的 `HTTPRequestStart` 有 `bool stream_response = 4`:
 
 ```protobuf
 message HTTPRequestStart {
   string method = 1;
   string url = 2;
   repeated HTTPHeader headers = 3;
-  // true = worker forward 上游 body 边读边发 BodyChunk;false = 攒齐再回包(Grafana / VM / VL 保持原行为)
+  int64 body_size = 5;
+  // true = worker 边读上游 body 边把字节直接写 yamux stream;
+  // false = worker 攒齐 body 后一次性回包(Grafana / VM / VL 保持原行为)
   bool stream_response = 4;
 }
 ```
 
-worker `pkg/worker/proxy/http.go` 在 `req.StreamResponse=true` 时不 `io.ReadAll`,改为 32 KiB 缓冲循环 `Read`,每次 Read 返回的字节立刻通过 `SendHTTPResponseChunk` 发出去。配合 `pkg/worker/tunnel/chunked.go` 新增的 `sendHTTPResponseStart` / `sendHTTPResponseChunk` / `sendHTTPResponseEnd` 三个 incremental API。
+worker `pkg/worker/proxy/http.go::handleStreamingResp` 在 `req.StreamResponse=true` 时:
+- 派一个 cancel-watcher goroutine 阻塞 1-byte Read 监听 server FIN
+- `dispatchForStream(ctx, req)` 拿 upstream `*http.Response`,32 KiB 循环 `hresp.Body.Read` → `st.Writer().Write` —— **直接把字节写进 yamux stream**,yamux flow-control 自动反压
+- cancel-watcher EOF 触发 → ctx 撤销 → upstream `http.Request` ctx 撤销 → `hresp.Body.Read` 返错 → 循环退出 → defer `hresp.Body.Close()`
 
 ### Gateway `SendHTTPRequestStream`
 
-`pkg/server/gateway/http_stream.go` 引入 `HTTPStream`:
+`pkg/server/gateway/http_stream.go::HTTPStream`:
 
 ```go
 type HTTPStream struct {
-    Status  int32             // from HTTPResponseStart (block until 到达)
-    Headers []*proto.HTTPHeader
-    Error   string            // worker 端 dispatch 失败时填,Status 通常是 502
-    Chunks  <-chan []byte     // BodyChunk 帧实时 push,closed on BodyEnd
-    EndErr  <-chan error      // BodyEnd 触发后 single-shot;非 nil = 上游中途截断
-    Close()                   // 必须 defer 调用,撤销 session 状态
+    Status  int32             // 读自 HTTPResponseStart(SendHTTPRequestStream 同步等返回)
+    Headers []*pbv2.HTTPHeader
+    Error   string            // worker dispatch 失败时填,Status 通常是 502
+
+    // Body 直接是 yamux stream 的 io.Reader —— 不再有 chunks channel /
+    // accumulator,io.Copy(dst, stream.Body) 一行搞定。
+    Body io.Reader
+
+    // Close 发 yamux FIN 给 worker。MUST defer 调用,否则 worker
+    // 端 upstream 等到自己 5min 超时才感知。
+    Close()
 }
 ```
 
-session 在 `g.httpStreams[requestID]` 注册,gateway 的 recv 循环(`handleWorkerMessage`)在分发 HttpRespStart / BodyChunk / BodyEnd 时**先 check streaming session 再 fall back 到原 buffered rxAccumulator**,所以两条路径完全独立、互不干扰。
+`SendHTTPRequestStream` 内部 `Session.Open(...)` 开 stream + WriteMsg(start frame) + 读 HTTPResponseStart 同步返回。**没有 v1 时代的 per-request session 注册表**(`httpStreams[requestID]` / `rxAccumulator` / `closeWorkerHTTPStreams` 全删了)—— yamux 自身的 session.Close cascade 让所有 in-flight stream 立即返错,不需要应用层兜底。
 
-```go
-case *proto.WorkerMessage_HttpRespStart:
-    if sess, ok := g.getHTTPStream(msg.RequestId); ok {
-        sess.start = p.HttpRespStart
-        close(sess.started)  // 解阻塞 SendHTTPRequestStream 调用者
-    } else {
-        w.rxAsm.open(msg.RequestId, rxKindHTTP, p.HttpRespStart)  // buffered
-    }
-```
-
-session 的 chunks channel buffer 设为 32(2 MiB worst case);`push()` 在满时阻塞**本 worker 的 recv 循环**(其它 worker 不受影响),所以下游 handler **必须** defer `stream.Close()` 否则慢消费者会拖累整 cluster 的请求处理。worker 断开时 `closeAllHTTPStreams` 兜底强制关掉所有 active session,callers 从阻塞态解锁不会卡到 5 min upstream timeout。
+handler 必须 `defer stream.Close()`,且对长时阻塞的 SSE 路径还需要一个 ctx watcher goroutine 把 `c.Request.Context().Done()` 翻译成 `stream.Close()`(yamux Read 不响应 Go ctx,只响应 SetDeadline 或对端 FIN)。模板参考 `pkg/server/api/handler/inference_proxy.go::writeStreamingResponse`。
 
 ### 鉴权:`APIKey` 表 + Bearer 中间件
 
@@ -369,10 +369,10 @@ curl -X POST http://localhost:8080/api/v1/api-keys \
 
 ### 限制 / 已知边界
 
-- **chunks channel 满时阻塞 recv 循环**：慢消费者会拖累本 worker 的所有请求处理。defer `stream.Close()` 是必须的；client TCP 断开会触发 `c.Request.Context().Done()`，handler 在 select 里检测后 return，deferred Close 撤销 session + 发 HttpCancel 帧给 worker 立即断 upstream
-- **APIKey 没有配额 / 计费 / token usage tracking**：`last_used_at` 只是观察性数据，不限速也不记 token 数。未来可以基于 SSE response 末尾 `usage` 字段做后处理累积
-- **`stream:false` 同源端点也走流式管道**：vLLM 把完整 JSON 一次 Body Write 出来，worker 当一个 BodyChunk 转出，gateway 直接 close chunks + EndErr。SDK 用户感知不到 —— 但 handler/gateway 多走一层 channel。如果出现非 vLLM/SGLang/TGI 后端不支持 chunked 响应导致问题，可以在 handler 层基于 body 内容 sniff `stream:true/false` 决定走哪条路；当前不做
-- **`stream.Error` vs 中途截断 endErr 的语义区分**：Start.error 表示 worker 没拿到上游响应（DNS / dial / 503 等），502 给 client；BodyEnd.error 表示已经开始读 body 但中途连接断了，这时 HTTP 200 已发，只能 log
+- **Defer `stream.Close()` 是 hard requirement**:yamux per-stream 4 MiB flow-control window 满了 worker write 会反压(不会卡其它 stream,跟 v1 单 sender 不同),但漏 Close 会让 worker 端 upstream HTTP request 等到自己 5min ctx 才超时撤销 —— 5min 内白白占着 upstream 连接 + worker goroutine。`writeStreamingResponse` 模板里同时 defer Close + 派 ctx watcher,照抄即可
+- **APIKey 没有配额 / 计费 / token usage tracking**:`last_used_at` 只是观察性数据,不限速也不记 token 数。未来可以基于 SSE response 末尾 `usage` 字段做后处理累积
+- **`stream:false` 同源端点也走流式管道**:vLLM 把完整 JSON 一次 Body Write 出来,server 端 `io.Copy(c.Writer, stream.Body)` 一次性透传 —— SDK 用户感知不到。如果出现非 vLLM/SGLang/TGI 后端不支持 chunked 响应导致问题,可以在 handler 层基于 body 内容 sniff `stream:true/false` 决定走 `SendHTTPRequest`(buffered)还是 `SendHTTPRequestStream`(streaming);当前不做
+- **`stream.Error` vs upstream 中途截断的语义区分**:`stream.Error != ""` 表示 worker 没拿到 upstream 响应(DNS / dial / 503 等),502 给 client;upstream Body.Read 中途返错(比如 LLM 容器 OOM 被 kill)时 HTTP 200 已发,server 端 io.Copy 返错,只能 log —— SDK 自己会感知 SSE 截断
 
 ---
 

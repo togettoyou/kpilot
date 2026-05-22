@@ -80,7 +80,7 @@ K8s 自身的 RBAC + 各资源 controller 仍然是最后一道防线（删 `clu
 Scoped action 端点的安全模式：
 - 路径：`POST /api/v1/clusters/:id/workloads/<kind>/:name/<action>`
 - Body：业务字段（如 `{cordon: bool}`），**不接受任意 patch / spec body**
-- Server 端构造 patch JSON（如 `{"spec":{"unschedulable":<bool>}}`），通过 gRPC 下发 Worker
+- Server 端构造 patch JSON（如 `{"spec":{"unschedulable":<bool>}}`），通过 yamux STREAM_RESOURCE_REQUEST 下发 Worker
 - Worker 通过 `patch` action（StrategicMergePatchType）应用
 
 ### K8s 资源代理（Worker 端）
@@ -142,11 +142,11 @@ Scoped action 端点的安全模式：
   - `GET /logs/histogram?query=...&from=...&to=...` —— 时间桶 count，桶宽 = `(to-from)/50` 自适应；非流式(数据小,~50 个 bucket)
   - **空 query**：后端默认转 `*`（=全部），与前端"留空 = 全部日志"一致；用户不用记得敲星号
 - **`/logs/search` 真流式协议**（`vmlogs_stream.go::streamVMLogs` + `logs.go::GetLogsSearch`）：
-  - 走 `gateway.SendHTTPRequestStream`（共享 streaming 底座，见 [docs/models.md](models.md) OpenAI 兼容反代一节）接 VL `/select/logsql/query` 的 NDJSON 响应，**不全缓冲**。worker 边读 VL 32 KiB chunk 边发 BodyChunk，server 端 accumulator 按 `\n` 切完整行（跨 chunk 边界半截行留 buffer 等下一个），投影成 vmLogLine 后立刻 `sse.send("line", ...)` 流出
+  - 走 `gateway.SendHTTPRequestStream`(共享 streaming 底座,见 [docs/models.md](models.md) OpenAI 兼容反代一节;底层是 `STREAM_HTTP_REQUEST` yamux stream,worker 端 `proxy/http.go::handleStreamingResp` 边读 VL 32 KiB chunk 边写 yamux,server 端把 yamux stream 的 `Body` 直接当 `io.Reader` 用)接 VL `/select/logsql/query` 的 NDJSON 响应,**不全缓冲**。server 端 accumulator 按 `\n` 切完整行(跨 chunk 边界半截行留 buffer 等下一个),投影成 vmLogLine 后立刻 `sse.send("line", ...)` 流出
   - 单行 cap **1 MiB**（stack trace 异常长行的兜底），超限丢弃 + log，不影响后续解析
   - **SSE 事件 5 种**：`meta`（首发，query/from/to/limit 让 UI 立刻渲染 caption 不等首条）→ `progress`（25s 一次心跳穿透 ingress idle timeout）→ `line`（每条日志一发）→ `result`（终态总结 total/truncated/elapsedMs/endErr；**不带 lines[]**，已经流走了）→ `error`（dispatch 级失败）。前端 `services/kpilot/logs.ts::streamLogsSearch` 用 EventSource 解析这 5 个事件，**按 50ms / 100 行 batch onLine** 给 virtuoso（直接 per-line setState 会打爆 React reconciliation）
-  - **Stop 按钮**：`AbortController` → EventSource.close() → server `c.Request.Context().Done()` → ctx 撤销 → 已 defer 的 `stream.Close()` 释放 gateway session + 发 `HttpCancel` 帧给 worker 立刻断 upstream（不浪费 wire + 上游资源），已加载的行保留显示
-  - **共享 streaming 底座的健壮性**：gateway streaming session per-request_id 公平调度，大日志查询不 HOL block 其它请求；`stream.Close()` defer 严格保证不漏；`closeWorkerHTTPStreams` 按 cluster scope 关 session（跨集群隔离）；chunks channel buffer 32 上限
+  - **Stop 按钮**：`AbortController` → EventSource.close() → server `c.Request.Context().Done()` → ctx 撤销 → 已 defer 的 `stream.Close()` → yamux FIN → worker cancel-watcher 读 EOF → upstream HTTP ctx 撤销 → 立刻断 upstream(不浪费 wire + 上游资源),已加载的行保留显示
+  - **共享 streaming 底座的健壮性**:yamux 内置 per-stream 4 MiB flow-control window + 公平 round-robin,大日志查询不 HOL block 其它请求;`stream.Close()` defer 严格保证不漏;worker 断开时 yamux session close 让所有 in-flight stream 立即返错(跨集群天然隔离)
 - **VL 未启用 / install 探测**：mount 时跑一个 60s 窗口的小直方图探测 RESOURCE_NOT_AVAILABLE，命中就走 `<NotInstalled>`，用户不用先敲 query 才知道未启用
 - **页面布局**（`pages/ClusterDetail/Logging/index.tsx`）：
   - **顶部 LogsQL 输入框**：留空 = 全部，placeholder 给示例。按 Enter 或点搜索触发

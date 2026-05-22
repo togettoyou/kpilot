@@ -155,7 +155,7 @@ session). lookup() reads the existing Secret if there is one.
 {{/*
 isBundled — true when both server and worker are enabled in the same
 release. Drives the "auto-wire a local worker" path: the chart picks
-the in-cluster gRPC Service address and auto-generates a shared
+the in-cluster transport Service address and auto-generates a shared
 clusterToken so a single `helm install` produces a connected pair
 without the admin having to click through the Server UI to mint a
 token first.
@@ -205,14 +205,14 @@ template knows not to emit the BOOTSTRAP env vars.
 {{/*
 worker.serverAddr — falls back to the in-cluster Service of the
 bundled server when the operator didn't set worker.serverAddr
-explicitly. `<release>-server-grpc.<release-ns>.svc:<port>` matches
-what server-service.yaml exports.
+explicitly. `<release>-server-transport.<release-ns>.svc:<port>`
+matches what server-service.yaml exports.
 */}}
 {{- define "kpilot.worker.serverAddr" -}}
 {{- if .Values.worker.serverAddr -}}
 {{- .Values.worker.serverAddr -}}
 {{- else if eq (include "kpilot.isBundled" .) "true" -}}
-{{- printf "%s-grpc.%s.svc:%d" (include "kpilot.serverFullname" .) .Release.Namespace (int .Values.server.grpc.service.port) -}}
+{{- printf "%s-transport.%s.svc:%d" (include "kpilot.serverFullname" .) .Release.Namespace (int .Values.server.transport.service.port) -}}
 {{- end -}}
 {{- end -}}
 
