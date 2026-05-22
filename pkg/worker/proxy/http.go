@@ -321,9 +321,13 @@ func (p *HTTPProxy) handleBufferedResp(_ context.Context, st *transportv2.Stream
 // handleStreamingResp dispatches the upstream HTTP request, then
 // forwards the response body live as raw bytes through the yamux
 // stream. HTTPResponseStart's BodySize is -1 to signal "read until
-// close". Cancellation: server stream.Close → our next Write fails
-// → defer cancel via the derived ctx tears down the upstream HTTP
-// request.
+// close". Cancellation is LAZY: server stream.Close lands as a
+// write error on the NEXT forward attempt, so detection latency
+// is ~one upstream chunk for SSE (50-200 ms per token) and ~one
+// log line for streaming logs. A request blocked in
+// hresp.Body.Read with no upstream activity won't notice
+// cancellation until the worker's 5 min per-request ctx fires —
+// acceptable trade-off vs the v1 HttpCancel-frame complexity.
 func (p *HTTPProxy) handleStreamingResp(parent context.Context, st *transportv2.Stream, req *HTTPRequest) {
 	if req.Method == "" || req.URL == "" {
 		_ = st.WriteMsg(&pbv2.HTTPResponseStart{

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"google.golang.org/protobuf/proto"
 	"k8s.io/client-go/rest"
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
@@ -184,9 +183,6 @@ func writeWSEnd(st *transportv2.Stream, code int32, reason string) {
 	}
 	_ = st.WriteMsg(&pbv2.WSEnd{Code: code, Reason: reason})
 }
-
-// (proto is imported above; readers use ReadMsg directly now.)
-var _ = proto.Marshal
 
 // readDialBodyExcerpt grabs up to 512 bytes of the upstream's
 // response body for diagnostics.

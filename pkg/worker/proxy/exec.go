@@ -81,36 +81,15 @@ func (m *ExecManager) HandleStream(ctx context.Context, st *transportv2.Stream) 
 			close(resizeCh)
 		}()
 		for {
-			// We use ExecStdin to read both Stdin AND Resize —
-			// they share the wire (one stream, two message types).
-			// Discriminator: try ExecStdin first; if its Data is
-			// empty AND a resize follows, the proto unmarshal
-			// will populate Cols/Rows that ExecStdin doesn't
-			// have. Cleaner: try ExecStdin, then peek for Resize
-			// by checking unknown fields — but we control both
-			// ends so just attempt both types: send ExecStdin
-			// for stdin, ExecResize for resize, server picks
-			// based on caller pattern. Worker reads with a
-			// special pattern: read a length-prefixed message,
-			// try both decodes.
-			//
-			// Simpler scheme: server sends only one of the two
-			// types per frame. Worker reads as a generic proto
-			// message wrapper. But we don't have a wrapper in
-			// v2 — so we use the following protocol:
-			//
-			// Each frame from server is either ExecStdin OR
-			// ExecResize, sent via Codec.WriteMsg. Worker reads
-			// as ExecStdin first; if Data is nil AND Cols/Rows
-			// look set (after unmarshal as ExecResize), treat
-			// as resize. Use proto.Unmarshal twice trick: read
-			// raw bytes, try each type.
-			//
-			// Actually easiest: read raw bytes into a buffer,
-			// try both types based on field-set inspection. Go
-			// proto's Unmarshal is forgiving (extra fields are
-			// kept as unknown). We use a length-prefix codec, so
-			// we can read once and decode twice.
+			// One stream carries two message types (ExecStdin
+			// from keystrokes, ExecResize from terminal resize).
+			// v2 dropped proto oneofs, so we read raw bytes
+			// and try each Unmarshal. proto3 silently skips
+			// unrecognized fields, so an ExecResize parsed as
+			// ExecStdin yields ExecStdin{} (empty Data); an
+			// ExecStdin parsed as ExecResize yields
+			// ExecResize{} (zero Cols/Rows). Discriminator:
+			// non-empty Data = stdin; non-zero Cols/Rows = resize.
 			raw, err := st.ReadRaw()
 			if err != nil {
 				return

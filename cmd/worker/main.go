@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"io"
 	"log"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 
 	"github.com/go-logr/logr"
-	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -18,8 +16,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
-	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
 	"github.com/togettoyou/kpilot/pkg/worker/config"
 	"github.com/togettoyou/kpilot/pkg/worker/plugin"
@@ -118,7 +114,7 @@ func main() {
 		tunnelClient.SetHandlers(tunnel.Handlers{
 			OnResource: p.HandleStream,
 			OnHTTP:     httpProxy.HandleStream,
-			OnPlugin:   makePluginHandler(pluginMgr),
+			OnPlugin:   plugin.HandleStream(pluginMgr, chartCache),
 			OnPodLogs:  logsMgr.HandleStream,
 			OnPodExec:  execMgr.HandleStream,
 			OnWSProxy:  wsMgr.HandleStream,
@@ -138,66 +134,3 @@ func main() {
 	log.Println("worker stopped")
 }
 
-// makePluginHandler builds the tunnel handler for
-// STREAM_PLUGIN_COMMAND: read pbv2.PluginCommand + chart blob,
-// convert to tunnel.PluginCommand, hand to plugin.Manager.Handle,
-// write PluginCommandAck back.
-func makePluginHandler(mgr *plugin.Manager) func(context.Context, *transportv2.Stream) {
-	return func(ctx context.Context, st *transportv2.Stream) {
-		defer st.Close()
-		var wire pbv2.PluginCommand
-		if err := st.ReadMsg(&wire); err != nil {
-			log.Printf("[plugin-stream] read req failed: %v", err)
-			return
-		}
-		var blob []byte
-		if n := wire.GetChartBlobSize(); n > 0 {
-			blob = make([]byte, n)
-			if _, err := io.ReadFull(st.Reader(), blob); err != nil {
-				log.Printf("[plugin-stream] read blob failed: %v", err)
-				_ = st.WriteMsg(&pbv2.PluginCommandAck{Error: err.Error()})
-				return
-			}
-		}
-		cmd := &tunnel.PluginCommand{
-			Action:    wire.GetAction(),
-			CrdName:   wire.GetCrdName(),
-			ChartBlob: blob,
-		}
-		if spec := wire.GetSpec(); spec != nil {
-			cmd.Spec = &tunnel.PluginSpec{
-				PluginId:         spec.GetPluginId(),
-				DisplayName:      spec.GetDisplayName(),
-				ReleaseName:      spec.GetReleaseName(),
-				ReleaseNamespace: spec.GetReleaseNamespace(),
-				Values:           spec.GetValues(),
-			}
-			if c := spec.GetChart(); c != nil {
-				cmd.Spec.Chart = &tunnel.ChartSource{
-					Type:    c.GetType(),
-					Repo:    c.GetRepo(),
-					Name:    c.GetName(),
-					Version: c.GetVersion(),
-					Sha256:  c.GetSha256(),
-					HasBlob: c.GetHasBlob(),
-				}
-			}
-		}
-		// Per the worker contract documented in
-		// pkg/server/gateway/plugin.go: ack IMMEDIATELY on receipt
-		// (worker has the command + blob persisted to disk via
-		// chartCache); run Helm async. The async path posts its
-		// progress via STREAM_PLUGIN_STATUS_PUSH frames.
-		go func() {
-			if herr := mgr.Handle(context.Background(), cmd); herr != nil {
-				log.Printf("[plugin-stream] async handle err: crd=%s action=%s err=%v",
-					cmd.CrdName, cmd.Action, herr)
-			}
-		}()
-		_ = st.WriteMsg(&pbv2.PluginCommandAck{Success: true})
-	}
-}
-
-// keep proto imported in this file so future plugin frame
-// expansions land here without re-adding the import each time.
-var _ = proto.Marshal
