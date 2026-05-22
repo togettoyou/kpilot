@@ -42,6 +42,15 @@ const maxMessageSize = 64 * 1024 * 1024
 // through Writer() / Reader() until half-close. The framing layer
 // stays out of the way — bytes pass through unmodified (or through
 // gzip if enabled).
+//
+// Concurrency: ONE reader goroutine + ONE writer goroutine per
+// Codec. writeMu serializes WriteMsg vs raw-Writer torn writes if
+// they slip in concurrently, but mixing them on purpose corrupts
+// the framing. Reads have no internal lock — two goroutines
+// calling ReadMsg / Reader concurrently will interleave bufio
+// reads and produce truncated frames. yamux gives each stream
+// its own send/recv goroutine ownership, so in real use each
+// stream's Codec sees one reader + one writer total.
 type Codec struct {
 	rw io.ReadWriter
 
@@ -134,12 +143,20 @@ func (c *Codec) EnableGzip() error {
 // By this point the peer has called EnableGzip and Flushed the
 // gzip header, so NewReader unblocks immediately. After init the
 // reader chain becomes bufio(gzip(bufio(rw))).
+//
+// On gzip.NewReader failure (corrupt magic / truncated stream)
+// we clear gzipPending so retrying doesn't re-call NewReader on
+// the same wire position — the failure is permanent for this
+// codec; the next read will return raw (broken) bytes which
+// triggers a clear "incoming message too large" error rather
+// than a confusing retry loop.
 func (c *Codec) lazyInitReader() error {
 	if c.gzipEnabled || !c.gzipPending {
 		return nil
 	}
 	gzr, err := gzip.NewReader(c.br)
 	if err != nil {
+		c.gzipPending = false
 		return fmt.Errorf("init gzip reader: %w", err)
 	}
 	c.gzr = gzr
@@ -156,12 +173,17 @@ func (c *Codec) lazyInitReader() error {
 // underlying stream is closed if gzip is enabled — otherwise the
 // peer's gzip.Reader sees a truncated stream.
 //
+// Idempotent: nils out the gzip.Writer reference so a repeat Close
+// doesn't call into already-closed gzip internals.
+//
 // Does NOT close the underlying io.ReadWriter. Caller owns that.
 func (c *Codec) Close() error {
 	if c.gzw == nil {
 		return nil
 	}
-	return c.gzw.Close()
+	err := c.gzw.Close()
+	c.gzw = nil
+	return err
 }
 
 // WriteMsg writes one proto message framed with a uvarint length

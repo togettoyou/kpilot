@@ -245,9 +245,12 @@ func TestSessionAcceptAfterClose(t *testing.T) {
 	}
 }
 
-func TestSessionOpenAcceptConcurrent(t *testing.T) {
-	// 20 concurrent streams in flight — yamux should keep them
-	// independent, no order-dependence on accept vs open.
+func TestSessionConcurrentOpens(t *testing.T) {
+	// 20 client-side Open calls in parallel against a single
+	// server-side serial Accept loop. Verifies streams stay
+	// independent + RequestIDs aren't crossed when yamux's
+	// AcceptStream dispatch is multiplexing many SYN_STREAM
+	// frames behind the scenes.
 	cli, srv := sessionPair(t)
 
 	const n = 20

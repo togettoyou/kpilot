@@ -86,31 +86,35 @@ func (s *Stream) Writer() io.Writer {
 	return s.cdc.Writer()
 }
 
-// CloseWrite half-closes the write side. The peer's reader will
-// observe io.EOF after draining what's already been sent. This is
-// the "I'm done writing, you're free to reply" signal — used
-// e.g. by the server after writing an HTTP request to tell the
-// worker it can start replying.
+// CloseWrite signals "I'm done writing, you're free to reply" by
+// sending the yamux FIN flag. The peer's pending Read returns
+// io.EOF once it drains buffered bytes; the peer can still Write
+// back to us. Used e.g. by the server after writing an HTTP
+// request to tell the worker the request body is complete.
 //
 // Flushes gzip writer first so the peer doesn't see a truncated
-// gzip block.
+// gzip block. Note: yamux v0.1.2 doesn't expose a separate
+// CloseWrite — yamux.Stream.Close() sends FIN but doesn't tear
+// down our read side (state goes from established → localClose;
+// subsequent Read on our side keeps draining until peer FINs
+// back). So CloseWrite() and Close() are the same yamux call;
+// the distinction in this API is just intent (graceful done vs
+// cancel) and a defensive double-Close is harmless.
 func (s *Stream) CloseWrite() error {
 	if err := s.cdc.Close(); err != nil {
 		return fmt.Errorf("flush gzip: %w", err)
 	}
-	if cw, ok := any(s.raw).(interface{ CloseWrite() error }); ok {
-		return cw.CloseWrite()
-	}
-	// yamux.Stream implements CloseWrite as of yamux v0.1.x; the
-	// type assertion above just defends against future API drift.
 	return s.raw.Close()
 }
 
-// Close hard-closes the stream in both directions, sending an
-// RST-equivalent to the peer. Used for cancellation: peer's
-// Read / Write will return immediately with an error. Idempotent.
+// Close signals cancellation by sending FIN. Peer's pending Read
+// returns io.EOF, which handler code treats as "request done /
+// canceled". yamux v0.1.2 has no RST-equivalent in its public
+// API; the EOF semantic is what we get. Idempotent.
+//
+// Best-effort flushes gzip before closing — we're tearing down,
+// any flush error is ignored.
 func (s *Stream) Close() error {
-	// Best-effort gzip flush; ignore error since we're tearing down.
 	_ = s.cdc.Close()
 	return s.raw.Close()
 }

@@ -86,9 +86,10 @@ func (s *Session) Open(ctx context.Context, kind pb.StreamKind, requestID string
 		err error
 	}
 	// yamux.OpenStream doesn't take a ctx; run in a goroutine so
-	// ctx cancel can interrupt us. The actual stream will leak
-	// briefly (until yamux's own session timeout fires) if ctx
-	// fires first; that's bounded and harmless.
+	// ctx cancel can interrupt us. If ctx fires before OpenStream
+	// returns, we drain the channel in a follow-up goroutine and
+	// close the leaked stream — otherwise yamux keeps the stream
+	// open in its session state until the connection dies.
 	ch := make(chan result, 1)
 	go func() {
 		ys, err := s.raw.OpenStream()
@@ -105,8 +106,23 @@ func (s *Session) Open(ctx context.Context, kind pb.StreamKind, requestID string
 		}
 		raw = r.raw
 	case <-ctx.Done():
+		// Drain in background so the eventually-opened stream
+		// gets closed instead of leaking into the session.
+		go func() {
+			r := <-ch
+			if r.err == nil && r.raw != nil {
+				_ = r.raw.Close()
+			}
+		}()
 		return nil, ctx.Err()
 	case <-s.raw.CloseChan():
+		// Same drain — but session is dying anyway, harmless.
+		go func() {
+			r := <-ch
+			if r.err == nil && r.raw != nil {
+				_ = r.raw.Close()
+			}
+		}()
 		return nil, ErrSessionClosed
 	}
 	hdr := &pb.StreamHeader{
