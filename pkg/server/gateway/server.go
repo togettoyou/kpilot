@@ -90,6 +90,11 @@ func NewGatewayServer() *GatewayServer {
 		pluginLogSessions: make(map[string]*pluginLogSession),
 	}
 	g.clusterDomainResolver = g
+	// Reap idle plugin-log buffers — without this, every plugin
+	// enable/disable adds an entry to pluginLogSessions that never
+	// gets cleared. (Phase B 629→175 LOC rewrite dropped the spawn
+	// call from the v1 NewGatewayServer.)
+	go g.reapPluginLogs()
 	return g
 }
 

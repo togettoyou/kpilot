@@ -169,6 +169,30 @@ func (c *Codec) lazyInitReader() error {
 	return nil
 }
 
+// Flush pushes any buffered bytes through the gzip writer to the
+// underlying stream. Necessary after raw Writer() byte writes when
+// gzip is enabled — the gzip writer buffers up to ~32 KiB before
+// auto-flushing, so a request body written via Writer().Write
+// could otherwise sit on the sender's side indefinitely while the
+// peer blocks on io.ReadFull. WriteMsg already flushes internally;
+// this is for callers that write raw body bytes after a framed
+// *Start message.
+//
+// Checks c.gzw != nil (writer was initialized in EnableGzip), NOT
+// c.gzipEnabled (which only flips after lazyInitReader runs on the
+// reader side). The two flags track separate sides of the codec
+// and a writer that hasn't yet had any reads is still a writer
+// that needs to flush.
+//
+// No-op when gzip is disabled (yamux's underlying TCP write is
+// unbuffered at our codec layer).
+func (c *Codec) Flush() error {
+	if c.gzw == nil {
+		return nil
+	}
+	return c.gzw.Flush()
+}
+
 // Close flushes any pending gzip block. Must be called before the
 // underlying stream is closed if gzip is enabled — otherwise the
 // peer's gzip.Reader sees a truncated stream.
@@ -210,7 +234,18 @@ func (c *Codec) WriteMsg(m proto.Message) error {
 	if _, err := c.writer.Write(payload); err != nil {
 		return err
 	}
-	if c.gzipEnabled {
+	// Flush whenever gzip writer is set up — c.gzipEnabled tracks
+	// READER-side init (lazyInitReader), which is unrelated to
+	// whether the writer needs flushing. Pre-2026-05 this gated on
+	// gzipEnabled, which meant a one-way RPC (server writes req, no
+	// CloseWrite, then reads response) never actually flushed
+	// compressed bytes — they sat in the gzip writer's internal
+	// buffer until close. CloseWrite was the only thing that
+	// flushed (via gzw.Close), masking the bug; once we stopped
+	// CloseWriting after the request body (so worker could
+	// distinguish real cancel from end-of-request), worker
+	// blocked indefinitely waiting for bytes that never landed.
+	if c.gzw != nil {
 		if err := c.gzw.Flush(); err != nil {
 			return err
 		}

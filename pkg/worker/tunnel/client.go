@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"net/url"
 	"strings"
@@ -203,9 +204,13 @@ func (c *Client) Run(ctx context.Context) error {
 			if errors.Is(err, ErrTokenRejected) {
 				return err
 			}
-			log.Printf("[tunnel] connection lost: %v (retry in %s)", err, delay)
+			// Add ±25% jitter so N workers reconnecting after a
+			// shared server restart don't perfectly align their
+			// retry windows and thundering-herd the listener.
+			jittered := delay + time.Duration(rand.Int63n(int64(delay/2))) - delay/4
+			log.Printf("[tunnel] connection lost: %v (retry in %s)", err, jittered)
 			select {
-			case <-time.After(delay):
+			case <-time.After(jittered):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -407,16 +412,29 @@ func (c *Client) PushPluginStatus(p *pbv2.PluginStatusPush) error {
 	return st.CloseWrite()
 }
 
-// PushPluginLogLine opens (or reuses) a per-crd log push stream
-// and writes one PluginLogChunk. The plugin reconciler calls
-// this frequently during Helm runs; each call is one frame.
+// PushPluginLogLine opens a one-shot STREAM_PLUGIN_LOG_PUSH stream
+// and writes a single PluginLogChunk, then closes.
 //
-// Phase C uses a fresh stream per chunk for simplicity — there's
-// no per-crd session coalescing yet, so a Helm install that
-// emits 50 lines opens 50 streams. yamux SYN_STREAM is cheap
-// (~30 µs per the benchmarks), so this is fine for the
-// realistic plugin-log volume; if it becomes a hotspot we can
-// add per-crd session caching here without touching the caller.
+// Server contract: a stream that closes WITHOUT emitting the
+// sentinel (zero-payload PluginLogChunk) + PluginLogEnd pair is
+// treated as "more chunks coming on a future stream" — the
+// session stays open server-side, the buffer accumulates entries
+// across streams. End-of-install is signalled separately by
+// PushPluginLogEnd (called once by the reconciler when Helm
+// install/upgrade/uninstall returns).
+//
+// Earlier (until 2026-05): this method also wrote sentinel +
+// PluginLogEnd{Success:true}, which (1) hard-coded a lie about
+// success on every line, and (2) flipped sess.closed=true on the
+// server, causing the NEXT line to hit the "previous session
+// ended, this is a new install" branch — wiping the buffer and
+// firing a `reset` frame at every UI subscriber per log line.
+//
+// Per-line stream open cost: ~80 µs SYN-ACK + ~10 KB peak memory,
+// streams don't overlap in practice (each closes after one chunk).
+// A 200-line umbrella-chart install spends ~16 ms total opening
+// streams — well within yamux's capacity. Per-crd stream
+// coalescing is a future micro-optimization.
 func (c *Client) PushPluginLogLine(crdName, level, message string, ts int64) error {
 	sess := c.sess.Load()
 	if sess == nil {
@@ -429,20 +447,12 @@ func (c *Client) PushPluginLogLine(crdName, level, message string, ts int64) err
 		return fmt.Errorf("open log push: %w", err)
 	}
 	defer st.Close()
-	if err := st.WriteMsg(&pbv2.PluginLogChunk{
+	return st.WriteMsg(&pbv2.PluginLogChunk{
 		CrdName: crdName,
 		Level:   level,
 		Message: message,
 		Ts:      ts,
-	}); err != nil {
-		return err
-	}
-	// Sentinel + end so the gateway-side accept loop terminates
-	// cleanly instead of waiting for more chunks.
-	if err := st.WriteMsg(&pbv2.PluginLogChunk{}); err != nil {
-		return err
-	}
-	return st.WriteMsg(&pbv2.PluginLogEnd{CrdName: crdName, Success: true})
+	})
 }
 
 // PushPluginLogEnd emits a terminal "install done" marker. Same

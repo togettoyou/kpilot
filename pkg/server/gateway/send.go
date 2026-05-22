@@ -34,20 +34,29 @@ const resourceUseGzip = true
 // false.
 const httpRequestUseGzip = true
 
-// watchCtx spawns a goroutine that closes the stream when ctx
-// fires. Returns a release func the caller defers — when the
-// real work is done, releasing unblocks the watcher so it exits
-// without touching the stream. Necessary because yamux's Read /
-// Write only react to wall-clock deadlines (via SetDeadline),
-// not Go context cancellation; without the watcher, a caller
-// that cancels the parent ctx waits until any explicit deadline
-// fires (or forever if none was set).
+// watchCtx spawns a goroutine that FINs the underlying yamux
+// stream when ctx fires. Returns a release func the caller
+// defers — when the real work is done, releasing unblocks the
+// watcher so it exits without touching the stream. Necessary
+// because yamux's Read / Write only react to wall-clock
+// deadlines (via SetDeadline), not Go context cancellation;
+// without the watcher, a caller that cancels the parent ctx
+// waits until any explicit deadline fires (or forever if none
+// was set).
+//
+// Uses st.Raw().Close (FIN) instead of st.Close() because the
+// latter flushes the gzip writer — which races with whatever
+// gzip.Writer.Write the main goroutine might be running
+// concurrently (race detector flagged this on every cancel
+// during a body write). The caller's own `defer st.Close()`
+// handles the gzip flush in the normal exit path after the
+// main flow has stopped writing.
 func watchCtx(ctx context.Context, st *transportv2.Stream) func() {
 	done := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = st.Close()
+			_ = st.Raw().Close()
 		case <-done:
 		}
 	}()
@@ -88,10 +97,19 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 		if _, err := st.Writer().Write(req.Body); err != nil {
 			return nil, fmt.Errorf("write resource body: %w", err)
 		}
+		// Flush — gzip writer buffers up to ~32 KiB internally; without
+		// this the body bytes sit in the buffer while the worker's
+		// io.ReadFull blocks forever (deadlock).
+		if err := st.Flush(); err != nil {
+			return nil, fmt.Errorf("flush resource body: %w", err)
+		}
 	}
-	if err := st.CloseWrite(); err != nil {
-		return nil, fmt.Errorf("half-close resource req: %w", err)
-	}
+	// NO CloseWrite. Worker reads exactly BodySize bytes (knows
+	// request body is done), then spawns a cancel-watcher to react
+	// to consumer cancel via watchCtx's eventual st.Close. A
+	// CloseWrite here would FIN immediately, the watcher would
+	// fire instantly, and the K8s op would be cancelled before it
+	// even started. See docs/transport-v2.md §16.
 
 	var startResp pbv2.ResourceResponse
 	if err := st.ReadMsg(&startResp); err != nil {
@@ -141,10 +159,12 @@ func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, r
 		if _, err := st.Writer().Write(req.Body); err != nil {
 			return nil, fmt.Errorf("write http body: %w", err)
 		}
+		if err := st.Flush(); err != nil {
+			return nil, fmt.Errorf("flush http body: %w", err)
+		}
 	}
-	if err := st.CloseWrite(); err != nil {
-		return nil, fmt.Errorf("half-close http req: %w", err)
-	}
+	// NO CloseWrite (see SendResourceRequest for the rationale).
+	// Worker reads BodySize bytes then spawns a cancel-watcher.
 
 	var startResp pbv2.HTTPResponseStart
 	if err := st.ReadMsg(&startResp); err != nil {

@@ -130,6 +130,14 @@ func New(cfg *rest.Config, mapper apimeta.RESTMapper) (*Proxy, error) {
 // STREAM_RESOURCE_REQUEST. Reads the request frame + optional body,
 // runs the op, writes the response frame + optional body, closes
 // the stream. Owns the stream lifecycle.
+//
+// Cancellation: after the request body is consumed, spawns a
+// cancel-watcher that blocks on a 1-byte Read. Server side does
+// NOT CloseWrite after the request (see SendResourceRequest), so
+// this Read only returns when the consumer cancels its ctx and
+// gateway's watchCtx fires st.Close. EOF → cancel the K8s op ctx
+// so a long list / describe doesn't keep burning worker CPU
+// after the user gave up.
 func (p *Proxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 	defer st.Close()
 	var wireReq pbv2.ResourceRequest
@@ -157,12 +165,20 @@ func (p *Proxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 		req.Body = body
 	}
 
+	rpcCtx, cancelRPC := context.WithCancel(ctx)
+	defer cancelRPC()
+	go func() {
+		buf := make([]byte, 1)
+		_, _ = st.Reader().Read(buf)
+		cancelRPC()
+	}()
+
 	timeout := readOpTimeout
 	switch req.Action {
 	case "apply", "update", "patch", "delete":
 		timeout = writeOpTimeout
 	}
-	opCtx, cancel := context.WithTimeout(ctx, timeout)
+	opCtx, cancel := context.WithTimeout(rpcCtx, timeout)
 	defer cancel()
 	start := time.Now()
 	resp := p.execute(opCtx, req)

@@ -18,9 +18,16 @@ import (
 //
 // All Read/Write happens on the yamux stream — yamux handles
 // per-stream flow control (default 4 MiB window, see config.go).
-// Closing the stream RSTs the peer, which is how cancellation
-// flows in v2 (replaces v1's HttpCancel / LogsCancel / ExecCancel
-// frames).
+//
+// Cancellation flows via yamux FIN (NOT RST — yamux v0.1.2 doesn't
+// expose RST in its public API): Close sends FIN, peer's pending
+// Read returns io.EOF, peer CAN STILL WRITE back after that (FIN
+// is half-close, not connection abort). Handlers that need to
+// notice a cancel spawn a 1-byte Read goroutine — EOF means
+// "consumer gave up". Server-side openers MUST NOT CloseWrite
+// after writing the request (would look identical to a real
+// cancel on the worker); see docs/transport-v2.md §16 for the
+// design discussion.
 type Stream struct {
 	// raw is the underlying yamux stream. Exposed via Raw() for
 	// callers that need stream-level ops (SetDeadline / CloseWrite /
@@ -93,6 +100,16 @@ func (s *Stream) Reader() io.Reader {
 // Writer exposes the raw byte sink. Same caveat as Reader.
 func (s *Stream) Writer() io.Writer {
 	return s.cdc.Writer()
+}
+
+// Flush pushes any buffered gzip output through. Required after
+// writing raw bytes via Writer() when the peer needs them before
+// the next WriteMsg / Close — typically a buffered-RPC request
+// body where the peer io.ReadFulls the body and then computes a
+// response. WriteMsg already flushes internally; Flush is the
+// raw-byte equivalent. No-op when gzip is disabled.
+func (s *Stream) Flush() error {
+	return s.cdc.Flush()
 }
 
 // CloseWrite signals "I'm done writing, you're free to reply" by

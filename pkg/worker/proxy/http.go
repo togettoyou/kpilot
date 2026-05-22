@@ -289,9 +289,25 @@ func (p *HTTPProxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 
 // handleBufferedResp dispatches upstream, buffers the body,
 // writes HTTPResponseStart + body in one go.
-func (p *HTTPProxy) handleBufferedResp(_ context.Context, st *transportv2.Stream, req *HTTPRequest) {
+//
+// Cancellation: after the request body is consumed by HandleStream,
+// we spawn a cancel-watcher reading 1 byte. Server side does NOT
+// CloseWrite after the request (see SendHTTPRequest), so this Read
+// only returns when the consumer cancels its ctx and gateway's
+// watchCtx fires st.Close. EOF → cancel the upstream-HTTP ctx so
+// a slow Grafana / VM / VL request doesn't keep streaming a 31 MiB
+// response into a stream nobody's reading.
+func (p *HTTPProxy) handleBufferedResp(parent context.Context, st *transportv2.Stream, req *HTTPRequest) {
+	bufCtx, cancel := context.WithCancel(parent)
+	defer cancel()
+	go func() {
+		buf := make([]byte, 1)
+		_, _ = st.Reader().Read(buf)
+		cancel()
+	}()
+
 	start := time.Now()
-	resp, err := p.do(req)
+	resp, err := p.do(bufCtx, req)
 	if err != nil {
 		log.Printf("[wire] http buffered failed request=%s err=%v elapsed=%s",
 			st.RequestID(), err, time.Since(start))
@@ -537,7 +553,7 @@ func extractResponseHeaders(hresp *http.Response) []*pbv2.HTTPHeader {
 	return headers
 }
 
-func (p *HTTPProxy) do(req *HTTPRequest) (*HTTPResponse, error) {
+func (p *HTTPProxy) do(parent context.Context, req *HTTPRequest) (*HTTPResponse, error) {
 	if req.Method == "" || req.URL == "" {
 		return nil, errors.New("method and url are required")
 	}
@@ -549,13 +565,11 @@ func (p *HTTPProxy) do(req *HTTPRequest) (*HTTPResponse, error) {
 		return nil, fmt.Errorf("unsupported url scheme: %s", req.URL)
 	}
 
-	// 5 min hard ceiling on a single buffered request. Cancellation
-	// from the gateway (stream.Close) lands lazily — next write
-	// fails. The session ctx parent isn't propagated here because
-	// `do()` is also called from streaming dispatch which passes
-	// its own ctx via dispatchForStream; for the standalone
-	// buffered path we just timeout independently.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// 5 min hard ceiling on a single buffered request, derived from
+	// the parent ctx so handleBufferedResp's cancel-watcher
+	// propagates: consumer cancel → parent ctx done → ctx done →
+	// upstream http.Request ctx done → conn torn down.
+	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 
 	// In-cluster Service URLs have two viable routings: direct DNS
