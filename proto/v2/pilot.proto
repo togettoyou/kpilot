@@ -1,0 +1,301 @@
+syntax = "proto3";
+
+package pilot.v2;
+
+option go_package = "github.com/togettoyou/kpilot/pkg/common/proto/v2;proto";
+
+// Transport v2 — see docs/transport-v2.md.
+//
+// The schema is much simpler than v1: there is no PilotService rpc, no
+// WorkerMessage / ServerMessage oneof wrapper, no BodyChunk / BodyEnd
+// chunked framing, no per-RPC *CancelRequest frames, and no Heartbeat.
+// Each logical RPC is one yamux stream; the first message on every stream
+// is a StreamHeader that names the RPC kind. After that, the messages on
+// the wire are RPC-specific. Long byte payloads (HTTP body, chart blob,
+// SSE responses, pod log bytes) flow as raw bytes after the typed *Start
+// message — yamux's stream boundaries replace the explicit BodyEnd frame.
+// Cancellation is just stream.Close(); liveness is yamux KeepAlive.
+//
+// Phase A introduces this proto alongside v1 (pkg/common/proto/v2/) so the
+// transport package can take shape without touching the existing gateway /
+// tunnel code. Phase D deletes v1.
+
+// ─── Stream header (first message on every stream) ─────────────────────────
+
+// StreamHeader is the discriminator both peers exchange before any
+// RPC-specific traffic flows. It tells the receiver what protocol to
+// expect on the rest of the stream and whether to wrap reads / writes
+// in gzip. The header itself is always plaintext (so the gzip decision
+// is bootstrappable).
+message StreamHeader {
+  StreamKind kind = 1;
+  // Application-level RPC id, useful for cross-log correlation only —
+  // yamux assigns its own stream id for routing. Worker-initiated push
+  // streams (PLUGIN_STATUS_PUSH, PLUGIN_LOG_PUSH) leave this empty.
+  string request_id = 2;
+  // Negotiated gzip for the rest of the stream. Sender chooses based on
+  // payload type — JSON / text streams gzip well (5-8× on cross-WAN),
+  // binary blobs and interactive sessions skip it.
+  bool gzip = 3;
+}
+
+enum StreamKind {
+  STREAM_UNKNOWN = 0;
+
+  // Auth — first stream the worker opens after the session is up.
+  STREAM_REGISTER = 1;
+
+  // Server → worker requests:
+  STREAM_RESOURCE_REQUEST = 10;
+  STREAM_HTTP_REQUEST     = 11;
+  STREAM_PLUGIN_COMMAND   = 12;
+  STREAM_POD_LOGS         = 13;
+  STREAM_POD_EXEC         = 14;
+  STREAM_WS_PROXY         = 15;
+
+  // Worker → server pushes:
+  STREAM_PLUGIN_STATUS_PUSH = 20;
+  STREAM_PLUGIN_LOG_PUSH    = 21;
+}
+
+// ─── Register (STREAM_REGISTER) ────────────────────────────────────────────
+
+message RegisterRequest {
+  string cluster_token  = 1;
+  string worker_version = 2;
+  // K8s DNS suffix the worker's kubelet reports as --cluster-domain.
+  // Server uses this when constructing in-cluster Service FQDNs.
+  string cluster_domain = 3;
+}
+
+message RegisterAck {
+  bool   success    = 1;
+  string cluster_id = 2;
+  string message    = 3;
+}
+
+// ─── Resource RPC (STREAM_RESOURCE_REQUEST) ────────────────────────────────
+//
+// One framed request message, then optional raw body bytes (apply / update /
+// patch payload), then half-close. Worker replies with one ResourceResponse
+// message, then optional raw response bytes, then close.
+
+message ResourceRequest {
+  string action    = 1; // list / get / apply / update / patch / delete / describe / list-full
+  string group     = 2;
+  string version   = 3;
+  string kind      = 4;
+  string namespace = 5; // empty = cluster-scoped
+  string name      = 6; // empty for list
+
+  // list pagination: 0 = unbounded; non-empty continue_token = next page
+  int64  limit          = 7;
+  string continue_token = 8;
+  // K8s label selector ("key=value,key2!=value2"); list actions only.
+  string label_selector = 9;
+  // body_size hints whether to expect raw body bytes after this frame.
+  // 0 = no body; >0 = exactly this many bytes follow (apply / update /
+  // patch JSON). Receiver reads body_size bytes then either continues
+  // dispatching or waits for half-close.
+  int64  body_size = 10;
+}
+
+message ResourceResponse {
+  bool   success = 1;
+  string error   = 2;
+  // body_size of the payload bytes that follow this frame on the wire.
+  // 0 = no body (delete / error case).
+  int64  body_size = 3;
+}
+
+// ─── HTTP reverse proxy (STREAM_HTTP_REQUEST) ──────────────────────────────
+//
+// Buffered mode (stream_response = false):
+//   server → worker: HTTPRequestStart + raw body + half-close
+//   worker → server: HTTPResponseStart + raw body + close
+//
+// Streaming mode (stream_response = true, used for SSE / vLLM token stream):
+//   server → worker: HTTPRequestStart + raw body + half-close
+//   worker → server: HTTPResponseStart + LIVE raw chunks + close
+// The streaming variant is identified by HTTPRequestStart.stream_response;
+// the wire shape is identical — only the worker's read pattern differs
+// (live forward vs collect-then-send).
+
+message HTTPHeader {
+  string name  = 1;
+  string value = 2;
+}
+
+message HTTPRequestStart {
+  string method                  = 1;
+  string url                     = 2;
+  repeated HTTPHeader headers    = 3;
+  // body_size of bytes that follow (0 = no body).
+  int64  body_size               = 4;
+  // True → worker forwards response body live; false → buffered.
+  bool   stream_response         = 5;
+}
+
+message HTTPResponseStart {
+  int32  status                  = 1;
+  repeated HTTPHeader headers    = 2;
+  // Empty on success. Non-empty when the worker failed before reading
+  // any upstream bytes (DNS / connect / timeout). Receiver should NOT
+  // expect a body in that case.
+  string error                   = 3;
+  // For buffered responses: the exact byte count that follows. For
+  // streaming responses: -1 (caller reads until stream close).
+  int64  body_size               = 4;
+}
+
+// ─── Plugin command (STREAM_PLUGIN_COMMAND) ────────────────────────────────
+//
+// One PluginCommand frame; optional raw chart .tgz bytes if has_blob;
+// half-close. Worker replies with one PluginCommandAck frame and closes.
+// Status updates flow back over a separate PLUGIN_STATUS_PUSH stream
+// (one push per phase transition).
+
+message PluginCommand {
+  string action      = 1;  // "enable" or "disable"
+  string crd_name    = 2;
+  PluginSpec spec    = 3;  // only for enable
+  // chart_blob_size: bytes of .tgz that follow this frame. 0 = no blob
+  // (either disable, or worker already has it cached by sha256).
+  int64  chart_blob_size = 4;
+}
+
+message PluginSpec {
+  string plugin_id         = 1;
+  string display_name      = 2;
+  ChartSource chart        = 3;
+  string release_name      = 4;
+  string release_namespace = 5;
+  string values            = 6;  // YAML text
+}
+
+message ChartSource {
+  string type    = 1;  // "repo" / "local"
+  string repo    = 2;  // type=repo
+  string name    = 3;
+  string version = 4;
+  string sha256  = 5;  // type=local
+  // When true and chart_blob_size > 0, the raw .tgz bytes follow the
+  // PluginCommand frame on the same stream.
+  bool   has_blob = 6;
+}
+
+message PluginCommandAck {
+  bool   success = 1;
+  string error   = 2;
+}
+
+// ─── Pod logs (STREAM_POD_LOGS) ────────────────────────────────────────────
+//
+// server → worker: LogsStartRequest, half-close
+// worker → server: LogsChunk*, then close (clean EOF) or LogsEnd{error}+close
+//
+// Cancellation = server closes the stream.
+
+message LogsStartRequest {
+  string namespace     = 1;
+  string pod           = 2;
+  string container     = 3;  // empty = first/default
+  bool   follow        = 4;
+  int64  tail_lines    = 5;
+  int64  since_seconds = 6;
+  bool   previous      = 7;
+}
+
+message LogsChunk {
+  bytes data = 1;
+}
+
+message LogsEnd {
+  string error = 1;  // empty = clean EOF
+}
+
+// ─── Pod exec (STREAM_POD_EXEC) — bidirectional ────────────────────────────
+//
+// server → worker: ExecStartRequest, then ExecStdin / ExecResize messages
+//                  until close
+// worker → server: ExecOutput messages until close, then ExecEnd
+
+message ExecStartRequest {
+  string          namespace = 1;
+  string          pod       = 2;
+  string          container = 3;
+  repeated string command   = 4;
+  bool            tty       = 5;
+  uint32          cols      = 6;
+  uint32          rows      = 7;
+}
+
+message ExecStdin {
+  bytes data = 1;
+}
+
+message ExecResize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+message ExecOutput {
+  uint32 stream = 1;  // 1=stdout, 2=stderr
+  bytes  data   = 2;
+}
+
+message ExecEnd {
+  int32  exit_code = 1;
+  string error     = 2;
+}
+
+// ─── WebSocket reverse proxy (STREAM_WS_PROXY) — bidirectional ─────────────
+
+message WSStartRequest {
+  string url = 1;
+  repeated HTTPHeader headers = 2;
+}
+
+message WSFrame {
+  int32 opcode = 1;  // RFC 6455: 1=text, 2=binary
+  bytes data   = 2;
+}
+
+message WSEnd {
+  int32  code   = 1;
+  string reason = 2;
+}
+
+// ─── Plugin status push (STREAM_PLUGIN_STATUS_PUSH) ────────────────────────
+//
+// Worker opens a stream and writes ONE PluginStatusPush, then closes.
+// Server's accept loop reads, dispatches, doesn't reply.
+
+message PluginStatusPush {
+  string crd_name             = 1;
+  string phase                = 2;  // Pending / Installing / Running / Upgrading / Failed / Uninstalling
+  string message              = 3;
+  string installed_version    = 4;
+  string installed_namespace  = 5;
+  int64  installed_revision   = 6;
+  int64  observed_generation  = 7;
+  int64  ts                   = 8;
+}
+
+// ─── Plugin install log push (STREAM_PLUGIN_LOG_PUSH) ──────────────────────
+//
+// Worker opens one stream per install / upgrade run, writes 1+ PluginLogChunk
+// messages live, then one PluginLogEnd, then closes.
+
+message PluginLogChunk {
+  string crd_name = 1;
+  string level    = 2;  // "info" / "warn" / "error"
+  int64  ts       = 3;
+  string message  = 4;
+}
+
+message PluginLogEnd {
+  string crd_name = 1;
+  bool   success  = 2;
+  string summary  = 3;
+}
