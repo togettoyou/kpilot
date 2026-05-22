@@ -22,7 +22,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 )
@@ -57,7 +56,7 @@ import (
 // HTTPStream back, the caller owns ctx watching.
 type HTTPStream struct {
 	Status  int32
-	Headers []*proto.HTTPHeader
+	Headers []*pbv2.HTTPHeader
 	Error   string
 
 	// Body is the live response stream. Reads block waiting for
@@ -117,7 +116,7 @@ func (g *GatewayServer) SendHTTPRequestStream(ctx context.Context, clusterID str
 	if err := st.WriteMsg(&pbv2.HTTPRequestStart{
 		Method:         req.Method,
 		Url:            req.URL,
-		Headers:        headersToV2(req.Headers),
+		Headers:        req.Headers,
 		BodySize:       int64(len(req.Body)),
 		StreamResponse: true,
 	}); err != nil {
@@ -140,7 +139,7 @@ func (g *GatewayServer) SendHTTPRequestStream(ctx context.Context, clusterID str
 	closeOnFail = false
 	return &HTTPStream{
 		Status:  startResp.GetStatus(),
-		Headers: headersFromV2(startResp.GetHeaders()),
+		Headers: startResp.GetHeaders(),
 		Error:   startResp.GetError(),
 		Body:    st.Reader(),
 		stream:  st,

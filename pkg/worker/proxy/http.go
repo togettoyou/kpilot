@@ -17,7 +17,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 )
@@ -27,7 +26,7 @@ import (
 // by tunnel.SendHTTPResponse so heartbeats never get starved.
 type HTTPResponse struct {
 	Status  int32
-	Headers []*proto.HTTPHeader
+	Headers []*pbv2.HTTPHeader
 	Body    []byte
 	Error   string
 }
@@ -270,7 +269,7 @@ func (p *HTTPProxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 		StreamResponse: wireReq.GetStreamResponse(),
 	}
 	for _, h := range wireReq.GetHeaders() {
-		req.Headers = append(req.Headers, &proto.HTTPHeader{Name: h.GetName(), Value: h.GetValue()})
+		req.Headers = append(req.Headers, &pbv2.HTTPHeader{Name: h.GetName(), Value: h.GetValue()})
 	}
 	if n := wireReq.GetBodySize(); n > 0 {
 		body := make([]byte, n)
@@ -307,7 +306,7 @@ func (p *HTTPProxy) handleBufferedResp(_ context.Context, st *transportv2.Stream
 		st.RequestID(), resp.Status, len(resp.Body), time.Since(start))
 	if err := st.WriteMsg(&pbv2.HTTPResponseStart{
 		Status:   resp.Status,
-		Headers:  v1HeadersToV2(resp.Headers),
+		Headers:  resp.Headers,
 		Error:    resp.Error,
 		BodySize: int64(len(resp.Body)),
 	}); err != nil {
@@ -360,7 +359,7 @@ func (p *HTTPProxy) handleStreamingResp(parent context.Context, st *transportv2.
 
 	if err := st.WriteMsg(&pbv2.HTTPResponseStart{
 		Status:   int32(hresp.StatusCode),
-		Headers:  v1HeadersToV2(extractResponseHeaders(hresp)),
+		Headers:  extractResponseHeaders(hresp),
 		BodySize: -1, // streaming — caller reads until stream close
 	}); err != nil {
 		log.Printf("[http-proxy] stream start write failed: request=%s err=%v", st.RequestID(), err)
@@ -392,18 +391,6 @@ func (p *HTTPProxy) handleStreamingResp(parent context.Context, st *transportv2.
 	}
 }
 
-// v1HeadersToV2 — local mirror; the gateway side has the same
-// converter going the other way.
-func v1HeadersToV2(h []*proto.HTTPHeader) []*pbv2.HTTPHeader {
-	if len(h) == 0 {
-		return nil
-	}
-	out := make([]*pbv2.HTTPHeader, len(h))
-	for i, x := range h {
-		out[i] = &pbv2.HTTPHeader{Name: x.GetName(), Value: x.GetValue()}
-	}
-	return out
-}
 
 // dispatchForStream picks routing the same way `do()` does but returns
 // the raw *http.Response (caller closes Body). Direct + service-proxy
@@ -519,8 +506,8 @@ func (p *HTTPProxy) dispatchViaServiceProxy(
 // HTTPHeader shape, stripping hop-by-hop + Content-Length (gateway /
 // gin both compute their own). Shared by streaming and (indirectly via
 // inline duplication for the html-rewrite case) buffered paths.
-func extractResponseHeaders(hresp *http.Response) []*proto.HTTPHeader {
-	headers := make([]*proto.HTTPHeader, 0, len(hresp.Header))
+func extractResponseHeaders(hresp *http.Response) []*pbv2.HTTPHeader {
+	headers := make([]*pbv2.HTTPHeader, 0, len(hresp.Header))
 	for name, values := range hresp.Header {
 		if _, hop := hopByHopHeaders[name]; hop {
 			continue
@@ -529,7 +516,7 @@ func extractResponseHeaders(hresp *http.Response) []*proto.HTTPHeader {
 			continue
 		}
 		for _, v := range values {
-			headers = append(headers, &proto.HTTPHeader{Name: name, Value: v})
+			headers = append(headers, &pbv2.HTTPHeader{Name: name, Value: v})
 		}
 	}
 	return headers

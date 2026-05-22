@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
@@ -285,7 +284,7 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			target += "?" + query
 		}
 
-		headers := make([]*proto.HTTPHeader, 0, len(c.Request.Header)+1)
+		headers := make([]*pbv2.HTTPHeader, 0, len(c.Request.Header)+1)
 		for name, values := range c.Request.Header {
 			if _, hop := hopByHopHeadersServer[name]; hop {
 				continue
@@ -306,7 +305,7 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			if canon == "Cookie" {
 				for _, v := range values {
 					if filtered := filterKPilotCookies(v); filtered != "" {
-						headers = append(headers, &proto.HTTPHeader{Name: name, Value: filtered})
+						headers = append(headers, &pbv2.HTTPHeader{Name: name, Value: filtered})
 					}
 				}
 				continue
@@ -318,7 +317,7 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 				continue
 			}
 			for _, v := range values {
-				headers = append(headers, &proto.HTTPHeader{Name: name, Value: v})
+				headers = append(headers, &pbv2.HTTPHeader{Name: name, Value: v})
 			}
 		}
 		// Inject the auth.proxy headers. Username comes from the JWT
@@ -326,8 +325,8 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// to keep the embed read-only; auth.proxy's `headers` config
 		// applies it on every request, so even old Admin accounts get
 		// downgraded immediately.
-		headers = append(headers, &proto.HTTPHeader{Name: "X-WEBAUTH-USER", Value: resolveUsername(c)})
-		headers = append(headers, &proto.HTTPHeader{Name: "X-WEBAUTH-ROLE", Value: proxyGrafanaRole})
+		headers = append(headers, &pbv2.HTTPHeader{Name: "X-WEBAUTH-USER", Value: resolveUsername(c)})
+		headers = append(headers, &pbv2.HTTPHeader{Name: "X-WEBAUTH-ROLE", Value: proxyGrafanaRole})
 
 		req := &gateway.HTTPRequest{
 			Method:  c.Request.Method,

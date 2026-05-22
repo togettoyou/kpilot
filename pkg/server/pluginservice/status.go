@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
@@ -19,7 +19,7 @@ import (
 // (the push struct doesn't carry it anyway). Errors are logged here
 // and returned for the caller's optional inspection; gateway swallows
 // the error since plugin status is best-effort.
-func PersistStatus(clusterID string, st *proto.PluginStatusPush) error {
+func PersistStatus(clusterID string, st *pbv2.PluginStatusPush) error {
 	plugin, err := store.GetPluginByName(st.CrdName)
 	if err != nil {
 		// Worker reported status for a plugin name we don't know —

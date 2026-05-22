@@ -11,22 +11,17 @@
 // boundary and let the rest of the package proceed unchanged.
 package proxy
 
-import "github.com/togettoyou/kpilot/pkg/common/proto"
+import pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 
 // HTTPRequest is the proxy-internal HTTP forward request shape.
 // Mirrors the old tunnel.HTTPRequest — same field set; the
 // rename to "proxy.HTTPRequest" just decouples this from the
-// transport package.
-//
-// Headers keeps the v1 proto.HTTPHeader type for now — http.go
-// references it pervasively (response header forwarding,
-// gateway-side conversion) and the v1 proto pkg still exists.
-// Phase D may swap to a local type to fully drop v1 proto from
-// the worker side.
+// transport package. Headers use pbv2.HTTPHeader directly
+// (Name, Value) — same struct shape as the v1 proto type was.
 type HTTPRequest struct {
 	Method  string
 	URL     string
-	Headers []*proto.HTTPHeader
+	Headers []*pbv2.HTTPHeader
 	Body    []byte
 	// StreamResponse asks the worker to forward upstream body
 	// bytes live (per-token SSE for inference) rather than

@@ -21,7 +21,7 @@ import (
 	"log"
 	"regexp"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/dashboards"
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
@@ -45,7 +45,7 @@ type ClusterDomainResolver interface {
 type Command struct {
 	Action  string
 	CrdName string
-	Spec    *proto.PluginSpec
+	Spec    *pbv2.PluginSpec
 	Blob    []byte
 }
 
@@ -152,7 +152,7 @@ func BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, resolver Clust
 		version = p.DefaultVersion
 	}
 	releaseNS := p.DefaultReleaseNamespace
-	chart := &proto.ChartSource{
+	chart := &pbv2.ChartSource{
 		Type:    string(p.ChartType),
 		Name:    p.ChartName,
 		Version: version,
@@ -179,7 +179,7 @@ func BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, resolver Clust
 	return &Command{
 		Action:  "enable",
 		CrdName: p.Name,
-		Spec: &proto.PluginSpec{
+		Spec: &pbv2.PluginSpec{
 			PluginId:         fmt.Sprintf("%d", p.ID),
 			DisplayName:      p.DisplayName,
 			Chart:            chart,

@@ -57,7 +57,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
@@ -170,15 +170,15 @@ func ProxyInferenceOpenAI(gw *gateway.GatewayServer) gin.HandlerFunc {
 // dropped so Go's transport handles compression auto-decompressing;
 // otherwise the worker would forward gzip bytes with no
 // Content-Encoding header and the client SDK would mangle them.
-func buildUpstreamInferenceHeaders(c *gin.Context) []*proto.HTTPHeader {
-	headers := []*proto.HTTPHeader{}
+func buildUpstreamInferenceHeaders(c *gin.Context) []*pbv2.HTTPHeader {
+	headers := []*pbv2.HTTPHeader{}
 	ct := c.GetHeader("Content-Type")
 	if ct == "" {
 		ct = "application/json"
 	}
-	headers = append(headers, &proto.HTTPHeader{Name: "Content-Type", Value: ct})
+	headers = append(headers, &pbv2.HTTPHeader{Name: "Content-Type", Value: ct})
 	if ac := c.GetHeader("Accept"); ac != "" {
-		headers = append(headers, &proto.HTTPHeader{Name: "Accept", Value: ac})
+		headers = append(headers, &pbv2.HTTPHeader{Name: "Accept", Value: ac})
 	}
 	return headers
 }

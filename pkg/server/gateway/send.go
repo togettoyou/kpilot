@@ -131,7 +131,7 @@ func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, r
 	if err := st.WriteMsg(&pbv2.HTTPRequestStart{
 		Method:         req.Method,
 		Url:            req.URL,
-		Headers:        headersToV2(req.Headers),
+		Headers:        req.Headers,
 		BodySize:       int64(len(req.Body)),
 		StreamResponse: false,
 	}); err != nil {
@@ -152,7 +152,7 @@ func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, r
 	}
 	resp := &HTTPResponse{
 		Status:  startResp.GetStatus(),
-		Headers: headersFromV2(startResp.GetHeaders()),
+		Headers: startResp.GetHeaders(),
 		Error:   startResp.GetError(),
 	}
 	if size := startResp.GetBodySize(); size > 0 {

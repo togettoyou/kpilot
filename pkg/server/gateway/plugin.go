@@ -20,7 +20,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/pluginservice"
 	"github.com/togettoyou/kpilot/pkg/server/store"
@@ -72,10 +71,10 @@ func (g *GatewayServer) SendPluginCommand(clusterID string, cmd *pluginservice.C
 	applyCtxDeadline(ctx, st)
 
 	wire := &pbv2.PluginCommand{
-		Action:         cmd.Action,
-		CrdName:        cmd.CrdName,
-		Spec:           pluginSpecToV2(cmd.Spec),
-		ChartBlobSize:  int64(len(cmd.Blob)),
+		Action:        cmd.Action,
+		CrdName:       cmd.CrdName,
+		Spec:          cmd.Spec,
+		ChartBlobSize: int64(len(cmd.Blob)),
 	}
 	if err := st.WriteMsg(wire); err != nil {
 		return fmt.Errorf("write plugin cmd: %w", err)
@@ -99,53 +98,11 @@ func (g *GatewayServer) SendPluginCommand(clusterID string, cmd *pluginservice.C
 	return nil
 }
 
-// pluginSpecToV2 converts the v1 proto types pluginservice.Command
-// carries into the v2 wire equivalent. Field sets are 1:1.
-func pluginSpecToV2(s *proto.PluginSpec) *pbv2.PluginSpec {
-	if s == nil {
-		return nil
-	}
-	out := &pbv2.PluginSpec{
-		PluginId:         s.GetPluginId(),
-		DisplayName:      s.GetDisplayName(),
-		ReleaseName:      s.GetReleaseName(),
-		ReleaseNamespace: s.GetReleaseNamespace(),
-		Values:           s.GetValues(),
-	}
-	if c := s.GetChart(); c != nil {
-		out.Chart = &pbv2.ChartSource{
-			Type:    c.GetType(),
-			Repo:    c.GetRepo(),
-			Name:    c.GetName(),
-			Version: c.GetVersion(),
-			Sha256:  c.GetSha256(),
-			HasBlob: c.GetHasBlob(),
-		}
-	}
-	return out
-}
-
-// pluginStatusFromV2 converts the v2 push frame back into v1's
-// proto.PluginStatusPush so pluginservice.PersistStatus
-// (transport-agnostic) keeps working without a v2 import.
-func pluginStatusFromV2(p *pbv2.PluginStatusPush) *proto.PluginStatusPush {
-	return &proto.PluginStatusPush{
-		CrdName:            p.GetCrdName(),
-		Phase:              p.GetPhase(),
-		Message:            p.GetMessage(),
-		ObservedVersion:    p.GetObservedVersion(),
-		ObservedValuesHash: p.GetObservedValuesHash(),
-		HelmRevision:       p.GetHelmRevision(),
-		InstalledAt:        p.GetInstalledAt(),
-		LastUpdatedAt:      p.GetLastUpdatedAt(),
-	}
-}
-
 // handlePluginStatus persists a status push. Called from
 // dispatchInboundStream when a worker opens a
 // STREAM_PLUGIN_STATUS_PUSH stream.
 func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *pbv2.PluginStatusPush) {
-	if err := pluginservice.PersistStatus(w.ClusterID, pluginStatusFromV2(st)); err != nil {
+	if err := pluginservice.PersistStatus(w.ClusterID, st); err != nil {
 		log.Printf("[gateway] plugin status persist: cluster=%s crd=%s err=%v",
 			w.ClusterID, st.GetCrdName(), err)
 	}
