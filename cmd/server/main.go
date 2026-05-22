@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 
@@ -79,6 +80,23 @@ func main() {
 			log.Fatalf("grpc serve: %v", err)
 		}
 	}()
+
+	// v2 transport (docs/transport-v2.md) — plain TCP + yamux per
+	// accepted conn. Runs alongside the legacy gRPC server during
+	// the migration window; workers pick one path at dial time.
+	// YAMUX_ADDR empty = legacy-only mode (no v2 listener); set to
+	// e.g. ":9091" to bring v2 up. Phase D will retire the gRPC path.
+	if cfg.YamuxAddr != "" {
+		ylis, err := net.Listen("tcp", cfg.YamuxAddr)
+		if err != nil {
+			log.Fatalf("yamux listen %s: %v", cfg.YamuxAddr, err)
+		}
+		go func() {
+			if err := gw.AcceptYamux(context.Background(), ylis); err != nil {
+				log.Printf("[yamux] accept loop exited: %v", err)
+			}
+		}()
+	}
 
 	// HTTP server
 	router := api.NewRouter(cfg, gw)

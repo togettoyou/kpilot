@@ -19,16 +19,31 @@ import (
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
 	"github.com/togettoyou/kpilot/pkg/server/store"
+	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 )
 
-// ConnectedWorker represents a live Worker connection.
+// ConnectedWorker represents a live Worker connection. During the
+// v1→v2 transport migration both fields coexist: a worker registered
+// via the gRPC Connect handler has Stream + sender set and Session
+// nil; a worker registered via the yamux accept loop has Session set
+// and Stream + sender nil. Public Send* methods branch on which
+// transport the worker uses. Phase D will retire the gRPC fields
+// and leave Session as the only transport.
 type ConnectedWorker struct {
 	ClusterID string
 	// ClusterDomain is the K8s DNS suffix Worker reported on register
 	// (e.g. "cluster.local"). The reverse proxy uses it to build the
 	// FQDN of the in-cluster Service it forwards to.
 	ClusterDomain string
-	Stream        proto.PilotService_ConnectServer
+	// v1 transport — bidi gRPC stream. Phase D removes.
+	Stream proto.PilotService_ConnectServer
+
+	// v2 transport — yamux session (see docs/transport-v2.md +
+	// pkg/transport/yamux). One TLS/TCP conn per cluster carries N
+	// concurrent yamux streams; Session.Open / Session.CloseChan
+	// give us per-RPC open + session-level liveness without the
+	// prioritySender + chunked framing v1 needed.
+	Session *transportv2.Session
 
 	// lastSeenNS holds the unix-nano timestamp of the most recent
 	// Heartbeat. Kept as a debug counter only — application heartbeat
@@ -44,10 +59,12 @@ type ConnectedWorker struct {
 	// Producers call sender.sendSlow/sendFast; the sender drains a
 	// fast lane before slow so future high-priority frames (if any)
 	// never starve. Created in Connect; nil after disconnect.
+	// v1 transport only — yamux replaces with per-stream send.
 	sender *prioritySender
 
 	// rxAsm accumulates per-request_id inbound chunks (HTTPResponseStart
 	// + BodyChunk* + BodyEnd, or ResourceResponseStart + chunks).
+	// v1 transport only — yamux's per-stream lifetime replaces.
 	rxAsm *rxAccumulators
 }
 
