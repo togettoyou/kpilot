@@ -21,13 +21,13 @@ Multi-cluster is the default — a single KPilot Server manages many clusters, w
 
 ## Why KPilot
 
-- **One reverse-connecting multiplexed TCP+TLS channel per cluster.** Worker dials Server outbound; no inbound ports on the cluster, no kubeconfig leaves it. Every request / streaming session runs concurrently on the same connection without head-of-line blocking — K8s API proxying, Helm chart blobs, Pod logs / exec, HTTP / WebSocket reverse-proxy for embedded UIs (Grafana, VictoriaMetrics), inference SSE streams. See [`docs/transport-v2.md`](docs/transport-v2.md) for the architecture record.
+- **Zero inbound ports; kubeconfigs never leave the cluster.** Worker dials Server outbound over a single multiplexed TCP+TLS channel — every K8s API call, Helm install, Pod log / exec session, embedded-UI reverse proxy (Grafana, VictoriaMetrics), and inference SSE stream concurrently shares the connection without head-of-line blocking. See [`docs/transport-v2.md`](docs/transport-v2.md) for the architecture record.
 
-- **Deep Volcano integration.** 10 CR browsers, 7 typed authoring forms, and a visual scheduler-policy editor covering every Volcano action / tier / plugin parameter. vGPU slices are parsed from device-plugin annotations and rendered card-by-card with the Pods currently holding them.
+- **GPU + Volcano as one integrated platform.** Volcano gang scheduling across 10 CR kinds with 7 typed authoring forms and a visual scheduler-policy editor; vGPU device-plugin slicing (slot / framebuffer / SM cores) parsed per-card with the Pods currently holding each slice; DCGM-driven GPU-Hour usage reports across 1h / 24h / 7d / 30d windows plus alerts on XID, ECC, thermal, and framebuffer pressure — one console for who scheduled it, who's using it, and whether the hardware is healthy.
 
-- **In-app model serving.** Curated model catalog (Qwen3 family, DeepSeek-R1, Llama-4, Mistral, Phi-4, GLM-5.1, Gemma-4, Kimi-K2.6 — all on vLLM by default), one-click deployment to any managed cluster with vGPU resource shaping, in-browser chat playground for smoke testing, and OpenAI-compatible reverse-proxy endpoints gated by sha256-hashed Bearer keys you mint per deployment.
+- **In-app model serving from catalog to API.** One-click deploy curated open-weights LLMs (Qwen3, DeepSeek-R1, Llama-4, Mistral, Phi-4, GLM-5.1, Gemma-4, Kimi-K2.6 — all on vLLM by default) to any managed cluster with vGPU resource shaping, debug each instance through the in-browser chat playground, then mint scoped OpenAI-compatible Bearer keys for application teams. No separate model-serving stack to operate.
 
-- **In-app dashboards, Grafana for ad-hoc work.** Cluster / GPU monitoring, log search (virtualized list + histogram), queue-quota bars, and vGPU panels render in-app against VictoriaMetrics / VictoriaLogs / DCGM directly. Grafana stays one route away for ad-hoc PromQL.
+- **Plugin-first platform.** KPilot's own observability stack — VictoriaMetrics, VictoriaLogs, Grafana, DCGM Exporter, Metrics Server, kube-state-metrics — ships through the same built-in Helm registry operators use to install arbitrary customer charts. Per-cluster enable / disable / upgrade from the UI with the install log streamed live; per-cluster values overrides; bring your own charts the same way.
 
 ## Architecture
 
