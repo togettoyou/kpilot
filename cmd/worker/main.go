@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 
 	"github.com/go-logr/logr"
+	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -16,6 +18,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
+	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
 	"github.com/togettoyou/kpilot/pkg/worker/config"
 	"github.com/togettoyou/kpilot/pkg/worker/plugin"
@@ -34,9 +38,6 @@ func main() {
 	defer stop()
 
 	ctrl.SetLogger(logr.Discard())
-	// Resolving DataDir to its absolute path here makes "cwd-dependent
-	// .env didn't load" failures obvious in the log instead of showing
-	// up later as a surprising EACCES on /var/lib/kpilot.
 	resolvedDataDir, _ := filepath.Abs(cfg.DataDir)
 	log.Printf("[worker] starting: server=%s data_dir=%s", cfg.ServerAddr, resolvedDataDir)
 
@@ -48,12 +49,6 @@ func main() {
 	if err != nil {
 		log.Printf("[worker] no kubeconfig available, node + plugin features disabled: %v", err)
 	} else {
-		// Build a scheme that includes both the standard k8s types and
-		// our Plugin CRD; controller-runtime needs both registered before
-		// the Manager starts so the Plugin reconciler can Watch and Get.
-		// Use a fresh scheme rather than the package-global
-		// clientgoscheme.Scheme so we don't leak the kpilot types into
-		// any other code path that walks the default scheme.
 		scheme := runtime.NewScheme()
 		if err := clientgoscheme.AddToScheme(scheme); err != nil {
 			log.Fatalf("[worker] failed to add k8s scheme: %v", err)
@@ -61,10 +56,6 @@ func main() {
 		if err := kpilotv1alpha1.AddToScheme(scheme); err != nil {
 			log.Fatalf("[worker] failed to add plugin scheme: %v", err)
 		}
-
-		// Install the Plugin CRD definition before the Manager Watch — we
-		// don't ship a separate Worker Helm chart yet, so this is the only
-		// place that registers the kind.
 		if err := plugin.EnsurePluginCRD(ctx, k8sCfg); err != nil {
 			log.Fatalf("[worker] failed to install plugin CRD: %v", err)
 		}
@@ -78,82 +69,38 @@ func main() {
 			log.Fatalf("[worker] failed to create manager: %v", err)
 		}
 
-		// One typed clientset shared by Pod logs / Pod exec — building
-		// one per consumer wastes connection pools on the same
-		// kube-apiserver target.
 		clientset, err := kubernetes.NewForConfig(k8sCfg)
 		if err != nil {
 			log.Fatalf("[worker] failed to create clientset: %v", err)
 		}
 
-		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper(), func(requestID string, r *proxy.ResourceResponse) {
-			tunnelClient.SendResourceResponse(requestID, r.Success, r.Error, r.Data)
-		})
+		// Resource proxy — owns K8s API call dispatch.
+		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper())
 		if err != nil {
 			log.Fatalf("[worker] failed to create proxy: %v", err)
 		}
-		tunnelClient.SetResourceHandler(p.Handle)
 
-		// Shared in-cluster routing cache: on the first *.svc.* request
-		// we try direct DNS dial; on DNS failure we fall back to the
-		// K8s API server's service-proxy subresource and remember that
-		// for 24h. Both the HTTP and WS reverse proxies consult the
-		// same instance so they agree on the path without probing
-		// independently.
+		// Shared routing cache between HTTP + WS proxies.
 		router := proxy.NewInClusterRouter()
 
-		// Reverse-proxy HTTP forwarder (Server → in-cluster Service for
-		// embedded plugin UIs like Grafana, plus VM / VictoriaLogs
-		// PromQL / LogsQL queries from the monitoring / logging pages).
-		httpProxy := proxy.NewHTTPProxy(
-			func(requestID string, r *proxy.HTTPResponse) {
-				tunnelClient.SendHTTPResponse(requestID, r.Status, r.Headers, r.Body, r.Error)
-			},
-			tunnelClient.SendHTTPResponseStart,
-			tunnelClient.SendHTTPResponseChunk,
-			tunnelClient.SendHTTPResponseEnd,
-			tunnelClient.RegisterHTTPCancel,
-			tunnelClient.DeregisterHTTPCancel,
-			tunnelClient.StreamContext,
-			k8sCfg,
-			router,
-		)
-		tunnelClient.SetHTTPHandler(httpProxy.Handle)
+		// HTTP reverse proxy.
+		httpProxy := proxy.NewHTTPProxy(k8sCfg, router)
 
-		// WebSocket reverse proxy (Grafana Live, etc.) — sibling to the
-		// HTTP forwarder. Owns one upstream WS conn per session. k8sCfg
-		// is needed for the service-proxy WS fallback when direct dial
-		// can't resolve cluster DNS (typical for local-dev workers).
-		wsMgr := proxy.NewWSManager(tunnelClient, k8sCfg, router)
-		tunnelClient.SetWSHandlers(wsMgr.Start, wsMgr.Frame, wsMgr.End)
+		// WebSocket reverse proxy.
+		wsMgr := proxy.NewWSManager(k8sCfg, router)
 
-		logsMgr := proxy.NewLogsManager(clientset, tunnelClient)
-		execMgr := proxy.NewExecManager(k8sCfg, clientset, tunnelClient)
-		tunnelClient.SetStreamHandlers(
-			logsMgr.Start,
-			logsMgr.Cancel,
-			execMgr.Start,
-			execMgr.Stdin,
-			execMgr.Resize,
-			execMgr.Cancel,
-		)
+		// Pod logs / exec managers (no per-session registry in v2 —
+		// each yamux stream is the session).
+		logsMgr := proxy.NewLogsManager(clientset)
+		execMgr := proxy.NewExecManager(k8sCfg, clientset)
 
-		// ─── Plugin pipeline ────────────────────────────────────────────
-		// Local Helm chart .tgz cache. CHART_CACHE_DIR should be on a PVC
-		// so the cache survives Worker pod restarts.
+		// Plugin pipeline.
 		chartCache, err := plugin.NewChartCache(cfg.ChartCacheDir())
 		if err != nil {
 			log.Fatalf("[worker] chart cache init: %v", err)
 		}
 		statusPusher := plugin.NewPusherAdapter(tunnelClient)
-		// Manager translates PluginCommand from gRPC into CRD writes;
-		// it also pushes a Disabled status when handleDisable finds no
-		// CRD to delete (covers Server rows stuck at Uninstalling).
 		pluginMgr := plugin.NewManager(mgr.GetClient(), chartCache, statusPusher)
-		tunnelClient.SetPluginHandler(func(cmd *tunnel.PluginCommand) error {
-			return pluginMgr.Handle(ctx, cmd)
-		})
-		// Reconciler watches Plugin CRDs and drives Helm.
 		reconciler := &plugin.Reconciler{
 			Client: mgr.GetClient(),
 			Helm:   plugin.NewHelmRunner(k8sCfg, cfg.DataDir),
@@ -164,6 +111,18 @@ func main() {
 		if err := reconciler.SetupWithManager(mgr); err != nil {
 			log.Fatalf("[worker] plugin reconciler setup: %v", err)
 		}
+
+		// Wire the tunnel-dispatch table. Each handler is invoked
+		// from the tunnel.Client accept goroutine, in its own
+		// per-stream goroutine.
+		tunnelClient.SetHandlers(tunnel.Handlers{
+			OnResource: p.HandleStream,
+			OnHTTP:     httpProxy.HandleStream,
+			OnPlugin:   makePluginHandler(pluginMgr),
+			OnPodLogs:  logsMgr.HandleStream,
+			OnPodExec:  execMgr.HandleStream,
+			OnWSProxy:  wsMgr.HandleStream,
+		})
 
 		go func() {
 			if err := mgr.Start(ctx); err != nil {
@@ -178,3 +137,67 @@ func main() {
 
 	log.Println("worker stopped")
 }
+
+// makePluginHandler builds the tunnel handler for
+// STREAM_PLUGIN_COMMAND: read pbv2.PluginCommand + chart blob,
+// convert to tunnel.PluginCommand, hand to plugin.Manager.Handle,
+// write PluginCommandAck back.
+func makePluginHandler(mgr *plugin.Manager) func(context.Context, *transportv2.Stream) {
+	return func(ctx context.Context, st *transportv2.Stream) {
+		defer st.Close()
+		var wire pbv2.PluginCommand
+		if err := st.ReadMsg(&wire); err != nil {
+			log.Printf("[plugin-stream] read req failed: %v", err)
+			return
+		}
+		var blob []byte
+		if n := wire.GetChartBlobSize(); n > 0 {
+			blob = make([]byte, n)
+			if _, err := io.ReadFull(st.Reader(), blob); err != nil {
+				log.Printf("[plugin-stream] read blob failed: %v", err)
+				_ = st.WriteMsg(&pbv2.PluginCommandAck{Error: err.Error()})
+				return
+			}
+		}
+		cmd := &tunnel.PluginCommand{
+			Action:    wire.GetAction(),
+			CrdName:   wire.GetCrdName(),
+			ChartBlob: blob,
+		}
+		if spec := wire.GetSpec(); spec != nil {
+			cmd.Spec = &tunnel.PluginSpec{
+				PluginId:         spec.GetPluginId(),
+				DisplayName:      spec.GetDisplayName(),
+				ReleaseName:      spec.GetReleaseName(),
+				ReleaseNamespace: spec.GetReleaseNamespace(),
+				Values:           spec.GetValues(),
+			}
+			if c := spec.GetChart(); c != nil {
+				cmd.Spec.Chart = &tunnel.ChartSource{
+					Type:    c.GetType(),
+					Repo:    c.GetRepo(),
+					Name:    c.GetName(),
+					Version: c.GetVersion(),
+					Sha256:  c.GetSha256(),
+					HasBlob: c.GetHasBlob(),
+				}
+			}
+		}
+		// Per the worker contract documented in
+		// pkg/server/gateway/plugin.go: ack IMMEDIATELY on receipt
+		// (worker has the command + blob persisted to disk via
+		// chartCache); run Helm async. The async path posts its
+		// progress via STREAM_PLUGIN_STATUS_PUSH frames.
+		go func() {
+			if herr := mgr.Handle(context.Background(), cmd); herr != nil {
+				log.Printf("[plugin-stream] async handle err: crd=%s action=%s err=%v",
+					cmd.CrdName, cmd.Action, herr)
+			}
+		}()
+		_ = st.WriteMsg(&pbv2.PluginCommandAck{Success: true})
+	}
+}
+
+// keep proto imported in this file so future plugin frame
+// expansions land here without re-adding the import each time.
+var _ = proto.Marshal

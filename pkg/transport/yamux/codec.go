@@ -222,24 +222,39 @@ func (c *Codec) WriteMsg(m proto.Message) error {
 // when the peer half-closes its write side; any partial read is an
 // error (truncated frame).
 func (c *Codec) ReadMsg(m proto.Message) error {
-	if err := c.lazyInitReader(); err != nil {
+	buf, err := c.ReadRaw()
+	if err != nil {
 		return err
+	}
+	return proto.Unmarshal(buf, m)
+}
+
+// ReadRaw reads one length-prefixed framed message and returns the
+// raw payload bytes (caller picks the proto type to Unmarshal
+// against). Useful when one stream carries multiple message types
+// distinguished by content rather than by a framing discriminator
+// — e.g. STREAM_POD_EXEC's ExecStdin vs ExecResize on the input
+// side. proto.Unmarshal silently zeros mismatched fields, so the
+// caller can try multiple decodes against the same buffer.
+func (c *Codec) ReadRaw() ([]byte, error) {
+	if err := c.lazyInitReader(); err != nil {
+		return nil, err
 	}
 	length, err := binary.ReadUvarint(c.br)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
-			return io.EOF
+			return nil, io.EOF
 		}
-		return fmt.Errorf("read length prefix: %w", err)
+		return nil, fmt.Errorf("read length prefix: %w", err)
 	}
 	if length > maxMessageSize {
-		return fmt.Errorf("incoming message too large: %d > %d", length, maxMessageSize)
+		return nil, fmt.Errorf("incoming message too large: %d > %d", length, maxMessageSize)
 	}
 	buf := make([]byte, length)
 	if _, err := io.ReadFull(c.br, buf); err != nil {
-		return fmt.Errorf("read payload: %w", err)
+		return nil, fmt.Errorf("read payload: %w", err)
 	}
-	return proto.Unmarshal(buf, m)
+	return buf, nil
 }
 
 // Reader exposes the (possibly gzipped) byte stream for callers

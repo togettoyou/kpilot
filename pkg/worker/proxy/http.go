@@ -18,7 +18,8 @@ import (
 	"k8s.io/client-go/transport"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
-	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
+	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 )
 
 // HTTPResponse is the worker-side internal result shape for one
@@ -73,31 +74,16 @@ const proxyMaxRespBytes = 31 * 1024 * 1024
 //     BodyChunk frames (sendChunkFn) as they arrive from the upstream,
 //     terminating with sendEndFn. SSE pass-through depends on this —
 //     buffering swallows the per-token cadence.
+//
+// v2 (transport-v2): cancellation no longer needs a side
+// HttpCancel frame — server closes the yamux stream, the next
+// stream.Writer().Write returns an error, we tear down via
+// the ctx we set on the upstream HTTP request. For SSE the
+// cancel lag is "one upstream token / log line"; for blocked
+// reads without activity, the worker's per-request 5 min ctx
+// is the upper bound.
 type HTTPProxy struct {
 	client *http.Client
-	sendFn func(requestID string, resp *HTTPResponse)
-	// Streaming sends. nil-tolerant in tests; production wires them
-	// to tunnelClient.SendHTTPResponseStart/Chunk/End. Errors here
-	// usually mean the tunnel went down mid-stream — caller logs and
-	// aborts the read loop.
-	sendStartFn func(requestID string, status int32, headers []*proto.HTTPHeader, errMsg string) error
-	sendChunkFn func(requestID string, data []byte) error
-	sendEndFn   func(requestID string, errMsg string) error
-	// Cancel registry hooks for the server-side HttpCancel frame.
-	// handleStreaming registers its ctx cancel on entry so the tunnel
-	// recv loop can pull the rug when the originating request's
-	// caller (a frontend Stop button, a closed EventSource, etc.)
-	// no longer wants the response. Without these, the worker keeps
-	// reading from upstream + spraying orphan chunks at the gateway
-	// until its own 5 min ctx expires. nil-tolerant: tests + the
-	// buffered path don't need them.
-	registerCancelFn   func(requestID string, cancel func())
-	deregisterCancelFn func(requestID string)
-	// streamCtxFn returns the tunnel's current stream context, so each
-	// proxied request can derive its ctx from it. When the tunnel
-	// disconnects, in-flight upstream HTTP requests get cancelled
-	// instead of hanging on their 60 s timeout. nil-tolerant for tests.
-	streamCtxFn func() context.Context
 	// k8sCfg + apiClient power the service-proxy HTTP fallback. We
 	// dispatch via a normal http.Client (rather than client-go's REST
 	// helpers) so we get the upstream's full response headers —
@@ -129,54 +115,22 @@ type HTTPProxy struct {
 // Services without resolving `cluster.local` DNS itself. Required for
 // local-dev workers that talk to a remote cluster via kubeconfig +
 // SSH tunnel.
-func NewHTTPProxy(
-	sendFn func(string, *HTTPResponse),
-	sendStartFn func(requestID string, status int32, headers []*proto.HTTPHeader, errMsg string) error,
-	sendChunkFn func(requestID string, data []byte) error,
-	sendEndFn func(requestID string, errMsg string) error,
-	registerCancelFn func(requestID string, cancel func()),
-	deregisterCancelFn func(requestID string),
-	streamCtxFn func() context.Context,
-	k8sCfg *rest.Config,
-	router *InClusterRouter,
-) *HTTPProxy {
+func NewHTTPProxy(k8sCfg *rest.Config, router *InClusterRouter) *HTTPProxy {
 	p := &HTTPProxy{
 		client: &http.Client{
 			Transport: &http.Transport{
 				DialContext: (&net.Dialer{
 					Timeout: 5 * time.Second,
 				}).DialContext,
-				// Keep-alive a generous pool of upstream conns per Service.
-				// The Monitoring page fans out 22+ parallel PromQL queries
-				// to one VM Service; Grafana dashboard loads fire ~30
-				// parallel asset requests. The previous per-host=20 made
-				// the back half of every fan-out wait on a fresh TLS
-				// handshake (≈50ms each on local links, more on cross-
-				// region). 100 covers both burst sources without growing
-				// per-host steady-state usage (idle conns reap after 90s).
 				MaxIdleConns:        200,
 				MaxIdleConnsPerHost: 100,
 				IdleConnTimeout:     90 * time.Second,
-				// Disable response body chunking inside the transport so
-				// we can read the whole body in one call before forwarding.
-				DisableCompression: false,
+				DisableCompression:  false,
 			},
-			// Hard ceiling per request. Aligns with the server-side
-			// proxyTimeout (5 min) so a slow Grafana render or large
-			// VL search can complete instead of timing out at the
-			// worker first. WebSocket uses a separate dispatch path
-			// with no overall timeout.
 			Timeout: 5 * time.Minute,
 		},
-		sendFn:             sendFn,
-		sendStartFn:        sendStartFn,
-		sendChunkFn:        sendChunkFn,
-		sendEndFn:          sendEndFn,
-		registerCancelFn:   registerCancelFn,
-		deregisterCancelFn: deregisterCancelFn,
-		streamCtxFn:        streamCtxFn,
-		k8sCfg:             k8sCfg,
-		router:             router,
+		k8sCfg: k8sCfg,
+		router: router,
 	}
 	// Pre-build the apiserver-bound client once. We DON'T use
 	// `rest.HTTPClientFor(k8sCfg)` here because client-go caches its
@@ -299,150 +253,152 @@ var hopByHopHeaders = map[string]struct{}{
 // Streaming always replies too — failures before any body read emit
 // HTTPResponseStart with the error string set + zero-chunk BodyEnd, so
 // the gateway side surfaces the failure cleanly instead of timing out.
-func (p *HTTPProxy) Handle(requestID string, req *tunnel.HTTPRequest) {
-	if req.StreamResponse {
-		p.handleStreaming(requestID, req)
+// HandleStream is the tunnel entry point for an inbound
+// STREAM_HTTP_REQUEST. Reads the request frame + optional body,
+// dispatches (buffered or streaming based on StreamResponse),
+// writes the response back on the same stream.
+func (p *HTTPProxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
+	defer st.Close()
+	var wireReq pbv2.HTTPRequestStart
+	if err := st.ReadMsg(&wireReq); err != nil {
+		log.Printf("[wire] http read req failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
+	req := &HTTPRequest{
+		Method:         wireReq.GetMethod(),
+		URL:            wireReq.GetUrl(),
+		StreamResponse: wireReq.GetStreamResponse(),
+	}
+	for _, h := range wireReq.GetHeaders() {
+		req.Headers = append(req.Headers, &proto.HTTPHeader{Name: h.GetName(), Value: h.GetValue()})
+	}
+	if n := wireReq.GetBodySize(); n > 0 {
+		body := make([]byte, n)
+		if _, err := io.ReadFull(st.Reader(), body); err != nil {
+			log.Printf("[wire] http read body failed: request=%s err=%v", st.RequestID(), err)
+			return
+		}
+		req.Body = body
+	}
+
+	if req.StreamResponse {
+		p.handleStreamingResp(ctx, st, req)
+		return
+	}
+	p.handleBufferedResp(ctx, st, req)
+}
+
+// handleBufferedResp dispatches upstream, buffers the body,
+// writes HTTPResponseStart + body in one go.
+func (p *HTTPProxy) handleBufferedResp(_ context.Context, st *transportv2.Stream, req *HTTPRequest) {
 	start := time.Now()
 	resp, err := p.do(req)
 	if err != nil {
-		log.Printf("[http-proxy] dispatch failed: url=%s err=%v", req.URL, err)
-		log.Printf("[wire] http buffered handled request=%s status=502 bodyBytes=0 err=%q elapsed=%s",
-			requestID, err.Error(), time.Since(start))
-		p.sendFn(requestID, &HTTPResponse{
+		log.Printf("[wire] http buffered failed request=%s err=%v elapsed=%s",
+			st.RequestID(), err, time.Since(start))
+		_ = st.WriteMsg(&pbv2.HTTPResponseStart{
+			Status:   http.StatusBadGateway,
+			Error:    err.Error(),
+			BodySize: 0,
+		})
+		return
+	}
+	log.Printf("[wire] http buffered handled request=%s status=%d bodyBytes=%d elapsed=%s",
+		st.RequestID(), resp.Status, len(resp.Body), time.Since(start))
+	if err := st.WriteMsg(&pbv2.HTTPResponseStart{
+		Status:   resp.Status,
+		Headers:  v1HeadersToV2(resp.Headers),
+		Error:    resp.Error,
+		BodySize: int64(len(resp.Body)),
+	}); err != nil {
+		return
+	}
+	if len(resp.Body) > 0 {
+		_, _ = st.Writer().Write(resp.Body)
+	}
+}
+
+// handleStreamingResp dispatches the upstream HTTP request, then
+// forwards the response body live as raw bytes through the yamux
+// stream. HTTPResponseStart's BodySize is -1 to signal "read until
+// close". Cancellation: server stream.Close → our next Write fails
+// → defer cancel via the derived ctx tears down the upstream HTTP
+// request.
+func (p *HTTPProxy) handleStreamingResp(parent context.Context, st *transportv2.Stream, req *HTTPRequest) {
+	if req.Method == "" || req.URL == "" {
+		_ = st.WriteMsg(&pbv2.HTTPResponseStart{
+			Status: http.StatusBadGateway,
+			Error:  "method and url are required",
+		})
+		return
+	}
+	if scheme, ok := schemeOf(req.URL); !ok || (scheme != "http" && scheme != "https") {
+		_ = st.WriteMsg(&pbv2.HTTPResponseStart{
+			Status: http.StatusBadGateway,
+			Error:  fmt.Sprintf("unsupported url scheme: %s", req.URL),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
+	defer cancel()
+
+	hresp, err := p.dispatchForStream(ctx, req)
+	if err != nil {
+		log.Printf("[http-proxy] stream dispatch failed: url=%s err=%v", req.URL, err)
+		_ = st.WriteMsg(&pbv2.HTTPResponseStart{
 			Status: http.StatusBadGateway,
 			Error:  err.Error(),
 		})
 		return
 	}
-	log.Printf("[wire] http buffered handled request=%s status=%d bodyBytes=%d elapsed=%s",
-		requestID, resp.Status, len(resp.Body), time.Since(start))
-	p.sendFn(requestID, resp)
-}
-
-// handleStreaming dispatches the upstream HTTP request the same way as
-// the buffered path, then forwards the response body live in BodyChunk
-// frames. Always emits HTTPResponseStart + BodyEnd so the gateway side
-// can finalize cleanly — even on dispatch failure (Start with errMsg +
-// zero-chunk End).
-func (p *HTTPProxy) handleStreaming(requestID string, req *tunnel.HTTPRequest) {
-	log.Printf("[diag-worker] handleStreaming ENTER request=%s url=%s", requestID, req.URL)
-	defer log.Printf("[diag-worker] handleStreaming EXIT request=%s", requestID)
-	if p.sendStartFn == nil || p.sendChunkFn == nil || p.sendEndFn == nil {
-		// Misconfigured worker (or test stub). Fall back to buffered so
-		// gateway still gets *something* — better than a wedged request.
-		log.Printf("[http-proxy] streaming requested but stream send fns nil; falling back to buffered: url=%s", req.URL)
-		resp, err := p.do(req)
-		if err != nil {
-			p.sendFn(requestID, &HTTPResponse{
-				Status: http.StatusBadGateway,
-				Error:  err.Error(),
-			})
-			return
-		}
-		p.sendFn(requestID, resp)
-		return
-	}
-
-	if req.Method == "" || req.URL == "" {
-		p.failStream(requestID, "method and url are required")
-		return
-	}
-	if scheme, ok := schemeOf(req.URL); !ok || (scheme != "http" && scheme != "https") {
-		p.failStream(requestID, fmt.Sprintf("unsupported url scheme: %s", req.URL))
-		return
-	}
-
-	parent := context.Background()
-	if p.streamCtxFn != nil {
-		parent = p.streamCtxFn()
-	}
-	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
-	defer cancel()
-
-	// Register `cancel` so a server-side HttpCancel frame
-	// (sent when the originating handler's caller — frontend Stop
-	// button, closed EventSource, etc. — no longer wants the
-	// response) yanks our http.Request ctx. Read returns error,
-	// loop exits, defer closes the upstream conn. Deregister on
-	// exit so a clean EOF doesn't leave a stale map entry.
-	if p.registerCancelFn != nil {
-		p.registerCancelFn(requestID, cancel)
-		defer func() {
-			if p.deregisterCancelFn != nil {
-				p.deregisterCancelFn(requestID)
-			}
-		}()
-	}
-
-	hresp, err := p.dispatchForStream(ctx, req)
-	if err != nil {
-		log.Printf("[http-proxy] stream dispatch failed: url=%s err=%v", req.URL, err)
-		p.failStream(requestID, err.Error())
-		return
-	}
 	defer hresp.Body.Close()
 
-	headers := extractResponseHeaders(hresp)
-	if err := p.sendStartFn(requestID, int32(hresp.StatusCode), headers, ""); err != nil {
-		log.Printf("[http-proxy] stream start send failed: request=%s err=%v", requestID, err)
+	if err := st.WriteMsg(&pbv2.HTTPResponseStart{
+		Status:   int32(hresp.StatusCode),
+		Headers:  v1HeadersToV2(extractResponseHeaders(hresp)),
+		BodySize: -1, // streaming — caller reads until stream close
+	}); err != nil {
+		log.Printf("[http-proxy] stream start write failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
 
-	// 32 KiB read buffer — small enough that SSE events (typically a
-	// few hundred bytes each, `data: {...}\n\n`) get forwarded almost
-	// as soon as the upstream flushes them, big enough that bulk
-	// non-streaming JSON responses don't fragment into wasteful
-	// hundreds of frames. The slow lane chunks ≤64 KiB anyway, so
-	// going larger here wouldn't help wire efficiency.
-	//
-	// Deliberately NO total-bytes cap here. proxyMaxRespBytes (31 MiB)
-	// guards the BUFFERED path against `io.ReadAll` OOM-ing the worker
-	// — semantics that don't transfer to streaming, where peak worker
-	// memory is one buf (32 KiB) regardless of upstream size. Capping
-	// the stream at 31 MiB just chops long log queries (15k rows × ~2 KiB
-	// = right at the limit) for no safety win — total wire time is
-	// already bounded by the worker's 5 min request ctx, and downstream
-	// memory by the gateway's per-stream chunks channel (2 MiB worst).
+	// 32 KiB buffer — small enough that SSE events forward
+	// promptly, big enough that bulk JSON doesn't fragment.
 	buf := make([]byte, 32*1024)
+	w := st.Writer()
 	for {
 		n, readErr := hresp.Body.Read(buf)
 		if n > 0 {
-			// Copy out — buf is reused next iteration, and the sender
-			// retains the slice reference until the slow lane drains
-			// it. Skipping the copy would corrupt prior in-flight
-			// frames as soon as Read fills buf again.
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			if err := p.sendChunkFn(requestID, chunk); err != nil {
-				log.Printf("[http-proxy] stream chunk send failed: request=%s err=%v", requestID, err)
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				// Server closed the stream → cancel cascades via
+				// defer cancel() to the upstream HTTP request.
+				log.Printf("[http-proxy] stream write failed (likely cancel): request=%s err=%v",
+					st.RequestID(), werr)
 				return
 			}
 		}
 		if readErr != nil {
-			if readErr == io.EOF {
-				_ = p.sendEndFn(requestID, "")
-			} else {
-				_ = p.sendEndFn(requestID, "read body: "+readErr.Error())
+			if readErr != io.EOF {
+				log.Printf("[http-proxy] stream upstream read err: request=%s err=%v",
+					st.RequestID(), readErr)
 			}
 			return
 		}
 	}
 }
 
-// failStream emits a synthetic 502 Start + empty BodyEnd so the gateway
-// side delivers a cleanly-terminated stream with the error attached
-// to Start (matches HTTPResponseStart.error semantics). Used for
-// validation failures and pre-dispatch errors where we have no
-// upstream response to forward.
-func (p *HTTPProxy) failStream(requestID, errMsg string) {
-	if p.sendStartFn != nil {
-		_ = p.sendStartFn(requestID, http.StatusBadGateway, nil, errMsg)
+// v1HeadersToV2 — local mirror; the gateway side has the same
+// converter going the other way.
+func v1HeadersToV2(h []*proto.HTTPHeader) []*pbv2.HTTPHeader {
+	if len(h) == 0 {
+		return nil
 	}
-	if p.sendEndFn != nil {
-		_ = p.sendEndFn(requestID, "")
+	out := make([]*pbv2.HTTPHeader, len(h))
+	for i, x := range h {
+		out[i] = &pbv2.HTTPHeader{Name: x.GetName(), Value: x.GetValue()}
 	}
+	return out
 }
 
 // dispatchForStream picks routing the same way `do()` does but returns
@@ -453,7 +409,7 @@ func (p *HTTPProxy) failStream(requestID, errMsg string) {
 // transparently retry, because the inference path is hot enough that
 // the cache should already be warm. If it's cold (routingUnknown) we
 // probe direct first, same as buffered.
-func (p *HTTPProxy) dispatchForStream(ctx context.Context, req *tunnel.HTTPRequest) (*http.Response, error) {
+func (p *HTTPProxy) dispatchForStream(ctx context.Context, req *HTTPRequest) (*http.Response, error) {
 	if svc := parseInClusterService(req.URL); svc != nil && p.apiClient != nil && p.router != nil {
 		switch p.router.Mode() {
 		case routingProxy:
@@ -482,7 +438,7 @@ func (p *HTTPProxy) dispatchForStream(ctx context.Context, req *tunnel.HTTPReque
 // via p.client. Caller owns hresp.Body close. Shared by the buffered
 // path (doDirect, via the io.ReadAll body capture below) and the
 // streaming path (handleStreaming reads incrementally).
-func (p *HTTPProxy) dispatchDirect(ctx context.Context, req *tunnel.HTTPRequest) (*http.Response, error) {
+func (p *HTTPProxy) dispatchDirect(ctx context.Context, req *HTTPRequest) (*http.Response, error) {
 	var body io.Reader
 	if len(req.Body) > 0 {
 		body = bytes.NewReader(req.Body)
@@ -515,7 +471,7 @@ func (p *HTTPProxy) dispatchDirect(ctx context.Context, req *tunnel.HTTPRequest)
 // transport client built in NewHTTPProxy).
 func (p *HTTPProxy) dispatchViaServiceProxy(
 	ctx context.Context,
-	req *tunnel.HTTPRequest,
+	req *HTTPRequest,
 	svc *inClusterService,
 ) (*http.Response, error) {
 	if p.apiClient == nil || p.apiHost == nil {
@@ -575,7 +531,7 @@ func extractResponseHeaders(hresp *http.Response) []*proto.HTTPHeader {
 	return headers
 }
 
-func (p *HTTPProxy) do(req *tunnel.HTTPRequest) (*HTTPResponse, error) {
+func (p *HTTPProxy) do(req *HTTPRequest) (*HTTPResponse, error) {
 	if req.Method == "" || req.URL == "" {
 		return nil, errors.New("method and url are required")
 	}
@@ -587,14 +543,13 @@ func (p *HTTPProxy) do(req *tunnel.HTTPRequest) (*HTTPResponse, error) {
 		return nil, fmt.Errorf("unsupported url scheme: %s", req.URL)
 	}
 
-	// Parent on the tunnel's stream ctx so a disconnect immediately
-	// cancels the upstream request rather than letting it run out the
-	// 60 s timeout. streamCtxFn is nil-tolerant for tests.
-	parent := context.Background()
-	if p.streamCtxFn != nil {
-		parent = p.streamCtxFn()
-	}
-	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
+	// 5 min hard ceiling on a single buffered request. Cancellation
+	// from the gateway (stream.Close) lands lazily — next write
+	// fails. The session ctx parent isn't propagated here because
+	// `do()` is also called from streaming dispatch which passes
+	// its own ctx via dispatchForStream; for the standalone
+	// buffered path we just timeout independently.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	// In-cluster Service URLs have two viable routings: direct DNS
@@ -621,7 +576,7 @@ func (p *HTTPProxy) do(req *tunnel.HTTPRequest) (*HTTPResponse, error) {
 // moved out" reconfig edge case without forcing the operator to
 // wait for the 24h TTL.
 func (p *HTTPProxy) doInClusterService(
-	ctx context.Context, req *tunnel.HTTPRequest, svc *inClusterService,
+	ctx context.Context, req *HTTPRequest, svc *inClusterService,
 ) (*HTTPResponse, error) {
 	switch p.router.Mode() {
 	case routingDirect:
@@ -659,7 +614,7 @@ func (p *HTTPProxy) doInClusterService(
 // doDirect runs the standard net/http path with no service-proxy
 // indirection. Extracted from do() so doInClusterService can reuse it
 // for the "try direct first" probe.
-func (p *HTTPProxy) doDirect(ctx context.Context, req *tunnel.HTTPRequest) (*HTTPResponse, error) {
+func (p *HTTPProxy) doDirect(ctx context.Context, req *HTTPRequest) (*HTTPResponse, error) {
 	hresp, err := p.dispatchDirect(ctx, req)
 	if err != nil {
 		return nil, err
@@ -757,7 +712,7 @@ func parseInClusterService(rawURL string) *inClusterService {
 // per-request overhead, but works from anywhere a kubeconfig works.
 func (p *HTTPProxy) doViaServiceProxy(
 	ctx context.Context,
-	req *tunnel.HTTPRequest,
+	req *HTTPRequest,
 	svc *inClusterService,
 ) (*HTTPResponse, error) {
 	hresp, err := p.dispatchViaServiceProxy(ctx, req, svc)

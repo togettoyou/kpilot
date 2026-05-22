@@ -238,9 +238,15 @@ func (s *WSStream) SendFrame(opcode int32, data []byte) error {
 	return s.stream.WriteMsg(&pbv2.WSFrame{Opcode: opcode, Data: data})
 }
 
-// SendEnd writes a WSEnd terminator. Use to relay a clean
-// browser-side close to the upstream.
+// SendEnd writes the sentinel zero-frame + a WSEnd terminator.
+// Use to relay a clean browser-side close to the upstream. The
+// sentinel zero-byte WSFrame is required so the peer's Recv loop
+// switches frame types (see the discriminator contract in
+// stream.go's package doc).
 func (s *WSStream) SendEnd(code int32, reason string) error {
+	if err := s.stream.WriteMsg(&pbv2.WSFrame{}); err != nil {
+		return err
+	}
 	return s.stream.WriteMsg(&pbv2.WSEnd{Code: code, Reason: reason})
 }
 

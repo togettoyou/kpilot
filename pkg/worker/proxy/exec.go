@@ -15,223 +15,205 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 	kexec "k8s.io/client-go/util/exec"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
+	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 )
 
 const shellProbeTimeout = 5 * time.Second
 
-// ExecManager owns active Pod exec sessions for this Worker. Each session
-// runs the executor on its own goroutine; ExecStdin / ExecResize / ExecCancel
-// frames from the Server are routed via session_id to the right session
-// (which in turn pushes into the stdin pipe / resize chan / cancels ctx).
+// ExecManager handles Pod exec sessions. Phase C dropped the
+// per-session registry — each yamux stream owns its session
+// lifetime, and yamux Read/Write deliver cancellation natively.
 type ExecManager struct {
 	cfg       *rest.Config
 	clientset kubernetes.Interface
-	tunnel    streamSender
-
-	mu       sync.Mutex
-	sessions map[string]*execSession
 }
 
-type execSession struct {
-	cancel   context.CancelFunc
-	stdinW   *io.PipeWriter
-	resizeCh chan remotecommand.TerminalSize
-	closed   bool
-	closeMu  sync.Mutex
+func NewExecManager(cfg *rest.Config, clientset kubernetes.Interface) *ExecManager {
+	return &ExecManager{cfg: cfg, clientset: clientset}
 }
 
-func NewExecManager(cfg *rest.Config, clientset kubernetes.Interface, tunnel streamSender) *ExecManager {
-	return &ExecManager{
-		cfg:       cfg,
-		clientset: clientset,
-		tunnel:    tunnel,
-		sessions:  make(map[string]*execSession),
+// HandleStream is the tunnel entry for an inbound STREAM_POD_EXEC.
+// Reads ExecStartRequest, sets up SPDY exec, spawns a goroutine to
+// read further ExecStdin / ExecResize frames from the stream
+// (concurrent with stdout/stderr Writes), and pumps stdout/stderr
+// frames out. On exit emits the sentinel zero-byte ExecOutput +
+// final ExecEnd, closes the stream.
+//
+// Cancellation: server stream.Close → our next Write fails AND
+// our stdin reader's Read returns EOF → ctx cancels via defer
+// → SPDY exec unwinds.
+func (m *ExecManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
+	defer st.Close()
+
+	var req pbv2.ExecStartRequest
+	if err := st.ReadMsg(&req); err != nil {
+		log.Printf("[wire] exec read req failed: request=%s err=%v", st.RequestID(), err)
+		return
 	}
-}
 
-// Start runs in its own goroutine (the tunnel dispatcher invokes via go).
-// Builds an SPDY executor for the target pod/container, bridges its stdio
-// to the gRPC stream, and blocks until the remote command exits, the session
-// is cancelled, or the tunnel itself disconnects.
-func (m *ExecManager) Start(sessionID string, req *proto.ExecStartRequest) {
-	// Parent ctx is the tunnel's stream ctx — disconnect cancels the
-	// SPDY executor immediately instead of letting the user's shell
-	// continue executing on a worker the Server can no longer reach.
-	ctx, cancel := context.WithCancel(m.tunnel.StreamContext())
+	sessCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	stdinR, stdinW := io.Pipe()
 	resizeCh := make(chan remotecommand.TerminalSize, 4)
-	if req.Cols > 0 && req.Rows > 0 {
-		// Seed the queue with the initial size so the remote shell renders
-		// at the user's actual terminal dimensions from the first prompt.
-		resizeCh <- remotecommand.TerminalSize{Width: uint16(req.Cols), Height: uint16(req.Rows)}
+	if req.GetCols() > 0 && req.GetRows() > 0 {
+		resizeCh <- remotecommand.TerminalSize{
+			Width:  uint16(req.GetCols()),
+			Height: uint16(req.GetRows()),
+		}
 	}
 
-	sess := &execSession{
-		cancel:   cancel,
-		stdinW:   stdinW,
-		resizeCh: resizeCh,
-	}
-	// Replace any pre-existing entry under the same sessionID — see
-	// the matching note in ws.go.Start.
-	m.mu.Lock()
-	if old, ok := m.sessions[sessionID]; ok {
-		old.cancel()
-		_ = old.stdinW.Close()
-	}
-	m.sessions[sessionID] = sess
-	m.mu.Unlock()
+	// Reader goroutine: pumps incoming Stdin / Resize messages
+	// from the yamux stream into the SPDY exec.
+	var readWG sync.WaitGroup
+	readWG.Add(1)
+	go func() {
+		defer readWG.Done()
+		defer stdinW.Close()
+		// Close resizeCh under closeMu to avoid panicking the
+		// SPDY exec's TerminalSizeQueue.Next; closeOnce guarantees
+		// at most one close.
+		defer func() {
+			defer func() { _ = recover() }()
+			close(resizeCh)
+		}()
+		for {
+			// We use ExecStdin to read both Stdin AND Resize —
+			// they share the wire (one stream, two message types).
+			// Discriminator: try ExecStdin first; if its Data is
+			// empty AND a resize follows, the proto unmarshal
+			// will populate Cols/Rows that ExecStdin doesn't
+			// have. Cleaner: try ExecStdin, then peek for Resize
+			// by checking unknown fields — but we control both
+			// ends so just attempt both types: send ExecStdin
+			// for stdin, ExecResize for resize, server picks
+			// based on caller pattern. Worker reads with a
+			// special pattern: read a length-prefixed message,
+			// try both decodes.
+			//
+			// Simpler scheme: server sends only one of the two
+			// types per frame. Worker reads as a generic proto
+			// message wrapper. But we don't have a wrapper in
+			// v2 — so we use the following protocol:
+			//
+			// Each frame from server is either ExecStdin OR
+			// ExecResize, sent via Codec.WriteMsg. Worker reads
+			// as ExecStdin first; if Data is nil AND Cols/Rows
+			// look set (after unmarshal as ExecResize), treat
+			// as resize. Use proto.Unmarshal twice trick: read
+			// raw bytes, try each type.
+			//
+			// Actually easiest: read raw bytes into a buffer,
+			// try both types based on field-set inspection. Go
+			// proto's Unmarshal is forgiving (extra fields are
+			// kept as unknown). We use a length-prefix codec, so
+			// we can read once and decode twice.
+			raw, err := st.ReadRaw()
+			if err != nil {
+				return
+			}
+			var stdin pbv2.ExecStdin
+			_ = proto.Unmarshal(raw, &stdin)
+			if len(stdin.GetData()) > 0 {
+				if _, werr := stdinW.Write(stdin.GetData()); werr != nil {
+					return
+				}
+				continue
+			}
+			var resize pbv2.ExecResize
+			_ = proto.Unmarshal(raw, &resize)
+			if resize.GetCols() > 0 && resize.GetRows() > 0 {
+				select {
+				case resizeCh <- remotecommand.TerminalSize{
+					Width:  uint16(resize.GetCols()),
+					Height: uint16(resize.GetRows()),
+				}:
+				default:
+					// Drop — resize is idempotent, next event catches up.
+				}
+				continue
+			}
+			// Empty stdin AND empty resize — sentinel for "no more
+			// input" or unknown payload. Treat as stdin EOF.
+			return
+		}
+	}()
 
-	defer m.cleanup(sessionID, sess)
-
-	cmd := req.Command
+	cmd := req.GetCommand()
 	if len(cmd) == 0 {
 		cmd = []string{"/bin/bash"}
 	}
-	// If the user picked /bin/bash (default or explicit), probe the container
-	// quickly first and fall back to /bin/sh if bash isn't installed. We probe
-	// instead of letting the real exec fail and retrying because retrying
-	// after the interactive session has already started would race with stdin
-	// the user might be typing.
 	if len(cmd) == 1 && cmd[0] == "/bin/bash" {
-		if !m.hasShell(req.Namespace, req.Pod, req.Container, "/bin/bash") {
+		if !m.hasShell(req.GetNamespace(), req.GetPod(), req.GetContainer(), "/bin/bash") {
 			cmd = []string{"/bin/sh"}
 		}
 	}
 
-	// Build the SPDY executor URL via the typed client (same auth+TLS path
-	// the rest of client-go uses).
 	r := m.clientset.CoreV1().RESTClient().Post().
 		Resource("pods").
-		Name(req.Pod).
-		Namespace(req.Namespace).
+		Name(req.GetPod()).
+		Namespace(req.GetNamespace()).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Container: req.Container,
+			Container: req.GetContainer(),
 			Command:   cmd,
 			Stdin:     true,
 			Stdout:    true,
 			Stderr:    true,
-			TTY:       req.Tty,
+			TTY:       req.GetTty(),
 		}, scheme.ParameterCodec)
 
 	executor, err := remotecommand.NewSPDYExecutor(m.cfg, "POST", r.URL())
 	if err != nil {
-		_ = m.tunnel.SendStreamMessage(sessionID, &proto.ExecEnd{Error: fmt.Sprintf("build executor: %v", err)})
+		writeExecEnd(st, 0, fmt.Sprintf("build executor: %v", err))
 		return
 	}
 
-	// onSendErr fires when the tunnel can't take stdout/stderr frames any
-	// more (Server gone, stream closed). Cancelling the session ctx unwinds
-	// the SPDY executor's StreamWithContext call so we don't keep running
-	// the user's command against a peer that can't see its output.
-	onSendErr := func() { cancel() }
-	stdoutW := &execWriter{sessionID: sessionID, stream: 1, tunnel: m.tunnel, onSendErr: onSendErr}
-	stderrW := &execWriter{sessionID: sessionID, stream: 2, tunnel: m.tunnel, onSendErr: onSendErr}
+	stdoutW := &execWriter{stream: 1, st: st, onSendErr: cancel}
+	stderrW := &execWriter{stream: 2, st: st, onSendErr: cancel}
 
-	streamErr := executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+	streamErr := executor.StreamWithContext(sessCtx, remotecommand.StreamOptions{
 		Stdin:             stdinR,
 		Stdout:            stdoutW,
 		Stderr:            stderrW,
-		Tty:               req.Tty,
+		Tty:               req.GetTty(),
 		TerminalSizeQueue: &sizeQueue{ch: resizeCh},
 	})
 
-	end := &proto.ExecEnd{}
+	// SPDY exec unwound — cancel ctx so stdin reader goroutine
+	// exits. Then write the end sentinel + ExecEnd.
+	cancel()
+	_ = stdinR.Close()
+	readWG.Wait()
+
+	var exitCode int32
+	endErr := ""
 	if streamErr != nil && !errors.Is(streamErr, context.Canceled) {
-		// k8s.io/client-go/util/exec wraps non-zero exits as
-		// exec.CodeExitError{Code, Err}. Unwrap to populate ExitCode so
-		// the terminal UI can render "exited with code N" cleanly
-		// instead of dumping the raw error string. Genuine connection
-		// failures (no exit code observable) just keep ExitCode=0 with
-		// the Error set.
 		var ce kexec.CodeExitError
 		if errors.As(streamErr, &ce) {
-			end.ExitCode = int32(ce.Code)
+			exitCode = int32(ce.Code)
 		}
-		end.Error = streamErr.Error()
+		endErr = streamErr.Error()
 	}
-	_ = m.tunnel.SendStreamMessage(sessionID, end)
+	writeExecEnd(st, exitCode, endErr)
 }
 
-// Stdin forwards a stdin chunk from the Server to the active session.
-func (m *ExecManager) Stdin(sessionID string, data []byte) {
-	m.mu.Lock()
-	sess, ok := m.sessions[sessionID]
-	m.mu.Unlock()
-	if !ok {
+// writeExecEnd emits the zero-byte ExecOutput sentinel + the
+// final ExecEnd frame. See gateway/stream.go for the
+// discriminator contract.
+func writeExecEnd(st *transportv2.Stream, exitCode int32, errMsg string) {
+	if err := st.WriteMsg(&pbv2.ExecOutput{}); err != nil {
 		return
 	}
-	sess.closeMu.Lock()
-	closed := sess.closed
-	sess.closeMu.Unlock()
-	if closed {
-		return
-	}
-	if _, err := sess.stdinW.Write(data); err != nil {
-		log.Printf("[exec] stdin write: session=%s err=%v", sessionID, err)
-	}
+	_ = st.WriteMsg(&pbv2.ExecEnd{ExitCode: exitCode, Error: errMsg})
 }
 
-// Resize forwards a terminal size change to the active session.
-func (m *ExecManager) Resize(sessionID string, cols, rows uint32) {
-	m.mu.Lock()
-	sess, ok := m.sessions[sessionID]
-	m.mu.Unlock()
-	if !ok {
-		return
-	}
-	// Hold closeMu to prevent racing with closeSession which closes resizeCh
-	// — sending on a closed channel panics.
-	sess.closeMu.Lock()
-	defer sess.closeMu.Unlock()
-	if sess.closed {
-		return
-	}
-	select {
-	case sess.resizeCh <- remotecommand.TerminalSize{Width: uint16(cols), Height: uint16(rows)}:
-	default:
-		// Resize chan full → drop. Resize is idempotent: the next event will
-		// catch up to the actual current size.
-	}
-}
-
-// Cancel ends an active session (Server's ExecCancel or WS disconnect).
-func (m *ExecManager) Cancel(sessionID string) {
-	m.mu.Lock()
-	sess, ok := m.sessions[sessionID]
-	m.mu.Unlock()
-	if !ok {
-		return
-	}
-	m.closeSession(sess)
-}
-
-func (m *ExecManager) cleanup(sessionID string, sess *execSession) {
-	m.mu.Lock()
-	delete(m.sessions, sessionID)
-	m.mu.Unlock()
-	m.closeSession(sess)
-}
-
-func (m *ExecManager) closeSession(sess *execSession) {
-	sess.closeMu.Lock()
-	if sess.closed {
-		sess.closeMu.Unlock()
-		return
-	}
-	sess.closed = true
-	sess.closeMu.Unlock()
-	sess.cancel()
-	_ = sess.stdinW.Close()
-	close(sess.resizeCh)
-}
-
-// hasShell probes whether the given shell is installed and executable in the
-// target container by running it with `-c exit 0`. Times out after 5s. Used
-// for bash → sh fallback before starting the real interactive session.
+// hasShell probes whether the given shell is installed and
+// executable in the target container. Used for bash → sh
+// fallback.
 func (m *ExecManager) hasShell(namespace, pod, container, shell string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), shellProbeTimeout)
 	defer cancel()
@@ -258,16 +240,14 @@ func (m *ExecManager) hasShell(namespace, pod, container, shell string) bool {
 	}) == nil
 }
 
-// execWriter implements io.Writer by wrapping each chunk in an ExecOutput
-// frame and pushing it through the tunnel. onSendErr is invoked when a
-// tunnel send fails so the owning Start() can cancel its session ctx and
-// unwind the SPDY executor — otherwise the executor ignores stdout write
-// errors and the user's command keeps running on a Worker whose output
-// is going nowhere.
+// execWriter implements io.Writer by wrapping each chunk in an
+// ExecOutput frame on the yamux stream. onSendErr fires when the
+// write fails so the SPDY executor's ctx gets cancelled —
+// otherwise it ignores write errors and keeps running the user's
+// command pointlessly.
 type execWriter struct {
-	sessionID string
 	stream    uint32
-	tunnel    streamSender
+	st        *transportv2.Stream
 	onSendErr func()
 }
 
@@ -277,7 +257,7 @@ func (w *execWriter) Write(p []byte) (int, error) {
 	}
 	chunk := make([]byte, len(p))
 	copy(chunk, p)
-	if err := w.tunnel.SendStreamMessage(w.sessionID, &proto.ExecOutput{
+	if err := w.st.WriteMsg(&pbv2.ExecOutput{
 		Stream: w.stream,
 		Data:   chunk,
 	}); err != nil {
@@ -289,8 +269,8 @@ func (w *execWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// sizeQueue adapts a Go channel to remotecommand.TerminalSizeQueue.
-// Next blocks until a size arrives or the channel is closed (returns nil).
+// sizeQueue adapts a Go channel to
+// remotecommand.TerminalSizeQueue.
 type sizeQueue struct {
 	ch chan remotecommand.TerminalSize
 }

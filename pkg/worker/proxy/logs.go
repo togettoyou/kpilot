@@ -6,89 +6,70 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
+	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 )
 
 const (
-	// logsChunkSize bounds a single read+forward; smaller chunks → snappier UI
-	// but more gRPC frames. 4KiB is a reasonable middle ground for tailing.
+	// logsChunkSize bounds a single read+forward; smaller chunks
+	// → snappier UI but more wire frames. 4 KiB is a good middle.
 	logsChunkSize = 4096
-	// maxLogBytes caps cumulative bytes streamed per log session. A chatty
-	// pod tailed indefinitely could otherwise stream gigabytes through this
-	// goroutine and the gRPC tunnel. 64 MiB ≈ 5 minutes of a pod logging
-	// at 200 KB/s — plenty for diagnostic tailing, well shy of OOM. The
-	// UI shows a clear LogsEnd error when the cap fires so the user knows
-	// to reload or `kubectl logs --tail=...` for the rest.
+	// maxLogBytes caps cumulative bytes streamed per log session.
+	// A chatty pod tailed indefinitely could otherwise stream
+	// gigabytes; 64 MiB ≈ 5 minutes at 200 KB/s.
 	maxLogBytes int64 = 64 * 1024 * 1024
 )
 
-// streamSender is satisfied by *tunnel.Client (avoids package import cycle).
-// StreamContext returns a context tied to the current tunnel connection so
-// per-session goroutines tear down on disconnect.
-type streamSender interface {
-	SendStreamMessage(sessionID string, payload any) error
-	StreamContext() context.Context
-}
-
-// LogsManager owns the lifecycle of all in-flight Pod log streaming sessions
-// for this Worker. Sessions are keyed by session_id; cancellation is via the
-// stored context.CancelFunc which causes the underlying K8s log stream to
-// return io.EOF.
+// LogsManager owns the lifecycle of all in-flight Pod log
+// streaming sessions for this Worker. Phase C removed the per-
+// session cancel map (yamux stream.Close cascades): we just
+// read the LogsStartRequest, stream chunks to the yamux Writer
+// directly, exit on read error / cap / FIN.
 type LogsManager struct {
 	clientset kubernetes.Interface
-	tunnel    streamSender
-
-	mu       sync.Mutex
-	sessions map[string]context.CancelFunc
 }
 
-func NewLogsManager(clientset kubernetes.Interface, tunnel streamSender) *LogsManager {
-	return &LogsManager{
-		clientset: clientset,
-		tunnel:    tunnel,
-		sessions:  make(map[string]context.CancelFunc),
-	}
+func NewLogsManager(clientset kubernetes.Interface) *LogsManager {
+	return &LogsManager{clientset: clientset}
 }
 
-// Start runs in its own goroutine (the tunnel dispatcher invokes us via go).
-// Streams logs from the K8s API and forwards chunks to the Server until the
-// stream ends, the session is cancelled, the tunnel disconnects, or the
-// per-session byte cap is reached.
-func (m *LogsManager) Start(sessionID string, req *proto.LogsStartRequest) {
-	// Parent ctx is the tunnel's stream ctx — when the worker disconnects,
-	// the K8s log Stream() call unblocks via context cancel and we exit
-	// instead of leaking until the pod stops logging.
-	ctx, cancel := context.WithCancel(m.tunnel.StreamContext())
-	// Replace any pre-existing entry under the same sessionID — see
-	// the matching note in ws.go.Start.
-	m.mu.Lock()
-	if old, ok := m.sessions[sessionID]; ok {
-		old()
+// HandleStream is the tunnel-dispatcher entry for an inbound
+// STREAM_POD_LOGS. Reads the start request, opens a K8s log
+// stream, forwards chunks as pbv2.LogsChunk frames, terminates
+// with a sentinel (zero-byte LogsChunk) + pbv2.LogsEnd, closes.
+//
+// Sentinel discriminator contract (see gateway/stream.go): a
+// real LogsChunk always has Data non-empty; the worker MUST
+// send a zero-byte chunk before LogsEnd so the server side can
+// switch frame types on its read loop.
+func (m *LogsManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
+	defer st.Close()
+	var req pbv2.LogsStartRequest
+	if err := st.ReadMsg(&req); err != nil {
+		log.Printf("[wire] logs read req failed: request=%s err=%v", st.RequestID(), err)
+		return
 	}
-	m.sessions[sessionID] = cancel
-	m.mu.Unlock()
-	defer m.cleanup(sessionID)
 
 	opts := &corev1.PodLogOptions{
-		Container: req.Container,
-		Follow:    req.Follow,
-		Previous:  req.Previous,
+		Container: req.GetContainer(),
+		Follow:    req.GetFollow(),
+		Previous:  req.GetPrevious(),
 	}
-	if req.TailLines > 0 {
-		opts.TailLines = &req.TailLines
+	if t := req.GetTailLines(); t > 0 {
+		opts.TailLines = &t
 	}
-	if req.SinceSeconds > 0 {
-		opts.SinceSeconds = &req.SinceSeconds
+	if s := req.GetSinceSeconds(); s > 0 {
+		opts.SinceSeconds = &s
 	}
 
-	stream, err := m.clientset.CoreV1().Pods(req.Namespace).GetLogs(req.Pod, opts).Stream(ctx)
+	stream, err := m.clientset.CoreV1().Pods(req.GetNamespace()).
+		GetLogs(req.GetPod(), opts).Stream(ctx)
 	if err != nil {
-		_ = m.tunnel.SendStreamMessage(sessionID, &proto.LogsEnd{Error: err.Error()})
+		writeLogsEnd(st, err.Error())
 		return
 	}
 	defer stream.Close()
@@ -98,48 +79,37 @@ func (m *LogsManager) Start(sessionID string, req *proto.LogsStartRequest) {
 	for {
 		n, readErr := stream.Read(buf)
 		if n > 0 {
-			// Copy because the underlying buffer is reused on next Read.
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
-			if sendErr := m.tunnel.SendStreamMessage(sessionID, &proto.LogsChunk{Data: chunk}); sendErr != nil {
-				log.Printf("[logs] send failed, ending stream: session=%s err=%v", sessionID, sendErr)
+			if werr := st.WriteMsg(&pbv2.LogsChunk{Data: chunk}); werr != nil {
+				log.Printf("[logs] send failed (likely cancel): request=%s err=%v",
+					st.RequestID(), werr)
 				return
 			}
 			sent += int64(n)
 			if sent >= maxLogBytes {
-				log.Printf("[logs] byte cap reached, ending stream: session=%s sent=%d cap=%d", sessionID, sent, maxLogBytes)
-				_ = m.tunnel.SendStreamMessage(sessionID, &proto.LogsEnd{
-					Error: fmt.Sprintf("log stream exceeded %d-byte session cap; reopen to continue", maxLogBytes),
-				})
+				writeLogsEnd(st, fmt.Sprintf(
+					"log stream exceeded %d-byte session cap; reopen to continue",
+					maxLogBytes))
 				return
 			}
 		}
 		if readErr != nil {
-			endMsg := &proto.LogsEnd{}
-			// io.EOF is normal end-of-stream; context.Canceled is graceful client cancel.
+			endErr := ""
 			if !errors.Is(readErr, io.EOF) && !errors.Is(readErr, context.Canceled) {
-				endMsg.Error = readErr.Error()
+				endErr = readErr.Error()
 			}
-			_ = m.tunnel.SendStreamMessage(sessionID, endMsg)
+			writeLogsEnd(st, endErr)
 			return
 		}
 	}
 }
 
-// Cancel stops an active session (called from the tunnel dispatcher when the
-// Server sends LogsCancel). Safe to call for unknown sessions.
-func (m *LogsManager) Cancel(sessionID string) {
-	m.mu.Lock()
-	cancel, ok := m.sessions[sessionID]
-	delete(m.sessions, sessionID)
-	m.mu.Unlock()
-	if ok {
-		cancel()
+// writeLogsEnd sends the sentinel zero-byte LogsChunk + the
+// final LogsEnd frame.
+func writeLogsEnd(st *transportv2.Stream, errMsg string) {
+	if err := st.WriteMsg(&pbv2.LogsChunk{}); err != nil {
+		return
 	}
-}
-
-func (m *LogsManager) cleanup(sessionID string) {
-	m.mu.Lock()
-	delete(m.sessions, sessionID)
-	m.mu.Unlock()
+	_ = st.WriteMsg(&pbv2.LogsEnd{Error: errMsg})
 }

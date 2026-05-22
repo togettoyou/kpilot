@@ -22,7 +22,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/describe"
 
-	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
+	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 )
 
 // ResourceResponse is the worker-side internal result shape for one
@@ -58,13 +59,13 @@ const tableAccept = "application/json;as=Table;v=v1;g=meta.k8s.io," +
 	"application/json"
 
 // Proxy executes K8s resource operations on behalf of the Server.
-// It is wired to the tunnel client via SetResourceHandler.
+// HandleStream is invoked from the tunnel dispatcher when an
+// inbound STREAM_RESOURCE_REQUEST opens.
 type Proxy struct {
 	cfg        *rest.Config
 	httpClient *http.Client // reused for Table API list requests
 	dyn        dynamic.Interface
 	mapper     apimeta.RESTMapper
-	sendFn     func(requestID string, resp *ResourceResponse)
 	// vgpu projects Volcano vGPU annotations into a slim snapshot.
 	// Nil when the worker can't reach the typed clientset (unlikely
 	// in practice — same cfg already drives `dyn`). vGPU requests
@@ -98,41 +99,20 @@ func (p *Proxy) resourceClient(mapping *apimeta.RESTMapping, namespace string) (
 	return ri.Namespace(ns), ns
 }
 
-// New creates a Proxy. sendFn is called after each operation to return
-// the result to the Server (typically tunnelClient.SendResourceResponse).
-//
-// All K8s API clients on this Proxy use INDEPENDENT http.Transports
-// rather than going through client-go's global TLS transport cache.
-// Same rationale as `newIndependentAPIClient` in http.go (see the long
-// comment there): when worker is outside the cluster and any single
-// K8s call is doing heavy work — service-proxy streaming a multi-MB
-// log response, a long-running watch, an inefficient list-all — the
-// shared HTTP/2 connection's flow-control window or stream pool gets
-// monopolised and every other K8s op on the worker queues behind it.
-// Giving each client its own transport lets each go through its own
-// HTTP/2 connection so heavy operations don't starve light ones.
-func New(
-	cfg *rest.Config,
-	mapper apimeta.RESTMapper,
-	sendFn func(string, *ResourceResponse),
-) (*Proxy, error) {
+// New creates a Proxy. Each Proxy owns INDEPENDENT http.Transports
+// rather than sharing client-go's global TLS transport cache — see
+// `newIndependentAPIClient` in http.go for the rationale (heavy ops
+// on the shared transport monopolise the HTTP/2 connection and
+// starve light ops).
+func New(cfg *rest.Config, mapper apimeta.RESTMapper) (*Proxy, error) {
 	httpClient, err := newIndependentAPIClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("http client: %w", err)
 	}
-	// dynamic.NewForConfigAndClient lets us inject our own *http.Client
-	// (with its own transport) so the dynamic resource interface also
-	// gets connection isolation. Without this, dynamic would call
-	// rest.HTTPClientFor(cfg) internally and re-use the cached transport.
 	dyn, err := dynamic.NewForConfigAndClient(cfg, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("dynamic client: %w", err)
 	}
-	// VGPUTracker builds a typed clientset off the same cfg. Failure
-	// here is treated as fatal because the tracker only depends on
-	// kubernetes.NewForConfig — if that fails, every other read path
-	// in this proxy would fail too. Surfacing it now is cheaper than
-	// confusing "vgpu request failed" debugging later.
 	vgpuTracker, err := NewVGPUTracker(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("vgpu tracker: %w", err)
@@ -142,30 +122,71 @@ func New(
 		httpClient: httpClient,
 		dyn:        dyn,
 		mapper:     mapper,
-		sendFn:     sendFn,
 		vgpu:       vgpuTracker,
 	}, nil
 }
 
-// Handle satisfies the tunnel.Client.SetResourceHandler signature.
-// It runs in its own goroutine per request.
-func (p *Proxy) Handle(requestID string, req *tunnel.ResourceRequest) {
+// HandleStream is the tunnel-dispatcher entry point for an inbound
+// STREAM_RESOURCE_REQUEST. Reads the request frame + optional body,
+// runs the op, writes the response frame + optional body, closes
+// the stream. Owns the stream lifecycle.
+func (p *Proxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
+	defer st.Close()
+	var wireReq pbv2.ResourceRequest
+	if err := st.ReadMsg(&wireReq); err != nil {
+		log.Printf("[wire] resource read req failed: request=%s err=%v", st.RequestID(), err)
+		return
+	}
+	req := &ResourceRequest{
+		Action:        wireReq.GetAction(),
+		Group:         wireReq.GetGroup(),
+		Version:       wireReq.GetVersion(),
+		Kind:          wireReq.GetKind(),
+		Namespace:     wireReq.GetNamespace(),
+		Name:          wireReq.GetName(),
+		Limit:         wireReq.GetLimit(),
+		ContinueToken: wireReq.GetContinueToken(),
+		LabelSelector: wireReq.GetLabelSelector(),
+	}
+	if n := wireReq.GetBodySize(); n > 0 {
+		body := make([]byte, n)
+		if _, err := io.ReadFull(st.Reader(), body); err != nil {
+			log.Printf("[wire] resource read body failed: request=%s err=%v", st.RequestID(), err)
+			return
+		}
+		req.Body = body
+	}
+
 	timeout := readOpTimeout
 	switch req.Action {
 	case "apply", "update", "patch", "delete":
 		timeout = writeOpTimeout
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	opCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	start := time.Now()
-	resp := p.execute(ctx, req)
+	resp := p.execute(opCtx, req)
 	log.Printf("[wire] resource handled request=%s action=%s gvk=%s/%s/%s ns=%s name=%s success=%t dataBytes=%d err=%q elapsed=%s",
-		requestID, req.Action, req.Group, req.Version, req.Kind, req.Namespace, req.Name,
+		st.RequestID(), req.Action, req.Group, req.Version, req.Kind, req.Namespace, req.Name,
 		resp.Success, len(resp.Data), resp.Error, time.Since(start))
-	p.sendFn(requestID, resp)
+
+	if err := st.WriteMsg(&pbv2.ResourceResponse{
+		Success:  resp.Success,
+		Error:    resp.Error,
+		BodySize: int64(len(resp.Data)),
+	}); err != nil {
+		log.Printf("[wire] resource write resp failed: request=%s err=%v", st.RequestID(), err)
+		return
+	}
+	if len(resp.Data) > 0 {
+		if _, err := st.Writer().Write(resp.Data); err != nil {
+			log.Printf("[wire] resource write body failed: request=%s err=%v", st.RequestID(), err)
+			return
+		}
+	}
 }
 
-func (p *Proxy) execute(ctx context.Context, req *tunnel.ResourceRequest) *ResourceResponse {
+func (p *Proxy) execute(ctx context.Context, req *ResourceRequest) *ResourceResponse {
 	// Cluster-level synthetic queries don't carry a GVK — handle them
 	// before RESTMapping so empty Group/Version/Kind doesn't trip the
 	// mapper. Today: vgpu-snapshot + volcano-status. Future: anything

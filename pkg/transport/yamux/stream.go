@@ -72,6 +72,15 @@ func (s *Stream) ReadMsg(m proto.Message) error {
 	return s.cdc.ReadMsg(m)
 }
 
+// ReadRaw reads one framed message and returns the raw protobuf
+// bytes. Useful when a stream's input side carries multiple
+// message types distinguished by their decoded content (e.g.
+// STREAM_POD_EXEC's ExecStdin vs ExecResize) — caller tries each
+// proto.Unmarshal against the same buffer.
+func (s *Stream) ReadRaw() ([]byte, error) {
+	return s.cdc.ReadRaw()
+}
+
 // Reader exposes the raw byte stream for callers that want to
 // transfer bytes directly after the framed *Start message —
 // HTTP body, SSE chunks, pod log bytes, chart blob bytes. After
