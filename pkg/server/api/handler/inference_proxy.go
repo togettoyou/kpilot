@@ -268,36 +268,40 @@ func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterI
 		flusher.Flush()
 	}
 
-	for {
+	// v2: stream.Body is the live yamux byte stream. ctx cancellation
+	// becomes a stream.Close (RST → worker's upstream HTTP request is
+	// cancelled), which makes the in-flight Read return an error and
+	// the loop exits cleanly. The watcher goroutine + deferred Close
+	// are idempotent.
+	doneClose := make(chan struct{})
+	defer close(doneClose)
+	go func() {
 		select {
-		case chunk, ok := <-stream.Chunks:
-			if !ok {
-				// Channel closed — BodyEnd arrived. Drain any final
-				// error from EndErr (non-blocking; finalize fired it
-				// already) and return.
-				if endErr := <-stream.EndErr; endErr != nil {
-					log.Printf("[inference-proxy] upstream truncated: cluster=%s ns=%s name=%s err=%v",
-						clusterID, namespace, name, endErr)
-				}
-				return
-			}
-			// Reset the deadline per write so a successful chunk
-			// doesn't carry residual budget into the next one.
+		case <-c.Request.Context().Done():
+			stream.Close()
+		case <-doneClose:
+		}
+	}()
+
+	buf := make([]byte, 32*1024)
+	for {
+		n, rerr := stream.Body.Read(buf)
+		if n > 0 {
 			_ = rc.SetWriteDeadline(time.Now().Add(inferenceWriteTimeout))
-			if _, err := c.Writer.Write(chunk); err != nil {
-				// Client gone. stream.Close (deferred) releases the
-				// worker session.
+			if _, werr := c.Writer.Write(buf[:n]); werr != nil {
 				log.Printf("[inference-proxy] client write failed (likely disconnect): cluster=%s ns=%s name=%s err=%v",
-					clusterID, namespace, name, err)
+					clusterID, namespace, name, werr)
 				return
 			}
 			if flusher != nil {
 				flusher.Flush()
 			}
-		case <-c.Request.Context().Done():
-			// Client disconnected mid-stream. Deferred stream.Close
-			// unwires the session; in-flight chunks just get dropped
-			// (orphan after takeHTTPStream removed the session).
+		}
+		if rerr != nil {
+			if rerr != io.EOF {
+				log.Printf("[inference-proxy] upstream read ended: cluster=%s ns=%s name=%s err=%v",
+					clusterID, namespace, name, rerr)
+			}
 			return
 		}
 	}

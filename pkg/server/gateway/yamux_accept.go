@@ -216,20 +216,46 @@ func (g *GatewayServer) acceptYamuxStreams(ctx context.Context, w *ConnectedWork
 }
 
 // dispatchInboundStream routes a worker-initiated stream to the
-// right per-kind handler. Phase B-1 ships with no kinds wired
-// (just logs and closes the stream); phase B-2/3/4 add the real
-// dispatch for push events as those handlers get migrated.
+// right per-kind handler. Only push-style streams arrive here;
+// per-RPC reply streams the server opened are handled inline by
+// the Send* caller, not via this loop.
 func (g *GatewayServer) dispatchInboundStream(w *ConnectedWorker, st *transportv2.Stream) {
 	defer st.Close()
 	switch st.Kind() {
 	case pbv2.StreamKind_STREAM_PLUGIN_STATUS_PUSH:
-		// TODO phase B-4: read one PluginStatusPush, dispatch to
-		// handlePluginStatus, close.
-		log.Printf("[yamux] cluster=%s plugin-status-push stream (not yet handled)", w.ClusterID)
+		// One frame per stream — worker opens, writes a single
+		// PluginStatusPush, closes. We read it and persist via
+		// pluginservice.
+		var p pbv2.PluginStatusPush
+		if err := st.ReadMsg(&p); err != nil {
+			log.Printf("[yamux] cluster=%s read plugin-status-push: %v", w.ClusterID, err)
+			return
+		}
+		g.handlePluginStatus(w, &p)
 	case pbv2.StreamKind_STREAM_PLUGIN_LOG_PUSH:
-		// TODO phase B-4: read PluginLogChunk* until PluginLogEnd,
-		// hand each off to pluginLogSession.
-		log.Printf("[yamux] cluster=%s plugin-log-push stream (not yet handled)", w.ClusterID)
+		// 1..N PluginLogChunk frames followed by a single
+		// PluginLogEnd. Discriminator: zero-CrdName chunk
+		// (impossible in real chunks) signals "next is end".
+		// Simpler: keep reading chunks until first ReadMsg
+		// returns a frame with Message="" + Level="" + Ts=0
+		// — that's the end sentinel marker. Real chunks always
+		// have a Level set.
+		for {
+			var chunk pbv2.PluginLogChunk
+			if err := st.ReadMsg(&chunk); err != nil {
+				return
+			}
+			if chunk.GetLevel() == "" && chunk.GetMessage() == "" && chunk.GetTs() == 0 {
+				// Sentinel — next frame is PluginLogEnd.
+				var end pbv2.PluginLogEnd
+				if err := st.ReadMsg(&end); err != nil {
+					return
+				}
+				g.recordPluginLogEnd(w.ClusterID, &end)
+				return
+			}
+			g.recordPluginLog(w.ClusterID, &chunk)
+		}
 	default:
 		log.Printf("[yamux] cluster=%s unexpected inbound stream kind: %v", w.ClusterID, st.Kind())
 	}

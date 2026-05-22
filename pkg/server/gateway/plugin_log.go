@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 )
 
 // Plugin install / upgrade / uninstall log fan-out.
@@ -74,29 +74,29 @@ func pluginLogKey(clusterID, crdName string) string {
 	return clusterID + "|" + crdName
 }
 
-// recordPluginLog is called by handleWorkerMessage when the worker
-// pushes a PluginLogChunk frame.
-func (g *GatewayServer) recordPluginLog(clusterID string, chunk *proto.PluginLogChunk) {
+// recordPluginLog is called by dispatchInboundStream when the worker
+// pushes a PluginLogChunk frame on a STREAM_PLUGIN_LOG_PUSH stream.
+func (g *GatewayServer) recordPluginLog(clusterID string, chunk *pbv2.PluginLogChunk) {
 	entry := PluginLogEntry{
 		Kind:    "chunk",
-		Level:   chunk.Level,
-		Ts:      chunk.Ts,
-		Message: chunk.Message,
+		Level:   chunk.GetLevel(),
+		Ts:      chunk.GetTs(),
+		Message: chunk.GetMessage(),
 	}
-	g.appendPluginLog(clusterID, chunk.CrdName, entry, false)
+	g.appendPluginLog(clusterID, chunk.GetCrdName(), entry, false)
 }
 
 // recordPluginLogEnd is called when the worker pushes PluginLogEnd.
 // We mark the session closed and stop accepting subscribers for new
 // frames, but keep the buffer around so late-joiners can replay the
 // outcome inside the TTL window.
-func (g *GatewayServer) recordPluginLogEnd(clusterID string, end *proto.PluginLogEnd) {
+func (g *GatewayServer) recordPluginLogEnd(clusterID string, end *pbv2.PluginLogEnd) {
 	entry := PluginLogEntry{
 		Kind:    "end",
-		Success: end.Success,
-		Summary: end.Summary,
+		Success: end.GetSuccess(),
+		Summary: end.GetSummary(),
 	}
-	g.appendPluginLog(clusterID, end.CrdName, entry, true)
+	g.appendPluginLog(clusterID, end.GetCrdName(), entry, true)
 }
 
 func (g *GatewayServer) appendPluginLog(clusterID, crdName string, entry PluginLogEntry, isEnd bool) {

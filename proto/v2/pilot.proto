@@ -272,14 +272,16 @@ message WSEnd {
 // Server's accept loop reads, dispatches, doesn't reply.
 
 message PluginStatusPush {
-  string crd_name             = 1;
-  string phase                = 2;  // Pending / Installing / Running / Upgrading / Failed / Uninstalling
-  string message              = 3;
-  string installed_version    = 4;
-  string installed_namespace  = 5;
-  int64  installed_revision   = 6;
-  int64  observed_generation  = 7;
-  int64  ts                   = 8;
+  string crd_name              = 1;
+  string phase                 = 2;  // Pending / Installing / Running / Upgrading / Failed / Uninstalling
+  string message               = 3;
+  // Helm release version actually installed (chart-side, not the CRD spec).
+  string observed_version      = 4;
+  // sha256 of the values YAML actually applied — server detects drift.
+  string observed_values_hash  = 5;
+  int32  helm_revision         = 6;
+  int64  installed_at          = 7;   // unix seconds, 0 if not installed
+  int64  last_updated_at       = 8;   // unix seconds
 }
 
 // ─── Plugin install log push (STREAM_PLUGIN_LOG_PUSH) ──────────────────────

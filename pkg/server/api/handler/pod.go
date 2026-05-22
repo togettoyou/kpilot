@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/togettoyou/kpilot/pkg/common/proto"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
@@ -39,7 +39,7 @@ func PodLogs(gw *gateway.GatewayServer) gin.HandlerFunc {
 		namespace := c.Param("namespace")
 		pod := c.Param("name")
 
-		req := &proto.LogsStartRequest{
+		req := &pbv2.LogsStartRequest{
 			Namespace: namespace,
 			Pod:       pod,
 			Container: c.Query("container"),
@@ -51,7 +51,7 @@ func PodLogs(gw *gateway.GatewayServer) gin.HandlerFunc {
 			req.SinceSeconds = since
 		}
 
-		stream, err := gw.OpenStream(clusterID)
+		stream, err := gw.OpenLogsStream(c.Request.Context(), clusterID, req)
 		if err != nil {
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
@@ -70,14 +70,9 @@ func PodLogs(gw *gateway.GatewayServer) gin.HandlerFunc {
 		defer hbCancel()
 		conn.startHeartbeat(hbCtx)
 
-		if err := stream.Send(req); err != nil {
-			_ = conn.WriteMessage(websocket.TextMessage, []byte("[error] "+err.Error()))
-			return
-		}
-
-		// Goroutine: detect client disconnect or read-deadline timeout (no pong)
-		// → cancel worker side. The read deadline is refreshed by the pong
-		// handler, so a healthy peer keeps NextReader blocked indefinitely.
+		// Client-gone watcher: a NextReader error means peer closed
+		// or pong timed out. We then stream.Close() — yamux FIN
+		// propagates to the worker as "cancel kubectl logs".
 		clientGone := make(chan struct{})
 		go func() {
 			defer close(clientGone)
@@ -87,37 +82,33 @@ func PodLogs(gw *gateway.GatewayServer) gin.HandlerFunc {
 				}
 			}
 		}()
+		go func() {
+			<-clientGone
+			stream.Close()
+		}()
 
-		// Forward worker frames → WS until end-of-stream or disconnect.
+		// Worker → browser pump. Recv blocks; on stream.Close
+		// triggered by clientGone above, Recv returns io.EOF and
+		// we exit cleanly.
 		for {
-			select {
-			case <-clientGone:
-				_ = stream.Send(&proto.LogsCancelRequest{})
-				// Drain a final LogsEnd briefly so the worker side cleans up.
-				select {
-				case <-stream.Recv():
-				case <-time.After(wsCloseGrace):
-				}
+			chunk, end, rerr := stream.Recv()
+			if rerr != nil {
 				return
-
-			case msg, ok := <-stream.Recv():
-				if !ok {
+			}
+			if chunk != nil {
+				if err := conn.WriteMessage(websocket.TextMessage, chunk.GetData()); err != nil {
+					log.Printf("[pod-logs] write failed: %v", err)
 					return
 				}
-				switch p := msg.Payload.(type) {
-				case *proto.WorkerMessage_LogsChunk:
-					if err := conn.WriteMessage(websocket.TextMessage, p.LogsChunk.Data); err != nil {
-						log.Printf("[pod-logs] write failed: %v", err)
-						return
-					}
-				case *proto.WorkerMessage_LogsEnd:
-					if p.LogsEnd.Error != "" {
-						_ = conn.WriteMessage(websocket.TextMessage, []byte("\n[stream ended: "+p.LogsEnd.Error+"]"))
-					}
-					_ = conn.WriteMessage(websocket.CloseMessage,
-						websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-					return
+				continue
+			}
+			if end != nil {
+				if end.GetError() != "" {
+					_ = conn.WriteMessage(websocket.TextMessage, []byte("\n[stream ended: "+end.GetError()+"]"))
 				}
+				_ = conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				return
 			}
 		}
 	}
@@ -154,7 +145,7 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 			cmd = strings.Split(cmdStr, ",")
 		}
 
-		req := &proto.ExecStartRequest{
+		req := &pbv2.ExecStartRequest{
 			Namespace: namespace,
 			Pod:       pod,
 			Container: c.Query("container"),
@@ -164,7 +155,7 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 			Rows:      rows,
 		}
 
-		stream, err := gw.OpenStream(clusterID)
+		stream, err := gw.OpenExecStream(c.Request.Context(), clusterID, req)
 		if err != nil {
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
@@ -175,11 +166,6 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 			stream.Close()
 			return
 		}
-		// Cap each WS frame from the browser at 1 MiB. Without this,
-		// gorilla's default 4 GiB ceiling lets a hostile authenticated
-		// client gigaframe-flood the server before the typecheck on
-		// data[0] rejects each frame. Exec stdin chunks are realistically
-		// kilobytes; resize messages are tens of bytes.
 		rawConn.SetReadLimit(1 << 20)
 		conn := newWSConn(rawConn)
 		defer rawConn.Close()
@@ -189,14 +175,7 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 		defer hbCancel()
 		conn.startHeartbeat(hbCtx)
 
-		if err := stream.Send(req); err != nil {
-			_ = conn.WriteMessage(websocket.BinaryMessage, append([]byte{3}, []byte(err.Error())...))
-			return
-		}
-
-		// Browser → server pump: parse type-tagged frames into stdin/resize.
-		// Read deadline is refreshed by the pong handler — if the peer goes
-		// silent for >pongWait, ReadMessage returns an error and we tear down.
+		// Browser → server pump.
 		clientGone := make(chan struct{})
 		go func() {
 			defer close(clientGone)
@@ -211,7 +190,7 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 				switch data[0] {
 				case 0: // stdin
 					if len(data) > 1 {
-						_ = stream.Send(&proto.ExecStdin{Data: data[1:]})
+						_ = stream.SendStdin(data[1:])
 					}
 				case 1: // resize
 					var sz struct {
@@ -219,44 +198,39 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 						Rows uint32 `json:"rows"`
 					}
 					if err := json.Unmarshal(data[1:], &sz); err == nil && sz.Cols > 0 && sz.Rows > 0 {
-						_ = stream.Send(&proto.ExecResize{Cols: sz.Cols, Rows: sz.Rows})
+						_ = stream.SendResize(sz.Cols, sz.Rows)
 					}
 				}
 			}
 		}()
+		// Client-gone watcher: close the stream so the worker's
+		// kubectl-exec stream tears down and Recv returns.
+		go func() {
+			<-clientGone
+			stream.Close()
+		}()
 
 		// Worker → browser pump.
 		for {
-			select {
-			case <-clientGone:
-				_ = stream.Send(&proto.ExecCancelRequest{})
-				select {
-				case <-stream.Recv():
-				case <-time.After(wsCloseGrace):
-				}
+			out, end, rerr := stream.Recv()
+			if rerr != nil {
 				return
-
-			case msg, ok := <-stream.Recv():
-				if !ok {
+			}
+			if out != nil {
+				tag := byte(out.GetStream()) // 1 stdout, 2 stderr
+				frame := append([]byte{tag}, out.GetData()...)
+				if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+					log.Printf("[pod-exec] write failed: %v", err)
 					return
 				}
-				switch p := msg.Payload.(type) {
-				case *proto.WorkerMessage_ExecOutput:
-					out := p.ExecOutput
-					tag := byte(out.Stream) // 1 stdout, 2 stderr
-					frame := append([]byte{tag}, out.Data...)
-					if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
-						log.Printf("[pod-exec] write failed: %v", err)
-						return
-					}
-				case *proto.WorkerMessage_ExecEnd:
-					end := p.ExecEnd
-					payload := append([]byte{3}, []byte(end.Error)...)
-					_ = conn.WriteMessage(websocket.BinaryMessage, payload)
-					_ = conn.WriteMessage(websocket.CloseMessage,
-						websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-					return
-				}
+				continue
+			}
+			if end != nil {
+				payload := append([]byte{3}, []byte(end.GetError())...)
+				_ = conn.WriteMessage(websocket.BinaryMessage, payload)
+				_ = conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				return
 			}
 		}
 	}

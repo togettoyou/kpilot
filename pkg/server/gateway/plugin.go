@@ -1,27 +1,42 @@
+// Package gateway — plugin command transport + status push handling.
+//
+// v2 surface:
+//   SendPluginCommand → opens STREAM_PLUGIN_COMMAND, writes the
+//   PluginCommand frame, then the chart .tgz blob bytes (if any),
+//   half-closes, reads back PluginCommandAck. Status updates flow
+//   back asynchronously on worker-initiated STREAM_PLUGIN_STATUS_PUSH
+//   streams (handled in dispatchInboundStream).
+//
+// pluginservice.Command (v1 proto types) gets converted to v2 at
+// the wire boundary; the high-level service code is transport-
+// agnostic.
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/togettoyou/kpilot/pkg/common/proto"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/pluginservice"
 	"github.com/togettoyou/kpilot/pkg/server/store"
 )
 
-// Plugin command building + status persistence moved to
-// pkg/server/pluginservice — the gateway is the gRPC transport boundary
-// and shouldn't be the place that knows how to merge Grafana
-// dashboards or write ClusterPlugin rows. This file keeps the
-// transport-side concerns: re-pushing pending commands on worker
-// reconnect, the one-way SendPluginCommand wrapper, and the
-// handlePluginStatus shim that delegates persistence.
+// pluginCommandTimeout caps the time we'll wait for the worker
+// to ack a PluginCommand. Helm install of a chart with N CRDs +
+// post-install hooks can run several minutes (Grafana sidecar
+// pulling dashboards, VictoriaMetrics waiting for PVC bind, etc),
+// so 10 min is roomy. Worker also has its own internal Helm
+// timeout that fires first when actual install hangs.
+const pluginCommandTimeout = 10 * time.Minute
 
-// ClusterDomain implements pluginservice.ClusterDomainResolver by
-// looking up the connected worker's reported DNS suffix. Returns
-// empty when the worker is gone; pluginservice falls back to
-// "cluster.local" in that case.
+// ClusterDomain implements ClusterDomainResolver (used by
+// pluginservice when expanding ${KPILOT_CLUSTER_DOMAIN}
+// placeholders in values YAML).
 func (g *GatewayServer) ClusterDomain(clusterID string) string {
 	if w, ok := g.GetWorker(clusterID); ok && w.ClusterDomain != "" {
 		return w.ClusterDomain
@@ -29,32 +44,112 @@ func (g *GatewayServer) ClusterDomain(clusterID string) string {
 	return ""
 }
 
-// replayPendingPluginCommands re-pushes plugin commands for any
-// (cluster, plugin) row whose state on Server suggests an action is in
-// flight that the (just-reconnected) Worker may not know about.
+// SendPluginCommand opens a STREAM_PLUGIN_COMMAND stream, ships
+// the command + (for local-chart enables) the .tgz blob, then
+// reads back PluginCommandAck. Failure on the wire surfaces as
+// a returned error; functional Helm install failures show up
+// later as PluginStatusPush frames.
 //
-// Triggered after Worker registration. Without it, a Disable click
-// landing during a Worker restart got stranded — the command went out
-// over the dying stream, the new Worker session had no record of it,
-// the CRD on the cluster never saw a delete, and UI sat permanently at
-// Uninstalling.
-//
-// What we replay:
-//   - enabled=false && phase=Uninstalling           → re-push disable
-//   - enabled=true && phase one of {Pending, Installing, Upgrading,
-//     Failed} → re-push enable (rebuilt from current overrides)
-//
-// Skipped: phase=Running (steady state, nothing pending),
-// phase=Disabled (no row would exist), and rows whose `enabled` flag
-// disagrees with their phase (a Disable+Enable racing in quick
-// succession can land enabled=true while phase still says Uninstalling
-// — replaying the disable in that state would clobber the user's
-// re-enable intent).
-//
-// Best-effort: errors are logged, not propagated; the next user action
-// would push again anyway. A panic in this goroutine would otherwise
-// crash the gateway process — recover so a malformed row can't take
-// the whole server down.
+// Gzip is OFF — chart .tgz is already gzip-compressed and a
+// second pass would just add CPU without saving bytes.
+func (g *GatewayServer) SendPluginCommand(clusterID string, cmd *pluginservice.Command) error {
+	w, ok := g.GetWorker(clusterID)
+	if !ok {
+		return fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), pluginCommandTimeout)
+	defer cancel()
+	st, err := w.Session.Open(ctx, pbv2.StreamKind_STREAM_PLUGIN_COMMAND, uuid.NewString(), false)
+	if err != nil {
+		return fmt.Errorf("open plugin stream: %w", err)
+	}
+	defer st.Close()
+	applyCtxDeadline(ctx, st)
+
+	wire := &pbv2.PluginCommand{
+		Action:         cmd.Action,
+		CrdName:        cmd.CrdName,
+		Spec:           pluginSpecToV2(cmd.Spec),
+		ChartBlobSize:  int64(len(cmd.Blob)),
+	}
+	if err := st.WriteMsg(wire); err != nil {
+		return fmt.Errorf("write plugin cmd: %w", err)
+	}
+	if len(cmd.Blob) > 0 {
+		if _, err := st.Writer().Write(cmd.Blob); err != nil {
+			return fmt.Errorf("write chart blob: %w", err)
+		}
+	}
+	if err := st.CloseWrite(); err != nil {
+		return fmt.Errorf("half-close plugin req: %w", err)
+	}
+
+	var ack pbv2.PluginCommandAck
+	if err := st.ReadMsg(&ack); err != nil {
+		return mapStreamErr(err, "read plugin ack")
+	}
+	if !ack.GetSuccess() {
+		return fmt.Errorf("worker rejected plugin command: %s", ack.GetError())
+	}
+	return nil
+}
+
+// pluginSpecToV2 converts the v1 proto types pluginservice.Command
+// carries into the v2 wire equivalent. Field sets are 1:1.
+func pluginSpecToV2(s *proto.PluginSpec) *pbv2.PluginSpec {
+	if s == nil {
+		return nil
+	}
+	out := &pbv2.PluginSpec{
+		PluginId:         s.GetPluginId(),
+		DisplayName:      s.GetDisplayName(),
+		ReleaseName:      s.GetReleaseName(),
+		ReleaseNamespace: s.GetReleaseNamespace(),
+		Values:           s.GetValues(),
+	}
+	if c := s.GetChart(); c != nil {
+		out.Chart = &pbv2.ChartSource{
+			Type:    c.GetType(),
+			Repo:    c.GetRepo(),
+			Name:    c.GetName(),
+			Version: c.GetVersion(),
+			Sha256:  c.GetSha256(),
+			HasBlob: c.GetHasBlob(),
+		}
+	}
+	return out
+}
+
+// pluginStatusFromV2 converts the v2 push frame back into v1's
+// proto.PluginStatusPush so pluginservice.PersistStatus
+// (transport-agnostic) keeps working without a v2 import.
+func pluginStatusFromV2(p *pbv2.PluginStatusPush) *proto.PluginStatusPush {
+	return &proto.PluginStatusPush{
+		CrdName:            p.GetCrdName(),
+		Phase:              p.GetPhase(),
+		Message:            p.GetMessage(),
+		ObservedVersion:    p.GetObservedVersion(),
+		ObservedValuesHash: p.GetObservedValuesHash(),
+		HelmRevision:       p.GetHelmRevision(),
+		InstalledAt:        p.GetInstalledAt(),
+		LastUpdatedAt:      p.GetLastUpdatedAt(),
+	}
+}
+
+// handlePluginStatus persists a status push. Called from
+// dispatchInboundStream when a worker opens a
+// STREAM_PLUGIN_STATUS_PUSH stream.
+func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *pbv2.PluginStatusPush) {
+	if err := pluginservice.PersistStatus(w.ClusterID, pluginStatusFromV2(st)); err != nil {
+		log.Printf("[gateway] plugin status persist: cluster=%s crd=%s err=%v",
+			w.ClusterID, st.GetCrdName(), err)
+	}
+}
+
+// replayPendingPluginCommands re-pushes plugin commands after
+// a worker reconnects. See the (preserved) v1 doc comment in
+// the original implementation; logic unchanged, just the inner
+// transport call is v2 now.
 func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -67,15 +162,6 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 			clusterID, err)
 		return
 	}
-	// Throttle: sleep between actual sends so a worker reconnect with
-	// N enabled plugins doesn't spike memory by pushing N × chart-blob
-	// into the gRPC send buffer in a tight loop. Local-chart enable
-	// commands carry the full .tgz bytes (up to ~5 MB each); 6 builtins
-	// at once is 30 MB on the wire — manageable but worth spreading.
-	// 100ms between sends keeps total replay under ~3s for any
-	// realistic plugin count while leaving steady-state idle. The
-	// `sent` flag means rows that early-`continue` don't burn the
-	// pause budget.
 	const replayPause = 100 * time.Millisecond
 	sent := false
 	maybePause := func() {
@@ -87,11 +173,6 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 		cp := &rows[i]
 		switch cp.Phase {
 		case store.PluginPhaseUninstalling:
-			// Symmetric with the enable case below: only replay if the
-			// row's `enabled` actually agrees that the user wants this
-			// plugin gone. enabled=true with phase=Uninstalling means a
-			// concurrent re-enable already overwrote the row; replaying
-			// the disable would clobber that intent.
 			if cp.Enabled {
 				continue
 			}
@@ -115,13 +196,6 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 		case store.PluginPhasePending,
 			store.PluginPhaseInstalling,
 			store.PluginPhaseUpgrading:
-			// Failed is intentionally NOT replayed: it's a terminal
-			// "user must do something" state — re-pushing the same
-			// PluginCommand wouldn't change the CRD generation, the
-			// reconciler's predicate filters status-only events, so
-			// nothing happens on the worker. The user fixes Failed by
-			// editing values / version (which bumps the spec) or by
-			// disable+re-enable.
 			if !cp.Enabled {
 				continue
 			}
@@ -148,28 +222,3 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 	}
 }
 
-// SendPluginCommand pushes a one-way chunked command (enable/disable)
-// to the connected Worker. Plugins use a fire-and-forget pattern — the
-// Worker reports back asynchronously via PluginStatusPush, so there's
-// no pending-response channel here. For local-chart enables the chart
-// .tgz bytes are streamed as BodyChunk frames; the Worker assembles
-// them via its rxAssemblers before invoking the reconciler.
-func (g *GatewayServer) SendPluginCommand(clusterID string, cmd *pluginservice.Command) error {
-	w, ok := g.GetWorker(clusterID)
-	if !ok {
-		return fmt.Errorf("cluster %s not connected", clusterID)
-	}
-	return sendChunkedPluginCommand(w.Stream.Context(), w, cmd)
-}
-
-// handlePluginStatus thinly forwards the worker's status push to
-// pluginservice for persistence. The connected worker identifies the
-// cluster (we don't trust any cluster_id from the wire). Errors are
-// logged inside pluginservice + here for the gateway audit trail;
-// status pushes are best-effort so we don't retry or propagate.
-func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *proto.PluginStatusPush) {
-	if err := pluginservice.PersistStatus(w.ClusterID, st); err != nil {
-		log.Printf("[gateway] plugin status persist: cluster=%s crd=%s err=%v",
-			w.ClusterID, st.CrdName, err)
-	}
-}

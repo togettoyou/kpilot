@@ -1595,15 +1595,17 @@ func (x *WSEnd) GetReason() string {
 }
 
 type PluginStatusPush struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	CrdName            string                 `protobuf:"bytes,1,opt,name=crd_name,json=crdName,proto3" json:"crd_name,omitempty"`
-	Phase              string                 `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"` // Pending / Installing / Running / Upgrading / Failed / Uninstalling
-	Message            string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	InstalledVersion   string                 `protobuf:"bytes,4,opt,name=installed_version,json=installedVersion,proto3" json:"installed_version,omitempty"`
-	InstalledNamespace string                 `protobuf:"bytes,5,opt,name=installed_namespace,json=installedNamespace,proto3" json:"installed_namespace,omitempty"`
-	InstalledRevision  int64                  `protobuf:"varint,6,opt,name=installed_revision,json=installedRevision,proto3" json:"installed_revision,omitempty"`
-	ObservedGeneration int64                  `protobuf:"varint,7,opt,name=observed_generation,json=observedGeneration,proto3" json:"observed_generation,omitempty"`
-	Ts                 int64                  `protobuf:"varint,8,opt,name=ts,proto3" json:"ts,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	CrdName string                 `protobuf:"bytes,1,opt,name=crd_name,json=crdName,proto3" json:"crd_name,omitempty"`
+	Phase   string                 `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"` // Pending / Installing / Running / Upgrading / Failed / Uninstalling
+	Message string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// Helm release version actually installed (chart-side, not the CRD spec).
+	ObservedVersion string `protobuf:"bytes,4,opt,name=observed_version,json=observedVersion,proto3" json:"observed_version,omitempty"`
+	// sha256 of the values YAML actually applied — server detects drift.
+	ObservedValuesHash string `protobuf:"bytes,5,opt,name=observed_values_hash,json=observedValuesHash,proto3" json:"observed_values_hash,omitempty"`
+	HelmRevision       int32  `protobuf:"varint,6,opt,name=helm_revision,json=helmRevision,proto3" json:"helm_revision,omitempty"`
+	InstalledAt        int64  `protobuf:"varint,7,opt,name=installed_at,json=installedAt,proto3" json:"installed_at,omitempty"`         // unix seconds, 0 if not installed
+	LastUpdatedAt      int64  `protobuf:"varint,8,opt,name=last_updated_at,json=lastUpdatedAt,proto3" json:"last_updated_at,omitempty"` // unix seconds
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -1659,37 +1661,37 @@ func (x *PluginStatusPush) GetMessage() string {
 	return ""
 }
 
-func (x *PluginStatusPush) GetInstalledVersion() string {
+func (x *PluginStatusPush) GetObservedVersion() string {
 	if x != nil {
-		return x.InstalledVersion
+		return x.ObservedVersion
 	}
 	return ""
 }
 
-func (x *PluginStatusPush) GetInstalledNamespace() string {
+func (x *PluginStatusPush) GetObservedValuesHash() string {
 	if x != nil {
-		return x.InstalledNamespace
+		return x.ObservedValuesHash
 	}
 	return ""
 }
 
-func (x *PluginStatusPush) GetInstalledRevision() int64 {
+func (x *PluginStatusPush) GetHelmRevision() int32 {
 	if x != nil {
-		return x.InstalledRevision
+		return x.HelmRevision
 	}
 	return 0
 }
 
-func (x *PluginStatusPush) GetObservedGeneration() int64 {
+func (x *PluginStatusPush) GetInstalledAt() int64 {
 	if x != nil {
-		return x.ObservedGeneration
+		return x.InstalledAt
 	}
 	return 0
 }
 
-func (x *PluginStatusPush) GetTs() int64 {
+func (x *PluginStatusPush) GetLastUpdatedAt() int64 {
 	if x != nil {
-		return x.Ts
+		return x.LastUpdatedAt
 	}
 	return 0
 }
@@ -1937,16 +1939,16 @@ const file_v2_pilot_proto_rawDesc = "" +
 	"\x04data\x18\x02 \x01(\fR\x04data\"3\n" +
 	"\x05WSEnd\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xab\x02\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xaa\x02\n" +
 	"\x10PluginStatusPush\x12\x19\n" +
 	"\bcrd_name\x18\x01 \x01(\tR\acrdName\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\x12+\n" +
-	"\x11installed_version\x18\x04 \x01(\tR\x10installedVersion\x12/\n" +
-	"\x13installed_namespace\x18\x05 \x01(\tR\x12installedNamespace\x12-\n" +
-	"\x12installed_revision\x18\x06 \x01(\x03R\x11installedRevision\x12/\n" +
-	"\x13observed_generation\x18\a \x01(\x03R\x12observedGeneration\x12\x0e\n" +
-	"\x02ts\x18\b \x01(\x03R\x02ts\"k\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12)\n" +
+	"\x10observed_version\x18\x04 \x01(\tR\x0fobservedVersion\x120\n" +
+	"\x14observed_values_hash\x18\x05 \x01(\tR\x12observedValuesHash\x12#\n" +
+	"\rhelm_revision\x18\x06 \x01(\x05R\fhelmRevision\x12!\n" +
+	"\finstalled_at\x18\a \x01(\x03R\vinstalledAt\x12&\n" +
+	"\x0flast_updated_at\x18\b \x01(\x03R\rlastUpdatedAt\"k\n" +
 	"\x0ePluginLogChunk\x12\x19\n" +
 	"\bcrd_name\x18\x01 \x01(\tR\acrdName\x12\x14\n" +
 	"\x05level\x18\x02 \x01(\tR\x05level\x12\x0e\n" +

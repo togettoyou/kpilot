@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/togettoyou/kpilot/pkg/common/proto"
+	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
@@ -417,18 +418,11 @@ func proxyWebSocket(
 	svc proxiableService,
 	releaseNS, subPath, username string,
 ) {
-	// Open the gRPC stream first — if the worker is gone we shouldn't even
-	// upgrade the browser conn, just return a clean 503.
-	stream, err := gw.OpenStream(clusterID)
-	if err != nil {
-		apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
-		return
-	}
-
-	// Strip Connection / Upgrade / Sec-WebSocket-* before handing the
-	// remaining headers to the worker — gorilla/websocket sets them itself
-	// on the dial side. Same Cookie / X-WEBAUTH-USER rules as the HTTP path.
-	wsHeaders := make([]*proto.HTTPHeader, 0, len(c.Request.Header)+1)
+	// Build headers + target URL first; pass everything into
+	// OpenWSStream which opens the yamux stream AND writes the
+	// WSStartRequest in one go. Failing here returns a clean 503
+	// without touching the browser conn.
+	wsHeaders := make([]*pbv2.HTTPHeader, 0, len(c.Request.Header)+1)
 	for name, values := range c.Request.Header {
 		canon := http.CanonicalHeaderKey(name)
 		if _, hop := hopByHopHeadersServer[canon]; hop {
@@ -443,17 +437,17 @@ func proxyWebSocket(
 		if canon == "Cookie" {
 			for _, v := range values {
 				if filtered := filterKPilotCookies(v); filtered != "" {
-					wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: name, Value: filtered})
+					wsHeaders = append(wsHeaders, &pbv2.HTTPHeader{Name: name, Value: filtered})
 				}
 			}
 			continue
 		}
 		for _, v := range values {
-			wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: name, Value: v})
+			wsHeaders = append(wsHeaders, &pbv2.HTTPHeader{Name: name, Value: v})
 		}
 	}
-	wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: "X-WEBAUTH-USER", Value: username})
-	wsHeaders = append(wsHeaders, &proto.HTTPHeader{Name: "X-WEBAUTH-ROLE", Value: proxyGrafanaRole})
+	wsHeaders = append(wsHeaders, &pbv2.HTTPHeader{Name: "X-WEBAUTH-USER", Value: username})
+	wsHeaders = append(wsHeaders, &pbv2.HTTPHeader{Name: "X-WEBAUTH-ROLE", Value: proxyGrafanaRole})
 
 	query := c.Request.URL.RawQuery
 	target := fmt.Sprintf("ws://%s.%s.svc.%s:%d%s",
@@ -462,38 +456,26 @@ func proxyWebSocket(
 		target += "?" + query
 	}
 
-	// Note on ordering: we Send WSStartRequest first, then Upgrade the
-	// browser conn. There's a tiny window where the worker's upstream
-	// dial completes and starts pushing WSFrame back through the Stream
-	// before the browser pump goroutine is reading. Stream's msgCh is
-	// buffered (256 frames) and Stream.deliver drops on full, so brief
-	// catch-up is fine; Grafana's WS handshake doesn't push pre-handshake
-	// frames anyway. Reversing the order would mean we'd promote the
-	// browser conn before knowing the worker accepted the request — worse
-	// failure mode (already-upgraded conn with no upstream).
-	if err := stream.Send(&proto.WSStartRequest{Url: target, Headers: wsHeaders}); err != nil {
-		stream.Close()
+	stream, err := gw.OpenWSStream(c.Request.Context(), clusterID, &pbv2.WSStartRequest{
+		Url:     target,
+		Headers: wsHeaders,
+	})
+	if err != nil {
 		apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 		return
 	}
 
-	// Upgrade the browser conn AFTER WSStartRequest is on the wire, so we
-	// don't promote a connection that the worker can't service.
+	// Upgrade the browser conn AFTER WSStartRequest is on the
+	// wire, so we don't promote a connection that the worker
+	// can't service.
 	rawConn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		// Upgrade writes its own response on failure; tell the worker to
-		// abandon the upstream dial.
-		_ = stream.SendWSEnd(&proto.WSEnd{Reason: "browser upgrade failed"})
+		_ = stream.SendEnd(0, "browser upgrade failed")
 		stream.Close()
 		return
 	}
 	defer rawConn.Close()
 
-	// Wrap in wsConn so the WriteMessage / WriteControl calls below are
-	// serialised under the per-conn mutex (matches PodLogs / PodExec /
-	// PluginInstallLog). The reverse-proxy pumps below are single-writer
-	// today, but the wrapper closes off a foot-gun for any future change
-	// that adds a second writer, and gets us startHeartbeat for free.
 	browserConn := newWSConn(rawConn)
 	hbCtx, hbCancel := context.WithCancel(c.Request.Context())
 	defer hbCancel()
@@ -506,54 +488,53 @@ func proxyWebSocket(
 			if err != nil {
 				var ce *websocket.CloseError
 				if errors.As(err, &ce) {
-					_ = stream.SendWSEnd(&proto.WSEnd{Code: int32(ce.Code), Reason: ce.Text})
+					_ = stream.SendEnd(int32(ce.Code), ce.Text)
 				} else {
-					_ = stream.SendWSEnd(&proto.WSEnd{Reason: err.Error()})
+					_ = stream.SendEnd(0, err.Error())
 				}
 				stream.Close()
 				return
 			}
-			if err := stream.SendWSFrame(&proto.WSFrame{Opcode: int32(opcode), Data: data}); err != nil {
+			if err := stream.SendFrame(int32(opcode), data); err != nil {
 				stream.Close()
 				return
 			}
 		}
 	}()
 
-	// Upstream → browser pump (main loop). Exits when the stream closes
-	// (worker disconnect, end frame, or browser-side closer above).
-	for msg := range stream.Recv() {
-		switch p := msg.Payload.(type) {
-		case *proto.WorkerMessage_WsFrameRecv:
-			frame := p.WsFrameRecv
-			op := int(frame.Opcode)
+	// Upstream → browser pump (main loop).
+	for {
+		frame, end, rerr := stream.Recv()
+		if rerr != nil {
+			break
+		}
+		if frame != nil {
+			op := int(frame.GetOpcode())
 			if op == 0 {
 				op = websocket.TextMessage
 			}
-			if err := browserConn.WriteMessage(op, frame.Data); err != nil {
+			if err := browserConn.WriteMessage(op, frame.GetData()); err != nil {
 				stream.Close()
 				return
 			}
-		case *proto.WorkerMessage_WsEndRecv:
-			end := p.WsEndRecv
-			code := int(end.Code)
+			continue
+		}
+		if end != nil {
+			code := int(end.GetCode())
 			if code == 0 {
 				code = websocket.CloseAbnormalClosure
 			}
 			_ = browserConn.WriteControl(
 				websocket.CloseMessage,
-				websocket.FormatCloseMessage(code, end.Reason),
+				websocket.FormatCloseMessage(code, end.GetReason()),
 				time.Now().Add(writeWait),
 			)
 			stream.Close()
 			return
 		}
 	}
-	// Channel closed without an explicit end frame — worker disconnect or
-	// the gateway's stream cleanup. Send the browser a polite close so it
-	// doesn't see an abnormal-close (1006) and silently retry forever; a
-	// 1001 Going Away triggers most clients' standard reconnect-with-
-	// backoff path instead.
+	// Loop exited without an explicit end frame — worker
+	// disconnect or stream cleanup. Send polite Going Away.
 	_ = browserConn.WriteControl(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseGoingAway, "upstream connection lost"),

@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -95,13 +96,22 @@ func streamVMLogs(
 		return 0, "", fmt.Errorf("open VL stream: %w", sErr)
 	}
 	log.Printf("[diag-stream] opened cluster=%s status=%d url=%s", clusterID, stream.Status, u)
-	// MUST defer Close — otherwise a slow consumer / early return
-	// leaves the gateway session registered and stalls the worker
-	// recv loop on its bounded chunks channel.
+	// v2: stream.Close cascades as yamux FIN → worker cancels its
+	// VL request mid-flight. ctx watcher goroutine triggers the
+	// Close on cancel so Body.Read unblocks fast.
 	defer func() {
 		log.Printf("[diag-stream] stream.Close() invoked cluster=%s total=%d endErr=%q",
 			clusterID, total, endErr)
 		stream.Close()
+	}()
+	doneClose := make(chan struct{})
+	defer close(doneClose)
+	go func() {
+		select {
+		case <-ctx.Done():
+			stream.Close()
+		case <-doneClose:
+		}
 	}()
 
 	if stream.Error != "" {
@@ -114,84 +124,74 @@ func streamVMLogs(
 		return 0, "", fmt.Errorf("VL HTTP %d", stream.Status)
 	}
 
-	// NDJSON line accumulator. bytes.Buffer.Next() avoids reslicing
-	// and re-allocations as we chew through complete lines; the
-	// retained tail (incomplete final line of a chunk) is kept for
-	// the next chunk to prepend to.
+	// NDJSON line accumulator over the live stream. bytes.Buffer's
+	// Next() avoids reslicing as we chew through complete lines;
+	// the retained tail (incomplete final line of a chunk) waits
+	// for the next Read to fill it.
 	var buf bytes.Buffer
+	chunk := make([]byte, 32*1024)
 	overflowed := false // single-line bytes exceeded maxLogLineBytes
 	var dropped int     // count of malformed / oversized lines for log
 
 	for {
-		select {
-		case chunk, ok := <-stream.Chunks:
-			if !ok {
-				// BodyEnd already arrived; drain endErr (non-blocking,
-				// gateway finalised it before closing chunks).
-				if e := <-stream.EndErr; e != nil {
-					endErr = e.Error()
-				}
-				goto done
-			}
-			// Defensive size guard: protect server memory against a
-			// pathological upstream that emits one unterminated blob.
-			// If we've already overflowed, drop incoming bytes until
-			// we see a \n boundary that lets us resync.
+		n, rerr := stream.Body.Read(chunk)
+		if n > 0 {
+			c := chunk[:n]
 			if overflowed {
-				if i := bytes.IndexByte(chunk, '\n'); i >= 0 {
+				if i := bytes.IndexByte(c, '\n'); i >= 0 {
 					buf.Reset()
-					buf.Write(chunk[i+1:])
+					buf.Write(c[i+1:])
 					overflowed = false
 					dropped++
 				}
-				continue
-			}
-			if buf.Len()+len(chunk) > maxLogLineBytes {
+			} else if buf.Len()+len(c) > maxLogLineBytes {
 				overflowed = true
 				buf.Reset()
-				// drop this chunk; resync on next \n
-				if i := bytes.IndexByte(chunk, '\n'); i >= 0 {
-					buf.Write(chunk[i+1:])
+				if i := bytes.IndexByte(c, '\n'); i >= 0 {
+					buf.Write(c[i+1:])
 					overflowed = false
 					dropped++
 				}
-				continue
+			} else {
+				buf.Write(c)
+				for {
+					if ctx.Err() != nil {
+						log.Printf("[diag-stream] EXIT via ctx.Done (inner) cluster=%s total=%d err=%v",
+							clusterID, total, ctx.Err())
+						return total, "ctx cancelled", ctx.Err()
+					}
+					idx := bytes.IndexByte(buf.Bytes(), '\n')
+					if idx < 0 {
+						break
+					}
+					rawLine := buf.Next(idx + 1)
+					rawLine = bytes.TrimRight(rawLine, "\r\n")
+					if len(rawLine) == 0 {
+						continue
+					}
+					var rec map[string]any
+					if jerr := json.Unmarshal(rawLine, &rec); jerr != nil {
+						dropped++
+						continue
+					}
+					if oErr := onLine(projectLogLine(rec)); oErr != nil {
+						log.Printf("[diag-stream] EXIT via onLine err cluster=%s total=%d err=%v",
+							clusterID, total, oErr)
+						return total, "client send: " + oErr.Error(), nil
+					}
+					total++
+					if limit > 0 && total >= limit {
+						log.Printf("[diag-stream] EXIT via limit cluster=%s total=%d", clusterID, total)
+						goto done
+					}
+				}
 			}
-			buf.Write(chunk)
-			for {
-				select {
-				case <-ctx.Done():
-					log.Printf("[diag-stream] EXIT via ctx.Done (inner) cluster=%s total=%d err=%v", clusterID, total, ctx.Err())
-					return total, "ctx cancelled", ctx.Err()
-				default:
-				}
-				idx := bytes.IndexByte(buf.Bytes(), '\n')
-				if idx < 0 {
-					break
-				}
-				rawLine := buf.Next(idx + 1) // includes trailing \n
-				rawLine = bytes.TrimRight(rawLine, "\r\n")
-				if len(rawLine) == 0 {
-					continue
-				}
-				var rec map[string]any
-				if jerr := json.Unmarshal(rawLine, &rec); jerr != nil {
-					dropped++
-					continue
-				}
-				if oErr := onLine(projectLogLine(rec)); oErr != nil {
-					log.Printf("[diag-stream] EXIT via onLine err cluster=%s total=%d err=%v", clusterID, total, oErr)
-					return total, "client send: " + oErr.Error(), nil
-				}
-				total++
-				if limit > 0 && total >= limit {
-					log.Printf("[diag-stream] EXIT via limit cluster=%s total=%d", clusterID, total)
-					goto done
-				}
+		}
+		if rerr != nil {
+			if rerr != io.EOF {
+				endErr = rerr.Error()
 			}
-		case <-ctx.Done():
-			log.Printf("[diag-stream] EXIT via ctx.Done (outer) cluster=%s total=%d err=%v", clusterID, total, ctx.Err())
-			return total, "ctx cancelled", ctx.Err()
+			goto done
 		}
 	}
 done:
