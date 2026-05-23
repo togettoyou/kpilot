@@ -1,5 +1,6 @@
+import { ReloadOutlined } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
-import { Button, DatePicker, Space } from 'antd';
+import { Button, DatePicker, Space, Tooltip } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import React from 'react';
 
@@ -68,10 +69,105 @@ const TimeRangePicker: React.FC<Props> = ({
 }) => {
   const intl = useIntl();
 
-  // Custom-mode RangePicker shows the actual from/to; preset mode shows
-  // empty (the picker is a separate "set custom" gesture).
-  const pickerValue: [Dayjs, Dayjs] | null =
-    value.mode === 'custom' ? [dayjs(value.from), dayjs(value.to)] : null;
+  // Always show the live effective range — even in preset mode the
+  // picker reflects "now - 1h → now" so clicking the picker opens
+  // on today's date instead of an empty calendar anchored to epoch.
+  // The user can then tweak from a known anchor (the most common
+  // gesture: "this same window but ending 10 min earlier").
+  const resolved = React.useMemo(() => resolveTimeRange(value), [value]);
+  const pickerValue: [Dayjs, Dayjs] = [
+    dayjs(resolved.from),
+    dayjs(resolved.to),
+  ];
+
+  // antd RangePicker.presets — shows a sidebar of one-click ranges
+  // in the popover. Grafana-style quick choices; more granular than
+  // the headline preset buttons (which stay focused on the polling-
+  // friendly anchors 1h/24h/7d/30d).
+  const popoverPresets: NonNullable<
+    React.ComponentProps<typeof RangePicker>['presets']
+  > = React.useMemo(() => {
+    const now = dayjs();
+    return [
+      {
+        label: intl.formatMessage({
+          id: 'components.timeRangePicker.preset.last5m',
+          defaultMessage: '近 5 分钟',
+        }),
+        value: [now.subtract(5, 'minute'), now],
+      },
+      {
+        label: intl.formatMessage({
+          id: 'components.timeRangePicker.preset.last15m',
+          defaultMessage: '近 15 分钟',
+        }),
+        value: [now.subtract(15, 'minute'), now],
+      },
+      {
+        label: intl.formatMessage({
+          id: 'components.timeRangePicker.preset.last1h',
+          defaultMessage: '近 1 小时',
+        }),
+        value: [now.subtract(1, 'hour'), now],
+      },
+      {
+        label: intl.formatMessage({
+          id: 'components.timeRangePicker.preset.last6h',
+          defaultMessage: '近 6 小时',
+        }),
+        value: [now.subtract(6, 'hour'), now],
+      },
+      {
+        label: intl.formatMessage({
+          id: 'components.timeRangePicker.preset.last24h',
+          defaultMessage: '近 24 小时',
+        }),
+        value: [now.subtract(24, 'hour'), now],
+      },
+      {
+        label: intl.formatMessage({
+          id: 'components.timeRangePicker.preset.today',
+          defaultMessage: '今天',
+        }),
+        value: [now.startOf('day'), now],
+      },
+      {
+        label: intl.formatMessage({
+          id: 'components.timeRangePicker.preset.yesterday',
+          defaultMessage: '昨天',
+        }),
+        value: [
+          now.subtract(1, 'day').startOf('day'),
+          now.subtract(1, 'day').endOf('day'),
+        ],
+      },
+      {
+        label: intl.formatMessage({
+          id: 'components.timeRangePicker.preset.last7d',
+          defaultMessage: '近 7 天',
+        }),
+        value: [now.subtract(7, 'day'), now],
+      },
+      {
+        label: intl.formatMessage({
+          id: 'components.timeRangePicker.preset.last30d',
+          defaultMessage: '近 30 天',
+        }),
+        value: [now.subtract(30, 'day'), now],
+      },
+    ];
+  }, [intl, value]); // re-eval when value changes so "now" is fresh on each open
+
+  // "Snap end to now" — only meaningful in custom mode. Re-anchors
+  // the right edge to now() while keeping the window width, so the
+  // user can slide the view forward without re-picking dates.
+  const handleSnapToNow = () => {
+    if (value.mode !== 'custom') return;
+    const span = value.to.getTime() - value.from.getTime();
+    const to = new Date();
+    const from = new Date(to.getTime() - span);
+    onChange({ mode: 'custom', from, to });
+  };
 
   return (
     <Space size={6} wrap>
@@ -99,6 +195,7 @@ const TimeRangePicker: React.FC<Props> = ({
         // a preset button instead.
         allowClear={false}
         value={pickerValue}
+        presets={popoverPresets}
         // Disable future dates and anything older than maxDays — the
         // server rejects > 31 days anyway, but blocking it here gives
         // the user a clearer signal than a 400.
@@ -128,6 +225,25 @@ const TimeRangePicker: React.FC<Props> = ({
           }),
         ]}
       />
+      {value.mode === 'custom' && (
+        <Tooltip
+          title={intl.formatMessage({
+            id: 'components.timeRangePicker.snapToNow.tooltip',
+            defaultMessage: '把窗口右端贴到当前时间（保持窗口长度）',
+          })}
+        >
+          <Button
+            size={size}
+            icon={<ReloadOutlined />}
+            onClick={handleSnapToNow}
+          >
+            {intl.formatMessage({
+              id: 'components.timeRangePicker.snapToNow',
+              defaultMessage: '贴到现在',
+            })}
+          </Button>
+        </Tooltip>
+      )}
     </Space>
   );
 };
