@@ -166,6 +166,12 @@ const APIKeysPage: React.FC = () => {
     (CreateAPIKeyResponse & { modelField?: string }) | null
   >(null);
   const [copied, setCopied] = useState(false);
+  // Separate flash for the curl snippet copy button — both copy
+  // actions live in the same result modal and a single boolean
+  // would make one of them visually flicker after the other was
+  // used. State each is independent + transient (revert after a
+  // short timeout).
+  const [curlCopied, setCurlCopied] = useState(false);
 
   const copyToken = async () => {
     if (!resultData?.token) return;
@@ -173,6 +179,17 @@ const APIKeysPage: React.FC = () => {
       await navigator.clipboard.writeText(resultData.token);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      message.error(t('pages.describe.copyFailed', 'Copy failed'));
+    }
+  };
+
+  const copyCurl = async () => {
+    if (!usageCurl) return;
+    try {
+      await navigator.clipboard.writeText(usageCurl);
+      setCurlCopied(true);
+      setTimeout(() => setCurlCopied(false), 2000);
     } catch {
       message.error(t('pages.describe.copyFailed', 'Copy failed'));
     }
@@ -658,21 +675,44 @@ const APIKeysPage: React.FC = () => {
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {t('pages.apikeys.result.usageLabel')}
               </Text>
-              <Paragraph
-                style={{
-                  background: token.colorFillTertiary,
-                  borderRadius: 4,
-                  padding: 12,
-                  margin: '6px 0 0 0',
-                  fontFamily:
-                    'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                  fontSize: 12,
-                  whiteSpace: 'pre',
-                  overflowX: 'auto',
-                }}
-              >
-                {usageCurl}
-              </Paragraph>
+              {/* Code block with an overlayed Copy button.
+                  position:relative on the wrapper anchors the button
+                  inside the snippet's bounds; pre formatting + side
+                  scroll preserved so long curls don't wrap. */}
+              <div style={{ position: 'relative', marginTop: 6 }}>
+                <Button
+                  size="small"
+                  type={curlCopied ? 'default' : 'primary'}
+                  icon={<CopyOutlined />}
+                  onClick={copyCurl}
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    zIndex: 1,
+                  }}
+                >
+                  {curlCopied
+                    ? t('pages.apikeys.action.copied')
+                    : t('pages.apikeys.action.copy')}
+                </Button>
+                <Paragraph
+                  style={{
+                    background: token.colorFillTertiary,
+                    borderRadius: 4,
+                    padding: 12,
+                    paddingRight: 96, // leave room for the Copy button
+                    margin: 0,
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                    fontSize: 12,
+                    whiteSpace: 'pre',
+                    overflowX: 'auto',
+                  }}
+                >
+                  {usageCurl}
+                </Paragraph>
+              </div>
             </div>
           </Space>
         )}
