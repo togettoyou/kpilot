@@ -1,6 +1,5 @@
-import { ReloadOutlined } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
-import { Button, DatePicker, Space, Tooltip } from 'antd';
+import { Button, DatePicker, Space } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import React from 'react';
 
@@ -162,17 +161,6 @@ const TimeRangePicker: React.FC<Props> = ({
     ];
   }, [intl, value]); // re-eval when value changes so "now" is fresh on each open
 
-  // "Snap end to now" — only meaningful in custom mode. Re-anchors
-  // the right edge to now() while keeping the window width, so the
-  // user can slide the view forward without re-picking dates.
-  const handleSnapToNow = () => {
-    if (value.mode !== 'custom') return;
-    const span = value.to.getTime() - value.from.getTime();
-    const to = new Date();
-    const from = new Date(to.getTime() - span);
-    onChange({ mode: 'custom', from, to });
-  };
-
   return (
     <Space size={6} wrap>
       {presets.map((p) => (
@@ -230,25 +218,6 @@ const TimeRangePicker: React.FC<Props> = ({
           }),
         ]}
       />
-      {value.mode === 'custom' && (
-        <Tooltip
-          title={intl.formatMessage({
-            id: 'components.timeRangePicker.snapToNow.tooltip',
-            defaultMessage: '把窗口右端贴到当前时间（保持窗口长度）',
-          })}
-        >
-          <Button
-            size={size}
-            icon={<ReloadOutlined />}
-            onClick={handleSnapToNow}
-          >
-            {intl.formatMessage({
-              id: 'components.timeRangePicker.snapToNow',
-              defaultMessage: '贴到现在',
-            })}
-          </Button>
-        </Tooltip>
-      )}
     </Space>
   );
 };
