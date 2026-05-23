@@ -1,9 +1,7 @@
-import { DownloadOutlined } from '@ant-design/icons';
 import { useIntl, useParams } from '@umijs/max';
 import {
   Card,
   Col,
-  Dropdown,
   Empty,
   Progress,
   Result,
@@ -314,54 +312,6 @@ const GPUMonitoringPage: React.FC = () => {
     [data, filteredSeries, activeSet],
   );
 
-  // Export — CSV (flat rows: ts, metric, host, gpu, uuid, value) +
-  // JSON (whole response, post-filter). Filename includes cluster id
-  // + timestamp so multi-cluster operators don't overwrite.
-  const onExport = (format: 'csv' | 'json') => {
-    if (!data) return;
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `kpilot-gpu-${clusterId}-${ts}.${format}`;
-    let content: string;
-    let mime: string;
-    if (format === 'csv') {
-      const lines: string[] = ['timestamp,metric,hostname,gpu,uuid,value'];
-      for (const metric of Object.keys(filteredSeries)) {
-        for (const s of filteredSeries[metric] ?? []) {
-          for (const p of s.points) {
-            lines.push(
-              [
-                new Date(p.ts).toISOString(),
-                metric,
-                s.hostname ?? '',
-                s.gpu ?? '',
-                s.uuid ?? '',
-                String(p.value),
-              ].join(','),
-            );
-          }
-        }
-      }
-      content = lines.join('\n');
-      mime = 'text/csv';
-    } else {
-      content = JSON.stringify(
-        { ...data, series: filteredSeries },
-        null,
-        2,
-      );
-      mime = 'application/json';
-    }
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
   if (error && isResourceNotAvailable(error)) {
     return (
       <NotInstalled
@@ -427,32 +377,6 @@ const GPUMonitoringPage: React.FC = () => {
                 }
               />
               <div style={{ flex: 1 }} />
-              <Dropdown
-                disabled={!data}
-                menu={{
-                  items: [
-                    {
-                      key: 'csv',
-                      label: intl.formatMessage({
-                        id: 'pages.gpuMonitoring.export.csv',
-                      }),
-                      onClick: () => onExport('csv'),
-                    },
-                    {
-                      key: 'json',
-                      label: intl.formatMessage({
-                        id: 'pages.gpuMonitoring.export.json',
-                      }),
-                      onClick: () => onExport('json'),
-                    },
-                  ],
-                }}
-              >
-                <span style={{ cursor: 'pointer', color: 'var(--ant-color-text-secondary)' }}>
-                  <DownloadOutlined />{' '}
-                  {intl.formatMessage({ id: 'pages.gpuMonitoring.export' })}
-                </span>
-              </Dropdown>
               <RefreshControl
                 interval={interval}
                 setInterval={setInter}
