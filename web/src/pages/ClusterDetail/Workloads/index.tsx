@@ -909,8 +909,7 @@ export function WorkloadsContent({
             trigger={['click']}
           >
             <Button type="link" size="small">
-              {intl.formatMessage({ id: 'pages.workloads.more' })}{' '}
-              <DownOutlined />
+              {intl.formatMessage({ id: 'pages.workloads.more' })}
             </Button>
           </Dropdown>
         ) : null;

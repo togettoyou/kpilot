@@ -1293,7 +1293,7 @@ export default {
   'pages.workloads.col.actions': '操作',
   'pages.workloads.view': '查看',
   'pages.workloads.edit': '编辑',
-  'pages.workloads.more': '更多',
+  'pages.workloads.more': '操作',
   'pages.workloads.delete': '删除',
   // kubectl rollout/scale equivalents — surfaced via the "更多" dropdown
   // on workload rows.

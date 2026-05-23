@@ -1340,7 +1340,7 @@ export default {
   'pages.workloads.col.actions': 'Actions',
   'pages.workloads.view': 'View',
   'pages.workloads.edit': 'Edit',
-  'pages.workloads.more': 'More',
+  'pages.workloads.more': 'Actions',
   'pages.workloads.describe': 'Describe',
   'pages.workloads.delete': 'Delete',
   // kubectl rollout/scale equivalents — surfaced via the "More" dropdown
