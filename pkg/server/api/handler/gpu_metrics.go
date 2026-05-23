@@ -49,10 +49,15 @@ var metricRangeSpec = map[string]timeRangeSpec{
 // label-bag exposed) — adding a new label means changing the wire
 // contract on purpose, not by accident.
 type gpuMetricSeries struct {
-	Hostname string        `json:"hostname,omitempty"`
-	GPU      string        `json:"gpu,omitempty"`
-	UUID     string        `json:"uuid,omitempty"`
-	Points   []gpuMetricPt `json:"points"`
+	Hostname string `json:"hostname,omitempty"`
+	GPU      string `json:"gpu,omitempty"`
+	UUID     string `json:"uuid,omitempty"`
+	// ModelName comes from the DCGM_FI_DEV_NAME label that DCGM
+	// exporter ships on every metric. Lets the frontend tell
+	// heterogeneous GPUs apart in the chart legend ("A100 80GB" vs
+	// "H100" vs "T4") without an extra round-trip.
+	ModelName string        `json:"modelName,omitempty"`
+	Points    []gpuMetricPt `json:"points"`
 }
 
 type gpuMetricPt struct {
@@ -180,10 +185,11 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 							pts = append(pts, gpuMetricPt{Ts: p.Ts, Value: p.Value})
 						}
 						rows = append(rows, gpuMetricSeries{
-							Hostname: s.Labels["Hostname"],
-							GPU:      s.Labels["gpu"],
-							UUID:     s.Labels["UUID"],
-							Points:   pts,
+							Hostname:  s.Labels["Hostname"],
+							GPU:       s.Labels["gpu"],
+							UUID:      s.Labels["UUID"],
+							ModelName: s.Labels["modelName"],
+							Points:    pts,
 						})
 					}
 					// Stable order so chart legends don't shuffle between

@@ -35,6 +35,10 @@ export interface GPUMetricSeries {
   hostname?: string;
   gpu?: string;
   uuid?: string;
+  // DCGM_FI_DEV_NAME — populated when the worker can read the per-
+  // device model name. Lets the UI render mixed-model clusters with
+  // a heterogeneity hint (A100 vs H100 vs T4) in the legend.
+  modelName?: string;
   points: GPUMetricPt[];
 }
 
