@@ -24,6 +24,7 @@ import {
   type JobInput,
 } from '@/services/kpilot/volcano';
 import { getWorkload } from '@/services/kpilot/workload';
+import { parseQuantity } from './shared/utils';
 
 interface JobFormDrawerProps {
   open: boolean;
@@ -1335,12 +1336,15 @@ function extractTasks(specTasks: any): TaskFV[] {
       extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
       seen.add(k);
     }
-    // vgpu-* parsed as integers; fall back to undefined on garbage
-    // so the InputNumber renders empty rather than NaN.
+    // vgpu-* parsed as K8s Quantity so unit suffixes survive
+    // round-trip — naive parseInt("2k", 10) returns 2 and silently
+    // drops the suffix, which makes "2k" (= 2000) render as "2" in
+    // the InputNumber. parseQuantity handles SI (k/M/G/...) and
+    // binary (Ki/Mi/Gi/...) suffixes, matching K8s semantics.
     const num = (s?: string): number | undefined => {
       if (!s) return undefined;
-      const n = parseInt(s, 10);
-      return Number.isFinite(n) ? n : undefined;
+      const n = parseQuantity(s);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
     };
     return {
       name: t.name ?? 'task',

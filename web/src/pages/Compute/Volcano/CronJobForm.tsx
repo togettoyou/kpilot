@@ -24,6 +24,7 @@ import {
   type CronJobInput,
 } from '@/services/kpilot/volcano';
 import { getWorkload } from '@/services/kpilot/workload';
+import { parseQuantity } from './shared/utils';
 
 interface CronJobFormDrawerProps {
   open: boolean;
@@ -1113,10 +1114,13 @@ function extractCronTasks(specTasks: any): TaskFV[] {
       extras.push({ key: k, value: typeof v === 'string' ? v : String(v) });
       seen.add(k);
     }
+    // vgpu-* parsed as K8s Quantity so unit suffixes survive
+    // round-trip (parseInt("2k") drops the suffix → 2 instead of
+    // 2000). parseQuantity covers SI + binary suffixes.
     const num = (s?: string): number | undefined => {
       if (!s) return undefined;
-      const n = parseInt(s, 10);
-      return Number.isFinite(n) ? n : undefined;
+      const n = parseQuantity(s);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
     };
     return {
       name: t.name ?? 'task',

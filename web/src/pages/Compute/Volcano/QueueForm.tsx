@@ -24,6 +24,7 @@ import {
   type QueueInput,
 } from '@/services/kpilot/volcano';
 import { getWorkload } from '@/services/kpilot/workload';
+import { parseQuantity } from './shared/utils';
 
 interface QueueFormDrawerProps {
   open: boolean;
@@ -739,9 +740,12 @@ function recordToResourceListFV(
 ): ResourceListFV {
   const out: ResourceListFV = { extras: [] };
   if (!rec) return out;
+  // vgpu-* parsed as K8s Quantity so unit suffixes survive
+  // round-trip (parseInt("2k") drops the suffix → 2 instead of
+  // 2000). parseQuantity covers SI + binary suffixes.
   const num = (s: string): number | undefined => {
-    const n = parseInt(s, 10);
-    return Number.isFinite(n) ? n : undefined;
+    const n = parseQuantity(s);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
   };
   for (const [k, v] of Object.entries(rec)) {
     const s = typeof v === 'string' ? v : String(v);
