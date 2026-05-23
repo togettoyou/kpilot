@@ -210,6 +210,50 @@ const inferenceWriteTimeout = 5 * time.Second
 // memory cap only.
 const inferenceMaxRequestBytes = 16 << 20
 
+// ensureStreamIncludeUsage rewrites a chat-completion request body
+// so that `stream_options.include_usage` is true whenever `stream`
+// is true. Used by the proxy layer to guarantee vLLM emits the
+// terminal `data: { … "usage": {...} }` SSE chunk that the usage
+// scanner needs for APIKey metering.
+//
+// Conservative semantics:
+//   - Non-streaming requests pass through unchanged (the usage
+//     block is always in the JSON body for those).
+//   - When the operator's body already pins
+//     include_usage=true OR include_usage=false, we don't override
+//     — false is a deliberate opt-out (cost?) we shouldn't ignore.
+//     Only the "field absent" case gets backfilled.
+//   - Anything that doesn't decode as a JSON object passes through
+//     (we can't safely edit it; the proxy will still forward the
+//     bytes and metering just won't count tokens for that call).
+func ensureStreamIncludeUsage(body []byte) []byte {
+	var top map[string]any
+	if err := json.Unmarshal(body, &top); err != nil {
+		return body
+	}
+	streaming, _ := top["stream"].(bool)
+	if !streaming {
+		return body
+	}
+	var opts map[string]any
+	if existing, ok := top["stream_options"].(map[string]any); ok {
+		opts = existing
+		// Already set — respect the client's intent.
+		if _, present := opts["include_usage"]; present {
+			return body
+		}
+	} else {
+		opts = map[string]any{}
+	}
+	opts["include_usage"] = true
+	top["stream_options"] = opts
+	out, err := json.Marshal(top)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
 // ProxyInferenceOpenAI is the Bearer-authed external inference
 // reverse proxy. Differs from ProxyInference (P16-B cookie-authed
 // playground proxy) in three ways:
@@ -251,6 +295,18 @@ func ProxyInferenceOpenAI(gw *gateway.GatewayServer) gin.HandlerFunc {
 			apiErr(c, http.StatusRequestEntityTooLarge, CodeInvalidRequest)
 			return
 		}
+
+		// Force-enable stream_options.include_usage when the client
+		// asked for streaming. Without it, vLLM (and SGLang / TGI)
+		// omits the final usage chunk and our usageScanner never
+		// observes a `usage` block — APIKey token columns would stay
+		// 0 even on active keys. The KPilot playground sets this
+		// flag itself, but third-party SDKs (openai-python before
+		// it became default, langchain, raw curl) don't — and we
+		// own the proxy layer here, so we can backfill silently.
+		// Only rewrite when stream=true; non-streaming responses
+		// always carry usage in the body and don't need this flag.
+		body = ensureStreamIncludeUsage(body)
 
 		// subPath includes the `/v1` segment from the client URL (see
 		// package doc). Forward it AS-IS — adding `/v1` here would
