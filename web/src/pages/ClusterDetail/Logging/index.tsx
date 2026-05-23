@@ -763,6 +763,37 @@ const LoggingPage: React.FC = () => {
     return () => clearInterval(id);
   }, [search.loading]);
 
+  // Page-switch scroll reset. The logging page is fixed-viewport:
+  // wrapper height is computed from getBoundingClientRect().top,
+  // which is itself relative to the nearest scroll container. If
+  // the user scrolled the previous page (e.g. /monitoring is a
+  // tall, scrollable list), the ProLayout content area retains
+  // that scrollTop on navigation — our wrapper.top ends up
+  // negative and the page renders shifted out of view.
+  //
+  // Walk up from the wrapper resetting every scrollable ancestor
+  // we find, plus window itself. window.scrollTo covers the case
+  // where the document body is what scrolled.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    let el: HTMLElement | null = wrapperRef.current;
+    // wrapperRef is null on first render — defer one frame.
+    if (!el) {
+      requestAnimationFrame(() => {
+        let inner: HTMLElement | null = wrapperRef.current;
+        while (inner && inner !== document.body) {
+          if (inner.scrollTop) inner.scrollTop = 0;
+          inner = inner.parentElement;
+        }
+      });
+      return;
+    }
+    while (el && el !== document.body) {
+      if (el.scrollTop) el.scrollTop = 0;
+      el = el.parentElement;
+    }
+  }, []);
+
   // Wrapper height = viewport - wrapper.top - footer.height - (gap
   // between wrapper bottom and footer top). The gap is a CONSTANT
   // determined by ProLayout's content padding / margins, but it isn't
