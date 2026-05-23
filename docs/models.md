@@ -366,8 +366,9 @@ curl -X POST http://localhost:8080/api/v1/api-keys \
 每个 APIKey 行携带 lifetime 计数(prompt_tokens / completion_tokens / request_count)。前端 APIKeys 页有「用量」列 + 「重置用量」per-row 操作。
 
 - **`usageScanner`**(`pkg/server/api/handler/inference_proxy.go`)双模工作:
-  - **SSE**(Content-Type 含 `text/event-stream`):per-line 扫描 `data: {... "usage": {...}}` chunk。vLLM 默认**不发** usage chunk,客户端必须在 request body 显式设 `stream_options: { include_usage: true }` 才会触发(我们的 chat playground 已经传);第三方 OpenAI SDK 不传时,token 列保持 0 但 `request_count` 仍然 ++,operator 至少看得到调用频率
+  - **SSE**(Content-Type 含 `text/event-stream`):per-line 扫描 `data: {... "usage": {...}}` chunk
   - **JSON**(Content-Type 含 `application/json`):缓冲整个 response body(cap 256 KiB)后 `json.Unmarshal` 拿顶层 `usage`
+- **`ensureStreamIncludeUsage`**:vLLM 默认 `stream:true` 不发携带 usage 的终端 chunk,得 client 显式传 `stream_options.include_usage=true`。代理层在收到 stream 请求时自动回填这个 flag(已经显式设了 true/false 的不动 —— 尊重 opt-out),保证第三方 SDK / curl / langchain 也能被正常计量
 - **side-channel `io.TeeReader`**:scanner 跟主响应流并行消费同一份 bytes,不阻塞响应路径
 - **Counter 增量**(`store.IncrementAPIKeyUsage`):单条 UPDATE 用 `gorm.Expr("prompt_tokens + ?", prompt)` 原子 +=,无锁,async goroutine 执行,DB 慢不会卡 response
 - **Reset**(`store.ResetAPIKeyUsage` + `POST /api/v1/api-keys/:id/reset-usage`):零位 + `UsageResetAt = now`,key 本身保持有效
@@ -391,7 +392,7 @@ curl -X POST http://localhost:8080/api/v1/api-keys \
 ### 限制 / 已知边界
 
 - **Defer `stream.Close()` 是 hard requirement**:yamux per-stream 4 MiB flow-control window 满了 worker write 会反压(不会卡其它 stream,跟 v1 单 sender 不同),但漏 Close 会让 worker 端 upstream HTTP request 等到自己 5min ctx 才超时撤销 —— 5min 内白白占着 upstream 连接 + worker goroutine。`writeStreamingResponse` 模板里同时 defer Close + 派 ctx watcher,照抄即可
-- **APIKey 计量限于累计 token + 请求数**,没有 quota / rate limit / 时间窗口拆分。第三方 SDK 不传 `stream_options.include_usage` 时 token 列保持 0(request_count 仍累计),客户端 SDK 行为是 KPilot 边界外的事
+- **APIKey 计量限于累计 token + 请求数**,没有 quota / rate limit / 时间窗口拆分。第三方 SDK / curl 默认都能计量到 token(代理层自动注入 `stream_options.include_usage=true`,见上一节)
 - **`stream:false` 同源端点也走流式管道**:vLLM 把完整 JSON 一次 Body Write 出来,server 端 `io.Copy(c.Writer, stream.Body)` 一次性透传 —— SDK 用户感知不到。如果出现非 vLLM/SGLang/TGI 后端不支持 chunked 响应导致问题,可以在 handler 层基于 body 内容 sniff `stream:true/false` 决定走 `SendHTTPRequest`(buffered)还是 `SendHTTPRequestStream`(streaming);当前不做
 - **`stream.Error` vs upstream 中途截断的语义区分**:`stream.Error != ""` 表示 worker 没拿到 upstream 响应(DNS / dial / 503 等),502 给 client;upstream Body.Read 中途返错(比如 LLM 容器 OOM 被 kill)时 HTTP 200 已发,server 端 io.Copy 返错,只能 log —— SDK 自己会感知 SSE 截断
 
