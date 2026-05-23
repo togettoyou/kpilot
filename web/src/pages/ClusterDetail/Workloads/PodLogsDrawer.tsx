@@ -122,6 +122,16 @@ export function PodLogsDrawer({
   const preRef = useRef<HTMLPreElement | null>(null);
   const sessionKey = useRef(0);
   const flushScheduledRef = useRef(false);
+  // Snapshot of "hard" deps from the previous effect run. Used to
+  // detect when only `follow` changed (vs container/tail/previous/
+  // reloadKey changing too), so we can keep the buffer + skip the
+  // wasteful reconnect when the user just pauses the live tail.
+  const prevHardDepsRef = useRef<{
+    container: string;
+    tail: number;
+    previous: boolean;
+    reloadKey: number;
+  } | null>(null);
 
   // Fetch pod spec to enumerate containers when drawer opens.
   useEffect(() => {
@@ -166,14 +176,45 @@ export function PodLogsDrawer({
   }, [open, clusterId, namespace, podName]);
 
   // Open WS when params are ready / change.
+  //
+  // Follow toggle special-case: when the user toggles follow OFF
+  // mid-session we want a "pause" — close the live-stream WS, keep
+  // the buffer visible, do NOT refetch the same tail again. Toggling
+  // ON resumes streaming on top of the existing buffer (minor overlap
+  // from k8s returning the latest `tail` lines is acceptable; matches
+  // what kubectl logs -f does on reconnect).
+  //
+  // Detection: compare hard deps (container/tail/previous/reloadKey)
+  // against the previous run. Same → it's a follow-only change.
   useEffect(() => {
     if (!open || !container) return;
 
+    const prev = prevHardDepsRef.current;
+    const isFollowOnlyChange =
+      prev !== null &&
+      prev.container === container &&
+      prev.tail === tail &&
+      prev.previous === previous &&
+      prev.reloadKey === reloadKey;
+    prevHardDepsRef.current = { container, tail, previous, reloadKey };
+
     sessionKey.current += 1;
     const myKey = sessionKey.current;
-    linesRef.current = [];
+    if (!isFollowOnlyChange) {
+      // Hard reset path: container / tail / previous / reload changed
+      // (or initial mount). Wipe buffer + clear error so the new
+      // session starts fresh.
+      linesRef.current = [];
+      forceTick((t) => t + 1);
+    }
     setError(null);
-    forceTick((t) => t + 1);
+
+    // Follow-OFF after a live stream: just leave the previous WS
+    // closed (React already ran its cleanup before re-invoking this
+    // effect) and skip opening a new one. Buffer stays visible.
+    if (isFollowOnlyChange && !follow) {
+      return;
+    }
 
     const url = buildPodLogsURL(clusterId, namespace, podName, {
       container,
