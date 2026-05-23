@@ -96,7 +96,15 @@ export function PodLogsDrawer({
   const [autoScroll, setAutoScroll] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [, forceTick] = useState(0); // trigger re-render when buffer changes
+  // tick is the "buffer changed" signal — incremented from
+  // scheduleFlush whenever new lines land. Used both to trigger
+  // re-render AND as a dep on the grep filter memo: once the
+  // sliding buffer hits MAX_LINES it stays at MAX_LINES forever
+  // (oldest drops, newest pushes), so lineCount alone doesn't
+  // invalidate the memo on new chunks — visibleLines would freeze
+  // at the snapshot taken when the cap was first hit, and the
+  // grep view would stop updating.
+  const [tick, forceTick] = useState(0);
 
   // Client-side grep. Filter is applied at render time (no extra fetch),
   // so the user can tweak it freely without reconnecting. `query` mirrors
@@ -321,9 +329,10 @@ export function PodLogsDrawer({
       pattern.lastIndex = 0;
       return pattern.test(l);
     });
-    // lineCount is the proxy for "linesRef.current changed" — it's a ref,
-    // so we need an explicit dep that bumps when the buffer mutates.
-  }, [pattern, lineCount]);
+    // `tick` is the buffer-mutated signal (see forceTick declaration).
+    // lineCount alone is insufficient — once we hit MAX_LINES the
+    // length stops changing while the ring buffer keeps sliding.
+  }, [pattern, lineCount, tick]);
   const matchCount = visibleLines.length;
 
   return (
