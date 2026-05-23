@@ -1,8 +1,9 @@
 import { useIntl } from '@umijs/max';
-import { App, InputNumber, Modal, Space, Tag } from 'antd';
+import { App, InputNumber, Modal, Skeleton, Space, Tag } from 'antd';
 import React, { useEffect, useState } from 'react';
 
 import {
+  getWorkload,
   scaleWorkload,
   type WorkloadResourceType,
 } from '@/services/kpilot/workload';
@@ -14,7 +15,6 @@ interface Props {
   resourceType: WorkloadResourceType;
   name: string;
   namespace: string;
-  currentReplicas: number;
   onScaled?: () => void;
 }
 
@@ -22,6 +22,14 @@ interface Props {
 // anyway, we mirror the upper bound on the InputNumber so the user
 // can't paste a billion without immediate feedback. Lower bound 0
 // supports "scale to zero" for off-hours cost cutting.
+//
+// We fetch the live object on open instead of trusting a parent-
+// supplied currentReplicas — the Workloads list goes through the
+// Table API with includeObject=Metadata, which strips spec.replicas
+// from the row payload (a Deployment row's "Replicas" column is
+// rendered server-side as "3/3" text, not as a struct). Pulling
+// the full object via getWorkload is the only way to get the
+// authoritative `.spec.replicas` for the InputNumber initial value.
 export function ScaleModal({
   open,
   onClose,
@@ -29,22 +37,47 @@ export function ScaleModal({
   resourceType,
   name,
   namespace,
-  currentReplicas,
   onScaled,
 }: Props) {
   const intl = useIntl();
   const { message } = App.useApp();
-  const [value, setValue] = useState<number | null>(currentReplicas);
+  const [currentReplicas, setCurrentReplicas] = useState<number | null>(null);
+  const [value, setValue] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset the input each time the modal opens so re-opening on a
-  // different row doesn't show the previous target's number.
+  // Fetch the live object on open. Reset state when the target
+  // changes (re-opening on a different row).
   useEffect(() => {
-    if (open) setValue(currentReplicas);
-  }, [open, currentReplicas]);
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    setCurrentReplicas(null);
+    setValue(null);
+    getWorkload(clusterId, resourceType, name, namespace)
+      .then((obj: any) => {
+        if (cancelled) return;
+        const r = obj?.spec?.replicas ?? 0;
+        setCurrentReplicas(r);
+        setValue(r);
+      })
+      .catch(() => {
+        // Global toast already fired by the request layer; close so
+        // the user can re-try after fixing connectivity.
+        if (!cancelled) onClose();
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, clusterId, resourceType, name, namespace, onClose]);
 
   const handleOk = async () => {
-    if (value === null || value === undefined) return;
+    if (value === null || value === undefined || currentReplicas === null) {
+      return;
+    }
     if (value === currentReplicas) {
       onClose();
       return;
@@ -82,26 +115,31 @@ export function ScaleModal({
       confirmLoading={submitting}
       okText={intl.formatMessage({ id: 'pages.scale.confirm' })}
       cancelText={intl.formatMessage({ id: 'pages.common.cancel' })}
+      okButtonProps={{ disabled: loading || currentReplicas === null }}
       maskClosable={false}
       destroyOnHidden
     >
-      <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <div style={{ fontSize: 13, color: 'rgba(0,0,0,0.65)' }}>
-          {intl.formatMessage(
-            { id: 'pages.scale.current' },
-            { n: currentReplicas },
-          )}
-        </div>
-        <InputNumber
-          autoFocus
-          min={0}
-          max={1000}
-          value={value}
-          onChange={(v) => setValue(typeof v === 'number' ? v : null)}
-          style={{ width: '100%' }}
-          onPressEnter={handleOk}
-        />
-      </Space>
+      {loading ? (
+        <Skeleton active paragraph={{ rows: 1 }} />
+      ) : (
+        <Space direction="vertical" style={{ width: '100%' }} size="small">
+          <div style={{ fontSize: 13, color: 'rgba(0,0,0,0.65)' }}>
+            {intl.formatMessage(
+              { id: 'pages.scale.current' },
+              { n: currentReplicas ?? 0 },
+            )}
+          </div>
+          <InputNumber
+            autoFocus
+            min={0}
+            max={1000}
+            value={value}
+            onChange={(v) => setValue(typeof v === 'number' ? v : null)}
+            style={{ width: '100%' }}
+            onPressEnter={handleOk}
+          />
+        </Space>
+      )}
     </Modal>
   );
 }

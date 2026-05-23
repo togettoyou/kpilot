@@ -1211,9 +1211,6 @@ export function WorkloadsContent({
           resourceType={resourceType as WorkloadResourceType}
           name={scaleTarget.name}
           namespace={scaleTarget.namespace ?? ''}
-          currentReplicas={
-            (scaleTarget.object as any)?.spec?.replicas ?? 0
-          }
           onScaled={burst}
         />
       )}
