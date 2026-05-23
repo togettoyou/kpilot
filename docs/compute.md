@@ -139,25 +139,30 @@ Volcano 提供两套机制：
 
 > 定位说明：KPilot 内置可视化页全部自绘 —— 集群监控 / 集群日志 / 算力调度的 GPU 监控 / GPU 告警 / GPU-Hour 都直接打 VM / VL 自实现 UI。Grafana 嵌入只保留作为「集群管理」的 `/clusters/:id/grafana` escape hatch（power user 自定义 dashboard / datasource / alert）。这样升级 dashboard JSON / 调整面板布局 / 加联动 drill-down 不需要绕 Grafana。
 
-- **数据流**：NVIDIA DCGM Exporter 内置插件（`pkg/server/store/seed.go` 中 `dcgm-exporter` 一行，sort_order 27，chart 来源 `https://nvidia.github.io/dcgm-exporter/helm-charts`，DaemonSet 部署）→ 暴露 `:9400` 上的 Prometheus 指标 → VictoriaMetrics 按 `prometheus.io/{scrape,port}` 服务注解抓取 → server `pkg/server/api/handler/gpu_metrics.go::GetGPUMetrics` 通过 `gw.SendHTTPRequest` 走 worker tunnel 并发跑 6 条 PromQL 范围查询 → 前端 `<Line>` 图表渲染
-- **后端 `/api/v1/clusters/:id/gpu-metrics?range=1h|24h|7d|30d`**：
-  - 6 条 PromQL 并发：`DCGM_FI_DEV_GPU_UTIL` / `_TEMP` / `_POWER_USAGE` / `_FB_USED` / fbTotal（**`sum by (Hostname,gpu,UUID,modelName)(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)`** —— DCGM 不发 `_FB_TOTAL`，老写法常驻 0 导致 fbUsagePct 死锁在 NaN/0%；`USED+FREE` 即物理显存上限） / `_SM_CLOCK` / `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE`
-  - 单查询失败仅 log，对应 metric 返回空，前端只少一张图
-  - 响应 shape `{ range, from, to, generatedAt, stepSeconds, snapshot, series: { util, temp, power, fbUsed, fbTotal, sm, tensor: [{ hostname, gpu, uuid, points: [{ts,value}] }] } }`，每条 series 按 (hostname, gpu) 稳定排序
-  - **snapshot** 服务端预算：activeGPUs / avgTempC / maxTempC / totalPowerW / avgUtilPct / fbUsedMiB / fbTotalMiB / fbUsagePct / avgTensorActPct，取每条 series 最右点 reduce，前端 KPI 不重复 walk
-  - range step 表：1h=30s / 24h=5m / 7d=30m / 30d=2h（比 GPU-Hour 的 step 粗一档；line chart 没必要保留 30s 粒度走 30 天）
-- **VM 查询共享层**：`pkg/server/api/handler/vm_query.go` 抽出 `resolveVMQueryURL` / `queryVM` / `queryVMRange` / `urlQueryEscape`，DeviceHealth / GPUHour / GPUMetrics 三个 handler 共用
-- **worker 自动路由 in-cluster Service URL**：worker `pkg/worker/proxy/http.go` 检测 host 匹配 `*.svc.*` 时按 routingMode 缓存的决策派发。冷缓存或 TTL 过期时（默认 24h）下一次请求先尝试直连 DNS dial；dial-time 错误（DNS NXDOMAIN / connection refused / no route）触发 fallback 到 K8s API server 的 service proxy 端点（`/api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/<path>`），并把决策写回缓存。生产里 Worker 在集群内 → 第一次请求后所有后续 in-cluster 流量直连 Service，**不再走 API server**；本地 dev（Worker 跨 kubeconfig/SSH tunnel 拿不到 cluster.local DNS）→ 第一次请求后缓存翻成 service-proxy，后续都走 API server 兜底。决策按 Worker 进程缓存、无 Server 配置成本
-- **页面**：`pages/Compute/Volcano/GPUMonitoring.tsx` ——
-  - 顶部 Radio.Group range picker + RefreshControl（default off）
-  - **6 KPI 卡**：activeGPUs / 平均利用率（`Progress.dashboard` + 阈值配色） / **显存占用**（独立卡，`Progress.dashboard` 的 `format` slot 嵌 `used/totalG` 绝对值 —— 不放外面是为了不把卡撑高 16px 破坏行对齐）/ 平均温度（dashboard，max 90℃ 标 ↑） / 总功耗 / **Tensor 活跃率**（`DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` 区别于通用 util："任一 SM 在跑" vs "tensor core 在跑"，LLM / 视觉训练才看；Volta+ 才发，老卡常驻 0）
-  - **KPI 行布局**：共用 `KpiTile` helper —— 文本侧 `flex:1 + min-width:0` 占满剩余宽度、标题与数值 `whiteSpace:nowrap` 防一字一行折行；环侧 `flex-shrink:0` 防 64→0 被挤；卡高用 `<Card style.height:100%>` + `<Row align="stretch">` 拉齐。Col 断点 `xs/sm/md/lg/xl/xxl = 1/2/2/3/4/6`，6-per-row 仅 ≥1600px 留给宽屏
-  - 6 张 Line chart 网格（响应式 `xs=24 xl=12`）—— 每张多 series（按 hostname · GPU index 标签），暗色主题切换 `theme="classicDark"`；FB 自动 MiB → GiB，Tensor 0-1 → %
-  - 单图无数据走 `Empty.PRESENTED_IMAGE_SIMPLE` 占位，整页全空走 EmptyCard CTA
-  - **chart 拆 lazy chunk**：`@ant-design/plots` G2 runtime ~250 KB gzip 单独抽到 `GPUMonitoringChart.tsx`，主页面用 `React.lazy` + `Suspense(fallback=Spin)` 引入。算力调度其他 5 个页面不开 GPU 监控就不下载这份 bundle，VGPU / QueueQuota 等纯 antd 页保持轻量
-- **VM 未启用**：`resolveVMQueryURL` 返回 `RESOURCE_NOT_AVAILABLE` → 前端 `<NotInstalled>` 引导启用 VM + DCGM Exporter（**不再依赖 Grafana**）
-- **前置条件**：每个 GPU 节点要装 **NVIDIA driver + nvidia-container-runtime**（与 volcano-vgpu-device-plugin 共用同一套基础设施）。DCGM Exporter 容器需要 `SYS_ADMIN` cap 才能读 profiling 指标（`DCGM_FI_PROF_*`），chart 默认 securityContext 已配齐
-- **节点选择**：默认无 nodeSelector —— exporter 在无 GPU 的节点上探针失败，pod 不会重新调度（无伤大雅但占 pod slot）。用 NFD / GPU Operator 的环境可在 EnableDrawer 里加 `nodeSelector.nvidia.com/gpu.present: "true"`
+- **数据流**:NVIDIA DCGM Exporter 内置插件(`pkg/server/store/seed.go` 中 `dcgm-exporter` 一行,sort_order 27,chart 来源 `https://nvidia.github.io/dcgm-exporter/helm-charts`,DaemonSet 部署)→ 暴露 `:9400` 上的 Prometheus 指标 → VictoriaMetrics 按 `prometheus.io/{scrape,port}` 服务注解抓取 → server `pkg/server/api/handler/gpu_metrics.go::GetGPUMetrics` 通过 `gw.SendHTTPRequest` 走 worker tunnel 并发跑 6 条 PromQL 范围查询 → 前端 `<Line>` 图表渲染
+- **后端 `/api/v1/clusters/:id/gpu-metrics?range=1h|24h|7d|30d`**:
+  - 6 条 PromQL 并发:`DCGM_FI_DEV_GPU_UTIL` / `_TEMP` / `_POWER_USAGE` / `_FB_USED` / fbTotal(**`sum by (Hostname,gpu,UUID,modelName)(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)`** —— DCGM 不发 `_FB_TOTAL`,老写法常驻 0 导致 fbUsagePct 死锁在 NaN/0%) / `_SM_CLOCK` / `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE`
+  - 单查询失败仅 log,对应 metric 返回空,前端只少一张图
+  - 响应 shape `{ range, from, to, generatedAt, stepSeconds, snapshot, series: { util, temp, power, fbUsed, fbTotal, sm, tensor: [{ hostname, gpu, uuid, modelName, points: [{ts,value}] }] } }`,每条 series 按 (hostname, gpu) 稳定排序
+  - **`modelName` label**:从 DCGM `DCGM_FI_DEV_NAME` 拿,前端 legend 渲染成 `host · GPU 0 [A100 80GB]` 区分异构集群;label 不存在时 fallback 到 `host · GPU 0`
+  - **snapshot** 服务端预算:activeGPUs / avgTempC / maxTempC / totalPowerW / avgUtilPct / fbUsedMiB / fbTotalMiB / fbUsagePct / avgTensorActPct,取每条 series 最右点 reduce,前端 KPI 不重复 walk
+  - range step 表:1h=30s / 24h=5m / 7d=30m / 30d=2h
+- **VM 查询共享层**:`pkg/server/api/handler/vm_query.go` 抽出 `resolveVMQueryURL` / `queryVM` / `queryVMRange` / `urlQueryEscape`,DeviceHealth / GPUHour / GPUMetrics 三个 handler 共用
+- **worker 自动路由 in-cluster Service URL**:worker `pkg/worker/proxy/http.go` 检测 host 匹配 `*.svc.*` 时按 routingMode 缓存的决策派发(详见 [docs/clusters.md](clusters.md) `InClusterRouter` 一节)
+- **页面**(`pages/Compute/Volcano/GPUMonitoring.tsx` + `GPUMonitoringChart.tsx`):
+  - **顶部工具栏**(紧凑单行):range picker + **节点/GPU 多选筛选** + RefreshControl。筛选 Select 用 `maxTagCount={3}` + 固定 `width: 360`(而不是 `maxTagCount="responsive"` + min/max width) —— responsive 模式内部 ResizeObserver 在 chip 变化 + page reflow 时反复测量,跟外层 flex layout 互相 reflow 触发循环,导致整页剧烈抖动
+  - **6 KPI 卡**:activeGPUs / 平均利用率 / 显存占用(format slot 嵌 `used/totalG` 绝对值)/ 平均温度(max 90℃ 标 ↑)/ 总功耗 / **Tensor 活跃率**(`DCGM_FI_PROF_PIPE_TENSOR_ACTIVE`,Volta+ 才发,老卡常驻 0)。**filter 应用后客户端用 `computeFilteredSnapshot` 重算**(空 filter 时直接用 server 下发的 snapshot,免重算),KPI 与下方 chart 数据一致
+  - **「需要关注的 GPU」卡**:客户端从 series 计算 idle(util=0 持续 ≥5/10 sample)/ hot(temp ≥85°C)/ OOM(FB ≥95%)三组,健康集群自动隐藏整张卡
+  - **6 张 Line chart**(响应式 `xs=24 xl=12`)—— 多 series 按 hostname · GPU index 标签,暗色主题切换 `theme="classicDark"`,FB 自动 MiB → GiB,Tensor 0-1 → %
+    - **阈值线**(G2 lineY annotation):temp 80°C(warn 橙)+ 90°C(error 红);tensor 5%(info 蓝,idle floor)。**fbUsed chart 没有阈值线** —— 早期写死的 36 GiB("90% of 40 GiB A100")在 T4(16G)/H100(80G)集群完全错;KPI 卡的 fbUsagePct 已经按每张卡 used/(used+free) 算了
+    - **per-chart 全屏**:每张 chart Card 右上 expand 按钮 → `position:fixed` 覆盖 viewport,Esc / 点遮罩退出。多 GPU 集群放大看单图细节用
+    - **`annotations` useMemo**:thresholds 数组引用稳定,避免无意义 G2 plot rebuild
+    - **不需要 chartReady gate**:此页不在 antd Tabs 里,chart 永远 visible,G2 内置 autoFit 已经够用;早期 cargo-cult 加的 gate 反而导致首屏空白(useEffect 测量晚于 first paint)或与 reflow 联动抖动
+  - **chart 拆 lazy chunk**:`@ant-design/plots` G2 runtime ~250 KB gzip 单独抽到 `GPUMonitoringChart.tsx`,主页面用 `React.lazy` + `Suspense(fallback=Spin)` 引入
+- **mount 时 scroll reset**:跟日志页 / 模型调试页同款 —— 遍历 ancestor 把 scrollTop 清零 + `window.scrollTo(0,0)`,避免从其他可滚动页面切过来时残留 scrollTop 让 wrapper 出 viewport 之外
+- **VM 未启用**:`resolveVMQueryURL` 返回 `RESOURCE_NOT_AVAILABLE` → 前端 `<NotInstalled>` 引导启用 VM + DCGM Exporter(**不再依赖 Grafana**)
+- **前置条件**:每个 GPU 节点要装 **NVIDIA driver + nvidia-container-runtime**(与 volcano-vgpu-device-plugin 共用同一套基础设施)。DCGM Exporter 容器需要 `SYS_ADMIN` cap 才能读 profiling 指标(`DCGM_FI_PROF_*`),chart 默认 securityContext 已配齐
+- **节点选择**:默认无 nodeSelector —— exporter 在无 GPU 的节点上探针失败,pod 不会重新调度(无伤大雅但占 pod slot)。用 NFD / GPU Operator 的环境可在 EnableDrawer 里加 `nodeSelector.nvidia.com/gpu.present: "true"`
 
 ## 7. 队列配额（`/compute/:id/queue-quota`）
 
@@ -186,7 +191,7 @@ Volcano 提供两套机制：
   - `DCGM_FI_DEV_XID_ERRORS > 0` —— XID 故障（critical）
   - `increase(DCGM_FI_DEV_ECC_DBE_VOL_TOTAL[30m]) > 0` —— 30 分钟内出现的不可恢复 ECC（critical）
   - `DCGM_FI_DEV_GPU_TEMP > 85` —— 过热（≥90 critical，否则 warning）
-  - `(DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL) > 0.95` —— 显存即将耗尽（warning）
+  - `DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE) > 0.95` —— 显存即将耗尽(warning)。**注意**:DCGM exporter 4.x **不发** `DCGM_FI_DEV_FB_TOTAL`,早期 `FB_USED / FB_TOTAL` divisor 为 NaN,告警永不触发;改用 `USED + FREE` 推算真实物理容量(两个 metric 同 label,default vector matching 直接对位)。同款 fix 也在 GPU 监控 fbTotal 上
 - **单查询失败不阻塞**：4 条 PromQL goroutine 内 `recover` 各自的 error，失败时 log 跳过，前端只少一类告警，不空白
 - **响应 shape**：`{ alerts: [{severity, kind, hostname, instance, gpu, uuid, value, message}], generatedAt, counts: {critical, warning, info} }`，counts 服务端预算，前端 KPI 不重复 walk
 - **VM 未启用**：`resolveVMQueryURL` 检测 victoria-metrics plugin row 缺失 / 未启用 / Phase != Running，返回 `RESOURCE_NOT_AVAILABLE`；前端走 `<NotInstalled>` 引导启用

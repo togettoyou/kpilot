@@ -114,51 +114,72 @@ Scoped action 端点的安全模式：
 
 ### 5.1 监控（`/clusters/:id/monitoring`）
 
-自绘，**不嵌 Grafana**。三层下钻：集群 KPI / 节点级趋势 / Pod 级 top-N。硬依赖 `victoria-metrics`；`node-exporter` / `kube-state-metrics` / `cAdvisor (via kubelet)` 是软依赖，相应面板缺指标时走 Empty 状态，不阻塞页面。
+自绘，**不嵌 Grafana**。**三 tab 结构** —— Cluster / Node / Pod —— 每 tab 内分组成多个 `LazySection`(IntersectionObserver 触发首次 mount,`usePollingRefresh` 只刷当前 tab + 已展开的 section)。硬依赖 `victoria-metrics`；`node-exporter` / `kube-state-metrics` / `cAdvisor (via kubelet)` 是软依赖,相应面板缺指标时走 Empty 状态,不阻塞页面。
 
-- **后端四套端点**（`pkg/server/api/handler/{cluster,node,pod}_metrics.go` + `pod_health.go`）：
-  - `GET /cluster-metrics?range=1h|24h|7d|30d` —— Snapshot（cpu/mem 百分比 + 绝对核数 / 字节 + nodesReady/Total + podsByPhase + podsTotal + **podsPending**）+ trend series（cluster cpu / mem / **pendingPods**）
-  - `GET /node-metrics?range=...` —— 每节点 series：cpu / mem / disk% / **disk read/write 字节** / **diskReadOps / diskWriteOps** / net rx tx / **loadPerCore** / **netErrors** / **inodeUtil** / **tcpRetrans**
-  - `GET /pod-metrics?range=...&namespace=...&limit=20` —— top-N pod series：cpu cores / mem bytes / net rx tx / **cpuThrottle %** / **fsRead / fsWrite** / **memLimitRatio %**
-  - `GET /pod-health?namespace=...&limit=10` —— top-N 重启 / OOM 数表（`kube_pod_container_status_restarts_total` + `container_oom_events_total` 两路 PromQL 并发，按 (ns, pod) 合并，行=0 的 pod filter 掉）
-- **共享层**：`pkg/server/api/handler/vm_query.go`（`resolveVMQueryURL` + `queryVM`/`queryVMRange`）与 GPU 监控 / GPU-Hour / 设备健康同源；`vm_cache.go` 4s TTL response cache 跨这几个 handler 共用，cache key 用 `tag + clusterID + 子键` 防碰撞
-- **VM 未启用**：`resolveVMQueryURL` 返回 `RESOURCE_NOT_AVAILABLE` → 前端走共享 `<NotInstalled>`
-- **页面布局**（`pages/ClusterDetail/Monitoring/index.tsx`）：
-  - 顶部 range picker（1h/24h/7d/30d）+ RefreshControl
-  - **4 KPI 卡**（共享 `KPICard` 容器，flex-column-justify-between body 保证 4 张卡等高）：节点就绪 / 集群 CPU 利用率（+ 绝对核数）/ 集群内存（+ GiB）/ Pod 数（按 phase 拆分 + Pending 数字 Tag）。每张卡 `Progress.dashboard` 环形仪表盘，配色按通用阈值
-  - **集群趋势区**：CPU / 内存 / Pending Pod 三张时序图
-  - **Pod 健康表**：top-10 重启 / OOM 一表，无异常时走 Empty
-  - **节点区**：节点名搜索框（客户端筛选）+ 10 张图（cpu/mem/disk% + disk I/O + IOPS + net + load/core + net errors + inode + TCP retrans）
-  - **Pod 区**：**本地命名空间 picker**（不连全局 `useModel('namespace')`，进页面默认全部 ns）+ pod 名搜索框（**只匹配 pod 部分**，ns/pod 前缀作为 legend 区分）+ 6 张图（cpu/mem/net + cpuThrottle/mem-limit ratio/fs read+write）
-- **首次加载占位**：早返回小 Spin 锚在页面顶部 48px 处，**不**用 body-spanning Spin（否则在长页面纵向居中要滚屏才看到）。data 到了之后单卡 loading + RefreshControl 自带 indicator 接力
-- **chart 组件**：`MonitoringCharts.tsx` 走 `React.lazy`，`@ant-design/plots` G2 runtime 不污染 cluster-detail 主 bundle。Legend 是自绘 HTML（scrollable + click-toggle + 配色 pin），不用 G2 自带 legend（many-series 时 G2 内置布局会截断到前 5 个）
+- **后端四套端点**(`pkg/server/api/handler/{cluster,node,pod}_metrics.go` + `pod_health.go`),所有 metrics endpoint **接 `?groups=` filter**让前端按 section 独立 fetch:
+  - `GET /cluster-metrics?range=1h|24h|7d|30d&groups=overview,capacity,workload`
+    - **overview**:Snapshot KPIs(cpu/mem 百分比 + 绝对核数/字节 + nodesReady/Total + **podsByPhase + podsTotal + podsPending**)。**注意**:`podsByPhase` 必须在 overview 组,KPI 卡才能展示 phase 分布;早先放 workload 组导致 KPI 一直显示"KSM 未启用"
+    - **capacity**:集群 CPU / mem / disk% 三条 trend series
+    - **workload**:**pendingPods / restartRate / crashLooping** trend series。`pendingPods` 与 `crashLooping` 用 `sum(...gauge)` 而非 `count()` —— `kube_pod_status_phase` 是 0/1 gauge,count 数 series 条数(每 pod 都发一条 Pending series)而非真实 Pending pod 数;早先 count 写法导致"15 个 Pending"幻象
+  - `GET /node-metrics?range=...&groups=cpu,mem,disk,network,storage` —— 每节点 series 按 5 个组拆分:
+    - **cpu**:utilization、`load1` / `load5` / `load15` 原始负载、`loadPerCore`(按 core 归一)
+    - **mem**:utilization% + `memUsed` 绝对字节
+    - **disk**:utilization% + `diskPartitions` 按 mountpoint + inode%
+    - **network**:net rx/tx、netErrors、`tcpConns`、tcpRetrans
+    - **storage**:diskRead/Write 字节、diskReadOps/WriteOps、`diskIOWait` / `diskIOService` / `diskIOBusy` 按 device(单位 ms,前端 `unitScale=1000`)
+    - server 端额外 `listNodeIPMap()` 一次 list Nodes 把 `instance="10.0.0.1:9100"` 翻译成 Kubernetes node 名字下发,所有 chart 统一显示 node 名(不是混 IP+hostname)
+  - `GET /pod-metrics?range=...&namespace=...&podSearch=...&limit=20&groups=cpu,mem,network,io,throttle,memLimit` —— top-N pod series 按 6 组拆分。**关键**:`podSearch` 推到 PromQL `pod=~"(?i).*<q>.*"`,topk 在 search 结果集里取,避免"搜的 pod 不在 top-N → 客户端 filter 全空 → chart 空白"
+  - `GET /pod-health?namespace=...&podSearch=...&limit=10` —— top-N 重启 / OOM 数表
+- **共享层**:`pkg/server/api/handler/vm_query.go` 与 GPU 监控 / GPU-Hour / 设备健康同源;`vm_cache.go` 4s TTL response cache 跨 handler 共用 —— **三 tab 多 section 并发 fetch 在 4s 内自动 collapse 成单一上游 PromQL fan-out**
+- **页面架构**(`pages/ClusterDetail/Monitoring/`):
+  - `index.tsx` —— shell:range picker + RefreshControl + `<Tabs destroyOnHidden activeKey/>` + 共享 `MonitoringCtx`(clusterId / range / tick / activeTab / dark)
+  - `MonitoringContext.tsx` —— context + `usePollingRefresh(refresh, active)` hook,只在 `tick` 变化且 section `active`(in active tab + 已展开)时调 refresh
+  - `LazySection.tsx` —— Card 包裹器 + IntersectionObserver 触发首次 mount + Collapse 折叠态。`tab` prop 与 `activeTab` 比较决定 `active`,gate `polling refresh`
+  - `ClusterTab.tsx` / `NodeTab.tsx` / `PodTab.tsx` —— 三 tab 实现:
+    - **Cluster 三 section**:Overview(4 KPI 卡 `Progress.dashboard`)+ Capacity Trends(cpu/mem/disk 三图)+ Workload Health(pendingPods / restartRate / crashLooping)
+    - **Node 五 section**(cpu / mem / disk / network / storage)+ 顶部**全局 multi-select 节点筛选**(取代旧版每 section 文本框)
+    - **Pod 七 section**:Pod Health(table)置顶 + cpu/mem/network/io top-N + cpuThrottle/memLimit top-N。tab 顶部**全局 namespace picker + pod search**,通过 `podSearch` URL 参数推到 server 端
+  - `MonitoringCharts.tsx` —— 共享 chart 组件,`React.lazy`,`@ant-design/plots` G2 runtime 不污染 cluster-detail 主 bundle。Legend 自绘 HTML(scrollable + click-toggle + 配色 pin)。chart 主标题 unit 为空时不渲染 `()`(避免"节点 Load Average（每核） ()"空括号)
+- **antd Tabs `destroyOnHidden=true`**:切 tab 时整个子树 tear-down + 重新 mount。**绕开 G2 hidden-pane forceFit 污染** —— 早期版本切到其他 tab 后,新 tab 内容渲染让浏览器出垂直滚动条触发 `window.resize`,G2 在所有 chart 上跑 debounced forceFit,但 hidden chart container 的 `sizeOf` 返回 0,导致 chart 内部 layout 状态被污染,切回时无法恢复
+- **首次加载占位**:早返回小 Spin 锚在页面顶部 48px 处,不用 body-spanning Spin。data 到了之后单卡 loading + RefreshControl 自带 indicator 接力
+
+#### 跨 tab/页 scroll reset
+
+监控页 + 日志页 + 模型调试 + GPU 监控页 mount 时遍历 ancestor 把 scrollTop 清零 + `window.scrollTo(0,0)` 兜底 —— 从其他可滚动页面切过来时,fixed-viewport 布局的 wrapper.top 用 `getBoundingClientRect()` 算高度,残留 scrollTop 会让 wrapper 出 viewport 之外。
 
 ### 5.2 日志（`/clusters/:id/logging`）
 
-自绘 LogsQL 搜索 UI，**不嵌 Grafana**。硬依赖 `victoria-logs`；chart 自带 Vector DaemonSet 收集所有 Pod 日志，零额外插件。
+自绘 LogsQL 搜索 UI,**不嵌 Grafana**。硬依赖 `victoria-logs`;chart 自带 Vector DaemonSet 收集所有 Pod 日志,零额外插件。
 
-- **后端两条端点**（`pkg/server/api/handler/logs.go`）：
-  - `GET /logs/search?query=...&from=...&to=...&limit=...` —— 匹配的日志行（默认 200，cap **50000**），**端到端真流式**（见下）
-  - `GET /logs/histogram?query=...&from=...&to=...` —— 时间桶 count，桶宽 = `(to-from)/50` 自适应；非流式(数据小,~50 个 bucket)
-  - **空 query**：后端默认转 `*`（=全部），与前端"留空 = 全部日志"一致；用户不用记得敲星号
-- **`/logs/search` 真流式协议**（`vmlogs_stream.go::streamVMLogs` + `logs.go::GetLogsSearch`）：
-  - 走 `gateway.SendHTTPRequestStream`(共享 streaming 底座,见 [docs/models.md](models.md) OpenAI 兼容反代一节;底层是 `STREAM_HTTP_REQUEST` yamux stream,worker 端 `proxy/http.go::handleStreamingResp` 边读 VL 32 KiB chunk 边写 yamux,server 端把 yamux stream 的 `Body` 直接当 `io.Reader` 用)接 VL `/select/logsql/query` 的 NDJSON 响应,**不全缓冲**。server 端 accumulator 按 `\n` 切完整行(跨 chunk 边界半截行留 buffer 等下一个),投影成 vmLogLine 后立刻 `sse.send("line", ...)` 流出
-  - 单行 cap **1 MiB**（stack trace 异常长行的兜底），超限丢弃 + log，不影响后续解析
-  - **SSE 事件 5 种**：`meta`（首发，query/from/to/limit 让 UI 立刻渲染 caption 不等首条）→ `progress`（25s 一次心跳穿透 ingress idle timeout）→ `line`（每条日志一发）→ `result`（终态总结 total/truncated/elapsedMs/endErr；**不带 lines[]**，已经流走了）→ `error`（dispatch 级失败）。前端 `services/kpilot/logs.ts::streamLogsSearch` 用 EventSource 解析这 5 个事件，**按 50ms / 100 行 batch onLine** 给 virtuoso（直接 per-line setState 会打爆 React reconciliation）
-  - **Stop 按钮**：`AbortController` → EventSource.close() → server `c.Request.Context().Done()` → ctx 撤销 → 已 defer 的 `stream.Close()` → yamux FIN → worker cancel-watcher 读 EOF → upstream HTTP ctx 撤销 → 立刻断 upstream(不浪费 wire + 上游资源),已加载的行保留显示
-  - **共享 streaming 底座的健壮性**:yamux 内置 per-stream 4 MiB flow-control window + 公平 round-robin,大日志查询不 HOL block 其它请求;`stream.Close()` defer 严格保证不漏;worker 断开时 yamux session close 让所有 in-flight stream 立即返错(跨集群天然隔离)
-- **VL 未启用 / install 探测**：mount 时跑一个 60s 窗口的小直方图探测 RESOURCE_NOT_AVAILABLE，命中就走 `<NotInstalled>`，用户不用先敲 query 才知道未启用
-- **页面布局**（`pages/ClusterDetail/Logging/index.tsx`）：
-  - **顶部 LogsQL 输入框**：留空 = 全部，placeholder 给示例。按 Enter 或点搜索触发
-  - **命名空间 + Pod 选择器**：**本地 state**（不连全局 namespace model），自动构建 LogsQL stream selector 并**回填到输入框**（用户能继续在末尾加管道过滤如 `| error`）。字段名用 `kubernetes.pod_namespace` / `kubernetes.pod_name`，与 Vector kubernetes_logs source 默认 schema + 内置 dashboard JSON 同款。Pod 列表来自 `/workloads/pods`，**注意它返回 K8s Table 表示**（`rows[].object.metadata.name`），不是 List with `.items`
-  - **range** preset：5m / 15m / 1h / 6h / 24h
-  - **行数 limit**：默认 200，cap **50000**（流式 + virtuoso + Stop 按钮兜底）
-  - **搜索按钮**：loading 时变 **Stop 按钮**，用户可以中途停；已加载的行保留
-  - **结果计数**:loading 时显示`已加载 N 条 · Xs`(progress 事件驱动 elapsedMs),完成后变`N 条`
-  - **直方图**:上方一张 Vector + 总数 caption(`LoggingHistogram.tsx` lazy load)
-  - **结果列表**:每行带 timestamp + namespace Tag + pod Tag + container Tag + message,等宽字体,virtuoso 虚拟列表(N 条行 DOM 恒定)
-  - **截断 banner**:只在 result 事件返回 `truncated=true` 时显示;流式中不显示(不知道会不会到 cap)
-  - **partial-result banner**:result 事件 endErr 非空时显示`上游中途中断,已加载 N 条`(VL 进程挂 / worker 断连 mid-stream)
+- **后端两条端点**(`pkg/server/api/handler/logs.go`):
+  - `GET /logs/search?query=...&from=...&to=...&limit=...` —— 匹配的日志行(默认 200,cap **50000**),**端到端真流式**(见下)
+  - `GET /logs/histogram?query=...&from=...&to=...` —— 时间桶 count,桶宽 = `(to-from)/50` 自适应;非流式(数据小,~50 个 bucket)
+  - **空 query**:后端默认转 `*`(=全部),与前端"留空 = 全部日志"一致;用户不用记得敲星号
+- **`/logs/search` 真流式协议**(`vmlogs_stream.go::streamVMLogs` + `logs.go::GetLogsSearch`):
+  - 走 `gateway.SendHTTPRequestStream`(共享 streaming 底座,见 [docs/models.md](models.md) OpenAI 兼容反代一节)接 VL `/select/logsql/query` 的 NDJSON 响应,**不全缓冲**。server 端 accumulator 按 `\n` 切完整行(跨 chunk 边界半截行留 buffer 等下一个),投影成 vmLogLine 后立刻 `sse.send("line", ...)` 流出
+  - 单行 cap **1 MiB**(stack trace 异常长行的兜底),超限丢弃 + log,不影响后续解析
+  - **SSE 事件 5 种**:`meta`(首发,query/from/to/limit) → `progress`(25s 一次心跳穿透 ingress idle timeout)→ `line`(每条日志一发) → `result`(终态总结 total/truncated/elapsedMs/endErr;**不带 lines[]**)→ `error`(dispatch 级失败)。前端 `services/kpilot/logs.ts::streamLogsSearch` 用 EventSource 解析,**按 50ms / 100 行 batch onLine** 给 virtuoso
+  - **Stop 按钮**:`AbortController` → EventSource.close() → server `c.Request.Context().Done()` → ctx 撤销 → 已 defer 的 `stream.Close()` → yamux FIN → worker cancel-watcher 读 EOF → upstream HTTP ctx 撤销 → 立刻断 upstream,已加载的行保留显示
+- **VL 未启用 / install 探测**:mount 时跑一个 60s 窗口的小直方图探测 RESOURCE_NOT_AVAILABLE,命中就走 `<NotInstalled>`
+
+#### 前端 UX(`pages/ClusterDetail/Logging/`,11 项升级)
+
+代码组织:`index.tsx`(page shell)+ `LoggingHistogram.tsx`(直方图 chart,lazy)+ `LogsQLHelp.tsx`(cheat-sheet popover)+ `queryUtils.ts`(query 解析 / merge / 关键词提取 / 转义 helper)。
+
+- **顶部工具栏**:LogsQL 输入框(留空 = 全部 / 按 Enter 或点搜索 / suffix `?` 按钮 = LogsQL cheat-sheet)+ 命名空间 / Pod / **Container** 三级 picker + 时间范围 + 行数 Select(`100 / 500 / 1k / 5k / 10k / 50k` 六档替代原 free-form input)+ **Live tail** Toggle Button + Search/Stop + Reset
+- **Live tail**:开关 ON 后每 2s 拉 `[lastLineTime+1ms, now]` 的新日志,新数据 **prepend 到顶部**(`kubectl logs -f` / `tail -f` 语义,VL 默认 newest-first 返回 batch 与 prepend 方向一致),并清空历史从头看;Stop 关掉 polling 也兼停 manual 搜索
+- **直方图点击 zoom-in**:点 bar 自动把 range 改成 `{custom, from: bin.t, to: bin.t + step}` 并立即重 query(G2 `interval:click` 事件)。直方图默认折叠,title 行常显总匹配数 + 「展开 / 收起」link
+- **行展开**:点击 log row 切 expanded —— message 是 JSON 时 `JSON.stringify(JSON.parse(m), null, 2)` pretty-print(只在 expanded 时 parse + useMemo cache,不浪费流式 append),`fields` map 渲染成 key/value 表
+- **关键词高亮**:`extractHighlightTerms()` 从 LogsQL 剥 selector / `field:value` / 操作符 / 括号 / 引号后保留 word/phrase term,用 `<mark>` 包匹配文本(case-insensitive,phrase 优先)
+- **Container picker**:pod 选定后 `getWorkload(clusterId, 'pods', name, ns)` 取 `spec.containers + spec.initContainers`,加第三级 Select。selector 自动补 `kubernetes.container_name="..."`
+- **URL 持久化**:mount 时读 `?q=&range=&from=&to=&sinceNow=&limit=&ns=&pod=&container=`,有 query 类参数自动 auto-run;submit 后 `history.replaceState` 同步,不污染 back 栈
+- **行级跳转**:row 内 pod tag 变 Dropdown(`筛选此 Pod` / `复制 Pod 名`)
+- **LogsQL cheat-sheet popover**:`LogsQLHelp.tsx` —— 5 类共 17 条示例(文本 / 流标签 / 结构化字段 / 逻辑 / 管道),点击插入到 query 输入框 + 上游文档外链(https://docs.victoriametrics.com/victorialogs/logsql/)
+- **stdout/stderr + log-level 高亮**:`stderr` Tag 是中性灰(Python logging / Go log / nginx 都默认 stderr,跟"错误"无关);红/橙 row 高亮改用应用的 `level` / `severity` / `lvl` 字段 —— `error / err / fatal / crit / critical / panic` 红边 + 浅红背景 + red Tag,`warn / warning` 橙边 + 浅橙背景 + orange Tag
+- **Picker merge**:`mergeStreamSelector()` 只替换 query 头部 `{...}` 块,保留用户后续手写的 filter(早先无脑覆盖,用户加的 `| error` 子查询会被丢失)
+- **Reset 按钮**:一键还原首次进页面状态(清 query / picker / lines / live tail / URL params)
+- **结果列表**:virtuoso 虚拟列表(N 条行 DOM 恒定),每行带 timestamp + namespace Tag + pod Tag + container Tag + level Tag + message(等宽字体 + Markdown-style 关键词高亮)
+- **截断 + partial-result banner**:仅在 result 事件 `truncated=true` 或 `endErr` 非空时显示
 
 ### 5.3 Grafana 兜底（`/clusters/:id/grafana`）
 
