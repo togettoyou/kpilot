@@ -1,3 +1,4 @@
+import { SnippetsOutlined } from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 // xterm v5 (legacy `xterm` package, not @xterm/xterm v6). v6 ships with
 // a class-inheritance pattern that webpack's tree-shaker incorrectly
@@ -11,10 +12,12 @@ import {
   Alert,
   Button,
   Drawer,
+  message,
   Select,
   Space,
   Tag,
   theme as antdTheme,
+  Tooltip,
 } from 'antd';
 import 'xterm/css/xterm.css';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -54,6 +57,12 @@ export function PodExecDrawer({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const sessionKey = useRef(0);
+  // WS handle exposed for the Paste button. Set inside the open-WS
+  // effect, cleared on cleanup. Encoder is reused across paste calls
+  // for the same reason it's reused inside onData — TextEncoder is
+  // stateless and allocating per call is wasteful.
+  const wsRef = useRef<WebSocket | null>(null);
+  const pasteEncoderRef = useRef(new TextEncoder());
 
   // Fetch pod spec to enumerate containers when drawer opens.
   useEffect(() => {
@@ -117,6 +126,7 @@ export function PodExecDrawer({
     });
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
+    wsRef.current = ws;
 
     ws.onmessage = (e) => {
       if (myKey !== sessionKey.current) return;
@@ -204,6 +214,7 @@ export function PodExecDrawer({
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
+      wsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, clusterId, namespace, podName, container, reloadKey]);
@@ -214,6 +225,45 @@ export function PodExecDrawer({
     const t = setTimeout(() => fitRef.current?.fit(), 350);
     return () => clearTimeout(t);
   }, [open]);
+
+  // Paste from clipboard → send as stdin to the running process.
+  // Mirrors what xterm's bracketed-paste / Ctrl+Shift+V handler does
+  // for users who can't use keyboard shortcuts (read-only kiosks,
+  // mobile/tablet sessions, accessibility tools). The bytes go
+  // straight into the same stdin frame format onData uses.
+  //
+  // We DON'T strip newlines — a paste with a trailing newline
+  // submits the line, matching what a real terminal does. If the
+  // user needs paste-without-submit, they can paste then backspace
+  // the newline.
+  const handlePaste = async () => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      message.warning(
+        intl.formatMessage({ id: 'pages.podExec.paste.notReady' }),
+      );
+      return;
+    }
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      message.error(intl.formatMessage({ id: 'pages.podExec.paste.failed' }));
+      return;
+    }
+    if (!text) {
+      message.info(intl.formatMessage({ id: 'pages.podExec.paste.empty' }));
+      return;
+    }
+    const enc = pasteEncoderRef.current.encode(text);
+    const payload = new Uint8Array(enc.length + 1);
+    payload[0] = 0;
+    payload.set(enc, 1);
+    ws.send(payload);
+    // Refocus the terminal so the user can keep typing after the
+    // paste — the button click moved focus to the button.
+    termRef.current?.focus();
+  };
 
   const containerOptions = useMemo(
     () =>
@@ -276,6 +326,17 @@ export function PodExecDrawer({
             style={{ minWidth: 160 }}
           />
         </Space>
+        <Tooltip
+          title={intl.formatMessage({ id: 'pages.podExec.paste.tooltip' })}
+        >
+          <Button
+            size="small"
+            icon={<SnippetsOutlined />}
+            onClick={handlePaste}
+          >
+            {intl.formatMessage({ id: 'pages.podExec.paste' })}
+          </Button>
+        </Tooltip>
         <Button size="small" onClick={() => setReloadKey((k) => k + 1)}>
           {intl.formatMessage({ id: 'pages.podExec.reload' })}
         </Button>

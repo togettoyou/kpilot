@@ -1446,6 +1446,11 @@ export default {
   'pages.podExec.container': 'Container',
   'pages.podExec.reload': 'Reconnect',
   'pages.podExec.reconnect': 'Reconnect',
+  'pages.podExec.paste': 'Paste',
+  'pages.podExec.paste.tooltip': 'Write clipboard contents to the terminal (same as Cmd/Ctrl+V — useful when shortcuts are unavailable)',
+  'pages.podExec.paste.empty': 'Clipboard is empty',
+  'pages.podExec.paste.failed': 'Clipboard read failed',
+  'pages.podExec.paste.notReady': 'Terminal not connected',
   'pages.podExec.error.connection': 'WebSocket connection failed',
   'pages.podExec.error.closed': 'Connection closed ({code} {reason})',
 
