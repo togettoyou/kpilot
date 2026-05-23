@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -10,6 +11,21 @@ import (
 )
 
 var DB *gorm.DB
+
+// DBStats returns a snapshot of the underlying sql.DB pool stats.
+// Safe to call from any goroutine (sql.DBStats is captured via a
+// driver-side mutex). Returns zero value when DB is not yet
+// initialized (e.g. early diag snapshot before Init returns).
+func DBStats() sql.DBStats {
+	if DB == nil {
+		return sql.DBStats{}
+	}
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return sql.DBStats{}
+	}
+	return sqlDB.Stats()
+}
 
 func Init(dsn string) error {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{

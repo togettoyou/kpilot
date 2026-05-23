@@ -158,6 +158,7 @@ func (g *GatewayServer) acceptYamuxRegister(ctx context.Context, sess *transport
 	w := &ConnectedWorker{
 		ClusterID:     cluster.ID,
 		ClusterDomain: req.GetClusterDomain(),
+		DiagPort:      req.GetDiagPort(),
 		Session:       sess,
 		done:          make(chan struct{}),
 	}

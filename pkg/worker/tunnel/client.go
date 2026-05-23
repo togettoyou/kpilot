@@ -134,6 +134,18 @@ type Client struct {
 	clusterToken  string
 	clusterDomain string
 
+	// diagPort is the local 127.0.0.1 port the worker's diag mux is
+	// bound on. Reported on register so the server can reverse-proxy
+	// /debug/runtime + /debug/pprof through the tunnel. Atomic so
+	// SetDiagPort can be called from main.go after the listener
+	// binds but before Run starts.
+	diagPort atomic.Uint32
+
+	// Diagnostic counters surfaced via the diag package. Atomic so
+	// collectors can read them lock-free from any goroutine.
+	connectedAtNS  atomic.Int64  // unix-nano timestamp of current session start, 0 when down
+	reconnectTotal atomic.Uint64 // count of successful registers since process start
+
 	handlersMu sync.RWMutex
 	handlers   Handlers
 
@@ -172,6 +184,42 @@ func (c *Client) SetHandlers(h Handlers) {
 	c.handlersMu.Lock()
 	c.handlers = h
 	c.handlersMu.Unlock()
+}
+
+// SetDiagPort records the 127.0.0.1 port the worker's diag mux is
+// listening on. Reported on the next (re)register handshake. Must be
+// called before Run, otherwise the first register will report 0
+// (server falls back to "diag unavailable").
+func (c *Client) SetDiagPort(port uint32) {
+	c.diagPort.Store(port)
+}
+
+// DiagStats reports the tunnel's current state for the worker's
+// diag /snapshot endpoint. Lock-free (all values come from atomics
+// or atomic-pointer chases) so a 1 Hz collector loop does not
+// contend with the connect / accept hot paths.
+type DiagStats struct {
+	Connected       bool    `json:"connected"`
+	SessionUptimeS  float64 `json:"session_uptime_seconds"`
+	ReconnectTotal  uint64  `json:"reconnect_total"`
+	StreamsOpen     int     `json:"streams_open"`
+	ServerAddr      string  `json:"server_addr"`
+}
+
+func (c *Client) DiagStats() DiagStats {
+	s := c.sess.Load()
+	stats := DiagStats{
+		ReconnectTotal: c.reconnectTotal.Load(),
+		ServerAddr:     c.serverAddr,
+	}
+	if s != nil {
+		stats.Connected = true
+		stats.StreamsOpen = s.NumStreams()
+	}
+	if ns := c.connectedAtNS.Load(); ns > 0 {
+		stats.SessionUptimeS = float64(time.Now().UnixNano()-ns) / 1e9
+	}
+	return stats
 }
 
 // SessionContext returns a context that fires Done when the
@@ -267,6 +315,8 @@ func (c *Client) connectOnce(ctx context.Context) error {
 	c.sessCtxCancel = sessCancel
 	c.sessCtxMu.Unlock()
 	c.sess.Store(sess)
+	c.connectedAtNS.Store(time.Now().UnixNano())
+	c.reconnectTotal.Add(1)
 
 	// Accept loop.
 	loopErr := c.acceptLoop(sessCtx, sess)
@@ -274,6 +324,7 @@ func (c *Client) connectOnce(ctx context.Context) error {
 	// Tear down. Clear pointer first so push helpers stop using
 	// the dying session.
 	c.sess.Store(nil)
+	c.connectedAtNS.Store(0)
 	sessCancel()
 	c.sessCtxMu.Lock()
 	c.sessCtx = nil
@@ -312,6 +363,7 @@ func (c *Client) doRegister(ctx context.Context, sess *transportv2.Session) erro
 		ClusterToken:  c.clusterToken,
 		WorkerVersion: version.Version,
 		ClusterDomain: c.clusterDomain,
+		DiagPort:      c.diagPort.Load(),
 	}); err != nil {
 		return fmt.Errorf("write register: %w", err)
 	}

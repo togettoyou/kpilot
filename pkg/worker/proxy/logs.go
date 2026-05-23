@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync/atomic"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -31,11 +32,16 @@ const (
 // directly, exit on read error / cap / FIN.
 type LogsManager struct {
 	clientset kubernetes.Interface
+	inflight  atomic.Int32
 }
 
 func NewLogsManager(clientset kubernetes.Interface) *LogsManager {
 	return &LogsManager{clientset: clientset}
 }
+
+// Inflight reports the number of currently-active pod log streams.
+// Lock-free; safe for any goroutine.
+func (m *LogsManager) Inflight() int32 { return m.inflight.Load() }
 
 // HandleStream is the tunnel-dispatcher entry for an inbound
 // STREAM_POD_LOGS. Reads the start request, opens a K8s log
@@ -53,6 +59,8 @@ func NewLogsManager(clientset kubernetes.Interface) *LogsManager {
 // the watcher's Read returns and we cancel the K8s log stream's
 // ctx so the read loop unwinds.
 func (m *LogsManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
+	m.inflight.Add(1)
+	defer m.inflight.Add(-1)
 	defer st.Close()
 	var req pbv2.LogsStartRequest
 	if err := st.ReadMsg(&req); err != nil {

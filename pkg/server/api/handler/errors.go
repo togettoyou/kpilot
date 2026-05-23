@@ -42,6 +42,11 @@ const (
 	// worker reported the upstream Service unreachable (DNS, dial,
 	// timeout). The upstream error message rides along in `message`.
 	CodeProxyUpstream = "PROXY_UPSTREAM_ERROR"
+	// CodePprofConfirmationRequired guards the high-cost pprof
+	// endpoints (CPU profile, execution trace) — the request must
+	// carry ?confirm=true. Without this a casual click on the URL
+	// would burn 30 s of CPU per accidental fetch.
+	CodePprofConfirmationRequired = "PPROF_CONFIRMATION_REQUIRED"
 )
 
 // apiErr writes a JSON error response with the given code.

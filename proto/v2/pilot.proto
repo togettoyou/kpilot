@@ -66,6 +66,11 @@ message RegisterRequest {
   // K8s DNS suffix the worker's kubelet reports as --cluster-domain.
   // Server uses this when constructing in-cluster Service FQDNs.
   string cluster_domain = 3;
+  // Port the worker bound its diag HTTP mux on (always 127.0.0.1).
+  // Server reverse-proxies through the tunnel to <worker>:diag_port
+  // when the operator opens the system-monitoring UI. 0 = worker did
+  // not enable diag (e.g. older worker).
+  uint32 diag_port      = 4;
 }
 
 message RegisterAck {

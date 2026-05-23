@@ -16,8 +16,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	"github.com/togettoyou/kpilot/pkg/common/version"
+	"github.com/togettoyou/kpilot/pkg/diag"
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
 	"github.com/togettoyou/kpilot/pkg/worker/config"
+	workerdiag "github.com/togettoyou/kpilot/pkg/worker/diag"
 	"github.com/togettoyou/kpilot/pkg/worker/plugin"
 	"github.com/togettoyou/kpilot/pkg/worker/proxy"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
@@ -38,6 +41,20 @@ func main() {
 	log.Printf("[worker] starting: server=%s data_dir=%s", cfg.ServerAddr, resolvedDataDir)
 
 	tunnelClient := tunnel.NewClient(cfg.ServerAddr, cfg.ClusterToken, cfg.ClusterDomain)
+
+	// Self-monitoring surface (pkg/diag + worker-specific collectors).
+	// Mount runtime/metrics + pprof on a 127.0.0.1-bound listener;
+	// server reverse-proxies through the tunnel when an operator
+	// opens the system-monitoring UI. ClusterName is unknown at
+	// startup (server assigns ClusterID via STREAM_REGISTER), so
+	// identity Name carries the human-friendly server addr instead.
+	diagInst := diag.New("worker", cfg.ServerAddr, version.Version)
+	diagInst.Register(workerdiag.TunnelCollector{Client: tunnelClient})
+	diagPort, err := workerdiag.Serve(ctx, diagInst)
+	if err != nil {
+		log.Fatalf("[worker] diag serve: %v", err)
+	}
+	tunnelClient.SetDiagPort(diagPort)
 
 	// Set up controller-runtime Manager. Skipped gracefully when no
 	// kubeconfig is available (e.g. local dev without a cluster).
@@ -119,6 +136,14 @@ func main() {
 			OnPodExec:  execMgr.HandleStream,
 			OnWSProxy:  wsMgr.HandleStream,
 		})
+
+		// Register proxy + router collectors now that the managers
+		// exist. Tunnel collector was registered above (it has no
+		// K8s dependency).
+		diagInst.Register(workerdiag.ProxyCollector{
+			Resource: p, HTTP: httpProxy, Logs: logsMgr, Exec: execMgr, WS: wsMgr,
+		})
+		diagInst.Register(workerdiag.RouterCollector{Router: router})
 
 		go func() {
 			if err := mgr.Start(ctx); err != nil {

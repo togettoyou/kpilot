@@ -172,6 +172,11 @@ type RegisterRequest struct {
 	// K8s DNS suffix the worker's kubelet reports as --cluster-domain.
 	// Server uses this when constructing in-cluster Service FQDNs.
 	ClusterDomain string `protobuf:"bytes,3,opt,name=cluster_domain,json=clusterDomain,proto3" json:"cluster_domain,omitempty"`
+	// Port the worker bound its diag HTTP mux on (always 127.0.0.1).
+	// Server reverse-proxies through the tunnel to <worker>:diag_port
+	// when the operator opens the system-monitoring UI. 0 = worker did
+	// not enable diag (e.g. older worker).
+	DiagPort      uint32 `protobuf:"varint,4,opt,name=diag_port,json=diagPort,proto3" json:"diag_port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -225,6 +230,13 @@ func (x *RegisterRequest) GetClusterDomain() string {
 		return x.ClusterDomain
 	}
 	return ""
+}
+
+func (x *RegisterRequest) GetDiagPort() uint32 {
+	if x != nil {
+		return x.DiagPort
+	}
+	return 0
 }
 
 type RegisterAck struct {
@@ -1833,11 +1845,12 @@ const file_v2_pilot_proto_rawDesc = "" +
 	"\x04kind\x18\x01 \x01(\x0e2\x14.pilot.v2.StreamKindR\x04kind\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12\x12\n" +
-	"\x04gzip\x18\x03 \x01(\bR\x04gzip\"\x84\x01\n" +
+	"\x04gzip\x18\x03 \x01(\bR\x04gzip\"\xa1\x01\n" +
 	"\x0fRegisterRequest\x12#\n" +
 	"\rcluster_token\x18\x01 \x01(\tR\fclusterToken\x12%\n" +
 	"\x0eworker_version\x18\x02 \x01(\tR\rworkerVersion\x12%\n" +
-	"\x0ecluster_domain\x18\x03 \x01(\tR\rclusterDomain\"`\n" +
+	"\x0ecluster_domain\x18\x03 \x01(\tR\rclusterDomain\x12\x1b\n" +
+	"\tdiag_port\x18\x04 \x01(\rR\bdiagPort\"`\n" +
 	"\vRegisterAck\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1d\n" +
 	"\n" +

@@ -12,11 +12,19 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/api/handler"
 	"github.com/togettoyou/kpilot/pkg/server/api/middleware"
 	"github.com/togettoyou/kpilot/pkg/server/config"
+	serverdiag "github.com/togettoyou/kpilot/pkg/server/diag"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
-func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
+func NewRouter(cfg *config.Config, gw *gateway.GatewayServer, httpDiag *serverdiag.HTTPCollector) *gin.Engine {
 	r := gin.Default()
+
+	// Diag middleware must run first so the request counters bracket
+	// every other middleware (auth latency, CORS, etc.). Cost per
+	// request: ~5 atomic ops + 1 monotonic time read.
+	if httpDiag != nil {
+		r.Use(httpDiag.Middleware())
+	}
 
 	// Build origin lookup set once.
 	allowedOrigins := make(map[string]struct{}, len(cfg.CORSOrigins))
@@ -228,6 +236,18 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// expectations for the cluster's logs/search default `limit`
 		// and the monitoring page's poll budgets.
 		clusters.GET("/:id/debug/tunnel-bench", handler.TunnelBench(gw))
+
+		// System monitoring — self-observability for the server and
+		// each connected worker. Routes are flat under /system so the
+		// frontend can address node IDs (cluster_id or the literal
+		// "server") as path params.
+		handler.SetSystemHubGateway(gw)
+		system := protected.Group("/system")
+		system.GET("/nodes", handler.SystemNodes(gw))
+		system.GET("/snapshots", handler.SystemSnapshots(gw))
+		system.GET("/:node/snapshot", handler.SystemSnapshot(gw))
+		system.GET("/:node/pprof/:kind", handler.SystemPprof(gw))
+		system.GET("/:node/stream", handler.SystemStream(gw))
 
 		// Global plugin registry
 		plugins := protected.Group("/plugins")

@@ -37,6 +37,12 @@ type ConnectedWorker struct {
 	// register (e.g. "cluster.local"). The reverse proxy uses it
 	// to build the FQDN of the in-cluster Service it forwards to.
 	ClusterDomain string
+	// DiagPort is the 127.0.0.1 port the worker's diag mux is
+	// listening on. Zero when the worker did not enable diag (or
+	// is too old to report it). When non-zero, the system handler
+	// reverse-proxies /debug/runtime + /debug/pprof through the
+	// tunnel to http://127.0.0.1:DiagPort/...
+	DiagPort uint32
 
 	// Session is the yamux multiplex over one TLS/TCP conn.
 	// Send* methods call Session.Open(kind, …) per RPC.
@@ -180,6 +186,37 @@ func (g *GatewayServer) MetricsSnapshot() MetricsSnapshot {
 			NumStreams:    n,
 			LastSeen:      w.lastSeenNS.Load(),
 		})
+	}
+	return snap
+}
+
+// DiagSnapshot is the projection consumed by the system-monitoring
+// dashboard. Fields chosen so a single per-cluster bar chart answers
+// "is one tenant hogging the tunnel?" at a glance.
+type DiagSnapshot struct {
+	Sessions         int            `json:"sessions"`
+	StreamsOpen      int            `json:"streams_open"`
+	StreamsByCluster map[string]int `json:"streams_by_cluster"`
+}
+
+// DiagSnapshot returns the gateway's portion of the server diag
+// payload. One RLock walks the worker registry; per-worker
+// session.NumStreams is an atomic-fast read inside the yamux session
+// so the critical section is short even for many workers.
+func (g *GatewayServer) DiagSnapshot() DiagSnapshot {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	snap := DiagSnapshot{
+		Sessions:         len(g.workers),
+		StreamsByCluster: make(map[string]int, len(g.workers)),
+	}
+	for id, w := range g.workers {
+		if w.Session == nil {
+			continue
+		}
+		n := w.Session.NumStreams()
+		snap.StreamsByCluster[id] = n
+		snap.StreamsOpen += n
 	}
 	return snap
 }

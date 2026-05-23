@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -29,11 +30,14 @@ const shellProbeTimeout = 5 * time.Second
 type ExecManager struct {
 	cfg       *rest.Config
 	clientset kubernetes.Interface
+	inflight  atomic.Int32
 }
 
 func NewExecManager(cfg *rest.Config, clientset kubernetes.Interface) *ExecManager {
 	return &ExecManager{cfg: cfg, clientset: clientset}
 }
+
+func (m *ExecManager) Inflight() int32 { return m.inflight.Load() }
 
 // HandleStream is the tunnel entry for an inbound STREAM_POD_EXEC.
 // Reads ExecStartRequest, sets up SPDY exec, spawns a goroutine to
@@ -46,6 +50,8 @@ func NewExecManager(cfg *rest.Config, clientset kubernetes.Interface) *ExecManag
 // our stdin reader's Read returns EOF → ctx cancels via defer
 // → SPDY exec unwinds.
 func (m *ExecManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
+	m.inflight.Add(1)
+	defer m.inflight.Add(-1)
 	defer st.Close()
 
 	var req pbv2.ExecStartRequest

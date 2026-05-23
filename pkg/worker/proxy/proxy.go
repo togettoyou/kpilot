@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -71,8 +72,11 @@ type Proxy struct {
 	// in practice — same cfg already drives `dyn`). vGPU requests
 	// fail loud with "vgpu tracker unavailable" rather than half-
 	// silently returning empty data.
-	vgpu *VGPUTracker
+	vgpu     *VGPUTracker
+	inflight atomic.Int32
 }
+
+func (p *Proxy) Inflight() int32 { return p.inflight.Load() }
 
 // resourceClient picks namespace-scoped vs cluster-scoped REST access
 // based on the GVK's discovered scope, NOT on whether the caller passed
@@ -139,6 +143,8 @@ func New(cfg *rest.Config, mapper apimeta.RESTMapper) (*Proxy, error) {
 // so a long list / describe doesn't keep burning worker CPU
 // after the user gave up.
 func (p *Proxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
+	p.inflight.Add(1)
+	defer p.inflight.Add(-1)
 	defer st.Close()
 	var wireReq pbv2.ResourceRequest
 	if err := st.ReadMsg(&wireReq); err != nil {

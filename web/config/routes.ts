@@ -244,6 +244,22 @@ export default [
       },
     ],
   },
+  // ─── 系统监控 — self-observability for KPilot server + workers ────────
+  {
+    path: '/system',
+    name: 'system',
+    icon: 'dashboard',
+    routes: [
+      {
+        path: '/system',
+        component: './System/index',
+      },
+      {
+        path: '/system/:node',
+        component: './System/Detail/index',
+      },
+    ],
+  },
   // ─── 插件管理 — global Helm chart registry ────────────────────────────
   {
     path: '/plugins',

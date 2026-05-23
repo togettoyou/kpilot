@@ -1,10 +1,11 @@
 export default {
   'menu.login': 'Login',
 
-  // Top-level platforms (4 modules).
+  // Top-level platforms (5 modules).
   'menu.clusters': 'Clusters',
   'menu.compute': 'Compute Scheduling',
   'menu.models': 'Model Serving',
+  'menu.system': 'System',
   'menu.plugins': 'Plugins',
 
   // Cluster detail sider — injected when a cluster is selected under

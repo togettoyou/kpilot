@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -27,10 +28,13 @@ import (
 type WSManager struct {
 	dialer *websocket.Dialer
 	// k8sCfg + apiTLS power the service-proxy WS fallback.
-	k8sCfg *rest.Config
-	apiTLS *tls.Config
-	router *InClusterRouter
+	k8sCfg   *rest.Config
+	apiTLS   *tls.Config
+	router   *InClusterRouter
+	inflight atomic.Int32
 }
+
+func (m *WSManager) Inflight() int32 { return m.inflight.Load() }
 
 func NewWSManager(k8sCfg *rest.Config, router *InClusterRouter) *WSManager {
 	m := &WSManager{
@@ -63,6 +67,8 @@ func NewWSManager(k8sCfg *rest.Config, router *InClusterRouter) *WSManager {
 // non-zero Opcode OR non-empty Data = forward; sentinel zero +
 // next-frame WSEnd = close.
 func (m *WSManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
+	m.inflight.Add(1)
+	defer m.inflight.Add(-1)
 	defer st.Close()
 
 	var req pbv2.WSStartRequest

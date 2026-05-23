@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,6 +38,11 @@ const (
 	routingProxy
 )
 
+// routingServiceProxy is a more descriptive alias used by the Stats
+// projection; keeps "proxy" inside this package for readability while
+// surfacing the public form upstream.
+const routingServiceProxy = routingProxy
+
 const routingCacheTTL = 24 * time.Hour
 
 // InClusterRouter holds the cached routing decision. Constructed once
@@ -47,6 +53,12 @@ type InClusterRouter struct {
 	mu        sync.RWMutex
 	mode      routingMode
 	decidedAt time.Time
+
+	// Diagnostic counters. hits = Mode() returned a cached non-unknown
+	// answer; misses = cold or expired and the caller had to probe.
+	// Atomic so collectors can read lock-free.
+	hits   atomic.Uint64
+	misses atomic.Uint64
 }
 
 func NewInClusterRouter() *InClusterRouter {
@@ -54,17 +66,64 @@ func NewInClusterRouter() *InClusterRouter {
 }
 
 // Mode returns the cached routing decision or routingUnknown when
-// the cache is cold or stale.
+// the cache is cold or stale. Updates the hits/misses counters.
 func (r *InClusterRouter) Mode() routingMode {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if r.mode == routingUnknown {
+	mode := r.mode
+	expired := r.mode != routingUnknown && time.Since(r.decidedAt) >= routingCacheTTL
+	r.mu.RUnlock()
+	if mode == routingUnknown || expired {
+		r.misses.Add(1)
 		return routingUnknown
 	}
-	if time.Since(r.decidedAt) >= routingCacheTTL {
-		return routingUnknown
+	r.hits.Add(1)
+	return mode
+}
+
+// RouterStats is the shape exposed via the diag /snapshot endpoint.
+type RouterStats struct {
+	Mode       string  `json:"mode"`         // "direct" / "service-proxy" / "unknown"
+	AgeSeconds float64 `json:"age_seconds"`  // since last probe, 0 when unknown
+	Hits       uint64  `json:"hits"`
+	Misses     uint64  `json:"misses"`
+	HitRate    float64 `json:"hit_rate"`     // hits / (hits+misses), 0 when no traffic
+}
+
+// Stats returns a copy of the router's current observability snapshot.
+// Lock-free for the counters (atomics) + one RLock for the mode/age
+// pair. Caller never holds Stats's internal state.
+func (r *InClusterRouter) Stats() RouterStats {
+	r.mu.RLock()
+	mode := r.mode
+	age := time.Since(r.decidedAt).Seconds()
+	r.mu.RUnlock()
+	if mode == routingUnknown {
+		age = 0
 	}
-	return r.mode
+	h := r.hits.Load()
+	m := r.misses.Load()
+	var rate float64
+	if total := h + m; total > 0 {
+		rate = float64(h) / float64(total)
+	}
+	return RouterStats{
+		Mode:       routerModeString(mode),
+		AgeSeconds: age,
+		Hits:       h,
+		Misses:     m,
+		HitRate:    rate,
+	}
+}
+
+func routerModeString(m routingMode) string {
+	switch m {
+	case routingDirect:
+		return "direct"
+	case routingServiceProxy:
+		return "service-proxy"
+	default:
+		return "unknown"
+	}
 }
 
 // SetMode writes the probe result into the cache. Both successful

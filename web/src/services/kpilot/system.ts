@@ -3,3 +3,115 @@ import { request } from '@umijs/max';
 export function getVersion() {
   return request<{ version: string }>('/api/v1/version', { method: 'GET' });
 }
+
+// ─── System monitoring (/system) ─────────────────────────────────────
+
+// Identity carried in every snapshot — static-ish per process.
+export interface SystemIdentity {
+  kind: string; // "server" / "worker"
+  name: string;
+  hostname: string;
+  pid: number;
+  start_time: string;
+  uptime_seconds: number;
+  go_version: string;
+  goos: string;
+  goarch: string;
+  app_version: string;
+  num_cpu: number;
+}
+
+// Runtime metrics from pkg/diag. Histogram percentiles cover the last
+// 1-second tick (not lifetime) — see snapshot.go in pkg/diag.
+export interface SystemRuntime {
+  goroutines: number;
+  gomaxprocs: number;
+  os_threads: number;
+  heap_inuse_bytes: number;
+  heap_idle_bytes: number;
+  heap_released_bytes: number;
+  heap_goal_bytes: number;
+  stack_inuse_bytes: number;
+  runtime_overhead_bytes: number;
+  total_mapped_bytes: number;
+  total_alloc_bytes: number;
+  live_objects: number;
+  rss_bytes: number;
+  gc_cycles_total: number;
+  gc_pause_p50_seconds: number;
+  gc_pause_p90_seconds: number;
+  gc_pause_p99_seconds: number;
+  gc_pause_max_seconds: number;
+  sched_latency_p50_seconds: number;
+  sched_latency_p90_seconds: number;
+  sched_latency_p99_seconds: number;
+  cpu_user_seconds: number;
+  cpu_scavenge_seconds: number;
+  cpu_idle_seconds: number;
+  cpu_gc_seconds: number;
+  cpu_total_seconds: number;
+  mutex_wait_total_seconds: number;
+  open_fds: number;
+  max_fds: number;
+}
+
+export interface SystemSnapshot {
+  identity: SystemIdentity;
+  runtime: SystemRuntime;
+  custom?: Record<string, Record<string, unknown>>;
+  at: string;
+}
+
+export interface SystemNode {
+  node_id: string;
+  kind: 'server' | 'worker';
+  cluster_id?: string;
+  cluster_name?: string;
+  online: boolean;
+  diag_available: boolean;
+}
+
+export interface SystemSnapshotEnvelope {
+  node_id: string;
+  snapshot?: SystemSnapshot;
+  error?: string;
+}
+
+export function listSystemNodes() {
+  return request<SystemNode[]>('/api/v1/system/nodes', { method: 'GET' });
+}
+
+export function batchSystemSnapshots() {
+  return request<SystemSnapshotEnvelope[]>('/api/v1/system/snapshots', { method: 'GET' });
+}
+
+export function getSystemSnapshot(nodeID: string) {
+  return request<SystemSnapshot>(`/api/v1/system/${encodeURIComponent(nodeID)}/snapshot`, {
+    method: 'GET',
+  });
+}
+
+// pprofURL builds the absolute REST path the browser hands to a
+// download link / window.open. confirm=true is required for CPU
+// profile + trace (server returns 403 PPROF_CONFIRMATION_REQUIRED
+// otherwise) — the dashboard surfaces a Modal before opening.
+export function pprofURL(
+  nodeID: string,
+  kind: string,
+  opts?: { seconds?: number; debug?: number; confirm?: boolean },
+) {
+  const params = new URLSearchParams();
+  if (opts?.seconds) params.set('seconds', String(opts.seconds));
+  if (opts?.debug !== undefined) params.set('debug', String(opts.debug));
+  if (opts?.confirm) params.set('confirm', 'true');
+  const q = params.toString();
+  const base = `/api/v1/system/${encodeURIComponent(nodeID)}/pprof/${kind}`;
+  return q ? `${base}?${q}` : base;
+}
+
+// systemStreamURL returns the WS URL relative to the current host so
+// the auth cookie rides along. ws:// vs wss:// follows page protocol.
+export function systemStreamURL(nodeID: string) {
+  const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${wsProto}//${window.location.host}/api/v1/system/${encodeURIComponent(nodeID)}/stream`;
+}

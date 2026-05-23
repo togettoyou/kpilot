@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	utilnet "k8s.io/apimachinery/pkg/util/net"
@@ -82,7 +83,8 @@ const proxyMaxRespBytes = 31 * 1024 * 1024
 // reads without activity, the worker's per-request 5 min ctx
 // is the upper bound.
 type HTTPProxy struct {
-	client *http.Client
+	inflight atomic.Int32
+	client   *http.Client
 	// k8sCfg + apiClient power the service-proxy HTTP fallback. We
 	// dispatch via a normal http.Client (rather than client-go's REST
 	// helpers) so we get the upstream's full response headers —
@@ -101,6 +103,10 @@ type HTTPProxy struct {
 	// nil in tests — in that case the proxy always uses direct dial.
 	router *InClusterRouter
 }
+
+// Inflight reports the number of currently-active reverse-proxied
+// HTTP streams. Lock-free; safe for any goroutine.
+func (p *HTTPProxy) Inflight() int32 { return p.inflight.Load() }
 
 // NewHTTPProxy builds an HTTPProxy with sensible defaults for the in-cluster
 // service traffic this layer carries (a Grafana dashboard load can pull a few
@@ -257,6 +263,8 @@ var hopByHopHeaders = map[string]struct{}{
 // dispatches (buffered or streaming based on StreamResponse),
 // writes the response back on the same stream.
 func (p *HTTPProxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
+	p.inflight.Add(1)
+	defer p.inflight.Add(-1)
 	defer st.Close()
 	var wireReq pbv2.HTTPRequestStart
 	if err := st.ReadMsg(&wireReq); err != nil {

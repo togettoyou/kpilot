@@ -1,10 +1,11 @@
 export default {
   'menu.login': '登录',
 
-  // Top-level platforms (4 modules).
+  // Top-level platforms (5 modules).
   'menu.clusters': '集群管理',
   'menu.compute': '算力调度',
   'menu.models': '模型服务',
+  'menu.system': '系统监控',
   'menu.plugins': '插件管理',
 
   // Cluster detail sider — injected when a cluster is selected under
