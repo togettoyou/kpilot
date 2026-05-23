@@ -121,6 +121,25 @@ const ModelChatPage: React.FC = () => {
   // header / breadcrumb chrome added unmeasurable padding.
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [containerHeight, setContainerHeight] = useState<number | null>(null);
+
+  // Page-switch scroll reset. Mirrors the logging page: this view is
+  // fixed-viewport and derives its height from
+  // getBoundingClientRect().top, so an ancestor that's still scrolled
+  // from the previous page (Workloads / Monitoring, etc.) shifts the
+  // wrapper out of place. Walk up resetting scrollTop + window scroll.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    const reset = () => {
+      let el: HTMLElement | null = wrapperRef.current;
+      while (el && el !== document.body) {
+        if (el.scrollTop) el.scrollTop = 0;
+        el = el.parentElement;
+      }
+    };
+    if (wrapperRef.current) reset();
+    else requestAnimationFrame(reset);
+  }, []);
+
   useEffect(() => {
     let pending = 0;
     const measure = () => {
