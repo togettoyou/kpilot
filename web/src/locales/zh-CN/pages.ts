@@ -1400,7 +1400,7 @@ export default {
   'pages.podExec.reload': '重连',
   'pages.podExec.reconnect': '重连',
   'pages.podExec.paste': '粘贴',
-  'pages.podExec.paste.tooltip': '把剪贴板内容写到终端（与 Cmd/Ctrl+V 等价，方便无快捷键场景）',
+  'pages.podExec.paste.tooltip': '把剪贴板内容写到终端（等价于 Cmd/Ctrl+V）',
   'pages.podExec.paste.empty': '剪贴板为空',
   'pages.podExec.paste.failed': '读取剪贴板失败',
   'pages.podExec.paste.notReady': '终端未连接',

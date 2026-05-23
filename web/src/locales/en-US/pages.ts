@@ -1447,7 +1447,7 @@ export default {
   'pages.podExec.reload': 'Reconnect',
   'pages.podExec.reconnect': 'Reconnect',
   'pages.podExec.paste': 'Paste',
-  'pages.podExec.paste.tooltip': 'Write clipboard contents to the terminal (same as Cmd/Ctrl+V — useful when shortcuts are unavailable)',
+  'pages.podExec.paste.tooltip': 'Write clipboard contents to the terminal (same as Cmd/Ctrl+V)',
   'pages.podExec.paste.empty': 'Clipboard is empty',
   'pages.podExec.paste.failed': 'Clipboard read failed',
   'pages.podExec.paste.notReady': 'Terminal not connected',
