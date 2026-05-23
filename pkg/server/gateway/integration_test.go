@@ -369,6 +369,25 @@ func TestIntegrationStreamCancelPropagates(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("worker didn't observe cancel via write error within 2 s")
 	}
+
+	// Both sides should call yamux.Stream.Close (we did on server
+	// side via stream.Close; worker handler returns and its
+	// defer st.Close() fires). yamux removes a stream from its
+	// `streams` map only after BOTH sides have FIN'd. Probe
+	// NumStreams to verify cleanup actually happened — pre-fix
+	// this leaked one yamux stream per cancel because [reason TBD].
+	w, ok := gw.GetWorker("test-cluster")
+	if !ok {
+		t.Fatal("worker should still be in registry")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if w.Session.NumStreams() == 0 {
+			return // clean
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("yamux stream leak after cancel: NumStreams=%d (expected 0)", w.Session.NumStreams())
 }
 
 // TestIntegrationConcurrentRequests verifies per-RPC isolation —

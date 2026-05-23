@@ -37,6 +37,16 @@ import (
 //     used for liveness detection.
 //   - ConnectionWriteTimeout=10s caps how long a stuck per-write can
 //     hold the session before yamux RSTs.
+//   - StreamCloseTimeout=30s (vs yamux default 5min) — defensive
+//     cap on the "half-closed stream" linger window. We've observed
+//     in deployed T4 runs that a kill -9 of a streaming SSE client
+//     leaks ~1 yamux stream per cancel that doesn't show up in the
+//     single-process local repro (real TCP + real upstream HTTP + 50
+//     concurrent cancels all clean up in <1s on a Mac). Until that
+//     env-specific bug is root-caused, this timeout limits blast
+//     radius: leaked streams force-close + RST after 30s instead of
+//     5min, so under heavy churn we accumulate at most
+//     (cancel_rate × 30s) zombie streams.
 //   - LogOutput is silenced because we route yamux internals through
 //     our own [transport] log prefix when something is interesting.
 func DefaultYamuxConfig() *yamux.Config {
@@ -46,6 +56,7 @@ func DefaultYamuxConfig() *yamux.Config {
 	cfg.EnableKeepAlive = true
 	cfg.KeepAliveInterval = 20 * time.Second
 	cfg.ConnectionWriteTimeout = 10 * time.Second
+	cfg.StreamCloseTimeout = 30 * time.Second
 	cfg.LogOutput = io.Discard
 	return cfg
 }
