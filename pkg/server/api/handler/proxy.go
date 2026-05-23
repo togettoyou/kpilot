@@ -463,6 +463,13 @@ func proxyWebSocket(
 		apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 		return
 	}
+	// Safety net for the "worker disconnect mid-session" exit path,
+	// where the main loop's stream.Recv returns an error and we
+	// break out to write the GoingAway frame WITHOUT an explicit
+	// Close. The browser pump goroutine does eventually call
+	// stream.Close() when rawConn.Close fires, but a defer here is
+	// straightforward and idempotent (WSStream.Close uses sync.Once).
+	defer stream.Close()
 
 	// Upgrade the browser conn AFTER WSStartRequest is on the
 	// wire, so we don't promote a connection that the worker
@@ -470,7 +477,6 @@ func proxyWebSocket(
 	rawConn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		_ = stream.SendEnd(0, "browser upgrade failed")
-		stream.Close()
 		return
 	}
 	defer rawConn.Close()

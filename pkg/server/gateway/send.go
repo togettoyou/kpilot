@@ -113,7 +113,7 @@ func (g *GatewayServer) SendResourceRequest(ctx context.Context, clusterID strin
 
 	var startResp pbv2.ResourceResponse
 	if err := st.ReadMsg(&startResp); err != nil {
-		return nil, mapStreamErr(err, "read resource resp")
+		return nil, g.mapStreamErr(clusterID, err, "read resource resp")
 	}
 	resp := &ResourceResponse{
 		Success: startResp.GetSuccess(),
@@ -168,7 +168,7 @@ func (g *GatewayServer) SendHTTPRequest(ctx context.Context, clusterID string, r
 
 	var startResp pbv2.HTTPResponseStart
 	if err := st.ReadMsg(&startResp); err != nil {
-		return nil, mapStreamErr(err, "read http resp")
+		return nil, g.mapStreamErr(clusterID, err, "read http resp")
 	}
 	resp := &HTTPResponse{
 		Status:  startResp.GetStatus(),
@@ -199,12 +199,27 @@ func applyCtxDeadline(ctx context.Context, st *transportv2.Stream) {
 }
 
 // mapStreamErr converts low-level transport errors to nicer
-// caller messages. io.EOF from ReadMsg means the worker closed
-// the stream before sending a response — usually a worker-side
-// crash or a panic in the handler.
-func mapStreamErr(err error, what string) error {
+// caller messages. Two failure modes to distinguish:
+//
+//   - The yamux SESSION died (worker disconnected, keepalive
+//     timeout, network drop). All in-flight stream Reads return
+//     io.EOF as the session is torn down. The right message is
+//     "worker disconnected" — telling the operator to check the
+//     worker pod, not the handler.
+//   - The STREAM ended early while the session is still alive.
+//     Almost always a worker-side handler panic / early return.
+//
+// Checking g.GetWorker at error time is a reliable signal: if
+// the worker is no longer in the registry, unregister already
+// fired and the session is dead. Tiny race window (worker drops
+// → unregister hasn't run yet) but the resulting "handler panic"
+// message is roughly accurate for that millisecond gap.
+func (g *GatewayServer) mapStreamErr(clusterID string, err error, what string) error {
 	if err == nil {
 		return nil
+	}
+	if _, connected := g.GetWorker(clusterID); !connected {
+		return fmt.Errorf("%s: worker disconnected", what)
 	}
 	if errors.Is(err, io.EOF) {
 		return fmt.Errorf("%s: worker closed stream early (likely handler panic)", what)

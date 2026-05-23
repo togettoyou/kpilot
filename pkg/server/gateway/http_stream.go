@@ -146,7 +146,7 @@ func (g *GatewayServer) SendHTTPRequestStream(ctx context.Context, clusterID str
 
 	var startResp pbv2.HTTPResponseStart
 	if err := st.ReadMsg(&startResp); err != nil {
-		return nil, mapStreamErr(err, "read http resp")
+		return nil, g.mapStreamErr(clusterID, err, "read http resp")
 	}
 
 	closeOnFail = false

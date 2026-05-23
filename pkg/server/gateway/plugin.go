@@ -90,7 +90,7 @@ func (g *GatewayServer) SendPluginCommand(clusterID string, cmd *pluginservice.C
 
 	var ack pbv2.PluginCommandAck
 	if err := st.ReadMsg(&ack); err != nil {
-		return mapStreamErr(err, "read plugin ack")
+		return g.mapStreamErr(clusterID, err, "read plugin ack")
 	}
 	if !ack.GetSuccess() {
 		return fmt.Errorf("worker rejected plugin command: %s", ack.GetError())
