@@ -830,6 +830,10 @@ export default {
     '输入消息，Enter 发送 / Shift+Enter 换行',
   'pages.models.chat.usage':
     '本轮 tokens：输入 {in} / 输出 {out} / 合计 {total}',
+  'pages.models.chat.bubble.thinking': '推理过程',
+  'pages.models.chat.bubble.thinkingInProgress': '正在推理…',
+  'pages.models.chat.bubble.stats':
+    '{tps} tok/s · {sec}s · {prompt} → {completion} ({total} 合计)',
   'pages.models.chat.empty.title': '开始一轮对话',
   'pages.models.chat.empty.desc': '直接和该实例聊天用来快速验证推理是否正常。',
   'pages.models.chat.error.title': '请求失败',

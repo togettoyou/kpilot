@@ -12,6 +12,7 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
   Empty,
   Input,
   InputNumber,
@@ -31,6 +32,8 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 import type {
   ChatUsage,
@@ -43,7 +46,7 @@ import {
   streamChatCompletions,
 } from '@/services/kpilot/model';
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 // ModelChat — full-page OpenAI-compatible chat playground. The
 // drawer iteration (P16-B v1) lived inside a card click; this one
@@ -64,6 +67,18 @@ interface ChatMsg {
   role: ChatRole;
   content: string;
   id: string;
+  // Per-turn stats for assistant messages — populated when the
+  // server's `usage` block arrives at the end of the stream.
+  // Lets the bubble render "Y tok/s · Xs · prompt/completion/total".
+  stats?: ChatTurnStats;
+}
+
+interface ChatTurnStats {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  elapsedMs: number;
+  tokensPerSec: number;
 }
 
 // pickInstance from URL params + row list. Falls back to the first
@@ -322,6 +337,11 @@ const ModelChatPage: React.FC = () => {
     const controller = new AbortController();
     abortRef.current = controller;
     let receivedAny = false;
+    // Wall-clock at send-time used to derive tokens-per-second once
+    // the stream's `usage` block arrives. Matches what an operator
+    // would compute on their own ("how fast does this thing reply?")
+    // without needing a stopwatch.
+    const startedAt = Date.now();
 
     try {
       const body: Record<string, unknown> = {
@@ -371,7 +391,35 @@ const ModelChatPage: React.FC = () => {
               ];
             });
           },
-          onUsage: (u) => setUsage(u),
+          onUsage: (u) => {
+            setUsage(u);
+            // Inline per-turn stats: pin the usage payload to the
+            // assistant message so the bubble can render speed +
+            // token breakdown right under the reply text, instead
+            // of (or in addition to) the global usage line. Compute
+            // tokens/sec from wall-clock elapsed and the server's
+            // own completion_tokens count.
+            const elapsedMs = Date.now() - startedAt;
+            const completion = u.completion_tokens ?? 0;
+            const tps =
+              elapsedMs > 0 ? completion / (elapsedMs / 1000) : 0;
+            setHistory((prev) => {
+              const idx = prev.findIndex((m) => m.id === assistantId);
+              if (idx < 0) return prev;
+              const next = prev.slice();
+              next[idx] = {
+                ...next[idx],
+                stats: {
+                  promptTokens: u.prompt_tokens ?? 0,
+                  completionTokens: completion,
+                  totalTokens: u.total_tokens ?? 0,
+                  elapsedMs,
+                  tokensPerSec: tps,
+                },
+              };
+              return next;
+            });
+          },
           onDone: () => {
             // No-op; finally block flips sending → false.
           },
@@ -736,25 +784,9 @@ const ModelChatPage: React.FC = () => {
               background: token.colorBgContainer,
             }}
           >
-            {usage && (
-              <Text
-                type="secondary"
-                style={{
-                  fontSize: 11,
-                  display: 'block',
-                  marginBottom: 6,
-                }}
-              >
-                {intl.formatMessage(
-                  { id: 'pages.models.chat.usage' },
-                  {
-                    in: usage.prompt_tokens ?? 0,
-                    out: usage.completion_tokens ?? 0,
-                    total: usage.total_tokens ?? 0,
-                  },
-                )}
-              </Text>
-            )}
+            {/* Per-turn token stats moved into the assistant bubble
+                footer (see ChatBubble → formatStats). The old global
+                line just duplicated the most recent turn's numbers. */}
             <div style={{ display: 'flex', gap: 8 }}>
               <Input.TextArea
                 autoSize={{ minRows: 2, maxRows: 8 }}
@@ -794,6 +826,65 @@ const ModelChatPage: React.FC = () => {
   );
 };
 
+// splitThink splits a (possibly streaming-in-progress) message into
+// the model's chain-of-thought block (between <think>…</think>) and
+// the visible answer. Models like DeepSeek-R1 / Qwen3 reasoning
+// modes wrap their internal monologue in <think> tags — collapsing
+// it by default keeps the assistant bubble readable while still
+// letting an investigator open the reasoning when debugging answer
+// quality.
+//
+// Three states during streaming:
+//   1. No <think> yet → all content is the answer.
+//   2. <think> opened but </think> not yet → everything inside is
+//      "thinking in progress"; visible answer is empty so far.
+//   3. <think>…</think> closed → both halves available.
+//
+// Greedy first match is fine: nested or repeated <think> blocks
+// don't happen in practice (single thought block per turn).
+function splitThink(content: string): {
+  thinking: string | null;
+  answer: string;
+  thinkingOpen: boolean;
+} {
+  const openIdx = content.indexOf('<think>');
+  if (openIdx < 0) return { thinking: null, answer: content, thinkingOpen: false };
+  const before = content.slice(0, openIdx);
+  const closeIdx = content.indexOf('</think>', openIdx + 7);
+  if (closeIdx < 0) {
+    // Stream still inside <think> — show empty answer + open
+    // flag so the bubble can render a "thinking…" indicator.
+    return {
+      thinking: content.slice(openIdx + 7).trimEnd(),
+      answer: before,
+      thinkingOpen: true,
+    };
+  }
+  const thinking = content.slice(openIdx + 7, closeIdx).trim();
+  const after = content.slice(closeIdx + 8);
+  return {
+    thinking,
+    answer: (before + after).trim(),
+    thinkingOpen: false,
+  };
+}
+
+function formatStats(
+  s: ChatTurnStats,
+  intl: ReturnType<typeof useIntl>,
+): string {
+  return intl.formatMessage(
+    { id: 'pages.models.chat.bubble.stats' },
+    {
+      tps: s.tokensPerSec.toFixed(1),
+      sec: (s.elapsedMs / 1000).toFixed(1),
+      prompt: s.promptTokens,
+      completion: s.completionTokens,
+      total: s.totalTokens,
+    },
+  );
+}
+
 function ChatBubble({
   msg,
   familyColor,
@@ -803,8 +894,17 @@ function ChatBubble({
   familyColor: string;
   token: ReturnType<typeof theme.useToken>['token'];
 }) {
+  const intl = useIntl();
   const isUser = msg.role === 'user';
   const isSystem = msg.role === 'system';
+  // User + system messages render as plain text (whatever the user
+  // typed is what they want to see). Only assistant bubbles get the
+  // <think> split + markdown treatment.
+  const isAssistant = !isUser && !isSystem;
+  const { thinking, answer, thinkingOpen } = isAssistant
+    ? splitThink(msg.content)
+    : { thinking: null, answer: msg.content, thinkingOpen: false };
+
   return (
     <div
       style={{
@@ -828,24 +928,219 @@ function ChatBubble({
       >
         {!isUser && (isSystem ? 'S' : 'A')}
       </Avatar>
-      <Paragraph
+      <div
         style={{
-          margin: 0,
-          padding: '8px 12px',
-          background: isUser ? token.colorPrimaryBg : token.colorBgContainer,
-          borderRadius: token.borderRadiusLG,
-          border: `1px solid ${token.colorBorderSecondary}`,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
           maxWidth: '78%',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          fontSize: 13,
-          lineHeight: 1.55,
         }}
       >
-        {msg.content}
-      </Paragraph>
+        {/* Chain-of-thought (<think> content). Collapsed by
+            default; an "正在思考…" hint stands in while the open
+            block hasn't closed yet so the user knows the model
+            isn't stuck. */}
+        {thinking !== null && (
+          <Collapse
+            size="small"
+            ghost
+            items={[
+              {
+                key: 'think',
+                label: (
+                  <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                    {thinkingOpen
+                      ? intl.formatMessage({
+                          id: 'pages.models.chat.bubble.thinkingInProgress',
+                        })
+                      : intl.formatMessage({
+                          id: 'pages.models.chat.bubble.thinking',
+                        })}
+                  </span>
+                ),
+                children: (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: token.colorTextSecondary,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      fontFamily:
+                        'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+                      background: token.colorFillQuaternary,
+                      padding: '6px 8px',
+                      borderRadius: token.borderRadius,
+                    }}
+                  >
+                    {thinking || (thinkingOpen ? '…' : '')}
+                  </div>
+                ),
+              },
+            ]}
+            style={{
+              background: 'transparent',
+              border: `1px dashed ${token.colorBorderSecondary}`,
+              borderRadius: token.borderRadius,
+              marginBottom: answer ? 0 : 4,
+            }}
+          />
+        )}
+        {/* Main bubble — visible answer text. Markdown-rendered
+            for assistant so code blocks / lists / tables look
+            right; user/system stay plain so the user sees what
+            they typed verbatim. */}
+        {(answer || !isAssistant) && (
+          <div
+            style={{
+              padding: '8px 12px',
+              background: isUser ? token.colorPrimaryBg : token.colorBgContainer,
+              borderRadius: token.borderRadiusLG,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              wordBreak: 'break-word',
+              fontSize: 13,
+              lineHeight: 1.55,
+            }}
+          >
+            {isAssistant ? (
+              <MarkdownContent text={answer} token={token} />
+            ) : (
+              <div style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+                {msg.content}
+              </div>
+            )}
+          </div>
+        )}
+        {/* Per-turn stats footer. Only on assistant bubbles, only
+            when the server's usage block has landed. */}
+        {isAssistant && msg.stats && (
+          <div
+            style={{
+              fontSize: 11,
+              color: token.colorTextTertiary,
+              padding: '0 4px',
+            }}
+          >
+            {formatStats(msg.stats, intl)}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+// MarkdownContent — react-markdown + GFM (tables / strikethrough /
+// task lists / autolinks). Pinned style overrides so code blocks +
+// inline code look right inside the chat bubble background.
+const MarkdownContent: React.FC<{
+  text: string;
+  token: ReturnType<typeof theme.useToken>['token'];
+}> = React.memo(({ text, token }) => {
+  return (
+    <div
+      className="kpilot-chat-md"
+      style={{
+        // Strip the default user-agent margins on the first / last
+        // block element so they sit flush in the bubble padding.
+      }}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Block code — fenced ```… → tinted background panel.
+          // Inline `code` falls through to the same renderer so we
+          // distinguish via the `inline` prop the markdown AST gives.
+          code({ inline, className, children, ...rest }: any) {
+            const txt = String(children).replace(/\n$/, '');
+            if (inline) {
+              return (
+                <code
+                  style={{
+                    background: token.colorFillTertiary,
+                    padding: '1px 4px',
+                    borderRadius: 3,
+                    fontFamily:
+                      'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+                    fontSize: '0.9em',
+                  }}
+                  {...rest}
+                >
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <pre
+                style={{
+                  background: token.colorFillQuaternary,
+                  padding: 10,
+                  borderRadius: token.borderRadius,
+                  overflow: 'auto',
+                  fontSize: 12,
+                  margin: '6px 0',
+                }}
+              >
+                <code className={className}>{txt}</code>
+              </pre>
+            );
+          },
+          p({ children }: any) {
+            return (
+              <p style={{ margin: '4px 0', whiteSpace: 'pre-wrap' }}>
+                {children}
+              </p>
+            );
+          },
+          ul({ children }: any) {
+            return <ul style={{ margin: '4px 0', paddingLeft: 20 }}>{children}</ul>;
+          },
+          ol({ children }: any) {
+            return <ol style={{ margin: '4px 0', paddingLeft: 20 }}>{children}</ol>;
+          },
+          table({ children }: any) {
+            return (
+              <table
+                style={{
+                  borderCollapse: 'collapse',
+                  margin: '6px 0',
+                  width: '100%',
+                }}
+              >
+                {children}
+              </table>
+            );
+          },
+          th({ children }: any) {
+            return (
+              <th
+                style={{
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  padding: '4px 8px',
+                  textAlign: 'left',
+                  background: token.colorFillQuaternary,
+                }}
+              >
+                {children}
+              </th>
+            );
+          },
+          td({ children }: any) {
+            return (
+              <td
+                style={{
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  padding: '4px 8px',
+                }}
+              >
+                {children}
+              </td>
+            );
+          },
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+});
 
 export default ModelChatPage;

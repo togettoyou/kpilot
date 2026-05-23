@@ -852,6 +852,10 @@ export default {
     'Type a message. Enter to send / Shift+Enter for newline',
   'pages.models.chat.usage':
     'This turn: {in} in / {out} out / {total} total tokens',
+  'pages.models.chat.bubble.thinking': 'Thinking',
+  'pages.models.chat.bubble.thinkingInProgress': 'Thinking…',
+  'pages.models.chat.bubble.stats':
+    '{tps} tok/s · {sec}s · {prompt} → {completion} ({total} total)',
   'pages.models.chat.empty.title': 'Start a conversation',
   'pages.models.chat.empty.desc':
     'Chat directly with this instance to confirm inference is healthy.',
