@@ -17,11 +17,11 @@
 
 KPilot is a control plane for running GPU workloads on Kubernetes. Cluster operations, Volcano-based batch scheduling, vGPU governance, hardware telemetry, plugin lifecycle, and model serving live behind one console with a consistent permission and audit surface.
 
-Multi-cluster is the default — a single KPilot Server manages many clusters, with the in-cluster agent dialing back over a single TCP+TLS connection. No inbound ports on the cluster side, no shared kubeconfigs, no per-cloud divergence.
+Multi-cluster is the default — a single KPilot Server manages many clusters, with the in-cluster agent dialing back over a single long-lived multiplexed TCP connection (terminate TLS at the ingress in production). No inbound ports on the cluster side, no shared kubeconfigs, no per-cloud divergence.
 
 ## Why KPilot
 
-- **Zero inbound ports; kubeconfigs never leave the cluster.** Worker dials Server outbound over a single multiplexed TCP+TLS channel — every K8s API call, Helm install, Pod log / exec session, embedded-UI reverse proxy (Grafana, VictoriaMetrics), and inference SSE stream concurrently shares the connection without head-of-line blocking. See [`docs/transport-v2.md`](docs/transport-v2.md) for the architecture record.
+- **Zero inbound ports; kubeconfigs never leave the cluster.** Worker dials Server outbound over a single multiplexed TCP channel (TLS-terminated at the cluster ingress when one's in front) — every K8s API call, Helm install, Pod log / exec session, embedded-UI reverse proxy (Grafana, VictoriaMetrics), and inference SSE stream concurrently shares the connection without head-of-line blocking. See [`docs/transport-v2.md`](docs/transport-v2.md) for the architecture record.
 
 - **GPU + Volcano as one integrated platform.** Volcano gang scheduling across 10 CR kinds with 7 typed authoring forms and a visual scheduler-policy editor; vGPU device-plugin slicing (slot / framebuffer / SM cores) parsed per-card with the Pods currently holding each slice; DCGM-driven GPU-Hour usage reports across 1h / 24h / 7d / 30d windows plus alerts on XID, ECC, thermal, and framebuffer pressure — one console for who scheduled it, who's using it, and whether the hardware is healthy.
 
@@ -35,7 +35,7 @@ Multi-cluster is the default — a single KPilot Server manages many clusters, w
   <img src="docs/assets/architecture.en.svg" alt="KPilot architecture (C4 container diagram)" width="820">
 </p>
 
-**Server** owns the UI, API, and durable state (cluster registry, plugin metadata, accounts, API keys, model templates) but holds no kubeconfigs. **Worker** runs inside each managed cluster, dials the Server over a single long-lived multiplexed TCP+TLS channel, and brokers every Kubernetes operation on its behalf — no inbound ports, no shared credentials, no cross-cloud divergence. Plugins ship as Helm charts and reconcile via an in-cluster CRD, executing in the cluster's own RBAC context.
+**Server** owns the UI, API, and durable state (cluster registry, plugin metadata, accounts, API keys, model templates) but holds no kubeconfigs. **Worker** runs inside each managed cluster, dials the Server over a single long-lived multiplexed TCP channel (TLS-terminated at the cluster ingress for production deployments), and brokers every Kubernetes operation on its behalf — no inbound ports, no shared credentials, no cross-cloud divergence. Plugins ship as Helm charts and reconcile via an in-cluster CRD, executing in the cluster's own RBAC context.
 
 ## Quick Start
 

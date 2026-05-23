@@ -11,7 +11,7 @@
 | 模型服务 (`/models`) | 模型仓库、推理部署、调试、路由、训练任务 | [docs/models.md](docs/models.md) |
 | 插件管理 (`/plugins`) | Helm chart 注册表，前三个平台的能力底座 | [docs/plugins.md](docs/plugins.md) |
 
-Server（中心控制面）+ Worker（集群侧 Operator），通过 **yamux 多路复用**（TLS over TCP）连接 —— 每个 RPC / 流式会话开独立的 yamux stream，由 yamux 内置 flow-control + 公平调度处理 HOL/取消，应用层不再做这些。详见 [docs/transport-v2.md](docs/transport-v2.md)。
+Server(中心控制面)+ Worker(集群侧 Operator),通过 **yamux 多路复用**(裸 TCP 连接;生产部署在集群 ingress 层做 TLS 终止,server 进程本身不带 TLS,见 `cmd/server/main.go::net.Listen`)连接 —— 每个 RPC / 流式会话开独立的 yamux stream,由 yamux 内置 flow-control + 公平调度处理 HOL/取消,应用层不再做这些。详见 [docs/transport-v2.md](docs/transport-v2.md)。
 
 ---
 
@@ -53,7 +53,7 @@ K8s Cluster
 
 ## yamux 传输协议
 
-**一条 TLS-over-TCP 连接 + hashicorp/yamux 多路复用**。worker 主动 dial server（NAT 友好），dial 成功后 worker 端 yamux.Client + server 端 yamux.Server 各自起 session；之后**每个 RPC / 流式会话开一条独立的 yamux stream**（≤一行代码 `session.Open()`/`Accept()`）。
+**一条 TCP 连接 + hashicorp/yamux 多路复用**。worker 主动 dial server(NAT 友好);worker 端可选 `grpcs://` / `https://` 触发 `tls.Dial`(到 ingress 那一跳的加密),server 进程 `net.Listen("tcp")` 不带 TLS —— 生产部署在集群 ingress 层(nginx-ingress / Traefik / cloud LB)做 TLS 终止。dial 成功后 worker 端 yamux.Client + server 端 yamux.Server 各自起 session;之后**每个 RPC / 流式会话开一条独立的 yamux stream**(≤一行代码 `session.Open()`/`Accept()`)。
 
 为什么是 yamux 而不是 bidi gRPC：HTTP/2 的多流复用我们用不到（gRPC 设计是"一条 stream 一个 RPC"，bidi stream 当多路复用器用就得在应用层重搓 chunk + per-request 调度 + cancel 帧 + accumulator 等十几项手搓优化）。yamux 直接给你这些。详细的对比 + 实测见 [docs/transport-v2.md](docs/transport-v2.md)。
 
