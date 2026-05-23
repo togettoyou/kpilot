@@ -29,8 +29,8 @@ Rel(app, server, "POST /v1/chat/completions etc.", "HTTPS + Bearer kp-sk-…")
 Rel(ui, server, "REST + WebSocket", "HTTPS / WSS")
 Rel(server, db, "Reads / writes", "SQL")
 
-Rel_U(worker_a, server, "Multiplexed TCP+TLS channel\n(Worker dials in; concurrent requests)", "TCP+TLS")
-Rel_U(worker_b, server, "Multiplexed TCP+TLS channel", "TCP+TLS")
+Rel_U(worker_a, server, "Multiplexed channel\n(Worker dials in; concurrent requests)", "Multiplexed")
+Rel_U(worker_b, server, "Multiplexed channel", "Multiplexed")
 
 Rel(worker_a, k8s_a, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
 Rel(worker_b, k8s_b, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")

@@ -29,8 +29,8 @@ Rel(app, server, "POST /v1/chat/completions 等", "HTTPS + Bearer kp-sk-…")
 Rel(ui, server, "REST + WebSocket", "HTTPS / WSS")
 Rel(server, db, "读写", "SQL")
 
-Rel_U(worker_a, server, "TCP+TLS 多路复用通道\n(Worker 主动回连；多请求并发)", "TCP+TLS")
-Rel_U(worker_b, server, "TCP+TLS 多路复用通道", "TCP+TLS")
+Rel_U(worker_a, server, "多路复用通道\n(Worker 主动回连；多请求并发)", "Multiplexed")
+Rel_U(worker_b, server, "多路复用通道", "Multiplexed")
 
 Rel(worker_a, k8s_a, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
 Rel(worker_b, k8s_b, "List / Watch / Apply / Patch\nHelm install / upgrade", "client-go")
