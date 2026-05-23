@@ -1,4 +1,9 @@
-import { ClearOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import {
+  ClearOutlined,
+  CopyOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import { useIntl } from '@umijs/max';
 import {
   Alert,
@@ -6,6 +11,7 @@ import {
   Button,
   Drawer,
   Input,
+  message,
   Select,
   Space,
   Switch,
@@ -324,6 +330,26 @@ export function PodLogsDrawer({
     forceTick((t) => t + 1);
   };
 
+  // Copy whatever the user currently sees — if grep is active, this
+  // is the filtered subset (matches `visibleLines`); otherwise the
+  // full ring buffer. Picks the same data the <pre> renders so what
+  // ends up on the clipboard matches what's on screen.
+  const handleCopy = async () => {
+    const text = (pattern ? visibleLines : linesRef.current).join('\n');
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success(
+        intl.formatMessage(
+          { id: 'pages.podLogs.copied' },
+          { n: pattern ? visibleLines.length : linesRef.current.length },
+        ),
+      );
+    } catch {
+      message.error(intl.formatMessage({ id: 'pages.podLogs.copyFailed' }));
+    }
+  };
+
   const handleReload = () => {
     setReloadKey((k) => k + 1);
   };
@@ -403,6 +429,14 @@ export function PodLogsDrawer({
                   { n: lineCount },
                 )}
           </span>
+          <Button
+            size="small"
+            icon={<CopyOutlined />}
+            onClick={handleCopy}
+            disabled={lineCount === 0}
+          >
+            {intl.formatMessage({ id: 'pages.podLogs.copy' })}
+          </Button>
           <Button size="small" icon={<ReloadOutlined />} onClick={handleReload}>
             {intl.formatMessage({ id: 'pages.podLogs.reload' })}
           </Button>
