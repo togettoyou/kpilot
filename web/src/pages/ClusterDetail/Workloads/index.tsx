@@ -22,6 +22,7 @@ import {
   Drawer,
   Dropdown,
   Input,
+  type MenuProps,
   Popconfirm,
   Result,
   Space,
@@ -68,9 +69,84 @@ import { DescribeDrawer } from './DescribeDrawer';
 const PodExecDrawer = lazy(() => import('./PodExecDrawer'));
 import { PodLogsDrawer } from './PodLogsDrawer';
 import { PodTopDrawer } from './PodTopDrawer';
+const RolloutHistoryDrawer = lazy(() => import('./RolloutHistoryDrawer'));
+import { ScaleModal } from './ScaleModal';
+import {
+  rolloutPause,
+  rolloutRestart,
+  rolloutResume,
+} from '@/services/kpilot/workload';
 import { YamlEditor } from './YamlEditor';
 
 const { Text } = Typography;
+
+// buildRolloutMenu returns the dropdown items for the "更多" button
+// on Deployment / StatefulSet / DaemonSet / ReplicaSet rows. Items
+// vary per kind:
+//   - Deployment: restart, pause/resume (toggle), scale, history
+//   - StatefulSet: restart, scale
+//   - DaemonSet: restart (no scale — replica count = node count)
+//   - ReplicaSet: scale only (RS doesn't have a rollout to restart)
+// Returns [] for any other resource type so the "More" button is
+// hidden entirely.
+function buildRolloutMenu(
+  resourceType: WorkloadResourceType,
+  record: WorkloadItem,
+  intl: ReturnType<typeof useIntl>,
+  handlers: {
+    onRestart: () => void;
+    onPauseResume: (currentlyPaused: boolean) => void;
+    onScale: () => void;
+    onHistory: () => void;
+  },
+): NonNullable<MenuProps['items']> {
+  const items: NonNullable<MenuProps['items']> = [];
+  const canRestart =
+    resourceType === 'deployments' ||
+    resourceType === 'statefulsets' ||
+    resourceType === 'daemonsets';
+  const canScale =
+    resourceType === 'deployments' ||
+    resourceType === 'statefulsets' ||
+    resourceType === 'replicasets';
+  const canPauseResume = resourceType === 'deployments';
+  const canHistory = resourceType === 'deployments';
+
+  if (canRestart) {
+    items.push({
+      key: 'restart',
+      label: intl.formatMessage({ id: 'pages.rollout.restart' }),
+      onClick: handlers.onRestart,
+    });
+  }
+  if (canPauseResume) {
+    const paused = Boolean(
+      (record.object as any)?.spec?.paused,
+    );
+    items.push({
+      key: 'pauseResume',
+      label: intl.formatMessage({
+        id: paused ? 'pages.rollout.resume' : 'pages.rollout.pause',
+      }),
+      onClick: () => handlers.onPauseResume(paused),
+    });
+  }
+  if (canScale) {
+    items.push({
+      key: 'scale',
+      label: intl.formatMessage({ id: 'pages.scale.title' }),
+      onClick: handlers.onScale,
+    });
+  }
+  if (canHistory) {
+    items.push({
+      key: 'history',
+      label: intl.formatMessage({ id: 'pages.rollout.history' }),
+      onClick: handlers.onHistory,
+    });
+  }
+  return items;
+}
 
 // ─── Table API helpers ────────────────────────────────────────────────────────
 
@@ -393,6 +469,12 @@ export function WorkloadsContent({
     null,
   );
 
+  // Scale modal + rollout history drawer — limited to Deployment /
+  // StatefulSet / DaemonSet / ReplicaSet (more action subset
+  // depends on row.kind, computed inside the columns memo).
+  const [scaleTarget, setScaleTarget] = useState<WorkloadItem | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<WorkloadItem | null>(null);
+
   // Generic Apply YAML drawer — always available regardless of resourceType.
   const [applyOpen, setApplyOpen] = useState(false);
 
@@ -626,6 +708,60 @@ export function WorkloadsContent({
     [clusterId, resourceType, cr, intl, message, burst],
   );
 
+  // Rollout shortcuts (restart / pause / resume). Same shape as
+  // handleDelete: server constructs the patch, client just calls
+  // the verb, burst-refresh catches the converged state.
+  const handleRestart = React.useCallback(
+    async (item: WorkloadItem) => {
+      try {
+        await rolloutRestart(
+          clusterId,
+          resourceType as WorkloadResourceType,
+          item.name,
+          item.namespace ?? '',
+        );
+        message.success(
+          intl.formatMessage({ id: 'pages.rollout.restart.success' }),
+        );
+        burst();
+      } catch {
+        /* global error handler shows the toast */
+      }
+    },
+    [clusterId, resourceType, intl, message, burst],
+  );
+  const handlePauseResume = React.useCallback(
+    async (item: WorkloadItem, paused: boolean) => {
+      try {
+        if (paused) {
+          await rolloutResume(
+            clusterId,
+            resourceType as WorkloadResourceType,
+            item.name,
+            item.namespace ?? '',
+          );
+          message.success(
+            intl.formatMessage({ id: 'pages.rollout.resume.success' }),
+          );
+        } else {
+          await rolloutPause(
+            clusterId,
+            resourceType as WorkloadResourceType,
+            item.name,
+            item.namespace ?? '',
+          );
+          message.success(
+            intl.formatMessage({ id: 'pages.rollout.pause.success' }),
+          );
+        }
+        burst();
+      } catch {
+        /* global error handler shows the toast */
+      }
+    },
+    [clusterId, resourceType, intl, message, burst],
+  );
+
   const isPods = resourceType === 'pods';
 
   const columns = useMemo((): ProColumns<WorkloadItem>[] => {
@@ -702,10 +838,39 @@ export function WorkloadsContent({
             {intl.formatMessage({ id: 'pages.workloads.edit' })}
           </Button>
         );
+        // Rollout / scale dropdown — Deployment / StatefulSet /
+        // DaemonSet / ReplicaSet only. Items vary per-kind: DS has
+        // no scale (replicas governed by node selector); only
+        // Deployment has pause/resume + rollout history; RS has
+        // scale but not restart.
+        const rolloutMenu = buildRolloutMenu(
+          resourceType as WorkloadResourceType,
+          record,
+          intl,
+          {
+            onRestart: () => handleRestart(record),
+            onPauseResume: (paused) => handlePauseResume(record, paused),
+            onScale: () => setScaleTarget(record),
+            onHistory: () => setHistoryTarget(record),
+          },
+        );
+        const moreButton = rolloutMenu.length > 0 ? (
+          <Dropdown
+            key="more"
+            menu={{ items: rolloutMenu }}
+            trigger={['click']}
+          >
+            <Button type="link" size="small">
+              {intl.formatMessage({ id: 'pages.workloads.more' })}{' '}
+              <DownOutlined />
+            </Button>
+          </Dropdown>
+        ) : null;
         return [
           podActions,
           crInstancesBtn,
           describeBtn,
+          moreButton,
           editButton,
           <Popconfirm
             key="delete"
@@ -734,6 +899,8 @@ export function WorkloadsContent({
     isPods,
     openEditor,
     handleDelete,
+    handleRestart,
+    handlePauseResume,
     resourceType,
   ]);
 
@@ -993,6 +1160,33 @@ export function WorkloadsContent({
           namespace={describeTarget.namespace ?? ''}
           cr={cr}
         />
+      )}
+      {scaleTarget && (
+        <ScaleModal
+          open={!!scaleTarget}
+          onClose={() => setScaleTarget(null)}
+          clusterId={clusterId}
+          resourceType={resourceType as WorkloadResourceType}
+          name={scaleTarget.name}
+          namespace={scaleTarget.namespace ?? ''}
+          currentReplicas={
+            (scaleTarget.object as any)?.spec?.replicas ?? 0
+          }
+          onScaled={burst}
+        />
+      )}
+      {historyTarget && (
+        <Suspense fallback={null}>
+          <RolloutHistoryDrawer
+            open={!!historyTarget}
+            onClose={() => setHistoryTarget(null)}
+            clusterId={clusterId}
+            resourceType={resourceType as WorkloadResourceType}
+            name={historyTarget.name}
+            namespace={historyTarget.namespace ?? ''}
+            onRolledBack={burst}
+          />
+        </Suspense>
       )}
       {applyOpen && (
         <Suspense fallback={null}>

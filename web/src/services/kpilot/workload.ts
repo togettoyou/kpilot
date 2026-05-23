@@ -205,3 +205,126 @@ export function deleteYAML(clusterId: string, yamlText: string) {
     },
   );
 }
+
+// ─── kubectl rollout / scale shortcuts ────────────────────────────
+//
+// All POST to /workloads/:type/:name/<verb>?namespace=<ns>. Server
+// builds the patch body; client only carries `replicas` (scale) or
+// `toRevision` (undo). Generic edit YAML / kubectl-apply still go
+// through applyWorkload — these are convenience verbs only.
+
+export function rolloutRestart(
+  clusterId: string,
+  resourceType: WorkloadResourceType,
+  name: string,
+  namespace: string,
+) {
+  return request<void>(
+    `/api/v1/clusters/${clusterId}/workloads/${resourceType}/${name}/restart`,
+    { method: 'POST', params: { namespace } },
+  );
+}
+
+export function rolloutPause(
+  clusterId: string,
+  resourceType: WorkloadResourceType,
+  name: string,
+  namespace: string,
+) {
+  return request<void>(
+    `/api/v1/clusters/${clusterId}/workloads/${resourceType}/${name}/pause`,
+    { method: 'POST', params: { namespace } },
+  );
+}
+
+export function rolloutResume(
+  clusterId: string,
+  resourceType: WorkloadResourceType,
+  name: string,
+  namespace: string,
+) {
+  return request<void>(
+    `/api/v1/clusters/${clusterId}/workloads/${resourceType}/${name}/resume`,
+    { method: 'POST', params: { namespace } },
+  );
+}
+
+export function scaleWorkload(
+  clusterId: string,
+  resourceType: WorkloadResourceType,
+  name: string,
+  namespace: string,
+  replicas: number,
+) {
+  return request<void>(
+    `/api/v1/clusters/${clusterId}/workloads/${resourceType}/${name}/scale`,
+    { method: 'POST', params: { namespace }, data: { replicas } },
+  );
+}
+
+export interface RolloutHistoryEntry {
+  revision: number;
+  name: string;
+  replicas: number;
+  readyReplicas: number;
+  image?: string;
+  createdAt: string;
+  changeCause?: string;
+  podTemplateHash?: string;
+  current: boolean;
+}
+
+export function getRolloutHistory(
+  clusterId: string,
+  resourceType: WorkloadResourceType,
+  name: string,
+  namespace: string,
+) {
+  return request<{ revisions: RolloutHistoryEntry[] }>(
+    `/api/v1/clusters/${clusterId}/workloads/${resourceType}/${name}/rollout/history`,
+    { method: 'GET', params: { namespace } },
+  );
+}
+
+export function rolloutUndo(
+  clusterId: string,
+  resourceType: WorkloadResourceType,
+  name: string,
+  namespace: string,
+  toRevision?: number,
+) {
+  return request<{ rolledBackTo: number; noop: boolean }>(
+    `/api/v1/clusters/${clusterId}/workloads/${resourceType}/${name}/rollout/undo`,
+    {
+      method: 'POST',
+      params: { namespace },
+      data: toRevision ? { toRevision } : {},
+    },
+  );
+}
+
+export interface DrainOptions {
+  ignoreDaemonSets?: boolean;
+  deleteEmptyDirData?: boolean;
+  force?: boolean;
+  gracePeriodSeconds?: number;
+}
+
+export interface DrainResult {
+  total: number;
+  evicted: number;
+  skipped: number;
+  failed: number;
+  failures?: string[];
+}
+
+export function drainNode(
+  clusterId: string,
+  nodeName: string,
+  opts: DrainOptions,
+) {
+  return request<DrainResult>(
+    `/api/v1/clusters/${clusterId}/workloads/nodes/${nodeName}/drain`,
+    { method: 'POST', data: opts },
+  );
+}

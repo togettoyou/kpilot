@@ -1278,6 +1278,15 @@ export default {
 
   // nodes
   'pages.nodes.title': 'Nodes',
+  // drain action on Node row
+  'pages.nodes.drain': 'Drain',
+  'pages.nodes.drain.confirm.title': 'Drain node {name}?',
+  'pages.nodes.drain.confirm.note': 'Cordons the node, then evicts pods (DaemonSet pods skipped by default; emptyDir pods only if you opt in). Pods blocked by PodDisruptionBudgets surface in the failure list.',
+  'pages.nodes.drain.ignoreDS': 'Skip DaemonSet pods',
+  'pages.nodes.drain.deleteEmptyDir': 'Evict pods with emptyDir (data lost)',
+  'pages.nodes.drain.force': 'Force evict uncontrolled pods',
+  'pages.nodes.drain.gracePeriod': 'Grace period (seconds)',
+  'pages.nodes.drain.success': 'Drain complete: evicted {evicted}, skipped {skipped}, failed {failed}',
   'pages.nodes.searchPlaceholder': 'Search name / role / status / IP…',
   // Column titles: K8s Table API returns kubectl printer headers in English;
   // the frontend translates them through this set of keys.
@@ -1330,8 +1339,34 @@ export default {
   'pages.workloads.col.actions': 'Actions',
   'pages.workloads.view': 'View',
   'pages.workloads.edit': 'Edit',
+  'pages.workloads.more': 'More',
   'pages.workloads.describe': 'Describe',
   'pages.workloads.delete': 'Delete',
+  // kubectl rollout/scale equivalents — surfaced via the "More" dropdown
+  // on workload rows.
+  'pages.rollout.restart': 'Restart',
+  'pages.rollout.restart.success': 'Rolling restart triggered',
+  'pages.rollout.pause': 'Pause rollout',
+  'pages.rollout.pause.success': 'Rollout paused',
+  'pages.rollout.resume': 'Resume rollout',
+  'pages.rollout.resume.success': 'Rollout resumed',
+  'pages.rollout.history': 'History',
+  'pages.rollout.title': 'Rollout history',
+  'pages.rollout.current': 'current',
+  'pages.rollout.rollback': 'Roll back to this',
+  'pages.rollout.col.revision': 'Revision',
+  'pages.rollout.col.image': 'Image',
+  'pages.rollout.col.replicas': 'Replicas (ready/desired)',
+  'pages.rollout.col.age': 'Created',
+  'pages.rollout.col.changeCause': 'Change cause',
+  'pages.rollout.undo.confirm': 'Roll back to revision #{revision}? This triggers a new rollout with that revision\'s Pod template.',
+  'pages.rollout.undo.success': 'Rolled back to revision #{revision}',
+  'pages.rollout.undo.noop': 'Already at that revision; nothing to do',
+  // scale
+  'pages.scale.title': 'Scale',
+  'pages.scale.confirm': 'Apply',
+  'pages.scale.current': 'Current replicas: {n}',
+  'pages.scale.success': 'Replicas: {from} → {to}',
   'pages.workloads.delete.confirm': 'Delete {name}? This cannot be undone.',
   'pages.workloads.refresh.off': 'Off',
   'pages.workloads.refresh.retry': 'Retry',

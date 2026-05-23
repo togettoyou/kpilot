@@ -21,6 +21,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useBurstRefresh } from '@/hooks/useBurstRefresh';
 import { cordonNode, listNodes } from '@/services/kpilot/node';
+import { drainNode } from '@/services/kpilot/workload';
 
 import { DescribeDrawer } from '../Workloads/DescribeDrawer';
 import NodeDetailDrawer from './NodeDetailDrawer';
@@ -201,6 +202,10 @@ export default function NodesPage() {
   // submits twice. Keyed by node name; the button in the action column
   // checks its name and shows a spinner while pending.
   const [cordonBusy, setCordonBusy] = useState<Set<string>>(new Set());
+  // Drain runs cordon + bounded-parallel eviction loop; can take up
+  // to 2 min server-side per the backend's drainTimeout. Same busy
+  // pattern as cordon so the button shows a spinner.
+  const [drainBusy, setDrainBusy] = useState<Set<string>>(new Set());
 
   const handleCordon = (name: string, cordoned: boolean) => {
     const next = !cordoned;
@@ -238,6 +243,64 @@ export default function NodesPage() {
           message.error(String(e?.message ?? e));
         } finally {
           setCordonBusy((prev) => {
+            const n = new Set(prev);
+            n.delete(name);
+            return n;
+          });
+        }
+      },
+    });
+  };
+
+  // Drain handler. v1 ships with sensible kubectl-style defaults
+  // baked in (skip DaemonSets, leave emptyDir pods alone, don't
+  // force uncontrolled pods). Power users who need different
+  // semantics can still call the API directly; we'll add an
+  // options form if real demand shows up.
+  const handleDrain = (name: string) => {
+    modal.confirm({
+      title: intl.formatMessage(
+        { id: 'pages.nodes.drain.confirm.title' },
+        { name },
+      ),
+      content: intl.formatMessage({ id: 'pages.nodes.drain.confirm.note' }),
+      icon: <ExclamationCircleOutlined />,
+      okText: intl.formatMessage({ id: 'pages.nodes.drain' }),
+      okButtonProps: { danger: true },
+      cancelText: intl.formatMessage({ id: 'pages.nodes.cordon.cancel' }),
+      onOk: async () => {
+        setDrainBusy((prev) => {
+          const n = new Set(prev);
+          n.add(name);
+          return n;
+        });
+        try {
+          const res = await drainNode(clusterId!, name, {
+            ignoreDaemonSets: true,
+            deleteEmptyDirData: false,
+            force: false,
+          });
+          message.success(
+            intl.formatMessage(
+              { id: 'pages.nodes.drain.success' },
+              {
+                evicted: res.evicted,
+                skipped: res.skipped,
+                failed: res.failed,
+              },
+            ),
+          );
+          // If any pods failed (most often PDB blocks), surface the
+          // list as a warning so the operator knows what to inspect
+          // — drainResult.failures is "<ns>/<pod>: <reason>".
+          if (res.failed > 0 && res.failures) {
+            message.warning(res.failures.slice(0, 3).join('\n'), 8);
+          }
+          burst();
+        } catch (e: any) {
+          message.error(String(e?.message ?? e));
+        } finally {
+          setDrainBusy((prev) => {
             const n = new Set(prev);
             n.delete(name);
             return n;
@@ -366,6 +429,16 @@ export default function NodesPage() {
                         ? 'pages.nodes.action.uncordon'
                         : 'pages.nodes.action.cordon',
                     })}
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    danger
+                    loading={drainBusy.has(r.name)}
+                    disabled={drainBusy.has(r.name)}
+                    onClick={() => handleDrain(r.name)}
+                  >
+                    {intl.formatMessage({ id: 'pages.nodes.drain' })}
                   </Button>
                 </Space>
               );
