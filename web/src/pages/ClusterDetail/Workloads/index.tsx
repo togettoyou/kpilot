@@ -120,15 +120,21 @@ function buildRolloutMenu(
     });
   }
   if (canPauseResume) {
-    const paused = Boolean(
-      (record.object as any)?.spec?.paused,
-    );
+    // Both shown unconditionally — WorkloadItem.object is metadata
+    // only (Table API includeObject=Metadata strips spec), so we
+    // can't tell from the row whether spec.paused is true. Server
+    // patches are idempotent (pause when paused = no-op, same for
+    // resume) so accidentally picking the wrong one is harmless;
+    // showing both makes the user's intent unambiguous.
     items.push({
-      key: 'pauseResume',
-      label: intl.formatMessage({
-        id: paused ? 'pages.rollout.resume' : 'pages.rollout.pause',
-      }),
-      onClick: () => handlers.onPauseResume(paused),
+      key: 'pause',
+      label: intl.formatMessage({ id: 'pages.rollout.pause' }),
+      onClick: () => handlers.onPauseResume(false),
+    });
+    items.push({
+      key: 'resume',
+      label: intl.formatMessage({ id: 'pages.rollout.resume' }),
+      onClick: () => handlers.onPauseResume(true),
     });
   }
   if (canScale) {
