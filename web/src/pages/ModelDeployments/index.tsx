@@ -110,20 +110,62 @@ const ModelDeploymentsPage: React.FC = () => {
         { id: 'pages.models.deployments.delete.confirm' },
         { name: row.name, cluster: row.cluster_name },
       ),
-      content: intl.formatMessage({
-        id: 'pages.models.deployments.delete.note',
-      }),
+      content: intl.formatMessage(
+        { id: 'pages.models.deployments.delete.note' },
+        { name: row.name },
+      ),
       okType: 'danger',
       onOk: async () => {
-        await deleteWorkload(
-          row.cluster_id,
-          'deployments',
-          row.name,
-          row.namespace,
-        );
-        message.success(
-          intl.formatMessage({ id: 'pages.models.deployments.delete.success' }),
-        );
+        // Naming contract from pkg/server/deploy/generator.go:
+        //   Deployment / Service  → <name>
+        //   PVC                   → <name>-hf-cache
+        //   Secret (HF token)     → <name>-hf
+        // PVC + Secret are only created when the corresponding deploy
+        // option was enabled, so 404 here is expected ("user deployed
+        // without persistence / without HF token") — silently swallow
+        // those and keep deleting the rest. Anything other than 404
+        // bubbles up via Promise.allSettled aggregation below.
+        const tryDelete = async (
+          type:
+            | 'deployments'
+            | 'services'
+            | 'persistentvolumeclaims'
+            | 'secrets',
+          name: string,
+        ) => {
+          try {
+            await deleteWorkload(row.cluster_id, type, name, row.namespace);
+            return null;
+          } catch (e: any) {
+            const status =
+              e?.response?.status ?? e?.status ?? e?.info?.status;
+            if (status === 404) return null;
+            return `${type}/${name}: ${e?.message ?? 'unknown'}`;
+          }
+        };
+        const results = await Promise.all([
+          tryDelete('deployments', row.name),
+          tryDelete('services', row.name),
+          tryDelete('persistentvolumeclaims', `${row.name}-hf-cache`),
+          tryDelete('secrets', `${row.name}-hf`),
+        ]);
+        const errors = results.filter((r): r is string => r !== null);
+        if (errors.length > 0) {
+          // Surface a partial-failure toast — what survived is the
+          // user's problem to inspect, but at least we tell them.
+          message.error(
+            intl.formatMessage(
+              { id: 'pages.models.deployments.delete.partial' },
+              { errors: errors.join('; ') },
+            ),
+          );
+        } else {
+          message.success(
+            intl.formatMessage({
+              id: 'pages.models.deployments.delete.success',
+            }),
+          );
+        }
         burst();
       },
     });

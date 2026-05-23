@@ -334,7 +334,13 @@ const GPUMonitoringPage: React.FC = () => {
     <div className="p-6" ref={pageRef}>
       <Spin spinning={loading && !data}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Card size="small" styles={{ body: { padding: '8px 12px' } }}>
+          <Card size="small" styles={{ body: { padding: '10px 12px' } }}>
+            {/* Single-row toolbar — time range, GPU filter, refresh.
+                Labels prefix each control so a fresh user gets the
+                "what does this do" hint without hovering; right-side
+                refresh control naturally aligns to the row end via
+                the flex auto spacer. Wraps gracefully on narrow
+                viewports. */}
             <div
               style={{
                 display: 'flex',
@@ -343,30 +349,53 @@ const GPUMonitoringPage: React.FC = () => {
                 flexWrap: 'wrap',
               }}
             >
-              <TimeRangePicker value={range} onChange={setRange} />
-              <Select
-                size="small"
-                mode="multiple"
-                allowClear
-                showSearch
-                placeholder={intl.formatMessage({
-                  id: 'pages.gpuMonitoring.filter.placeholder',
-                })}
-                style={{ minWidth: 260, maxWidth: 520 }}
-                value={picked}
-                onChange={setPicked}
-                options={allKeys.map((k) => ({
-                  label: k.label,
-                  value: k.key,
-                }))}
-                maxTagCount="responsive"
-                filterOption={(input, opt) =>
-                  (opt?.label as string)
-                    ?.toLowerCase()
-                    .includes(input.trim().toLowerCase())
-                }
-              />
-              <div style={{ flex: 1 }} />
+              <Space size={6}>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {intl.formatMessage({
+                    id: 'pages.gpuMonitoring.toolbar.range',
+                  })}
+                </Typography.Text>
+                <TimeRangePicker value={range} onChange={setRange} />
+              </Space>
+              <Space size={6}>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {intl.formatMessage({
+                    id: 'pages.gpuMonitoring.toolbar.filter',
+                  })}
+                </Typography.Text>
+                <Select
+                  size="small"
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  placeholder={intl.formatMessage({
+                    id: 'pages.gpuMonitoring.filter.placeholder',
+                  })}
+                  // Fixed width (not min/max) so the Select container's
+                  // size is constant regardless of how many chips are
+                  // selected. Previously min/max + maxTagCount=
+                  // responsive let the Select's internal RO fire on
+                  // every chip add/remove + page reflow, which fed
+                  // back into the outer flex layout and produced
+                  // visible jitter on filter changes.
+                  style={{ width: 320 }}
+                  value={picked}
+                  onChange={setPicked}
+                  options={allKeys.map((k) => ({
+                    label: k.label,
+                    value: k.key,
+                  }))}
+                  // Numeric maxTagCount (not "responsive") — collapses
+                  // overflow into a `+N more` chip without spawning
+                  // the internal RO measurement loop responsive uses.
+                  maxTagCount={3}
+                  filterOption={(input, opt) =>
+                    (opt?.label as string)
+                      ?.toLowerCase()
+                      .includes(input.trim().toLowerCase())
+                  }
+                />
+              </Space>
               <RefreshControl
                 interval={interval}
                 setInterval={setInter}

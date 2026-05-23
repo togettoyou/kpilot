@@ -818,10 +818,12 @@ export default {
     'Available once the instance is ready',
   'pages.models.deployments.action.describe': 'Open in Workloads',
   'pages.models.deployments.delete.confirm':
-    'Delete the {name} Deployment on cluster {cluster}?',
+    'Delete every resource for {name} on cluster {cluster}?',
   'pages.models.deployments.delete.note':
-    'Only the Deployment is deleted; matching Service / PVC / Secret are left for you to clean up manually.',
-  'pages.models.deployments.delete.success': 'Deployment deleted',
+    'Will delete the Deployment, Service, PVC ({name}-hf-cache), and HF-token Secret ({name}-hf). Missing resources are skipped silently.',
+  'pages.models.deployments.delete.success': 'Model instance deleted (all resources)',
+  'pages.models.deployments.delete.partial':
+    'Some resources failed to delete: {errors}',
 
   // P16-B — Playground page (full-page chat, replaces the
   // per-model ChatDrawer from v1)
@@ -1047,7 +1049,9 @@ export default {
   'pages.gpuMonitoring.chartEmpty': 'No data for this metric yet',
   'pages.gpuMonitoring.chart.enterFullscreen': 'Enlarge (Esc to exit)',
   'pages.gpuMonitoring.chart.exitFullscreen': 'Exit fullscreen (Esc)',
-  'pages.gpuMonitoring.filter.placeholder': 'Filter by node / GPU',
+  'pages.gpuMonitoring.toolbar.range': 'Range',
+  'pages.gpuMonitoring.toolbar.filter': 'Node / GPU',
+  'pages.gpuMonitoring.filter.placeholder': 'All',
   'pages.gpuMonitoring.attention.title': 'GPUs that need attention',
   'pages.gpuMonitoring.attention.idle': 'Idle (utilization stuck at 0)',
   'pages.gpuMonitoring.attention.hot': 'Hot (≥ 85°C)',

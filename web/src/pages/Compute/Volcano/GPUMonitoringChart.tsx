@@ -68,24 +68,15 @@ function MetricChartCard({
     return out;
   }, [seriesRows, unitScale]);
 
-  // Tab-switch / hidden-pane layout guard, same as MonitoringCharts.
-  // When the chart is mounted with display:none ancestors, G2 measures
-  // its container at width 0 and the resulting layout doesn't recover
-  // when the container later becomes visible. Gate on a measured-
-  // visible wrapper so the Line component mounts / remounts in the
-  // correct size.
+  // No chartReady gate needed: this page isn't inside antd Tabs, so
+  // the chart subtree is never in a display:none ancestor. G2's own
+  // autoFit (window-resize based) handles viewport resizes; the
+  // wrapper has a fixed pixel height and inherits parent width via
+  // normal flow. Earlier attempts at a "wait until width > 0" gate
+  // caused either a blank chart (when the useEffect ran before
+  // wrapper layout had settled) or visible jitter (when toggling
+  // false/true on transient filter-induced reflows).
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const [chartReady, setChartReady] = useState(true);
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      setChartReady(w > 0);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // Fullscreen mode — the chart card escapes its grid cell and fills
   // the viewport so an operator can read a noisy multi-GPU trend
@@ -99,6 +90,49 @@ function MetricChartCard({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [fullscreen]);
+
+  // G2 annotations payload — one lineY annotation per ThresholdLine.
+  // useMemo so the array identity stays stable across re-renders
+  // unless thresholds itself changes (otherwise every parent render
+  // would hand G2 a new annotations reference and trigger a
+  // pointless plot rebuild — contributes to filter-induced jitter).
+  //
+  // MUST live before any conditional early-return below so the hook
+  // call order stays stable across renders; React's hook-tracking
+  // assumes invariant call order.
+  const annotations = React.useMemo(
+    () =>
+      (thresholds ?? []).map((th) => {
+        const color =
+          th.kind === 'error'
+            ? '#ff4d4f'
+            : th.kind === 'warn'
+              ? '#faad14'
+              : '#1677ff';
+        return {
+          type: 'lineY' as const,
+          data: [th.value],
+          style: {
+            stroke: color,
+            strokeWidth: 1,
+            strokeOpacity: 0.7,
+            lineDash: [4, 4],
+          },
+          labels: th.label
+            ? [
+                {
+                  text: th.label,
+                  position: 'right',
+                  fill: color,
+                  fontSize: 11,
+                  dy: -4,
+                },
+              ]
+            : undefined,
+        };
+      }),
+    [thresholds],
+  );
 
   if (flat.length === 0) {
     return (
@@ -116,39 +150,6 @@ function MetricChartCard({
       </Card>
     );
   }
-
-  // G2 annotations payload — one lineY annotation per ThresholdLine.
-  // Colours via inline rgba so we don't need to read antd tokens here
-  // (tokens are already-resolved by the Card border anyway).
-  const annotations = (thresholds ?? []).map((th) => {
-    const color =
-      th.kind === 'error'
-        ? '#ff4d4f'
-        : th.kind === 'warn'
-          ? '#faad14'
-          : '#1677ff';
-    return {
-      type: 'lineY' as const,
-      data: [th.value],
-      style: {
-        stroke: color,
-        strokeWidth: 1,
-        strokeOpacity: 0.7,
-        lineDash: [4, 4],
-      },
-      labels: th.label
-        ? [
-            {
-              text: th.label,
-              position: 'right',
-              fill: color,
-              fontSize: 11,
-              dy: -4,
-            },
-          ]
-        : undefined,
-    };
-  });
 
   // Dynamic sizing — when fullscreen, the chart fills the viewport
   // minus a small header strip; otherwise the cell-default 220.
@@ -193,8 +194,7 @@ function MetricChartCard({
         ref={wrapperRef}
         style={{ height: plotHeight, overflow: 'hidden' }}
       >
-        {chartReady && (
-          <Line
+        <Line
             data={flat}
             xField="t"
             yField="v"
@@ -236,7 +236,6 @@ function MetricChartCard({
             interaction={{ tooltip: { shared: true } }}
             style={{ lineWidth: 1.5 }}
           />
-        )}
       </div>
     </Card>
   );

@@ -797,10 +797,12 @@ export default {
   'pages.models.deployments.action.chatDisabled': '实例就绪后可调试',
   'pages.models.deployments.action.describe': '在工作负载页查看详情',
   'pages.models.deployments.delete.confirm':
-    '确认删除 {name}（集群 {cluster}）的 Deployment？',
+    '确认删除 {name}（集群 {cluster}）的全部资源？',
   'pages.models.deployments.delete.note':
-    '只会删除 Deployment；同名 Service / PVC / Secret 会留下需手动清理。',
-  'pages.models.deployments.delete.success': '已删除 Deployment',
+    '将同时删除 Deployment、Service、PVC（{name}-hf-cache）以及 HF Token Secret（{name}-hf）。不存在的资源会被跳过。',
+  'pages.models.deployments.delete.success': '已删除该模型实例的全部资源',
+  'pages.models.deployments.delete.partial':
+    '部分资源删除失败：{errors}',
 
   // P16-B — 模型调试 page (full-page playground, replaces the
   // per-model ChatDrawer from v1)
@@ -1020,7 +1022,9 @@ export default {
   'pages.gpuMonitoring.chartEmpty': '该指标暂无数据',
   'pages.gpuMonitoring.chart.enterFullscreen': '放大查看 (Esc 退出)',
   'pages.gpuMonitoring.chart.exitFullscreen': '退出大图 (Esc)',
-  'pages.gpuMonitoring.filter.placeholder': '按节点 / GPU 筛选',
+  'pages.gpuMonitoring.toolbar.range': '时间范围',
+  'pages.gpuMonitoring.toolbar.filter': '节点 / GPU',
+  'pages.gpuMonitoring.filter.placeholder': '全部',
   'pages.gpuMonitoring.attention.title': '需要关注的 GPU',
   'pages.gpuMonitoring.attention.idle': '空闲（利用率持续为 0）',
   'pages.gpuMonitoring.attention.hot': '温度过高 (≥ 85°C)',
