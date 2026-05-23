@@ -354,6 +354,13 @@ const ModelChatPage: React.FC = () => {
         // started replying.
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
         stream: true,
+        // OpenAI's stream protocol omits the final `usage` block by
+        // default. vLLM follows that: without include_usage=true the
+        // last SSE chunk just has finish_reason and onUsage never
+        // fires — so the per-turn tok/s footer would never render.
+        // Asking explicitly produces one extra terminal chunk
+        // carrying prompt / completion / total token counts.
+        stream_options: { include_usage: true },
         temperature,
       };
       if (maxTokens && maxTokens > 0) body.max_tokens = maxTokens;
@@ -905,6 +912,17 @@ function ChatBubble({
     ? splitThink(msg.content)
     : { thinking: null, answer: msg.content, thinkingOpen: false };
 
+  // Collapse activeKey: track the user's manual toggle in `override`
+  // (null = follow the stream's state); fall back to "open while
+  // model is still thinking, auto-collapse once it finishes". This
+  // gives the most-natural UX — operators watch the chain-of-
+  // thought live, and as soon as the model's final answer starts
+  // landing the reasoning collapses out of the way. A click on the
+  // toggle pins it open/closed irreversibly for that turn.
+  const [thinkOverride, setThinkOverride] = React.useState<string[] | null>(null);
+  const thinkActiveKey =
+    thinkOverride ?? (thinkingOpen ? ['think'] : []);
+
   return (
     <div
       style={{
@@ -944,6 +962,10 @@ function ChatBubble({
           <Collapse
             size="small"
             ghost
+            activeKey={thinkActiveKey}
+            onChange={(k) =>
+              setThinkOverride(Array.isArray(k) ? k : [k as string])
+            }
             items={[
               {
                 key: 'think',
