@@ -45,8 +45,8 @@ K8s Cluster
 
 1. 管理员在 Server UI 创建集群条目
 2. Server 生成唯一 ClusterToken（只展示一次，可在 UI 重新生成）
-3. 管理员将 ClusterToken + Server gRPC 地址配置到目标集群，部署 Worker
-4. Worker 启动，携带 Token 发起 gRPC 连接
+3. 管理员将 ClusterToken + Server transport 地址配置到目标集群,部署 Worker
+4. Worker 启动,携带 Token 发起 TCP + yamux 多路复用连接(详见 [docs/transport-v2.md](docs/transport-v2.md))
 5. Server 验证 Token，将连接与集群绑定，标记集群 Online
 
 ---
@@ -168,7 +168,7 @@ web/src/
 |----|------|
 | 后端语言 | Go 1.26+ |
 | HTTP 框架 | Gin |
-| gRPC | google.golang.org/grpc |
+| Server↔Worker 通信 | hashicorp/yamux over TCP(详见 [docs/transport-v2.md](docs/transport-v2.md)) |
 | ORM | GORM + PostgreSQL |
 | K8s SDK | controller-runtime + client-go |
 | Helm SDK | helm.sh/helm/v3 |
@@ -183,7 +183,7 @@ web/src/
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `HTTP_ADDR` | `:8080` | HTTP 监听地址 |
-| `GRPC_ADDR` | `:9090` | gRPC 监听地址 |
+| `YAMUX_ADDR` | `:9090` | Worker 回连的 TCP 监听地址(yamux 多路复用,详见 [docs/transport-v2.md](docs/transport-v2.md)) |
 | `DSN` | `postgres://...` | PostgreSQL 连接串 |
 | `ADMIN_USERNAME` | `kpilot` | 管理员用户名 |
 | `ADMIN_PASSWORD` | `kpilot123` | 管理员密码 |
@@ -194,7 +194,7 @@ web/src/
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `SERVER_ADDR` | `localhost:9090` | Server gRPC 地址（Worker 视角）。支持三种格式：裸 `host:port`（明文）/ `grpc://host[:port]`（明文，默认 80）/ `grpcs://host[:port]`（TLS，默认 443，适用于走 HTTPS ingress 暴露 gRPC 的场景） |
+| `SERVER_ADDR` | `localhost:9090` | Server transport 地址(Worker 视角,TCP + yamux 多路复用,不是 gRPC)。支持三种格式:裸 `host:port`(明文 TCP)/ `grpc://host[:port]`(明文 TCP,默认 80;命名是 v1 兼容别名)/ `grpcs://host[:port]`(TLS TCP,默认 443,适用于走 HTTPS ingress 暴露的场景;同样是 v1 别名)。`tcp://` / `tcps://` 可读性更好,行为完全等价 |
 | `CLUSTER_TOKEN` | 空 | 必填，集群创建时 UI 一次性展示的 token |
 | `DATA_DIR` | `/var/lib/kpilot` | 持久化根目录。`charts/` 放 Helm chart .tgz cache，`helm/` 放 Helm 仓库配置 + cache |
 | `CLUSTER_DOMAIN` | `cluster.local` | K8s 集群 DNS 域。register 时上报给 Server，反代构 FQDN 时用 |
