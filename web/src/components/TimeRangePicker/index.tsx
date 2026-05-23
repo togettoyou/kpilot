@@ -1,5 +1,5 @@
 import { useIntl } from '@umijs/max';
-import { DatePicker, Space, Switch, Tooltip, Button } from 'antd';
+import { DatePicker, Space, Button } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import React from 'react';
 
@@ -85,8 +85,10 @@ const TimeRangePicker: React.FC<Props> = ({
 
   // RangePicker input shows from/to only for the two "user-picked
   // anchor(s)" modes — preset stays empty so we don't fake a custom
-  // selection. For sinceNow mode, both ends are rendered (the to
-  // re-resolves to "now" each render, so visually it slides forward).
+  // selection. For sinceNow mode, the to half is bound to "now" so
+  // it visually slides forward each render; the format function
+  // (see below) renders it as the text "现在" rather than a frozen
+  // timestamp.
   //
   // The popover view-date is anchored to "now" via defaultPickerValue
   // (separate from `value`) so opening the calendar lands on today
@@ -103,26 +105,20 @@ const TimeRangePicker: React.FC<Props> = ({
     return [now, now];
   }, []);
 
-  // "End follows now" toggle — only meaningful when there's a user-
-  // picked start (not in preset mode, which already slides by
-  // construction). Switching it flips between sinceNow ↔ custom while
-  // preserving from. Default for new picks is ON, matching Grafana's
-  // default behavior (people usually want the chart to keep updating).
-  const endFollowsNow =
-    value.mode === 'sinceNow' || value.mode === 'preset';
-  const handleToggleFollowsNow = (next: boolean) => {
-    if (value.mode === 'sinceNow' && !next) {
-      // Convert to absolute custom — freeze `to` at the current
-      // moment so the displayed end doesn't jump.
-      onChange({ mode: 'custom', from: value.from, to: new Date() });
-    } else if (value.mode === 'custom' && next) {
-      // Convert to sinceNow — drop the user's `to` (was just a
-      // freeze-point anyway).
-      onChange({ mode: 'sinceNow', from: value.from });
-    }
-    // preset mode: do nothing — preset itself slides; toggling has
-    // no semantic meaning. Switch is disabled in that case.
-  };
+  const nowLabel = intl.formatMessage({
+    id: 'components.timeRangePicker.now',
+    defaultMessage: '现在',
+  });
+  // antd RangePicker accepts a 2-tuple format — first applies to
+  // from, second to to. For sinceNow mode we render "现在" in the
+  // to slot regardless of the underlying Dayjs value (which slides
+  // to now each render); for custom and preset we use the regular
+  // date-time format.
+  const dtFormat = 'YYYY-MM-DD HH:mm:ss';
+  const formatProp =
+    value.mode === 'sinceNow'
+      ? [dtFormat, () => nowLabel]
+      : dtFormat;
 
   // antd RangePicker.presets — shows a sidebar of one-click ranges
   // in the popover. Grafana-style quick choices; more granular than
@@ -229,6 +225,7 @@ const TimeRangePicker: React.FC<Props> = ({
         allowClear={false}
         value={pickerValue}
         defaultPickerValue={todayAnchor}
+        format={formatProp as any}
         presets={popoverPresets}
         // Disable future dates and anything older than maxDays — the
         // server rejects > 31 days anyway, but blocking it here gives
@@ -241,24 +238,26 @@ const TimeRangePicker: React.FC<Props> = ({
         }}
         onChange={(range) => {
           if (range && range[0] && range[1]) {
-            // Honor the current "end follows now" toggle when the
-            // user picks via the calendar/presets:
-            //   - On (default): keep sliding — drop the picked to,
-            //     rebuild as sinceNow with picked from.
-            //   - Off: freeze both ends as absolute custom.
-            // Popover presets like "近 1 小时" therefore stay
-            // sliding by default, matching their wording.
-            if (endFollowsNow) {
-              onChange({
-                mode: 'sinceNow',
-                from: range[0].toDate(),
-              });
+            // Auto-detect sinceNow vs frozen custom by how close the
+            // picked `to` is to the live "now". Popover presets like
+            // "近 1 小时" set to=now() exactly → mode=sinceNow → the
+            // to input renders as "现在" and the window slides on
+            // every poll. A manual calendar pick of a historical end
+            // (e.g., "yesterday 9-10am") has to in the past →
+            // mode=custom → both ends frozen as the user intended.
+            //
+            // 60s window absorbs popover-preset clock skew (the
+            // preset was computed when popover opened, range commits
+            // a tick later) without misclassifying a deliberate
+            // recent pick.
+            const fromDate = range[0].toDate();
+            const toDate = range[1].toDate();
+            const now = Date.now();
+            const slidesNow = Math.abs(toDate.getTime() - now) < 60_000;
+            if (slidesNow) {
+              onChange({ mode: 'sinceNow', from: fromDate });
             } else {
-              onChange({
-                mode: 'custom',
-                from: range[0].toDate(),
-                to: range[1].toDate(),
-              });
+              onChange({ mode: 'custom', from: fromDate, to: toDate });
             }
           }
         }}
@@ -273,28 +272,6 @@ const TimeRangePicker: React.FC<Props> = ({
           }),
         ]}
       />
-      <Tooltip
-        title={intl.formatMessage({
-          id: 'components.timeRangePicker.endFollowsNow.tooltip',
-          defaultMessage:
-            '开启时，结束时间始终为"现在"，窗口随轮询持续向前滑动；关闭时，两端都是绝对时间，画面冻结。预设模式（1h/24h…）本身就是滑动，开关无效。',
-        })}
-      >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Switch
-            size="small"
-            checked={endFollowsNow}
-            disabled={value.mode === 'preset'}
-            onChange={handleToggleFollowsNow}
-          />
-          <span style={{ fontSize: 13, userSelect: 'none' }}>
-            {intl.formatMessage({
-              id: 'components.timeRangePicker.endFollowsNow',
-              defaultMessage: '结束=现在',
-            })}
-          </span>
-        </span>
-      </Tooltip>
     </Space>
   );
 };
