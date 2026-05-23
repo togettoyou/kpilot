@@ -775,6 +775,7 @@ export default {
   'pages.common.loading': '加载中…',
   'pages.common.refresh': '刷新',
   'pages.common.actions': '操作',
+  'pages.common.cancel': '取消',
 
   // P16-B — 模型实例 page (cross-model, cross-cluster survey,
   // moved from a per-model drawer to a top-level platform page)

@@ -794,6 +794,7 @@ export default {
   'pages.common.loading': 'Loading…',
   'pages.common.refresh': 'Refresh',
   'pages.common.actions': 'Actions',
+  'pages.common.cancel': 'Cancel',
 
   // P16-B — Instances page (cross-model, cross-cluster survey,
   // moved from a per-model drawer to a top-level platform page)
