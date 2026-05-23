@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -724,4 +726,775 @@ func CordonNode(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		c.Data(http.StatusOK, "application/json", resp.Data)
 	}
+}
+
+// scopedAction sends a server-constructed strategic merge patch to a
+// specific resource — same posture as CordonNode (the client picks
+// the verb, the server picks the patch body, raw spec patches stay
+// disallowed). Used for the rollout / scale / pause / resume
+// shortcuts where giving the client a generic patch endpoint would
+// re-open the surface area we removed in P12 when protect/ was
+// retired.
+//
+// `allowed` restricts which URL resource-types this verb applies to
+// (e.g. rollout-restart works on Deployment/StatefulSet/DaemonSet
+// but not on Pods).
+func scopedAction(
+	gw *gateway.GatewayServer,
+	allowed map[string]struct{},
+	buildPatch func(c *gin.Context) ([]byte, bool),
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		resourceType := c.Param("type")
+		name := c.Param("name")
+		namespace := c.Query("namespace")
+		if clusterID == "" || name == "" {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+		if _, ok := allowed[resourceType]; !ok {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+		gvk, ok := resourceGVK[resourceType]
+		if !ok {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		patch, ok := buildPatch(c)
+		if !ok {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
+		defer cancel()
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
+			Action:    "patch",
+			Group:     gvk.group,
+			Version:   gvk.version,
+			Kind:      gvk.kind,
+			Namespace: namespace,
+			Name:      name,
+			Body:      patch,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			if isNoMatchMessage(resp.Error) {
+				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
+				return
+			}
+			apiErrWorker(c, resp.Error)
+			return
+		}
+		c.Data(http.StatusOK, "application/json", resp.Data)
+	}
+}
+
+// RolloutRestart triggers a rolling restart of a Deployment /
+// StatefulSet / DaemonSet by stamping the canonical
+// `kubectl.kubernetes.io/restartedAt: <RFC3339 now>` annotation on
+// `spec.template.metadata.annotations`. This forces the workload
+// controller to detect a template hash change and recreate Pods
+// one by one with the normal rolling-update strategy — same
+// mechanism `kubectl rollout restart` uses.
+func RolloutRestart(gw *gateway.GatewayServer) gin.HandlerFunc {
+	allowed := map[string]struct{}{
+		"deployments":  {},
+		"statefulsets": {},
+		"daemonsets":   {},
+	}
+	return scopedAction(gw, allowed, func(c *gin.Context) ([]byte, bool) {
+		now := time.Now().UTC().Format(time.RFC3339)
+		patch, err := json.Marshal(map[string]any{
+			"spec": map[string]any{
+				"template": map[string]any{
+					"metadata": map[string]any{
+						"annotations": map[string]any{
+							"kubectl.kubernetes.io/restartedAt": now,
+						},
+					},
+				},
+			},
+		})
+		if err != nil {
+			apiErrInternal(c, err)
+			return nil, false
+		}
+		return patch, true
+	})
+}
+
+// RolloutPause / RolloutResume toggle Deployment.spec.paused.
+// Pause is Deployment-only — StatefulSet / DaemonSet don't expose
+// a paused field. While paused, edits to the Deployment don't
+// trigger a new rollout; useful for canary / staged config rollouts.
+func RolloutPause(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return rolloutPaused(gw, true)
+}
+
+func RolloutResume(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return rolloutPaused(gw, false)
+}
+
+func rolloutPaused(gw *gateway.GatewayServer, paused bool) gin.HandlerFunc {
+	allowed := map[string]struct{}{"deployments": {}}
+	return scopedAction(gw, allowed, func(c *gin.Context) ([]byte, bool) {
+		patch, err := json.Marshal(map[string]any{
+			"spec": map[string]any{"paused": paused},
+		})
+		if err != nil {
+			apiErrInternal(c, err)
+			return nil, false
+		}
+		return patch, true
+	})
+}
+
+// Scale sets `spec.replicas` on a Deployment / StatefulSet /
+// ReplicaSet. Equivalent to `kubectl scale --replicas=N`. We
+// patch the main object's spec.replicas instead of the /scale
+// subresource — controllers pick up either; the dynamic client's
+// subresource path needs more plumbing for marginal benefit.
+//
+// DaemonSet is excluded — its replica count is governed by the
+// node selector, not a knob.
+//
+// Range cap (0..1000) is defensive against accidental fat-finger.
+func Scale(gw *gateway.GatewayServer) gin.HandlerFunc {
+	allowed := map[string]struct{}{
+		"deployments":  {},
+		"statefulsets": {},
+		"replicasets":  {},
+	}
+	return scopedAction(gw, allowed, func(c *gin.Context) ([]byte, bool) {
+		var body struct {
+			Replicas *int32 `json:"replicas"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || body.Replicas == nil {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return nil, false
+		}
+		if *body.Replicas < 0 || *body.Replicas > 1000 {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return nil, false
+		}
+		patch, err := json.Marshal(map[string]any{
+			"spec": map[string]any{"replicas": *body.Replicas},
+		})
+		if err != nil {
+			apiErrInternal(c, err)
+			return nil, false
+		}
+		return patch, true
+	})
+}
+
+// ─── rollout history + undo ───────────────────────────────────────
+//
+// kubectl rollout history / undo are implemented entirely server-
+// side by composing existing worker actions (no new wire types
+// needed). The Deployment owns N ReplicaSets — one per revision —
+// linked via metadata.ownerReferences + annotated with
+// `deployment.kubernetes.io/revision`. We GET the deployment for
+// its UID, list ReplicaSets in the same namespace, filter by
+// ownerRef.uid == deployment.uid, sort by revision, and project
+// to a slim shape for the UI.
+//
+// Undo: same list, find target (default = previous), strip the
+// pod-template-hash label that the controller adds (otherwise the
+// new ReplicaSet would have the SAME hash as the rollback target,
+// and the controller wouldn't generate a new replica), patch the
+// Deployment's spec.template back with the cleaned version.
+
+// rolloutAllowedTypes — which URL :type values support history/undo.
+// Only Deployment for now; StatefulSet's revision history works
+// differently (ControllerRevisions, not ReplicaSets) and would need
+// a separate code path.
+var rolloutAllowedTypes = map[string]struct{}{"deployments": {}}
+
+// RolloutHistoryEntry is the JSON shape returned to the UI. Field
+// names mirror kubectl rollout history columns where possible.
+type RolloutHistoryEntry struct {
+	Revision         int64             `json:"revision"`
+	Name             string            `json:"name"`              // ReplicaSet name
+	Replicas         int32             `json:"replicas"`          // .spec.replicas
+	ReadyReplicas    int32             `json:"readyReplicas"`     // .status.readyReplicas
+	Image            string            `json:"image,omitempty"`   // first container's image, convenience
+	CreatedAt        string            `json:"createdAt"`         // metadata.creationTimestamp
+	ChangeCause      string            `json:"changeCause,omitempty"` // kubectl.kubernetes.io/change-cause
+	PodTemplateHash  string            `json:"podTemplateHash,omitempty"`
+	Annotations      map[string]string `json:"annotations,omitempty"`
+	Current          bool              `json:"current"` // true if this RS matches Deployment's current pod-template-hash
+}
+
+// RolloutHistory lists past revisions of a Deployment. Sorted by
+// revision descending (newest first) — kubectl prints oldest first,
+// but UI tables usually want newest-on-top.
+func RolloutHistory(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		resourceType := c.Param("type")
+		name := c.Param("name")
+		namespace := c.Query("namespace")
+		if clusterID == "" || name == "" || namespace == "" {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+		if _, ok := rolloutAllowedTypes[resourceType]; !ok {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), readWorkerTimeout)
+		defer cancel()
+
+		dep, replicasets, err := fetchRolloutSet(ctx, gw, clusterID, namespace, name)
+		if err != nil {
+			handleRolloutErr(c, err)
+			return
+		}
+
+		entries := projectRolloutEntries(dep, replicasets)
+		c.JSON(http.StatusOK, map[string]any{"revisions": entries})
+	}
+}
+
+// RolloutUndo rolls a Deployment back to a previous revision. Body:
+// `{"toRevision": N}` — when omitted or 0, rolls back to the most
+// recent prior revision (kubectl default).
+func RolloutUndo(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		resourceType := c.Param("type")
+		name := c.Param("name")
+		namespace := c.Query("namespace")
+		if clusterID == "" || name == "" || namespace == "" {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+		if _, ok := rolloutAllowedTypes[resourceType]; !ok {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+
+		var body struct {
+			ToRevision int64 `json:"toRevision"`
+		}
+		_ = c.ShouldBindJSON(&body) // empty body OK → ToRevision=0 → previous
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), writeWorkerTimeout)
+		defer cancel()
+
+		dep, replicasets, err := fetchRolloutSet(ctx, gw, clusterID, namespace, name)
+		if err != nil {
+			handleRolloutErr(c, err)
+			return
+		}
+
+		entries := projectRolloutEntries(dep, replicasets)
+		if len(entries) < 2 {
+			apiErrDetail(c, http.StatusBadRequest, CodeInvalidRequest,
+				"no previous revision to roll back to")
+			return
+		}
+
+		var target *unstructured.Unstructured
+		var targetRev int64
+		if body.ToRevision > 0 {
+			// Find specific revision in the unsorted ReplicaSet list.
+			for i := range replicasets {
+				rs := &replicasets[i]
+				if revisionOf(rs) == body.ToRevision {
+					target = rs
+					targetRev = body.ToRevision
+					break
+				}
+			}
+			if target == nil {
+				apiErrDetail(c, http.StatusNotFound, CodeResourceNotAvailable,
+					"requested revision not found")
+				return
+			}
+		} else {
+			// Default: previous = entries[1] (entries sorted newest-first).
+			targetRev = entries[1].Revision
+			for i := range replicasets {
+				rs := &replicasets[i]
+				if revisionOf(rs) == targetRev {
+					target = rs
+					break
+				}
+			}
+			if target == nil {
+				apiErrInternal(c, errors.New("could not resolve previous revision"))
+				return
+			}
+		}
+
+		// Already at the target? No-op.
+		currentRev := revisionOf(dep)
+		if currentRev == targetRev {
+			c.JSON(http.StatusOK, map[string]any{
+				"rolledBackTo": targetRev,
+				"noop":         true,
+			})
+			return
+		}
+
+		// Take the target ReplicaSet's spec.template, strip the
+		// `pod-template-hash` label the controller injects. Without
+		// stripping, the patched Deployment would end up with a Pod
+		// template whose hash matches an existing ReplicaSet, and
+		// the controller wouldn't generate a fresh one.
+		template, ok, err := unstructured.NestedMap(target.Object, "spec", "template")
+		if err != nil || !ok {
+			apiErrInternal(c, errors.New("target ReplicaSet missing spec.template"))
+			return
+		}
+		stripPodTemplateHash(template)
+
+		patch, err := json.Marshal(map[string]any{
+			"spec": map[string]any{
+				"template": template,
+			},
+		})
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+
+		resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
+			Action:    "patch",
+			Group:     "apps",
+			Version:   "v1",
+			Kind:      "Deployment",
+			Namespace: namespace,
+			Name:      name,
+			Body:      patch,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !resp.Success {
+			apiErrWorker(c, resp.Error)
+			return
+		}
+		c.JSON(http.StatusOK, map[string]any{
+			"rolledBackTo": targetRev,
+			"noop":         false,
+		})
+	}
+}
+
+// fetchRolloutSet gets the Deployment and lists ReplicaSets in its
+// namespace, filtered to ones owned by this Deployment.
+func fetchRolloutSet(
+	ctx context.Context,
+	gw *gateway.GatewayServer,
+	clusterID, namespace, name string,
+) (*unstructured.Unstructured, []unstructured.Unstructured, error) {
+	depResp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
+		Action: "get", Group: "apps", Version: "v1", Kind: "Deployment",
+		Namespace: namespace, Name: name,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if !depResp.Success {
+		return nil, nil, fmt.Errorf("get deployment: %s", depResp.Error)
+	}
+	var dep unstructured.Unstructured
+	if err := dep.UnmarshalJSON(depResp.Data); err != nil {
+		return nil, nil, fmt.Errorf("decode deployment: %w", err)
+	}
+
+	// Match the Deployment's spec.selector.matchLabels — same approach
+	// the controller uses, and faster than list-then-filter-by-ownerRef
+	// on big namespaces.
+	matchLabels, found, _ := unstructured.NestedStringMap(dep.Object, "spec", "selector", "matchLabels")
+	var labelSelector string
+	if found && len(matchLabels) > 0 {
+		parts := make([]string, 0, len(matchLabels))
+		for k, v := range matchLabels {
+			parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+		}
+		labelSelector = strings.Join(parts, ",")
+	}
+
+	rsResp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
+		Action: "list-full", Group: "apps", Version: "v1", Kind: "ReplicaSet",
+		Namespace:     namespace,
+		LabelSelector: labelSelector,
+		Limit:         500,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if !rsResp.Success {
+		return nil, nil, fmt.Errorf("list replicasets: %s", rsResp.Error)
+	}
+	var rsList unstructured.UnstructuredList
+	if err := rsList.UnmarshalJSON(rsResp.Data); err != nil {
+		return nil, nil, fmt.Errorf("decode replicasets: %w", err)
+	}
+
+	// Filter by ownerRef.uid — label-selector match alone could pick
+	// up ReplicaSets created by a Deployment that was deleted + a new
+	// one created with the same selector. UID is precise.
+	depUID := dep.GetUID()
+	owned := make([]unstructured.Unstructured, 0, len(rsList.Items))
+	for _, rs := range rsList.Items {
+		for _, or := range rs.GetOwnerReferences() {
+			if or.UID == depUID && or.Kind == "Deployment" {
+				owned = append(owned, rs)
+				break
+			}
+		}
+	}
+	return &dep, owned, nil
+}
+
+// projectRolloutEntries flattens ReplicaSets into the wire shape,
+// sorted newest-first by revision annotation.
+func projectRolloutEntries(
+	dep *unstructured.Unstructured,
+	replicasets []unstructured.Unstructured,
+) []RolloutHistoryEntry {
+	currentHash, _, _ := unstructured.NestedString(dep.Object,
+		"metadata", "labels", "pod-template-hash")
+	// Deployment doesn't usually carry pod-template-hash; the live one
+	// matches whichever ReplicaSet has spec.replicas > 0 (the active
+	// one). Use revision number for the "current" flag instead.
+	currentRev := revisionOf(dep)
+
+	entries := make([]RolloutHistoryEntry, 0, len(replicasets))
+	for i := range replicasets {
+		rs := &replicasets[i]
+		entry := RolloutHistoryEntry{
+			Revision:    revisionOf(rs),
+			Name:        rs.GetName(),
+			CreatedAt:   rs.GetCreationTimestamp().UTC().Format(time.RFC3339),
+			ChangeCause: rs.GetAnnotations()["kubectl.kubernetes.io/change-cause"],
+		}
+		entry.PodTemplateHash, _, _ = unstructured.NestedString(rs.Object,
+			"metadata", "labels", "pod-template-hash")
+		if rep, found, _ := unstructured.NestedInt64(rs.Object, "spec", "replicas"); found {
+			entry.Replicas = int32(rep)
+		}
+		if ready, found, _ := unstructured.NestedInt64(rs.Object, "status", "readyReplicas"); found {
+			entry.ReadyReplicas = int32(ready)
+		}
+		// First container's image — convenience for the UI table.
+		if containers, found, _ := unstructured.NestedSlice(rs.Object,
+			"spec", "template", "spec", "containers"); found && len(containers) > 0 {
+			if c0, ok := containers[0].(map[string]any); ok {
+				if img, ok := c0["image"].(string); ok {
+					entry.Image = img
+				}
+			}
+		}
+		entry.Current = entry.Revision == currentRev
+		_ = currentHash
+		entries = append(entries, entry)
+	}
+	// Newest first (largest revision number first).
+	sortByRevisionDesc(entries)
+	return entries
+}
+
+func revisionOf(obj *unstructured.Unstructured) int64 {
+	s, ok := obj.GetAnnotations()["deployment.kubernetes.io/revision"]
+	if !ok {
+		return 0
+	}
+	n, _ := strconv.ParseInt(s, 10, 64)
+	return n
+}
+
+func sortByRevisionDesc(es []RolloutHistoryEntry) {
+	for i := 1; i < len(es); i++ {
+		for j := i; j > 0 && es[j].Revision > es[j-1].Revision; j-- {
+			es[j], es[j-1] = es[j-1], es[j]
+		}
+	}
+}
+
+func stripPodTemplateHash(template map[string]any) {
+	meta, _ := template["metadata"].(map[string]any)
+	if meta == nil {
+		return
+	}
+	labels, _ := meta["labels"].(map[string]any)
+	if labels == nil {
+		return
+	}
+	delete(labels, "pod-template-hash")
+}
+
+func handleRolloutErr(c *gin.Context, err error) {
+	if strings.Contains(err.Error(), "not connected") {
+		apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
+		return
+	}
+	apiErrInternal(c, err)
+}
+
+// ─── drain ────────────────────────────────────────────────────────
+//
+// `kubectl drain NODE` = cordon + evict every (non-DS, non-mirror)
+// Pod on the node, respecting PDBs. We implement it as a single
+// server-side orchestration:
+//
+//   1. Cordon node (patch spec.unschedulable=true) — sync
+//   2. List pods on node (fieldSelector=spec.nodeName=NAME) — sync
+//   3. For each pod: classify (skip DS/mirror), then evict (/eviction
+//      subresource on worker side) — concurrent up to a small cap
+//   4. Return summary (total / evicted / skipped / failed)
+//
+// PDB blocks come back as worker errors containing "violate the
+// pod's disruption budget" — we surface them in `failed[]` so the
+// UI can show "X pods blocked by PDB, retry later" rather than a
+// generic 500.
+//
+// Bounded by writeWorkerTimeout (30s by default). A drain on a busy
+// node with many pods + slow graceful shutdowns can take longer than
+// that — we return what we managed in the budget, the user can
+// click Drain again to continue. We do NOT block the request for
+// minutes waiting on terminationGracePeriodSeconds (that's a real
+// drawback vs `kubectl drain` which can wait forever; trade-off
+// for not holding the worker session open).
+
+const (
+	// drainTimeout is the upper bound on the whole drain operation.
+	// Longer than writeWorkerTimeout because we do many sequential
+	// worker requests (cordon + list + N evicts).
+	drainTimeout = 2 * time.Minute
+	// drainEvictParallelism caps concurrent eviction requests to
+	// avoid hammering the apiserver. 5 is a balance — enough to
+	// drain a 50-pod node in ~10s, low enough that a misconfigured
+	// PDB doesn't pin all our worker tunnel slots.
+	drainEvictParallelism = 5
+)
+
+type drainResult struct {
+	Total    int      `json:"total"`
+	Evicted  int      `json:"evicted"`
+	Skipped  int      `json:"skipped"`
+	Failed   int      `json:"failed"`
+	Failures []string `json:"failures,omitempty"` // "<ns>/<pod>: <error>"
+}
+
+// DrainNode cordons + evicts pods. Body:
+//
+//	{
+//	  "ignoreDaemonSets": bool,       // default true; DS pods are unevictable
+//	  "deleteEmptyDirData": bool,     // default false; emptyDir users skipped unless set
+//	  "force": bool,                  // default false; uncontrolled pods skipped unless set
+//	  "gracePeriodSeconds": int,      // default -1 = pod's own value
+//	}
+func DrainNode(gw *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		nodeName := c.Param("name")
+		if clusterID == "" || nodeName == "" {
+			apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+			return
+		}
+		var opts struct {
+			IgnoreDaemonSets   *bool `json:"ignoreDaemonSets"`
+			DeleteEmptyDirData bool  `json:"deleteEmptyDirData"`
+			Force              bool  `json:"force"`
+			GracePeriodSeconds *int  `json:"gracePeriodSeconds"`
+		}
+		_ = c.ShouldBindJSON(&opts) // empty body OK; all fields optional
+		ignoreDS := true
+		if opts.IgnoreDaemonSets != nil {
+			ignoreDS = *opts.IgnoreDaemonSets
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), drainTimeout)
+		defer cancel()
+
+		// Step 1: cordon.
+		cordonPatch, _ := json.Marshal(map[string]any{
+			"spec": map[string]any{"unschedulable": true},
+		})
+		cordonResp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
+			Action: "patch", Group: "", Version: "v1", Kind: "Node",
+			Name: nodeName, Body: cordonPatch,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !cordonResp.Success {
+			apiErrWorker(c, cordonResp.Error)
+			return
+		}
+
+		// Step 2: list pods on node.
+		// Using LabelSelector isn't right here — we need field selector
+		// (spec.nodeName=NAME). Our wire shape doesn't carry that, so
+		// we list ALL pods cluster-wide and filter client-side. The
+		// list-full path already strips managedFields so the wire
+		// payload is bounded.
+		listResp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
+			Action: "list-full", Group: "", Version: "v1", Kind: "Pod",
+			Namespace: "", Limit: 5000,
+		})
+		if err != nil {
+			handleWorkerErr(c, err)
+			return
+		}
+		if !listResp.Success {
+			apiErrWorker(c, listResp.Error)
+			return
+		}
+		var podList unstructured.UnstructuredList
+		if err := podList.UnmarshalJSON(listResp.Data); err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+
+		// Step 3: classify + evict.
+		result := drainResult{}
+		var targets []*unstructured.Unstructured
+		for i := range podList.Items {
+			pod := &podList.Items[i]
+			nn, _, _ := unstructured.NestedString(pod.Object, "spec", "nodeName")
+			if nn != nodeName {
+				continue
+			}
+			// Skip already-terminating pods (saves an eviction call
+			// for nothing).
+			if pod.GetDeletionTimestamp() != nil {
+				continue
+			}
+			result.Total++
+
+			// Mirror pod (static pod managed by kubelet via manifest
+			// file). Can't be evicted — kubelet always recreates it.
+			if _, isMirror := pod.GetAnnotations()["kubernetes.io/config.mirror"]; isMirror {
+				result.Skipped++
+				continue
+			}
+			// DaemonSet-owned. kubectl drain refuses unless
+			// --ignore-daemonsets; we default to ignoring (= skip).
+			if ownedByDaemonSet(pod) {
+				if ignoreDS {
+					result.Skipped++
+					continue
+				}
+				result.Failed++
+				result.Failures = append(result.Failures,
+					fmt.Sprintf("%s/%s: managed by DaemonSet (pass ignoreDaemonSets=false to fail loudly)",
+						pod.GetNamespace(), pod.GetName()))
+				continue
+			}
+			// Pod with emptyDir volume — drain refuses unless
+			// --delete-emptydir-data, because the data is lost.
+			if !opts.DeleteEmptyDirData && podHasEmptyDirData(pod) {
+				result.Skipped++
+				continue
+			}
+			// Uncontrolled pod (no ownerRef = bare pod). kubectl drain
+			// needs --force, because the pod won't be recreated.
+			if !opts.Force && len(pod.GetOwnerReferences()) == 0 {
+				result.Skipped++
+				continue
+			}
+			targets = append(targets, pod)
+		}
+
+		// Bounded-parallelism eviction loop.
+		sem := make(chan struct{}, drainEvictParallelism)
+		var failuresMu sync.Mutex
+		var wg sync.WaitGroup
+		for _, p := range targets {
+			pod := p
+			sem <- struct{}{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				var body []byte
+				if opts.GracePeriodSeconds != nil && *opts.GracePeriodSeconds >= 0 {
+					body, _ = json.Marshal(map[string]any{
+						"apiVersion": "policy/v1",
+						"kind":       "Eviction",
+						"metadata": map[string]any{
+							"name":      pod.GetName(),
+							"namespace": pod.GetNamespace(),
+						},
+						"deleteOptions": map[string]any{
+							"gracePeriodSeconds": *opts.GracePeriodSeconds,
+						},
+					})
+				}
+				resp, err := gw.SendResourceRequest(ctx, clusterID, &gateway.ResourceRequest{
+					Action: "evict", Group: "", Version: "v1", Kind: "Pod",
+					Namespace: pod.GetNamespace(),
+					Name:      pod.GetName(),
+					Body:      body,
+				})
+				failuresMu.Lock()
+				defer failuresMu.Unlock()
+				if err != nil {
+					result.Failed++
+					result.Failures = append(result.Failures,
+						fmt.Sprintf("%s/%s: %v", pod.GetNamespace(), pod.GetName(), err))
+					return
+				}
+				if !resp.Success {
+					// Pod already gone is fine (idempotent).
+					if strings.Contains(resp.Error, "NotFound") ||
+						strings.Contains(resp.Error, "not found") {
+						result.Evicted++
+						return
+					}
+					result.Failed++
+					result.Failures = append(result.Failures,
+						fmt.Sprintf("%s/%s: %s", pod.GetNamespace(), pod.GetName(), resp.Error))
+					return
+				}
+				result.Evicted++
+			}()
+		}
+		wg.Wait()
+
+		c.JSON(http.StatusOK, result)
+	}
+}
+
+func ownedByDaemonSet(pod *unstructured.Unstructured) bool {
+	for _, or := range pod.GetOwnerReferences() {
+		if or.Kind == "DaemonSet" {
+			return true
+		}
+	}
+	return false
+}
+
+func podHasEmptyDirData(pod *unstructured.Unstructured) bool {
+	vols, found, _ := unstructured.NestedSlice(pod.Object, "spec", "volumes")
+	if !found {
+		return false
+	}
+	for _, v := range vols {
+		vm, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, hasEmptyDir := vm["emptyDir"]; hasEmptyDir {
+			return true
+		}
+	}
+	return false
 }

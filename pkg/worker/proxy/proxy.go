@@ -256,6 +256,8 @@ func (p *Proxy) execute(ctx context.Context, req *ResourceRequest) *ResourceResp
 		return p.delete(ctx, mapping, req.Namespace, req.Name)
 	case "describe":
 		return p.describe(mapping, req.Namespace, req.Name)
+	case "evict":
+		return p.evict(ctx, mapping, req.Namespace, req.Name, req.Body)
 	default:
 		return fail("unsupported action: " + req.Action)
 	}
@@ -513,6 +515,64 @@ func (p *Proxy) delete(ctx context.Context, mapping *apimeta.RESTMapping, namesp
 	}
 	ri, _ := p.resourceClient(mapping, namespace)
 	if err := ri.Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		return fail(err.Error())
+	}
+	return &ResourceResponse{Success: true}
+}
+
+// evict POSTs to a Pod's /eviction subresource — the API-server-side
+// path that respects PodDisruptionBudgets. Used by node drain.
+//
+// Body is the policy/v1 Eviction object (we accept the caller's
+// JSON verbatim so future fields like deletionPropagation flow
+// through without code changes). Empty body falls back to a default
+// Eviction with just metadata.name set, matching `kubectl drain`'s
+// default behavior.
+//
+// Errors of interest the caller can pattern-match on resp.Error:
+//   - "Cannot evict pod as it would violate the pod's disruption
+//     budget" → PDB block, caller should retry / report
+//   - "NotFound" → Pod already gone (idempotent success in caller)
+//   - 429 / "TooManyRequests" → PDB throttle, retry later
+func (p *Proxy) evict(
+	ctx context.Context,
+	mapping *apimeta.RESTMapping,
+	namespace, name string,
+	body []byte,
+) *ResourceResponse {
+	if name == "" {
+		return fail("name is required for evict")
+	}
+	if mapping.GroupVersionKind.Kind != "Pod" {
+		return fail("evict only supported on Pod")
+	}
+	ri, _ := p.resourceClient(mapping, namespace)
+
+	evictionObj := &unstructured.Unstructured{}
+	if len(body) > 0 {
+		if err := evictionObj.UnmarshalJSON(body); err != nil {
+			return fail(fmt.Sprintf("decode eviction body: %v", err))
+		}
+	} else {
+		// Default eviction: just name. policy/v1 Eviction is what
+		// kube 1.22+ wants; older clusters fall back to policy/v1beta1.
+		evictionObj.Object = map[string]any{
+			"apiVersion": "policy/v1",
+			"kind":       "Eviction",
+			"metadata": map[string]any{
+				"name":      name,
+				"namespace": namespace,
+			},
+		}
+	}
+
+	// Subresource("eviction") routes the Create to
+	// /api/v1/namespaces/{ns}/pods/{name}/eviction (which doesn't
+	// return a body — a successful eviction returns 201 with no
+	// useful response object, dynamic client surfaces that as a
+	// minimal unstructured result).
+	_, err := ri.Create(ctx, evictionObj, metav1.CreateOptions{}, "eviction")
+	if err != nil {
 		return fail(err.Error())
 	}
 	return &ResourceResponse{Success: true}

@@ -88,6 +88,23 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		// through the generic /workloads PUT, so the Server can tightly
 		// constrain the patch body to just spec.unschedulable.
 		clusters.POST("/:id/workloads/nodes/:name/cordon", handler.CordonNode(gw))
+		// kubectl drain equivalent — cordon + evict all pods on node
+		// (skipping DaemonSet / mirror pods by default). Sync return
+		// with summary counts.
+		clusters.POST("/:id/workloads/nodes/:name/drain", handler.DrainNode(gw))
+		// kubectl-equivalent scoped actions for Deployment / StatefulSet /
+		// DaemonSet / ReplicaSet rows. Same posture as cordon: the Server
+		// builds the patch body, the client picks the verb. No raw spec
+		// patches accepted through these paths.
+		clusters.POST("/:id/workloads/:type/:name/restart", handler.RolloutRestart(gw))
+		clusters.POST("/:id/workloads/:type/:name/pause", handler.RolloutPause(gw))
+		clusters.POST("/:id/workloads/:type/:name/resume", handler.RolloutResume(gw))
+		clusters.POST("/:id/workloads/:type/:name/scale", handler.Scale(gw))
+		// Deployment-only rollout revision endpoints. history reads the
+		// per-revision ReplicaSet set; undo rolls back to a chosen
+		// revision (default = previous).
+		clusters.GET("/:id/workloads/:type/:name/rollout/history", handler.RolloutHistory(gw))
+		clusters.POST("/:id/workloads/:type/:name/rollout/undo", handler.RolloutUndo(gw))
 		clusters.GET("/:id/namespaces", handler.ListNamespaces(gw))
 		clusters.GET("/:id/workloads/:type", handler.ListWorkloads(gw))
 		clusters.GET("/:id/workloads/:type/:name", handler.GetWorkload(gw))
