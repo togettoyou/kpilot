@@ -9,9 +9,12 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,6 +52,14 @@ func GetPodHealth(gw *gateway.GatewayServer) gin.HandlerFunc {
 				limit = v
 			}
 		}
+		// Same pod-search semantics as pod_metrics — push the filter
+		// into PromQL so the top-N applies AFTER the search, not
+		// before.
+		podSearch := strings.TrimSpace(c.Query("podSearch"))
+		podFilter := ""
+		if podSearch != "" {
+			podFilter = fmt.Sprintf(`,pod=~%q`, "(?i).*"+regexp.QuoteMeta(podSearch)+".*")
+		}
 
 		vmURL, code, err := resolveVMQueryURL(gw, clusterID)
 		if err != nil {
@@ -67,21 +78,23 @@ func GetPodHealth(gw *gateway.GatewayServer) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), vmTimeout)
 		defer cancel()
 
-		cacheKey := vmCacheKey("pod-health", clusterID, ns+"|"+strconv.Itoa(limit))
+		cacheKey := vmCacheKey("pod-health", clusterID,
+			ns+"|"+strconv.Itoa(limit)+"|q="+podSearch)
 		body, err := sharedVMResponseCache.GetOrCompute(cacheKey, 4*time.Second, func() (any, error) {
 
 			nsFilter := ""
 			if ns != "" {
 				nsFilter = `,namespace="` + ns + `"`
 			}
+			labelFilter := nsFilter + podFilter
 			// Restarts: kube_pod_container_status_restarts_total is the
 			// canonical counter from kube-state-metrics. Sum across
 			// containers per pod so the row reflects the whole pod
 			// instead of one container.
-			restartQ := `sum by (namespace, pod) (kube_pod_container_status_restarts_total{pod!=""` + nsFilter + `})`
+			restartQ := `sum by (namespace, pod) (kube_pod_container_status_restarts_total{pod!=""` + labelFilter + `})`
 			// OOMs: container_oom_events_total comes from cAdvisor. Same
 			// per-pod rollup.
-			oomQ := `sum by (namespace, pod) (container_oom_events_total{pod!=""` + nsFilter + `})`
+			oomQ := `sum by (namespace, pod) (container_oom_events_total{pod!=""` + labelFilter + `})`
 
 			var (
 				mu       sync.Mutex

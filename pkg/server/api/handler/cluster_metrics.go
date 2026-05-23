@@ -19,6 +19,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,7 +134,21 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 		defer cancel()
 		from, to := tr.from, tr.to
 
-		cacheKey := vmCacheKey("cluster-metrics", clusterID, tr.cacheSuffix)
+		// Group filter — UI accordion sections fetch independently.
+		// "overview" = KPI instant queries (always cheap, defaults
+		// to running when groups param is empty so the first-paint
+		// hits aren't broken). "capacity" = range trends. "workload" =
+		// Pod phase + restart / crashloop trends.
+		groupsParam := c.Query("groups")
+		wantOverview := groupsParam == "" || strings.Contains(","+groupsParam+",", ",overview,")
+		wantCapacity := groupsParam == "" || strings.Contains(","+groupsParam+",", ",capacity,")
+		wantWorkload := groupsParam == "" || strings.Contains(","+groupsParam+",", ",workload,")
+		cacheSig := "all"
+		if groupsParam != "" {
+			cacheSig = "g=" + groupsParam
+		}
+
+		cacheKey := vmCacheKey("cluster-metrics", clusterID, tr.cacheSuffix+"|"+cacheSig)
 		body, err := sharedVMResponseCache.GetOrCompute(cacheKey, 4*time.Second, func() (any, error) {
 
 			// Cluster-wide PromQL. CPU / memory expressions follow the
@@ -162,15 +177,28 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 			rangeQueries := []struct {
 				key    string
 				promql string
+				group  string // "capacity" or "workload"
 			}{
-				// Cluster CPU / memory utilization over time — drives the
-				// trend chart under the KPI strip.
-				{"cpu", `(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100`},
-				{"mem", `(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100`},
-				// Pending pod count over time — backlog trending up means
-				// scheduling is stuck (PVC binding, taint mismatch,
-				// resource shortage). Flat at 0 is the healthy steady state.
-				{"pendingPods", `count(kube_pod_status_phase{phase="Pending"}) or vector(0)`},
+				// Capacity: cluster CPU / mem / disk utilization over
+				// time — drives the trend chart under the KPI strip.
+				{"cpu", `(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100`, "capacity"},
+				{"mem", `(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100`, "capacity"},
+				{"disk", `100 * (1 - sum(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}) / sum(node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}))`, "capacity"},
+				// Workload: scheduling backlog + cluster-wide restart /
+				// crashloop trends.
+				//
+				// kube_pod_status_phase is a 0/1 gauge: for each pod KSM
+				// emits one series per phase (so count() of the Pending
+				// label returns one row PER POD regardless of which
+				// phase it's actually in). sum() over the value gives
+				// the real Pending count.
+				{"pendingPods", `sum(kube_pod_status_phase{phase="Pending"}) or vector(0)`, "workload"},
+				{"restartRate", `sum(rate(kube_pod_container_status_restarts_total[5m])) or vector(0)`, "workload"},
+				// kube_pod_container_status_waiting_reason is also 0/1
+				// per (pod, container, reason). Same count-vs-sum
+				// fallacy applies — sum gives the real count of
+				// containers currently in CrashLoopBackOff.
+				{"crashLooping", `sum(kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}) or vector(0)`, "workload"},
 			}
 
 			var (
@@ -180,28 +208,34 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 				ranges   = make(map[string]clusterMetricsSeries, len(rangeQueries))
 				phases   = make(map[string]int)
 			)
-			// 5 instant + 2 range queries, all fan out. Each failure is
-			// logged and produces a zero / empty result.
-			for _, q := range instantQueries {
-				q := q
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					series, err := queryVM(ctx, gw, clusterID, vmURL, q.promql)
-					if err != nil {
-						logSoftErr("cluster-metrics", clusterID, q.key, err)
-						return
-					}
-					var v float64
-					if len(series) > 0 {
-						v = series[0].Value
-					}
-					mu.Lock()
-					instants[q.key] = v
-					mu.Unlock()
-				}()
+			// Fan out per group selection — sections that aren't
+			// visible (?groups=…) skip the cost.
+			if wantOverview {
+				for _, q := range instantQueries {
+					q := q
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						series, err := queryVM(ctx, gw, clusterID, vmURL, q.promql)
+						if err != nil {
+							logSoftErr("cluster-metrics", clusterID, q.key, err)
+							return
+						}
+						var v float64
+						if len(series) > 0 {
+							v = series[0].Value
+						}
+						mu.Lock()
+						instants[q.key] = v
+						mu.Unlock()
+					}()
+				}
 			}
 			for _, q := range rangeQueries {
+				if (q.group == "capacity" && !wantCapacity) ||
+					(q.group == "workload" && !wantWorkload) {
+					continue
+				}
 				q := q
 				wg.Add(1)
 				go func() {
@@ -222,26 +256,33 @@ func GetClusterMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 					mu.Unlock()
 				}()
 			}
-			// One extra query: pod phase histogram (instant, by-phase).
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				series, err := queryVM(ctx, gw, clusterID, vmURL,
-					`sum by (phase) (kube_pod_status_phase)`)
-				if err != nil {
-					logSoftErr("cluster-metrics", clusterID, "podsByPhase", err)
-					return
-				}
-				mu.Lock()
-				for _, s := range series {
-					p := s.Labels["phase"]
-					if p == "" {
-						continue
+			// Pod phase histogram (instant, by-phase) — overview group.
+			// Lives in overview rather than workload because the KPI
+			// strip in the cluster tab's overview section needs
+			// podsByPhase / podsTotal / podsPending to render the Pods
+			// card; the workload section only consumes the time-series
+			// (pendingPods / restartRate / crashLooping).
+			if wantOverview {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					series, err := queryVM(ctx, gw, clusterID, vmURL,
+						`sum by (phase) (kube_pod_status_phase)`)
+					if err != nil {
+						logSoftErr("cluster-metrics", clusterID, "podsByPhase", err)
+						return
 					}
-					phases[p] = int(s.Value)
-				}
-				mu.Unlock()
-			}()
+					mu.Lock()
+					for _, s := range series {
+						p := s.Labels["phase"]
+						if p == "" {
+							continue
+						}
+						phases[p] = int(s.Value)
+					}
+					mu.Unlock()
+				}()
+			}
 			wg.Wait()
 
 			snap := clusterMetricsSnapshot{

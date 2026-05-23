@@ -1,7 +1,13 @@
 import { Line } from '@ant-design/plots';
 import { useIntl } from '@umijs/max';
 import { Card, Empty, Space, Tooltip, Typography } from 'antd';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 // Shared lazy-loaded chart bundle for the Monitoring page. The Line
 // component pulls in the full @ant-design/plots G2 runtime (~250 KB
@@ -109,6 +115,58 @@ function MultiSeriesChart({
   // Kept as a Set<string> so toggle is O(1) and we don't depend on
   // array order.
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+
+  // Tab-switch layout guard for G2.
+  //
+  // The Line is sitting inside an antd Tabs pane. When the pane
+  // becomes display:none (user switches tabs):
+  //   - antd does NOT unmount the pane (destroyOnHidden defaults to
+  //     false), so the Line stays mounted with chart instance alive.
+  //   - G2's internal autoFit hooks `window.addEventListener('resize')`
+  //     (NOT ResizeObserver — confirmed in @antv/g2 runtime.js:391).
+  //     Tab-switch doesn't fire window resize, so G2 has no idea.
+  //   - BUT if the newly-shown tab's content reflows the page (e.g.
+  //     adds a vertical scrollbar), window DOES resize → G2's
+  //     debounced forceFit fires on the hidden chart → it measures
+  //     the now-display:none container at width 0 (or some other
+  //     wrong size) and corrupts its internal layout.
+  //   - Worse: forceFit early-returns when measured width equals the
+  //     cached internal `_width` (runtime.js:164), so even after the
+  //     tab comes back visible at the original width, our own manual
+  //     forceFit is a no-op against the already-corrupted state.
+  //
+  // The only reliable fix is to not preserve the chart instance
+  // across tab switches: gate <Line> on a measured-visible wrapper.
+  // When the wrapper goes to 0 width, unmount Line so its G2 plot
+  // tears down; when it comes back, mount fresh in the right size.
+  //
+  // State that matters (useClusterRequest data, the `hidden` Set for
+  // legend toggles) lives on this outer component and survives the
+  // child remount.
+  //
+  // Initial chartReady is true so the first paint mounts <Line>
+  // immediately — measuring the wrapper synchronously via
+  // useLayoutEffect was unreliable in practice (Suspense lazy-load
+  // + Tabs render sequencing left clientWidth at 0 on first
+  // commit, which then never re-flipped to true for active-tab
+  // charts).
+  //
+  // The downside: hidden-tab charts also mount once at width=0
+  // before ResizeObserver fires and flips them to false. That
+  // creates a short-lived doomed G2 instance, but its DOM is
+  // inside display:none so the user never sees the bad render.
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [chartReady, setChartReady] = useState(true);
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      setChartReady(w > 0);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const toggleHidden = useCallback((name: string) => {
     setHidden((prev) => {
       const next = new Set(prev);
@@ -130,15 +188,23 @@ function MultiSeriesChart({
     return out;
   }, [series, unitScale, hidden]);
 
+  // Subtitle assembles {(unit)} + optional " topN" — skip the parens
+  // entirely when unit is empty (load average, pending count, …)
+  // otherwise the header renders "节点 Load Average（每核） ()" with
+  // a dangling empty bracket.
+  const subtitleBits: string[] = [];
+  if (unit) subtitleBits.push(`(${unit})`);
+  if (titleSuffix) subtitleBits.push(titleSuffix);
   const title = (
     <Space>
       <Typography.Text strong>
         {intl.formatMessage({ id: titleId })}
       </Typography.Text>
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        ({unit})
-        {titleSuffix && ` ${titleSuffix}`}
-      </Typography.Text>
+      {subtitleBits.length > 0 && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {subtitleBits.join(' ')}
+        </Typography.Text>
+      )}
     </Space>
   );
 
@@ -164,7 +230,14 @@ function MultiSeriesChart({
 
   return (
     <Card title={title} size="small" style={{ height: '100%' }} styles={{ body: { padding: 16 } }}>
-      <div style={{ height: plotPx }}>
+      {/* overflow:hidden is a belt-and-braces against G2 ever
+          rendering wider than the wrapper for one frame during the
+          forceFit transition — the SVG won't leak into the next Col. */}
+      <div
+        ref={wrapperRef}
+        style={{ height: plotPx, overflow: 'hidden' }}
+      >
+        {chartReady && (
         <Line
           data={flat}
           xField="t"
@@ -210,6 +283,7 @@ function MultiSeriesChart({
           interaction={{ tooltip: { shared: true } }}
           style={{ lineWidth: 1.5 }}
         />
+        )}
       </div>
 
       {/* Scrollable HTML legend — fixed height, native overflow,

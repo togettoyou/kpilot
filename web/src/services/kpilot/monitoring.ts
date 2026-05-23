@@ -62,9 +62,14 @@ export interface ClusterMetricsResponse {
   series: Record<string, ClusterMetricsSeries>;
 }
 
-export function getClusterMetrics(clusterId: string, range: TimeRangeValue) {
+export function getClusterMetrics(
+  clusterId: string,
+  range: TimeRangeValue,
+  groups?: string,
+) {
+  const qs = groups ? `${rangeQS(range)}&groups=${groups}` : rangeQS(range);
   return request<ClusterMetricsResponse>(
-    `/api/v1/clusters/${clusterId}/cluster-metrics?${rangeQS(range)}`,
+    `/api/v1/clusters/${clusterId}/cluster-metrics?${qs}`,
     { method: 'GET' },
   );
 }
@@ -72,6 +77,12 @@ export function getClusterMetrics(clusterId: string, range: TimeRangeValue) {
 export interface NodeMetricSeries {
   instance: string;
   nodeName?: string;
+  // Populated for per-partition queries (diskPartitions). Lets the
+  // chart's legend disambiguate multiple rows per node.
+  mountpoint?: string;
+  // Populated for per-device queries (diskIOWait / diskIOService /
+  // diskIOBusy). Same purpose as mountpoint, different label.
+  device?: string;
   points: ClusterMetricsPoint[];
 }
 
@@ -84,9 +95,14 @@ export interface NodeMetricsResponse {
   series: Record<string, NodeMetricSeries[]>;
 }
 
-export function getNodeMetrics(clusterId: string, range: TimeRangeValue) {
+export function getNodeMetrics(
+  clusterId: string,
+  range: TimeRangeValue,
+  groups?: string,
+) {
+  const qs = groups ? `${rangeQS(range)}&groups=${groups}` : rangeQS(range);
   return request<NodeMetricsResponse>(
-    `/api/v1/clusters/${clusterId}/node-metrics?${rangeQS(range)}`,
+    `/api/v1/clusters/${clusterId}/node-metrics?${qs}`,
     { method: 'GET' },
   );
 }
@@ -125,10 +141,12 @@ export function getPodHealth(
   clusterId: string,
   namespace?: string,
   limit?: number,
+  podSearch?: string,
 ) {
   const params: Record<string, string | number> = {};
   if (namespace) params.namespace = namespace;
   if (typeof limit === 'number' && limit > 0) params.limit = limit;
+  if (podSearch) params.podSearch = podSearch;
   return request<PodHealthResponse>(
     `/api/v1/clusters/${clusterId}/pod-health`,
     { method: 'GET', params },
@@ -140,10 +158,14 @@ export function getPodMetrics(
   range: TimeRangeValue,
   namespace?: string,
   limit?: number,
+  groups?: string,
+  podSearch?: string,
 ) {
   const params: Record<string, string | number> = {};
   if (namespace) params.namespace = namespace;
   if (typeof limit === 'number' && limit > 0) params.limit = limit;
+  if (groups) params.groups = groups;
+  if (podSearch) params.podSearch = podSearch;
   return request<PodMetricsResponse>(
     `/api/v1/clusters/${clusterId}/pod-metrics?${rangeQS(range)}`,
     { method: 'GET', params },
