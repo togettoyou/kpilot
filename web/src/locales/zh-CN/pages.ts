@@ -1234,14 +1234,14 @@ export default {
   // nodes
   'pages.nodes.title': '节点',
   // drain action on Node row
-  'pages.nodes.drain': '排空（Drain）',
-  'pages.nodes.drain.confirm.title': '排空节点 {name}？',
+  'pages.nodes.drain': '腾空节点',
+  'pages.nodes.drain.confirm.title': '腾空节点 {name}？',
   'pages.nodes.drain.confirm.note': '将先 cordon，再驱逐节点上的 Pod（DaemonSet 默认跳过，emptyDir Pod 需勾选才驱逐）。受 PDB 阻塞的 Pod 会失败列出。',
   'pages.nodes.drain.ignoreDS': '跳过 DaemonSet Pod',
   'pages.nodes.drain.deleteEmptyDir': '驱逐使用 emptyDir 的 Pod（数据会丢失）',
   'pages.nodes.drain.force': '强制驱逐无控制器的 Pod',
   'pages.nodes.drain.gracePeriod': '优雅停机秒数',
-  'pages.nodes.drain.success': '排空完成：驱逐 {evicted}，跳过 {skipped}，失败 {failed}',
+  'pages.nodes.drain.success': '腾空完成：驱逐 {evicted}，跳过 {skipped}，失败 {failed}',
   'pages.nodes.searchPlaceholder': '搜索名称 / 角色 / 状态 / IP…',
   // 列标题：K8s Table API 返回 kubectl printer 英文列名，前端按这组 key 翻译。
   'pages.nodes.col.name': '名称',
