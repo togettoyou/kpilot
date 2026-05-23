@@ -33,6 +33,7 @@ import {
   MODEL_RUNTIMES,
   RUNTIME_LABELS,
 } from '@/services/kpilot/model';
+import { useBurstRefresh } from '@/hooks/useBurstRefresh';
 import { deleteWorkload } from '@/services/kpilot/workload';
 
 dayjs.extend(relativeTime);
@@ -88,6 +89,10 @@ const ModelDeploymentsPage: React.FC = () => {
     fetch();
   }, [fetch]);
 
+  // Delete is a K8s Deployment delete — the row stays visible as
+  // Terminating for ~5s. Burst catches the fully-gone state.
+  const { burst } = useBurstRefresh(fetch);
+
   // Distinct cluster list for the column filter — derived from
   // current rows so we never advertise a cluster that has zero hits.
   const clusterFilters = useMemo(() => {
@@ -119,7 +124,7 @@ const ModelDeploymentsPage: React.FC = () => {
         message.success(
           intl.formatMessage({ id: 'pages.models.deployments.delete.success' }),
         );
-        fetch();
+        burst();
       },
     });
   };

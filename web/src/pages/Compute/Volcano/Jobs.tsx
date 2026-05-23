@@ -10,6 +10,7 @@ import {
 } from '@umijs/max';
 
 import { useVolcanoList } from '@/hooks/useVolcanoList';
+import { useBurstRefresh } from '@/hooks/useBurstRefresh';
 import {
   App,
   Button,
@@ -81,6 +82,7 @@ export default function VolcanoJobsPage() {
   );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
+  const { burst } = useBurstRefresh(refresh);
 
   // Deep-link from the Volcano overview (failed-jobs list / phase
   // tag click) pre-filters the table by state. We do the filter in
@@ -115,7 +117,7 @@ export default function VolcanoJobsPage() {
       message.success(
         intl.formatMessage({ id: 'pages.workloads.delete.success' }),
       );
-      refresh();
+      burst();
     } catch (e: any) {
       const m = e?.response?.data?.message ?? e?.message;
       if (m) message.error(String(m));
@@ -348,7 +350,7 @@ export default function VolcanoJobsPage() {
         onClose={() => setCreateOpen(false)}
         onSaved={() => {
           setCreateOpen(false);
-          refresh();
+          burst();
         }}
       />
       <JobFormDrawer
@@ -358,7 +360,7 @@ export default function VolcanoJobsPage() {
         onClose={() => setEditing(null)}
         onSaved={() => {
           setEditing(null);
-          refresh();
+          burst();
         }}
       />
       <DescribeDrawer

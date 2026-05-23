@@ -4,6 +4,7 @@ import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useModel, useParams } from '@umijs/max';
 
 import { useVolcanoList } from '@/hooks/useVolcanoList';
+import { useBurstRefresh } from '@/hooks/useBurstRefresh';
 import { App, Button, Popconfirm, Space, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -86,6 +87,7 @@ export default function VolcanoJobTemplatesPage() {
     );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
+  const { burst } = useBurstRefresh(refresh);
 
   if (!clusterId) return null;
   if (error && isResourceNotAvailable(error)) {
@@ -104,7 +106,7 @@ export default function VolcanoJobTemplatesPage() {
       message.success(
         intl.formatMessage({ id: 'pages.workloads.delete.success' }),
       );
-      refresh();
+      burst();
     } catch (e: any) {
       const m = e?.response?.data?.message ?? e?.message;
       if (m) message.error(String(m));
@@ -257,7 +259,7 @@ export default function VolcanoJobTemplatesPage() {
         onClose={() => setCreateOpen(false)}
         onSaved={() => {
           setCreateOpen(false);
-          refresh();
+          burst();
         }}
       />
       <YamlCreateDrawer
@@ -275,7 +277,7 @@ export default function VolcanoJobTemplatesPage() {
         onClose={() => setEditing(null)}
         onSaved={() => {
           setEditing(null);
-          refresh();
+          burst();
         }}
       />
       <DescribeDrawer

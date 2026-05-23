@@ -4,6 +4,7 @@ import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useModel, useParams } from '@umijs/max';
 
 import { useVolcanoList } from '@/hooks/useVolcanoList';
+import { useBurstRefresh } from '@/hooks/useBurstRefresh';
 import { App, Button, Popconfirm, Space, Tag, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -44,6 +45,7 @@ export default function VolcanoPodGroupsPage() {
     );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
+  const { burst } = useBurstRefresh(refresh);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<{
     name: string;
@@ -70,7 +72,7 @@ export default function VolcanoPodGroupsPage() {
       message.success(
         intl.formatMessage({ id: 'pages.workloads.delete.success' }),
       );
-      refresh();
+      burst();
     } catch (e: any) {
       const m = e?.response?.data?.message ?? e?.message;
       if (m) message.error(String(m));
@@ -235,7 +237,7 @@ export default function VolcanoPodGroupsPage() {
         onClose={() => setCreateOpen(false)}
         onSaved={() => {
           setCreateOpen(false);
-          refresh();
+          burst();
         }}
       />
       <PodGroupFormDrawer
@@ -245,7 +247,7 @@ export default function VolcanoPodGroupsPage() {
         onClose={() => setEditing(null)}
         onSaved={() => {
           setEditing(null);
-          refresh();
+          burst();
         }}
       />
       <DescribeDrawer

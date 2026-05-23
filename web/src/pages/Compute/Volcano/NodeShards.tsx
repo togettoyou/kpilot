@@ -4,6 +4,7 @@ import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams } from '@umijs/max';
 
 import { useVolcanoList } from '@/hooks/useVolcanoList';
+import { useBurstRefresh } from '@/hooks/useBurstRefresh';
 import { App, Button, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -53,6 +54,7 @@ export default function VolcanoNodeShardsPage() {
     );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
+  const { burst } = useBurstRefresh(refresh);
 
   if (!clusterId) return null;
   if (error && isResourceNotAvailable(error)) {
@@ -65,7 +67,7 @@ export default function VolcanoNodeShardsPage() {
       message.success(
         intl.formatMessage({ id: 'pages.workloads.delete.success' }),
       );
-      refresh();
+      burst();
     } catch (e: any) {
       const m = e?.response?.data?.message ?? e?.message;
       if (m) message.error(String(m));
@@ -227,7 +229,7 @@ export default function VolcanoNodeShardsPage() {
         onClose={() => setCreateOpen(false)}
         onSaved={() => {
           setCreateOpen(false);
-          refresh();
+          burst();
         }}
       />
       <NodeShardFormDrawer
@@ -237,7 +239,7 @@ export default function VolcanoNodeShardsPage() {
         onClose={() => setEditingName(null)}
         onSaved={() => {
           setEditingName(null);
-          refresh();
+          burst();
         }}
       />
       <DescribeDrawer

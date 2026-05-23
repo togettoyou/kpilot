@@ -40,6 +40,7 @@ import React, {
   useState,
 } from 'react';
 import { Navigate } from 'react-router-dom';
+import { useBurstRefresh } from '@/hooks/useBurstRefresh';
 import type {
   CRRef,
   WorkloadItem,
@@ -491,6 +492,13 @@ export function WorkloadsContent({
     return () => clearInterval(timer);
   }, [pollingInterval]);
 
+  // Burst refresh: after a mutation (apply / delete / apply YAML)
+  // K8s converges over ~5-10s — Pods stay Terminating, Deployments
+  // roll out gradually. A single refresh shows stale state; the
+  // burst fires immediate + every 2s for 10s so the table catches
+  // the converged view without forcing the user to mash Refresh.
+  const { burst } = useBurstRefresh(refresh);
+
   // Sequence counter to discard stale openEditor responses on fast clicks.
   const editorSeqRef = useRef(0);
 
@@ -586,7 +594,7 @@ export function WorkloadsContent({
         intl.formatMessage({ id: 'pages.workloads.apply.success' }),
       );
       setDrawerOpen(false);
-      refresh();
+      burst();
     } catch {
       // global error handler in requestErrorConfig already shows the toast
     } finally {
@@ -610,12 +618,12 @@ export function WorkloadsContent({
         message.success(
           intl.formatMessage({ id: 'pages.workloads.delete.success' }),
         );
-        refresh();
+        burst();
       } catch {
         // global error handler in requestErrorConfig already shows the toast
       }
     },
-    [clusterId, resourceType, cr, intl, message, refresh],
+    [clusterId, resourceType, cr, intl, message, burst],
   );
 
   const isPods = resourceType === 'pods';
@@ -992,7 +1000,7 @@ export function WorkloadsContent({
             open={applyOpen}
             onClose={() => setApplyOpen(false)}
             onApplied={() => {
-              refresh();
+              burst();
               // Applied YAML may have created a Namespace — ask the model to
               // refetch so the global picker shows it without a browser reload.
               ns.refresh(clusterId);

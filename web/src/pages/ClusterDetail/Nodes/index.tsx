@@ -19,6 +19,7 @@ import {
 } from 'antd';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+import { useBurstRefresh } from '@/hooks/useBurstRefresh';
 import { cordonNode, listNodes } from '@/services/kpilot/node';
 
 import { DescribeDrawer } from '../Workloads/DescribeDrawer';
@@ -114,6 +115,10 @@ export default function NodesPage() {
       pollingWhenHidden: false,
     },
   );
+  // Cordon/uncordon is a Node patch — the status field flips after
+  // the kubelet's next status-update tick (typically <2s). Burst
+  // refresh catches the converged Ready/SchedulingDisabled state.
+  const { burst } = useBurstRefresh(refresh);
 
   const cols = data?.columnDefinitions ?? [];
   const statusColIdx = cols.findIndex((c) => c.name === 'Status');
@@ -228,7 +233,7 @@ export default function NodesPage() {
               id: next ? 'pages.nodes.cordon.success' : 'pages.nodes.uncordon.success',
             }),
           );
-          refresh();
+          burst();
         } catch (e: any) {
           message.error(String(e?.message ?? e));
         } finally {

@@ -4,6 +4,7 @@ import { ProTable } from '@ant-design/pro-components';
 import { useIntl, useParams } from '@umijs/max';
 
 import { useVolcanoList } from '@/hooks/useVolcanoList';
+import { useBurstRefresh } from '@/hooks/useBurstRefresh';
 import { App, Button, Popconfirm, Space, Tag, Typography } from 'antd';
 import React, { useState } from 'react';
 
@@ -41,6 +42,7 @@ export default function VolcanoHyperNodesPage() {
     );
 
   const [interval, setInterval] = useAutoRefresh(refresh, !!clusterId);
+  const { burst } = useBurstRefresh(refresh);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [describingName, setDescribingName] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export default function VolcanoHyperNodesPage() {
       message.success(
         intl.formatMessage({ id: 'pages.workloads.delete.success' }),
       );
-      refresh();
+      burst();
     } catch (e: any) {
       const m = e?.response?.data?.message ?? e?.message;
       if (m) message.error(String(m));
@@ -210,7 +212,7 @@ export default function VolcanoHyperNodesPage() {
         onClose={() => setCreateOpen(false)}
         onSaved={() => {
           setCreateOpen(false);
-          refresh();
+          burst();
         }}
       />
       <HyperNodeFormDrawer
@@ -220,7 +222,7 @@ export default function VolcanoHyperNodesPage() {
         onClose={() => setEditingName(null)}
         onSaved={() => {
           setEditingName(null);
-          refresh();
+          burst();
         }}
       />
       <DescribeDrawer
