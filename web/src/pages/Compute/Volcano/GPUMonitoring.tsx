@@ -54,19 +54,17 @@ const METRICS: Array<{
   unit: string;
   unitScale?: number;
   yMax?: number;
-  thresholdsId?: 'temp' | 'fbUsed' | 'tensor';
+  thresholdsId?: 'temp' | 'tensor';
 }> = [
   { key: 'util', titleId: 'util', unit: '%', yMax: 100 },
   { key: 'temp', titleId: 'temp', unit: '°C', thresholdsId: 'temp' },
   { key: 'power', titleId: 'power', unit: 'W' },
   // FB used in GiB — DCGM ships MiB, divide for the axis.
-  {
-    key: 'fbUsed',
-    titleId: 'fbUsed',
-    unit: 'GiB',
-    unitScale: 1 / 1024,
-    thresholdsId: 'fbUsed',
-  },
+  // No absolute threshold line: per-GPU capacity differs (T4 16 GiB
+  // vs A100 40/80 vs H100 80) so a single horizontal line can't
+  // mean the same thing across cards. The KPI strip already shows
+  // pooled % usage.
+  { key: 'fbUsed', titleId: 'fbUsed', unit: 'GiB', unitScale: 1 / 1024 },
   { key: 'sm', titleId: 'sm', unit: 'MHz' },
   // Tensor active ships as a unit ratio [0,1]; scale to %.
   {
@@ -204,14 +202,6 @@ const THRESHOLDS: Record<string, ThresholdLine[]> = {
   temp: [
     { value: 80, kind: 'warn', label: '80°C' },
     { value: 90, kind: 'error', label: '90°C' },
-  ],
-  fbUsed: [
-    // No fixed unit value works for fbUsed (GiB varies by card),
-    // but the chart already auto-scales — annotate at "90% of
-    // typical 40 GiB card" as a soft hint. Operators with H100
-    // (80 GiB) get a more cautious line; with T4 (16 GiB) it's
-    // pessimistic but informative.
-    { value: 36, kind: 'warn', label: '90% (40G)' },
   ],
   tensor: [
     { value: 5, kind: 'info', label: '5% (idle)' },
