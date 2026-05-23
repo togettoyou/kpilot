@@ -106,7 +106,7 @@ helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
 <table width="100%">
 <tr>
 <td width="50%"><img src="docs/assets/screenshots/scheduler-config.png" alt="调度策略编辑器" width="480"></td>
-<td width="50%"><img src="docs/assets/screenshots/scheduler-queue.png" alt="队列配额" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/scheduler-overview.png" alt="调度概览" width="480"></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/assets/screenshots/gpu.png" alt="vGPU 视图" width="480"></td>
@@ -116,7 +116,16 @@ helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
 
 ### 模型服务 —— [`docs/models.md`](docs/models.md)
 
-精选模型目录 → 一键部署 → 浏览器 chat 调试 → 按部署签发 OpenAI 兼容反向代理 Bearer 令牌。
+<table width="100%">
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/models.png" alt="模型仓库" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/models-deploy.png" alt="一键部署 drawer" width="480"></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/models-chat.png" alt="浏览器 chat 调试" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/models-apikey.png" alt="API Key 管理" width="480"></td>
+</tr>
+</table>
 
 ### 插件管理 —— [`docs/plugins.md`](docs/plugins.md)
 

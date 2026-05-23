@@ -106,7 +106,7 @@ Production exposure (Ingress, external Postgres, image registry mirrors) is cove
 <table width="100%">
 <tr>
 <td width="50%"><img src="docs/assets/screenshots/scheduler-config.png" alt="Visual scheduler policy editor" width="480"></td>
-<td width="50%"><img src="docs/assets/screenshots/scheduler-queue.png" alt="Queue quotas" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/scheduler-overview.png" alt="Scheduler overview" width="480"></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/assets/screenshots/gpu.png" alt="vGPU view" width="480"></td>
@@ -116,7 +116,16 @@ Production exposure (Ingress, external Postgres, image registry mirrors) is cove
 
 ### Model Serving — [`docs/models.md`](docs/models.md)
 
-Curated catalog → one-click deploy → in-browser chat → OpenAI-compatible reverse proxy with per-deployment Bearer keys.
+<table width="100%">
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/models.png" alt="Model catalog" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/models-deploy.png" alt="One-click deploy drawer" width="480"></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/models-chat.png" alt="In-browser chat playground" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/models-apikey.png" alt="API key management" width="480"></td>
+</tr>
+</table>
 
 ### Plugin Management — [`docs/plugins.md`](docs/plugins.md)
 
