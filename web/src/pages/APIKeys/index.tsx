@@ -157,9 +157,14 @@ const APIKeysPage: React.FC = () => {
   }, [watchedCluster, form]);
 
   // ─── Result modal — one-shot plaintext token reveal ────────────────
-  const [resultData, setResultData] = useState<CreateAPIKeyResponse | null>(
-    null,
-  );
+  // resultData carries the create response plus a captured model_field
+  // string (sourced from the picked ModelInstance at submit-time).
+  // We inline it into the curl usage example so the operator can copy
+  // a ready-to-run command without a separate trip to look up what
+  // vLLM was started with (HuggingFaceID || deploy_name).
+  const [resultData, setResultData] = useState<
+    (CreateAPIKeyResponse & { modelField?: string }) | null
+  >(null);
   const [copied, setCopied] = useState(false);
 
   const copyToken = async () => {
@@ -193,9 +198,23 @@ const APIKeysPage: React.FC = () => {
         namespace,
         deploy_name: deployName,
       });
+      // Look up the picked deployment in the cached list so the
+      // result modal's curl example can show the real `model` value
+      // (matches what vLLM was started with) instead of a
+      // `<model field>` placeholder the user would have to swap in
+      // manually. Falls back to deployName when the instance isn't
+      // found — shouldn't happen with a freshly-validated form, but
+      // the placeholder text already explained how to derive it.
+      const picked = deployments.find(
+        (d) =>
+          d.cluster_id === values.cluster_id &&
+          d.namespace === namespace &&
+          d.name === deployName,
+      );
+      const modelField = picked?.model_field || deployName;
       setCreateOpen(false);
       message.success(t('pages.apikeys.toast.created'));
-      setResultData(res);
+      setResultData({ ...res, modelField });
       setCopied(false);
       // Refresh the table in the background; the result modal stays
       // open over it.
@@ -439,11 +458,15 @@ const APIKeysPage: React.FC = () => {
     if (!resultData) return '';
     const k = resultData.key;
     const base = `${window.location.origin}/api/v1/clusters/${k.cluster_id}/proxy/inference/${k.namespace}/${k.deploy_name}/v1/chat/completions`;
+    // model_field captured at submit-time — vLLM rejects anything
+    // that doesn't match its `--model <id>` startup value, so we
+    // pre-fill the real string instead of a placeholder.
+    const modelValue = resultData.modelField || k.deploy_name;
     return [
       `curl -N "${base}" \\`,
       `  -H "Authorization: Bearer ${resultData.token}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '{"model":"<model field>","messages":[{"role":"user","content":"hi"}],"stream":true}'`,
+      `  -d '{"model":"${modelValue}","messages":[{"role":"user","content":"hi"}],"stream":true}'`,
     ].join('\n');
   }, [resultData]);
 
