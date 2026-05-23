@@ -105,8 +105,8 @@ Production exposure (Ingress, external Postgres, image registry mirrors) is cove
 
 <table width="100%">
 <tr>
-<td width="50%"><img src="docs/assets/screenshots/scheduler-config.png" alt="Visual scheduler policy editor" width="480"></td>
 <td width="50%"><img src="docs/assets/screenshots/scheduler-overview.png" alt="Scheduler overview" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/scheduler-config.png" alt="Visual scheduler policy editor" width="480"></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/assets/screenshots/gpu.png" alt="vGPU view" width="480"></td>

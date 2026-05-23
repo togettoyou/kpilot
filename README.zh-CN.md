@@ -105,8 +105,8 @@ helm install kpilot-worker oci://ghcr.io/togettoyou/charts/kpilot \
 
 <table width="100%">
 <tr>
-<td width="50%"><img src="docs/assets/screenshots/scheduler-config.png" alt="调度策略编辑器" width="480"></td>
 <td width="50%"><img src="docs/assets/screenshots/scheduler-overview.png" alt="调度概览" width="480"></td>
+<td width="50%"><img src="docs/assets/screenshots/scheduler-config.png" alt="调度策略编辑器" width="480"></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/assets/screenshots/gpu.png" alt="vGPU 视图" width="480"></td>
