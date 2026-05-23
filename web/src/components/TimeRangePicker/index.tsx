@@ -69,16 +69,20 @@ const TimeRangePicker: React.FC<Props> = ({
 }) => {
   const intl = useIntl();
 
-  // Always show the live effective range — even in preset mode the
-  // picker reflects "now - 1h → now" so clicking the picker opens
-  // on today's date instead of an empty calendar anchored to epoch.
-  // The user can then tweak from a known anchor (the most common
-  // gesture: "this same window but ending 10 min earlier").
-  const resolved = React.useMemo(() => resolveTimeRange(value), [value]);
-  const pickerValue: [Dayjs, Dayjs] = [
-    dayjs(resolved.from),
-    dayjs(resolved.to),
-  ];
+  // Custom-mode RangePicker shows the actual from/to; preset mode
+  // shows empty so the input doesn't flash "filled" values that
+  // would imply a custom range is active.
+  //
+  // The popover view-date is anchored to "now" via defaultPickerValue
+  // (separate from `value`) so opening the calendar lands on today
+  // regardless of mode — fixes the "I have to find the current month
+  // myself" pain.
+  const pickerValue: [Dayjs, Dayjs] | null =
+    value.mode === 'custom' ? [dayjs(value.from), dayjs(value.to)] : null;
+  const todayAnchor: [Dayjs, Dayjs] = React.useMemo(() => {
+    const now = dayjs();
+    return [now, now];
+  }, []);
 
   // antd RangePicker.presets — shows a sidebar of one-click ranges
   // in the popover. Grafana-style quick choices; more granular than
@@ -195,6 +199,7 @@ const TimeRangePicker: React.FC<Props> = ({
         // a preset button instead.
         allowClear={false}
         value={pickerValue}
+        defaultPickerValue={todayAnchor}
         presets={popoverPresets}
         // Disable future dates and anything older than maxDays — the
         // server rejects > 31 days anyway, but blocking it here gives
