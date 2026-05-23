@@ -1559,8 +1559,14 @@ export default {
   'pages.apikeys.lastUsed.never': '从未使用',
   'pages.apikeys.action.revoke': '撤销',
   'pages.apikeys.action.delete': '删除',
+  'pages.apikeys.action.resetUsage': '重置用量',
   'pages.apikeys.action.copy': '复制',
   'pages.apikeys.action.copied': '已复制',
+  'pages.apikeys.column.usage': '用量',
+  'pages.apikeys.usage.none': '未调用',
+  'pages.apikeys.usage.requests': '{n} 次',
+  'pages.apikeys.usage.lifetime': '累计',
+  'pages.apikeys.usage.sinceReset': '自重置以来',
   // Create drawer
   'pages.apikeys.create.title': '新建 API Key',
   'pages.apikeys.create.submit': '签发',
@@ -1592,10 +1598,15 @@ export default {
   'pages.apikeys.confirm.delete.content':
     '删除后此令牌行将永久消失，不留审计记录。如果只是想停用建议改用「撤销」。',
   'pages.apikeys.confirm.delete.ok': '删除',
+  'pages.apikeys.confirm.resetUsage.title': '重置用量',
+  'pages.apikeys.confirm.resetUsage.content':
+    '将本 Key 的调用次数与 Token 用量计数归零，并以当前时间为新统计起点。Key 本身保持有效，仅清空计量数据。',
+  'pages.apikeys.confirm.resetUsage.ok': '重置',
   // Toasts
   'pages.apikeys.toast.created': 'API Key 已生成',
   'pages.apikeys.toast.revoked': '已撤销',
   'pages.apikeys.toast.deleted': '已删除',
+  'pages.apikeys.toast.usageReset': '用量已重置',
 
   // 404
   'pages.404.subTitle': '抱歉，您访问的页面不存在。',

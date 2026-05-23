@@ -265,6 +265,7 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer) *gin.Engine {
 		apiKeys.POST("", handler.CreateAPIKey)
 		apiKeys.GET("", handler.ListAPIKeys)
 		apiKeys.POST("/:id/revoke", handler.RevokeAPIKey)
+		apiKeys.POST("/:id/reset-usage", handler.ResetAPIKeyUsage)
 		apiKeys.DELETE("/:id", handler.DeleteAPIKey)
 	}
 

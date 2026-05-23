@@ -22,6 +22,15 @@ export interface APIKey {
   revoked_at?: string;
   created_at: string;
   updated_at: string;
+  // Lifetime usage metering — bumped by the inference proxy on
+  // every authenticated call. Tokens columns only advance when
+  // the upstream returned a `usage` block (third-party SDKs that
+  // don't set stream_options.include_usage leave them at 0 even
+  // though request_count still increments).
+  prompt_tokens: number;
+  completion_tokens: number;
+  request_count: number;
+  usage_reset_at?: string;
 }
 
 // CreateAPIKeyRequest mirrors the handler's wire shape. Scope fields
@@ -62,6 +71,14 @@ export function createAPIKey(data: CreateAPIKeyRequest) {
 // the middleware rejects auth.
 export function revokeAPIKey(id: number) {
   return request(`/api/v1/api-keys/${id}/revoke`, { method: 'POST' });
+}
+
+// resetAPIKeyUsage zeroes the lifetime token / request counters
+// and stamps usage_reset_at = now. Operator-driven; useful for
+// monthly quota resets or post-incident cleanup. The key itself
+// stays valid — only the metering window starts fresh.
+export function resetAPIKeyUsage(id: number) {
+  return request(`/api/v1/api-keys/${id}/reset-usage`, { method: 'POST' });
 }
 
 // deleteAPIKey is hard delete — the row is gone forever. Use for

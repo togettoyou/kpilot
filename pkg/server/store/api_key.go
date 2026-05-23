@@ -67,6 +67,21 @@ type APIKey struct {
 	// has never been used.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 
+	// Lifetime token / request counters. Bumped by the inference
+	// proxy after every successful upstream call that reported a
+	// `usage` block (SSE final chunk or non-streaming JSON body).
+	// 0 when the key has never been used OR the upstream omitted
+	// usage (third-party OpenAI SDKs that don't send
+	// stream_options.include_usage=true). Not real-time — proxy
+	// writes are best-effort and may lag during DB pressure.
+	PromptTokens     int64 `gorm:"not null;default:0" json:"prompt_tokens"`
+	CompletionTokens int64 `gorm:"not null;default:0" json:"completion_tokens"`
+	RequestCount     int64 `gorm:"not null;default:0" json:"request_count"`
+	// UsageResetAt is the wall-clock moment counters were last
+	// zeroed (operator clicked "reset" in the UI). nil = never
+	// reset → counters reflect lifetime usage since key creation.
+	UsageResetAt *time.Time `json:"usage_reset_at,omitempty"`
+
 	// RevokedAt is nil for active keys. A revoked key stays in the
 	// table for audit; the middleware rejects requests where
 	// RevokedAt != nil. Hard-deleting (DELETE /api/v1/api-keys/:id)
@@ -223,3 +238,36 @@ func TouchAPIKeyLastUsed(id uint) error {
 // surfaced to users; caller just treats "already revoked" as
 // success.
 var errAPIKeyAlreadyRevoked = errors.New("api key already revoked")
+
+// IncrementAPIKeyUsage atomically adds the deltas to a key's
+// lifetime counters. Used by the inference proxy after each
+// upstream call once usage is observed. Caller may pass 0 for any
+// delta (e.g. when only the request count should advance).
+//
+// Single UPDATE — no row lock needed because each column is
+// computed from its own current value; PostgreSQL serialises the
+// expression atomically.
+func IncrementAPIKeyUsage(id uint, prompt, completion, requests int64) error {
+	return DB.Model(&APIKey{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"prompt_tokens":     gorm.Expr("prompt_tokens + ?", prompt),
+			"completion_tokens": gorm.Expr("completion_tokens + ?", completion),
+			"request_count":     gorm.Expr("request_count + ?", requests),
+		}).Error
+}
+
+// ResetAPIKeyUsage zeroes the lifetime counters and stamps
+// UsageResetAt = now. Used by the operator UI to start a fresh
+// quota window (e.g. monthly billing reset).
+func ResetAPIKeyUsage(id uint) error {
+	now := time.Now()
+	return DB.Model(&APIKey{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"prompt_tokens":     0,
+			"completion_tokens": 0,
+			"request_count":     0,
+			"usage_reset_at":    &now,
+		}).Error
+}

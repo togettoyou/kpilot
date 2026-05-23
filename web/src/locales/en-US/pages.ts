@@ -1604,8 +1604,14 @@ export default {
   'pages.apikeys.lastUsed.never': 'Never used',
   'pages.apikeys.action.revoke': 'Revoke',
   'pages.apikeys.action.delete': 'Delete',
+  'pages.apikeys.action.resetUsage': 'Reset usage',
   'pages.apikeys.action.copy': 'Copy',
   'pages.apikeys.action.copied': 'Copied',
+  'pages.apikeys.column.usage': 'Usage',
+  'pages.apikeys.usage.none': 'No calls',
+  'pages.apikeys.usage.requests': '{n} calls',
+  'pages.apikeys.usage.lifetime': 'Lifetime',
+  'pages.apikeys.usage.sinceReset': 'Since reset',
   // Create drawer
   'pages.apikeys.create.title': 'New API Key',
   'pages.apikeys.create.submit': 'Issue',
@@ -1639,10 +1645,15 @@ export default {
   'pages.apikeys.confirm.delete.content':
     "Deleting removes the row entirely with no audit trail. If you only want to disable the key, prefer Revoke.",
   'pages.apikeys.confirm.delete.ok': 'Delete',
+  'pages.apikeys.confirm.resetUsage.title': 'Reset usage',
+  'pages.apikeys.confirm.resetUsage.content':
+    "Zeroes this key's call count and token totals, starting a fresh metering window. The key itself stays valid — only the counters are cleared.",
+  'pages.apikeys.confirm.resetUsage.ok': 'Reset',
   // Toasts
   'pages.apikeys.toast.created': 'API key created',
   'pages.apikeys.toast.revoked': 'Revoked',
   'pages.apikeys.toast.deleted': 'Deleted',
+  'pages.apikeys.toast.usageReset': 'Usage reset',
 
   // 404
   'pages.404.subTitle': 'Sorry, the page you visited does not exist.',

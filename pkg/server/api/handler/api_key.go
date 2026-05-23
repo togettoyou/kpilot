@@ -156,6 +156,33 @@ func RevokeAPIKey(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// ResetAPIKeyUsage zeroes the lifetime token / request counters
+// and stamps UsageResetAt = now. Used by the operator UI to start
+// a fresh metering window (monthly quota reset, post-incident
+// cleanup, etc.). Idempotent — calling on an already-zeroed key
+// just refreshes UsageResetAt.
+func ResetAPIKeyUsage(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+		return
+	}
+	if _, err := store.GetAPIKeyByID(uint(id)); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			apiErr(c, http.StatusNotFound, CodeAPIKeyNotFound)
+			return
+		}
+		apiErrInternal(c, err)
+		return
+	}
+	if err := store.ResetAPIKeyUsage(uint(id)); err != nil {
+		apiErrInternal(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // DeleteAPIKey hard-deletes the row. Used for the "this was a test
 // key, clean up" case. The middleware will 401 any further calls
 // using the leaked plaintext, same as revoke, so security-wise the

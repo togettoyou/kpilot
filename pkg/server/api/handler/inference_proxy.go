@@ -47,7 +47,9 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -58,8 +60,132 @@ import (
 	"github.com/gin-gonic/gin"
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
+	"github.com/togettoyou/kpilot/pkg/server/api/middleware"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+	"github.com/togettoyou/kpilot/pkg/server/store"
 )
+
+// usageScanner extracts the OpenAI-shape `{prompt_tokens,
+// completion_tokens, total_tokens}` block from an inference
+// response. It works in two modes:
+//
+//   - SSE (text/event-stream): per-line scan looking for `data:
+//     {…}` chunks containing a `usage` field. vLLM emits this on
+//     the very last chunk when the client set
+//     `stream_options.include_usage=true`; chunks without it are
+//     ignored, and the scanner keeps whatever was last observed.
+//   - JSON (application/json): the whole body is one chat-completion
+//     response with `usage` at the top level. We buffer up to
+//     usageScannerJSONCap bytes and parse at Done().
+//
+// Writes never error so it can sit behind an io.TeeReader on the
+// hot streaming path with zero risk of stalling the response.
+type usageScanner struct {
+	isStream bool
+	// partialLine buffers the trailing bytes of a chunk that
+	// didn't end at a `\n` so the next Write can finish the line.
+	partialLine []byte
+	// whole buffers the non-stream JSON body (capped).
+	whole []byte
+	// observed holds the most recently seen usage block; nil if
+	// no usage has been observed yet.
+	observed *usageBlock
+}
+
+// usageScannerJSONCap caps how much of a non-stream response body
+// we'll hold in memory waiting to parse. 256 KiB is enough for any
+// realistic chat completion JSON (typical responses run 1–10 KiB);
+// past that we give up on counting tokens for the call to keep
+// memory bounded.
+const usageScannerJSONCap = 256 * 1024
+
+type usageBlock struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+}
+
+func newUsageScanner(contentType string) *usageScanner {
+	return &usageScanner{
+		isStream: strings.Contains(
+			strings.ToLower(contentType),
+			"text/event-stream",
+		),
+	}
+}
+
+// Write implements io.Writer. Never errors — see type-level
+// comment.
+func (u *usageScanner) Write(p []byte) (int, error) {
+	if u.isStream {
+		u.feedStream(p)
+	} else if len(u.whole) < usageScannerJSONCap {
+		remain := usageScannerJSONCap - len(u.whole)
+		if remain > len(p) {
+			remain = len(p)
+		}
+		u.whole = append(u.whole, p[:remain]...)
+	}
+	return len(p), nil
+}
+
+func (u *usageScanner) feedStream(p []byte) {
+	u.partialLine = append(u.partialLine, p...)
+	for {
+		i := bytes.IndexByte(u.partialLine, '\n')
+		if i < 0 {
+			return
+		}
+		line := u.partialLine[:i]
+		u.partialLine = u.partialLine[i+1:]
+		// Strip the trailing \r from CRLF.
+		if n := len(line); n > 0 && line[n-1] == '\r' {
+			line = line[:n-1]
+		}
+		u.processLine(line)
+	}
+}
+
+func (u *usageScanner) processLine(line []byte) {
+	if !bytes.HasPrefix(line, []byte("data: ")) {
+		return
+	}
+	payload := bytes.TrimSpace(line[len("data: "):])
+	if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+		return
+	}
+	var obj struct {
+		Usage *usageBlock `json:"usage"`
+	}
+	if err := json.Unmarshal(payload, &obj); err != nil {
+		return
+	}
+	if obj.Usage != nil {
+		u.observed = obj.Usage
+	}
+}
+
+// Done finalises and returns the observed usage block. For
+// non-stream responses this is when we actually parse the buffered
+// body. Returns nil when no usage could be extracted (third-party
+// SDKs that don't send include_usage, response truncated mid-
+// stream, body exceeded JSON cap, etc.) — caller treats nil as
+// "couldn't count, skip the increment".
+func (u *usageScanner) Done() *usageBlock {
+	if u.isStream {
+		return u.observed
+	}
+	if len(u.whole) == 0 {
+		return nil
+	}
+	var obj struct {
+		Usage *usageBlock `json:"usage"`
+	}
+	if err := json.Unmarshal(u.whole, &obj); err != nil {
+		return nil
+	}
+	return obj.Usage
+}
 
 // inferenceStreamTimeout caps a single proxied call. LLM cold-start
 // + long-context generation can run minutes; 10 min is past every
@@ -157,7 +283,26 @@ func ProxyInferenceOpenAI(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		defer stream.Close()
 
-		writeStreamingResponse(c, stream, clusterID, namespace, name)
+		usage := writeStreamingResponse(c, stream, clusterID, namespace, name)
+
+		// Per-call metering: bump RequestCount on every authenticated
+		// call (so an operator sees raw call frequency even without
+		// usage), and bump token columns when the upstream actually
+		// returned a usage block. Async — observability shouldn't
+		// block the response.
+		if keyID := middleware.APIKeyID(c); keyID != 0 {
+			var prompt, completion int64
+			if usage != nil {
+				prompt = usage.PromptTokens
+				completion = usage.CompletionTokens
+			}
+			go func(id uint, p, comp int64) {
+				if err := store.IncrementAPIKeyUsage(id, p, comp, 1); err != nil {
+					log.Printf("[inference-proxy] usage increment failed: keyID=%d err=%v",
+						id, err)
+				}
+			}(keyID, prompt, completion)
+		}
 	}
 }
 
@@ -206,13 +351,13 @@ func buildUpstreamInferenceHeaders(c *gin.Context) []*pbv2.HTTPHeader {
 // that point we've already sent 200 + partial body, and overwriting
 // the status is illegal. The client's SDK parser will see truncated
 // SSE and error out on its own.
-func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterID, namespace, name string) {
+func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterID, namespace, name string) *usageBlock {
 	// Worker-side dispatch error: 502 + error body, no streaming.
 	if stream.Error != "" {
 		log.Printf("[inference-proxy] worker dispatch failed: cluster=%s ns=%s name=%s err=%s",
 			clusterID, namespace, name, stream.Error)
 		apiErrDetail(c, http.StatusBadGateway, CodeProxyUpstream, stream.Error)
-		return
+		return nil
 	}
 
 	flusher, _ := c.Writer.(http.Flusher)
@@ -283,15 +428,30 @@ func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterI
 		}
 	}()
 
+	// Side-channel usage scanner — observes the same bytes flowing
+	// to the client to fish out the `{prompt_tokens, completion_
+	// tokens, total_tokens}` block. Returned to the caller for
+	// per-key counter increment.
+	ct := ""
+	for _, h := range stream.Headers {
+		if http.CanonicalHeaderKey(h.Name) == "Content-Type" {
+			ct = h.Value
+			break
+		}
+	}
+	scanner := newUsageScanner(ct)
+
 	buf := make([]byte, 32*1024)
 	for {
 		n, rerr := stream.Body.Read(buf)
 		if n > 0 {
+			// Sniff first so partial-write failures still account.
+			_, _ = scanner.Write(buf[:n])
 			_ = rc.SetWriteDeadline(time.Now().Add(inferenceWriteTimeout))
 			if _, werr := c.Writer.Write(buf[:n]); werr != nil {
 				log.Printf("[inference-proxy] client write failed (likely disconnect): cluster=%s ns=%s name=%s err=%v",
 					clusterID, namespace, name, werr)
-				return
+				return scanner.Done()
 			}
 			if flusher != nil {
 				flusher.Flush()
@@ -302,7 +462,7 @@ func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterI
 				log.Printf("[inference-proxy] upstream read ended: cluster=%s ns=%s name=%s err=%v",
 					clusterID, namespace, name, rerr)
 			}
-			return
+			return scanner.Done()
 		}
 	}
 }

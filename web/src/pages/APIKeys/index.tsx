@@ -46,6 +46,7 @@ import {
   createAPIKey,
   deleteAPIKey,
   listAPIKeys,
+  resetAPIKeyUsage,
   revokeAPIKey,
 } from '@/services/kpilot/api-key';
 import type { Cluster } from '@/services/kpilot/cluster';
@@ -239,6 +240,21 @@ const APIKeysPage: React.FC = () => {
     });
   };
 
+  const askResetUsage = (row: APIKey) => {
+    modal.confirm({
+      title: t('pages.apikeys.confirm.resetUsage.title'),
+      icon: <ExclamationCircleOutlined />,
+      content: t('pages.apikeys.confirm.resetUsage.content'),
+      okText: t('pages.apikeys.confirm.resetUsage.ok'),
+      cancelText: t('pages.apikeys.create.cancel'),
+      onOk: async () => {
+        await resetAPIKeyUsage(row.id);
+        message.success(t('pages.apikeys.toast.usageReset'));
+        fetchKeys();
+      },
+    });
+  };
+
   // ─── Cluster id → name lookup, used in scope column ────────────────
   const clusterNameById = useMemo(() => {
     const m: Record<string, string> = {};
@@ -324,6 +340,51 @@ const APIKeysPage: React.FC = () => {
           </Text>
         ),
     },
+    // Usage metering column. Two-line cell: requests count on top,
+    // prompt → completion token totals underneath. Tooltip surfaces
+    // the absolute reset timestamp so an operator can confirm what
+    // window the numbers cover.
+    {
+      title: t('pages.apikeys.column.usage'),
+      key: 'usage',
+      width: 220,
+      render: (_, row) => {
+        const requests = row.request_count ?? 0;
+        const prompt = row.prompt_tokens ?? 0;
+        const completion = row.completion_tokens ?? 0;
+        const total = prompt + completion;
+        if (requests === 0) {
+          return (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('pages.apikeys.usage.none')}
+            </Text>
+          );
+        }
+        const since = row.usage_reset_at
+          ? t('pages.apikeys.usage.sinceReset', '自重置以来')
+          : t('pages.apikeys.usage.lifetime', '累计');
+        const tip = row.usage_reset_at
+          ? `${since}：${dayjs(row.usage_reset_at).format('YYYY-MM-DD HH:mm:ss')}`
+          : since;
+        return (
+          <Tooltip title={tip}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Text style={{ fontSize: 12 }}>
+                {t('pages.apikeys.usage.requests', '{n} 次').replace(
+                  '{n}',
+                  formatBigNumber(requests),
+                )}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {formatBigNumber(prompt)} → {formatBigNumber(completion)}
+                {' = '}
+                {formatBigNumber(total)} tok
+              </Text>
+            </div>
+          </Tooltip>
+        );
+      },
+    },
     {
       title: t('pages.apikeys.column.createdAt'),
       dataIndex: 'created_at',
@@ -339,10 +400,18 @@ const APIKeysPage: React.FC = () => {
     {
       title: t('pages.apikeys.column.actions'),
       key: 'actions',
-      width: 160,
+      width: 240,
       fixed: 'right',
       render: (_, row) => (
         <Space>
+          {(row.request_count ?? 0) > 0 && (
+            <Button
+              size="small"
+              onClick={() => askResetUsage(row)}
+            >
+              {t('pages.apikeys.action.resetUsage')}
+            </Button>
+          )}
           {!row.revoked_at && (
             <Button
               size="small"
@@ -588,5 +657,16 @@ const APIKeysPage: React.FC = () => {
     </PageContainer>
   );
 };
+
+// formatBigNumber renders ints with locale-friendly grouping +
+// k / M shorthand past 10k so a busy key's "12,345,678" doesn't
+// dominate the column width. Used by the usage cell.
+function formatBigNumber(n: number): string {
+  if (!Number.isFinite(n)) return '0';
+  if (n < 10_000) return n.toLocaleString();
+  if (n < 1_000_000) return `${(n / 1_000).toFixed(1)}k`;
+  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  return `${(n / 1_000_000_000).toFixed(2)}B`;
+}
 
 export default APIKeysPage;
