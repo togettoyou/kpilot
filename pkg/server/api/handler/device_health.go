@@ -235,11 +235,17 @@ func collectDeviceAlerts(ctx context.Context, gw *gateway.GatewayServer, cluster
 			},
 		},
 		{
-			// FB memory near full — DCGM_FI_DEV_FB_USED is in MiB; pair
-			// with FB_TOTAL to get a ratio. Threshold 95% catches the
-			// case where the next allocator would OOM the job. Value
-			// stays a [0,1] ratio; frontend renders as percentage.
-			promql: `(DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL) > 0.95`,
+			// FB memory near full — DCGM_FI_DEV_FB_USED in MiB divided
+			// by per-card capacity. DCGM exporter 4.x does NOT publish
+			// DCGM_FI_DEV_FB_TOTAL (verified in gpu_metrics.go:145), so
+			// the original `FB_USED / FB_TOTAL` reduced to NaN and this
+			// alert never fired. Use `FB_USED + FB_FREE` to recover
+			// total per-card; the two metrics share all labels so the
+			// default vector matching binds them point-for-point.
+			// Threshold 95% catches the case where the next allocator
+			// would OOM the job. Value stays a [0,1] ratio; frontend
+			// renders as percentage.
+			promql: `DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE) > 0.95`,
 			fn: func(s vmSeries) deviceAlert {
 				return deviceAlert{
 					Severity: severityWarning,
