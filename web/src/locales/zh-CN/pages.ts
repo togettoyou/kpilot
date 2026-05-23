@@ -1299,10 +1299,19 @@ export default {
   // on workload rows.
   'pages.rollout.restart': '重启',
   'pages.rollout.restart.success': '已触发滚动重启',
+  'pages.rollout.restart.confirm.title': '滚动重启 {name}？',
+  'pages.rollout.restart.confirm.note':
+    '将更新 Pod 模板的重启时间戳注解，由控制器按滚动策略逐个重建 Pod。期间会有短暂的服务波动（取决于 readiness 探针配置），就绪后才滚下一个。',
   'pages.rollout.pause': '暂停滚动',
   'pages.rollout.pause.success': '已暂停滚动',
+  'pages.rollout.pause.confirm.title': '暂停 {name} 的滚动？',
+  'pages.rollout.pause.confirm.note':
+    '暂停后，对该 Deployment 的任何修改（镜像、副本数、env 等）都不会触发新一次发布，直到你点"恢复滚动"。不影响当前正在运行的 Pod。常用于灰度 / 配合 canary。',
   'pages.rollout.resume': '恢复滚动',
   'pages.rollout.resume.success': '已恢复滚动',
+  'pages.rollout.resume.confirm.title': '恢复 {name} 的滚动？',
+  'pages.rollout.resume.confirm.note':
+    '恢复后，暂停期间累积的所有修改将立即按滚动策略发布。如果暂停期间改过镜像，恢复即等于一次新发版。',
   'pages.rollout.history': '历史版本',
   'pages.rollout.title': '滚动历史',
   'pages.rollout.current': '当前',

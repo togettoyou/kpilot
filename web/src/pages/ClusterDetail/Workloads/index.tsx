@@ -423,7 +423,7 @@ export function WorkloadsContent({
   showCRBackArrow = true,
 }: WorkloadsContentProps) {
   const intl = useIntl();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   // Cluster-scoped resources (PV/SC/GatewayClass/CRD) have no namespace;
   // sending one yields 404. For the CR-instances viewer, scope comes
   // from the CRD's spec.scope (passed via `cr.scope`).
@@ -708,58 +708,100 @@ export function WorkloadsContent({
     [clusterId, resourceType, cr, intl, message, burst],
   );
 
-  // Rollout shortcuts (restart / pause / resume). Same shape as
-  // handleDelete: server constructs the patch, client just calls
-  // the verb, burst-refresh catches the converged state.
+  // Rollout shortcuts (restart / pause / resume). Each wrapped in
+  // modal.confirm so the user sees what's about to happen — these
+  // touch live traffic (restart cycles Pods one by one, pause/resume
+  // changes rollout semantics for future edits). The dialog body
+  // explains the effect; OK button color flags the destructiveness.
   const handleRestart = React.useCallback(
-    async (item: WorkloadItem) => {
-      try {
-        await rolloutRestart(
-          clusterId,
-          resourceType as WorkloadResourceType,
-          item.name,
-          item.namespace ?? '',
-        );
-        message.success(
-          intl.formatMessage({ id: 'pages.rollout.restart.success' }),
-        );
-        burst();
-      } catch {
-        /* global error handler shows the toast */
-      }
+    (item: WorkloadItem) => {
+      modal.confirm({
+        title: intl.formatMessage(
+          { id: 'pages.rollout.restart.confirm.title' },
+          { name: item.name },
+        ),
+        content: intl.formatMessage({
+          id: 'pages.rollout.restart.confirm.note',
+        }),
+        okType: 'danger',
+        okText: intl.formatMessage({ id: 'pages.rollout.restart' }),
+        cancelText: intl.formatMessage({ id: 'pages.common.cancel' }),
+        onOk: async () => {
+          try {
+            await rolloutRestart(
+              clusterId,
+              resourceType as WorkloadResourceType,
+              item.name,
+              item.namespace ?? '',
+            );
+            message.success(
+              intl.formatMessage({ id: 'pages.rollout.restart.success' }),
+            );
+            burst();
+          } catch {
+            /* global error handler shows the toast */
+          }
+        },
+      });
     },
-    [clusterId, resourceType, intl, message, burst],
+    [clusterId, resourceType, intl, message, modal, burst],
   );
   const handlePauseResume = React.useCallback(
-    async (item: WorkloadItem, paused: boolean) => {
-      try {
-        if (paused) {
-          await rolloutResume(
-            clusterId,
-            resourceType as WorkloadResourceType,
-            item.name,
-            item.namespace ?? '',
-          );
-          message.success(
-            intl.formatMessage({ id: 'pages.rollout.resume.success' }),
-          );
-        } else {
-          await rolloutPause(
-            clusterId,
-            resourceType as WorkloadResourceType,
-            item.name,
-            item.namespace ?? '',
-          );
-          message.success(
-            intl.formatMessage({ id: 'pages.rollout.pause.success' }),
-          );
-        }
-        burst();
-      } catch {
-        /* global error handler shows the toast */
-      }
+    (item: WorkloadItem, paused: boolean) => {
+      // Different copy + ok button styling per direction. Pause is
+      // closer to "freeze" (safe, reversible). Resume is closer to
+      // "go live" (anything edited while paused deploys now).
+      const isResume = paused;
+      modal.confirm({
+        title: intl.formatMessage(
+          {
+            id: isResume
+              ? 'pages.rollout.resume.confirm.title'
+              : 'pages.rollout.pause.confirm.title',
+          },
+          { name: item.name },
+        ),
+        content: intl.formatMessage({
+          id: isResume
+            ? 'pages.rollout.resume.confirm.note'
+            : 'pages.rollout.pause.confirm.note',
+        }),
+        okText: intl.formatMessage({
+          id: isResume ? 'pages.rollout.resume' : 'pages.rollout.pause',
+        }),
+        cancelText: intl.formatMessage({ id: 'pages.common.cancel' }),
+        okButtonProps: isResume ? { type: 'primary' } : undefined,
+        onOk: async () => {
+          try {
+            if (isResume) {
+              await rolloutResume(
+                clusterId,
+                resourceType as WorkloadResourceType,
+                item.name,
+                item.namespace ?? '',
+              );
+              message.success(
+                intl.formatMessage({ id: 'pages.rollout.resume.success' }),
+              );
+            } else {
+              await rolloutPause(
+                clusterId,
+                resourceType as WorkloadResourceType,
+                item.name,
+                item.namespace ?? '',
+              );
+              message.success(
+                intl.formatMessage({ id: 'pages.rollout.pause.success' }),
+              );
+            }
+            burst();
+          } catch {
+            /* global error handler shows the toast */
+          }
+        },
+      });
     },
-    [clusterId, resourceType, intl, message, burst],
+    [clusterId, resourceType, intl, message, modal, burst],
   );
 
   const isPods = resourceType === 'pods';

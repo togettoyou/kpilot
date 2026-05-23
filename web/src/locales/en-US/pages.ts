@@ -1347,10 +1347,19 @@ export default {
   // on workload rows.
   'pages.rollout.restart': 'Restart',
   'pages.rollout.restart.success': 'Rolling restart triggered',
+  'pages.rollout.restart.confirm.title': 'Rolling restart {name}?',
+  'pages.rollout.restart.confirm.note':
+    'Stamps a fresh restartedAt annotation on the Pod template; the controller recreates Pods one at a time per the rolling-update strategy. Expect a brief service blip during readiness probe transitions — the controller waits for each Pod to become ready before moving on.',
   'pages.rollout.pause': 'Pause rollout',
   'pages.rollout.pause.success': 'Rollout paused',
+  'pages.rollout.pause.confirm.title': 'Pause rollout for {name}?',
+  'pages.rollout.pause.confirm.note':
+    'While paused, any edits to this Deployment (image, replicas, env, …) accumulate without triggering a new rollout until you click Resume. Currently-running Pods are unaffected. Useful for canary / staged config changes.',
   'pages.rollout.resume': 'Resume rollout',
   'pages.rollout.resume.success': 'Rollout resumed',
+  'pages.rollout.resume.confirm.title': 'Resume rollout for {name}?',
+  'pages.rollout.resume.confirm.note':
+    'Resuming applies every edit accumulated while paused — if you changed the image during the pause, resuming is effectively a new release.',
   'pages.rollout.history': 'History',
   'pages.rollout.title': 'Rollout history',
   'pages.rollout.current': 'current',
