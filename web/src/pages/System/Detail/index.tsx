@@ -589,6 +589,13 @@ export default function SystemDetailPage() {
                       decimals={0}
                     />
                   </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.caches' })}
+                      series={series.caches}
+                      decimals={0}
+                    />
+                  </Col>
                 </Row>
               </React.Suspense>
             ),
@@ -748,6 +755,7 @@ interface AllSeries {
   dbWait: SystemSeries[];
   proxyInflight: SystemSeries[];
   routerHit: SystemSeries[];
+  caches: SystemSeries[]; // handler-layer cache sizes (server only)
 }
 
 function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
@@ -979,6 +987,24 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
   ]);
   const routerHit = single('hit_rate', (s) => num(s.custom?.in_cluster_router, 'hit_rate'));
 
+  // Server handler-layer caches (plugin URL resolver, per-cluster
+  // reverse-proxy semaphores, VM response TTL cache). All small;
+  // anomaly = "this should be 50 but it's 5000" suggests a leak.
+  const caches = [
+    {
+      name: 'plugin_resolve',
+      points: ring.map((s, i) => ({ t: ts[i], v: num(s.custom?.caches, 'plugin_resolve') })),
+    },
+    {
+      name: 'proxy_semaphores',
+      points: ring.map((s, i) => ({ t: ts[i], v: num(s.custom?.caches, 'proxy_semaphores') })),
+    },
+    {
+      name: 'vm_response',
+      points: ring.map((s, i) => ({ t: ts[i], v: num(s.custom?.caches, 'vm_response') })),
+    },
+  ];
+
   return {
     goroutines: single('goroutines', (s) => s.runtime.goroutines),
     heap: single('heap_inuse', (s) => s.runtime.heap_inuse_bytes),
@@ -1048,6 +1074,7 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
     dbWait,
     proxyInflight,
     routerHit,
+    caches,
   };
 }
 
@@ -1086,5 +1113,6 @@ function emptySeries(): AllSeries {
     dbWait: [],
     proxyInflight: [],
     routerHit: [],
+    caches: [],
   };
 }

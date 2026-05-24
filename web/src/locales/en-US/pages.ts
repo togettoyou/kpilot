@@ -1722,6 +1722,7 @@ export default {
   'system.chart.procVsGoCpu': 'Process CPU vs Go Runtime CPU',
   'system.chart.osThreads': 'OS threads',
   'system.chart.diskIO': 'Disk I/O rate',
+  'system.chart.caches': 'Handler cache sizes',
   'system.chart.allocRate': 'Allocation rate',
   'system.chart.schedLat': 'Scheduler latency percentiles',
   'system.chart.mutexWait': 'Mutex wait (cumulative)',

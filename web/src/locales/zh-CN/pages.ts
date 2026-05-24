@@ -1675,6 +1675,7 @@ export default {
   'system.chart.procVsGoCpu': 'Process CPU vs Go Runtime CPU',
   'system.chart.osThreads': 'OS 线程数',
   'system.chart.diskIO': '磁盘 I/O 速率',
+  'system.chart.caches': 'Handler 缓存大小',
   'system.chart.allocRate': 'Alloc 速率',
   'system.chart.schedLat': '调度延迟分位',
   'system.chart.mutexWait': 'Mutex 等待累计',
