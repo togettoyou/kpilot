@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"runtime/metrics"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -57,7 +56,7 @@ func New(kind, name, appVersion string) *Diag {
 			Name:       name,
 			Hostname:   host,
 			PID:        os.Getpid(),
-			StartTime:  time.Now(),
+			startTime:  time.Now(),
 			GoVersion:  runtime.Version(),
 			GoOS:       runtime.GOOS,
 			GoArch:     runtime.GOARCH,
@@ -97,7 +96,7 @@ func (d *Diag) Register(c Collector) {
 // full Snapshot.
 func (d *Diag) Identity() Identity {
 	id := d.identity
-	id.UptimeSec = time.Since(d.identity.StartTime).Seconds()
+	id.UptimeSec = time.Since(d.identity.startTime).Seconds()
 	return id
 }
 
@@ -131,7 +130,7 @@ func (d *Diag) Snapshot() Snapshot {
 	}
 
 	id := d.identity
-	id.UptimeSec = time.Since(d.identity.StartTime).Seconds()
+	id.UptimeSec = time.Since(d.identity.startTime).Seconds()
 
 	return Snapshot{
 		Identity: id,
@@ -185,7 +184,6 @@ func (d *Diag) readRuntimeLocked() RuntimeMetrics {
 		CPUScavengeSeconds:    f(idxCPUScavenge),
 		CPUIdleSeconds:        f(idxCPUIdle),
 		CPUGCSeconds:          f(idxCPUGC),
-		CPUTotalSeconds:       f(idxCPUTotal),
 		MutexWaitTotalSeconds: f(idxMutexWait),
 	}
 
@@ -221,21 +219,23 @@ func (d *Diag) readRuntimeLocked() RuntimeMetrics {
 		rt.SystemMemAvailableBytes = sm.AvailableBytes
 
 		rt.MemTotalBytes = d.sys.readMemTotalBytes()
+
+		// Working set: cgroup-derived in a container (matches kubectl
+		// top exactly); RSS fallback when no cgroup is detected.
+		// readCgroupWorkingSet is gated on a non-max cgroup memory
+		// limit being present, so on bare-metal Linux (root cgroup,
+		// no limit) it returns 0 and we use RSS — which is what an
+		// operator would expect there since there's no container to
+		// align with anyway.
+		if ws := readCgroupWorkingSet(); ws > 0 {
+			rt.WorkingSetBytes = ws
+		} else {
+			rt.WorkingSetBytes = rt.RSSBytes
+		}
 	}
 	rt.MaxFDs = readMaxFDs()
 
 	return rt
-}
-
-// readMaxFDs reads the per-process file-descriptor rlimit. Stdlib
-// syscall.Getrlimit works identically on Linux + macOS; for Windows
-// it returns ENOSYS and we leave the field at 0.
-func readMaxFDs() uint64 {
-	var rl syscall.Rlimit
-	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rl); err != nil {
-		return 0
-	}
-	return rl.Cur
 }
 
 // histTracker keeps the prior cumulative bucket counts of a runtime

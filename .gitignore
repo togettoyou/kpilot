@@ -49,3 +49,6 @@ go.work.sum
 # Helm subchart cache (downloaded by `helm dependency build`). The
 # pinned versions live in Chart.lock, which IS committed.
 deploy/chart/charts/*.tgz
+
+# Local perf reports (not tracked)
+PERF.md

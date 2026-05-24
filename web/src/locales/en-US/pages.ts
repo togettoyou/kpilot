@@ -1265,6 +1265,7 @@ export default {
     'Cluster not connected — Worker may be offline',
   'errors.WORKER_TIMEOUT': 'Cluster timed out, please try again',
   'errors.WORKER_ERROR': 'Worker returned an error',
+  'errors.SERVER_BUSY': 'Server is busy, please retry or reduce the row limit',
   'errors.WORKER_CONFLICT':
     'Resource was modified by someone else. Close and reopen the editor to retry.',
   'errors.RESOURCE_NOT_AVAILABLE':
@@ -1683,8 +1684,6 @@ export default {
   'system.kpi.sessions': 'sessions',
   'system.kpi.streams': 'streams',
   'system.kpi.inflight': 'inflight',
-  'system.kpi.tunnelUp': 'tunnel↑',
-  'system.kpi.tunnelDown': 'tunnel↓',
 
   // System detail page (/system/:node)
   'system.detail.back': 'Back to nodes',
@@ -1753,7 +1752,7 @@ export default {
   'system.chart.memPct': 'Memory utilization',
   'system.chart.rss': 'RSS',
   'system.chart.memUsage': 'Memory usage',
-  'system.chart.systemMem': 'System memory (used / available)',
+  'system.chart.systemMem': 'Host memory (used / available)',
   'system.chart.heapGoal': 'Heap: in-use vs GC goal',
   'system.chart.cpuBreakdown': 'CPU breakdown (user / gc / scavenge)',
   'system.chart.procVsGoCpu': 'Process CPU vs Go Runtime CPU',

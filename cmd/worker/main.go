@@ -73,6 +73,19 @@ func main() {
 	if err != nil {
 		mainLog.Infof("no kubeconfig available, node + plugin features disabled: %v", err)
 	} else {
+		// client-go default QPS=5 burst=10 throttles every K8s API
+		// call we proxy. With KPilot fronting bursty operator traffic
+		// (the cluster page lists pods + deployments + nodes in
+		// parallel; multiple operators do this concurrently) the
+		// default is the limiter, not the apiserver. Stress test saw
+		// 93.8% 503s at c=256 /workloads/pods — every request
+		// queued behind the 5 QPS bucket, timed out, then bubbled
+		// up to handleWorkerErr → CLUSTER_NOT_CONNECTED. Lift the
+		// limits to something that lets the apiserver itself be the
+		// admission control: a single k3s/kube-apiserver routinely
+		// handles 100s of QPS per client.
+		k8sCfg.QPS = 100
+		k8sCfg.Burst = 200
 		scheme := runtime.NewScheme()
 		if err := clientgoscheme.AddToScheme(scheme); err != nil {
 			mainLog.Fatalf("failed to add k8s scheme: %v", err)

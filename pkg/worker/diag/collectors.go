@@ -25,12 +25,14 @@ func (c TunnelCollector) Collect() map[string]any {
 		return nil
 	}
 	s := c.Client.DiagStats()
+	// `connected` + `server_addr` were dropped: connected is redundant
+	// with the server's own gw.GetWorker view (surfaced as the row's
+	// online tag), and server_addr is operator-configured and visible
+	// from the deployment manifest.
 	return map[string]any{
-		"connected":              s.Connected,
 		"session_uptime_seconds": s.SessionUptimeS,
 		"reconnect_total":        s.ReconnectTotal,
 		"streams_open":           s.StreamsOpen,
-		"server_addr":            s.ServerAddr,
 	}
 }
 
@@ -80,12 +82,14 @@ func (c RouterCollector) Collect() map[string]any {
 		return nil
 	}
 	s := c.Router.Stats()
+	// `mode` + `age_seconds` were dropped: cache mode is engineering
+	// detail not actionable from the dashboard, and a 24h-TTL cache
+	// age doesn't move on operator timescales — hit_rate already
+	// surfaces any degradation worth attention.
 	return map[string]any{
-		"mode":        s.Mode,
-		"age_seconds": s.AgeSeconds,
-		"hits":        s.Hits,
-		"misses":      s.Misses,
-		"hit_rate":    s.HitRate,
+		"hits":     s.Hits,
+		"misses":   s.Misses,
+		"hit_rate": s.HitRate,
 	}
 }
 

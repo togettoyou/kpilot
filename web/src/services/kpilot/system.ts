@@ -12,7 +12,6 @@ export interface SystemIdentity {
   name: string;
   hostname: string;
   pid: number;
-  start_time: string;
   uptime_seconds: number;
   go_version: string;
   goos: string;
@@ -49,11 +48,17 @@ export interface SystemRuntime {
   cpu_scavenge_seconds: number;
   cpu_idle_seconds: number;
   cpu_gc_seconds: number;
-  cpu_total_seconds: number;
   mutex_wait_total_seconds: number;
   open_fds: number;
   max_fds: number;
   mem_total_bytes: number;
+  // working_set_bytes is the same number `kubectl top pod` shows in
+  // the MEMORY column: cgroup `memory.current − inactive_file` (v2) /
+  // `usage_in_bytes − total_inactive_file` (v1). Use this — not
+  // rss_bytes — anywhere the goal is "match what the operator sees
+  // in kubectl". Falls back to rss_bytes when no cgroup is detected
+  // (bare-metal Linux, macOS, Windows).
+  working_set_bytes: number;
   // Kernel-counted (not Go-runtime) CPU times for this PID — more
   // accurate than cpu_user_seconds in cgo / cpu-throttled containers
   // because the kernel sees every thread, not just Go-managed ones.

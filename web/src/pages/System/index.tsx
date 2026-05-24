@@ -32,11 +32,14 @@ export default function SystemLandingPage() {
   const [nodes, setNodes] = useState<SystemNode[]>([]);
   const [envelopes, setEnvelopes] = useState<Record<string, SystemSnapshotEnvelope>>({});
   // prevEnvelopes is the previous poll's batch — we need two samples
-  // to derive CPU% / CPU cores from the cumulative cpu_*_seconds
-  // counters in runtime/metrics. First load shows "—" for CPU; the
-  // second poll has both, so it's accurate from then on. 10 s window
-  // between samples (REFRESH_INTERVAL_MS) gives a 10-second averaged
-  // CPU number, which is fine for a navigation page.
+  // to derive CPU% / CPU cores from the cumulative kernel-counted
+  // process_cpu_{user,system}_seconds counters. First load shows "—"
+  // for CPU; the second poll has both, so it's accurate from then on.
+  // 10 s window between samples (REFRESH_INTERVAL_MS) gives a
+  // 10-second averaged CPU number, which is fine for a navigation
+  // page. Runtime/metrics cpu_classes is intentionally NOT used here
+  // — it excludes syscall waits and undercounts by ~10× on an I/O
+  // server; see Detail page comment for the full rationale.
   const [prevEnvelopes, setPrevEnvelopes] = useState<Record<string, SystemSnapshotEnvelope>>(
     {},
   );
@@ -177,18 +180,21 @@ export default function SystemLandingPage() {
         if (prev) {
           const a = prev.runtime;
           const b = cur.runtime;
-          const totalDelta = b.cpu_total_seconds - a.cpu_total_seconds;
-          const busyDelta =
-            b.cpu_user_seconds +
-            b.cpu_gc_seconds +
-            b.cpu_scavenge_seconds -
-            (a.cpu_user_seconds + a.cpu_gc_seconds + a.cpu_scavenge_seconds);
+          // Use kernel-tracked process CPU (gopsutil reads /proc/<pid>/stat),
+          // NOT Go runtime/metrics cpu_classes_*. The Go-runtime view excludes
+          // time spent in syscall waits (and our HTTP server is mostly syscall
+          // I/O), so cpu_classes massively undercounts — kubectl top reports
+          // 99% while runtime-based calc shows 8%. process_cpu_*_seconds is
+          // the same source kubectl/cAdvisor uses, so numbers now agree.
           const wallSec = (new Date(cur.at).getTime() - new Date(prev.at).getTime()) / 1000;
-          if (totalDelta > 0) {
-            pct = Math.max(0, Math.min(1, busyDelta / totalDelta));
-          }
-          if (wallSec > 0 && busyDelta >= 0) {
-            cores = busyDelta / wallSec;
+          const procDelta =
+            b.process_cpu_user_seconds +
+            b.process_cpu_system_seconds -
+            (a.process_cpu_user_seconds + a.process_cpu_system_seconds);
+          if (wallSec > 0 && procDelta >= 0) {
+            cores = procDelta / wallSec;
+            const numCPU = cur.identity.num_cpu || 1;
+            pct = Math.max(0, Math.min(1, cores / numCPU));
           }
         }
         return (
@@ -208,19 +214,23 @@ export default function SystemLandingPage() {
         );
       },
     },
-    // Memory — % primary, RSS / total secondary. Single-snapshot
-    // derivation. When mem_total isn't populated (macOS/Windows
-    // workers — no /proc) we still render the 0% / 0 B line so the
-    // column visually behaves the same as a Linux row at idle.
+    // Memory — % primary, working-set / total secondary. Uses
+    // working_set_bytes (cgroup `memory.current − inactive_file`)
+    // so the number agrees with `kubectl top pod`. Falls back to
+    // RSS on non-cgroup hosts (set by the backend, transparent
+    // here). When mem_total isn't populated (no cgroup limit set,
+    // or macOS/Windows dev) we still render the 0% / bytes line so
+    // the column visually behaves the same as a constrained row.
     {
       title: intl.formatMessage({ id: 'system.col.memory', defaultMessage: '内存' }),
       width: 180,
       render: (_, row) => {
         const r = row.envelope?.snapshot?.runtime;
         if (!r) return '—';
+        const used = r.working_set_bytes || r.rss_bytes;
         const hasTotal = r.mem_total_bytes > 0;
         const pct = hasTotal
-          ? Math.max(0, Math.min(1, r.rss_bytes / r.mem_total_bytes))
+          ? Math.max(0, Math.min(1, used / r.mem_total_bytes))
           : 0;
         return (
           <div style={{ lineHeight: 1.3 }}>
@@ -233,7 +243,7 @@ export default function SystemLandingPage() {
             />
             <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #999)' }}>
               {hasTotal && `${formatPercent(pct)} · `}
-              {formatBytes(r.rss_bytes)}
+              {formatBytes(used)}
               {hasTotal && ` / ${formatBytes(r.mem_total_bytes)}`}
             </div>
           </div>

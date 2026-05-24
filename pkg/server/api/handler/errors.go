@@ -50,6 +50,12 @@ const (
 	// carry ?confirm=true. Without this a casual click on the URL
 	// would burn 30 s of CPU per accidental fetch.
 	CodePprofConfirmationRequired = "PPROF_CONFIRMATION_REQUIRED"
+	// CodeServerBusy is the back-pressure signal for endpoints
+	// that hold the server too much in-flight memory at once (e.g.
+	// /system/:node/logs with limit≥1000 — each response can be
+	// several MB of JSON). When the semaphore is full we'd rather
+	// 503 immediately than OOM the pod.
+	CodeServerBusy = "SERVER_BUSY"
 )
 
 // apiErr writes a JSON error response with the given code.

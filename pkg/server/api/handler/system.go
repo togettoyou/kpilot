@@ -262,10 +262,27 @@ var systemLogsRangePresets = map[string]timeRangeSpec{
 //	                                    ?module=<exact-or-prefix>
 //	                                    ?q=<substring>
 //
-// Hard cap 5 000 rows/response. Frontend uses virtual scrolling so
+// Hard cap 10 000 rows/response. Frontend uses virtual scrolling so
 // larger windows just trim oldest first (newest-first order).
 //
+// Concurrency cap on heavy queries: when limit ≥ heavyLogsThreshold
+// the request takes a slot from heavyLogsSem before running. The
+// JSON response of a 10k-row pull is roughly 3 MB; under load
+// without back-pressure 128 in-flight pulls peaked at ~500 MB and
+// OOM-killed a 1 Gi server in stress tests. The semaphore caps
+// peak in-flight memory at heavyLogsConcurrency × ~3 MB ≈ 48 MB
+// even under a thundering-herd, at the cost of returning 503 to
+// the (rare) request that finds all slots taken.
+//
 // Response: [{seq, at, level, module, msg, fields}, ...] newest first.
+//
+// 503 body: {code: "SERVER_BUSY"} when the semaphore is exhausted.
+var (
+	heavyLogsThreshold   = 1000
+	heavyLogsConcurrency = 16
+	heavyLogsSem         = make(chan struct{}, heavyLogsConcurrency)
+)
+
 func SystemLogs(_ *gateway.GatewayServer) gin.HandlerFunc {
 	type item struct {
 		// seq is the anchored UnixNano (~1.8e18) — exceeds
@@ -322,6 +339,21 @@ func SystemLogs(_ *gateway.GatewayServer) gin.HandlerFunc {
 			var lim int
 			if _, err := fmt.Sscanf(limStr, "%d", &lim); err == nil && lim > 0 {
 				filter.Limit = lim
+			}
+		}
+
+		// Bound peak in-flight memory for "heavy" pulls. See the
+		// heavyLogsSem doc above for the why. Non-blocking try-send
+		// — if all slots are taken we 503 immediately instead of
+		// queueing requests behind a 60s wait (which would just shift
+		// the OOM risk to client-side timeout pile-ups).
+		if filter.Limit >= heavyLogsThreshold {
+			select {
+			case heavyLogsSem <- struct{}{}:
+				defer func() { <-heavyLogsSem }()
+			default:
+				apiErr(c, http.StatusServiceUnavailable, CodeServerBusy)
+				return
 			}
 		}
 

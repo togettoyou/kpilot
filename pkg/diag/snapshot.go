@@ -8,17 +8,21 @@ import (
 // Identity is the static-ish self-description of a process. Fields are
 // captured once at New() and only UptimeSeconds changes per Snapshot.
 type Identity struct {
-	Kind         string    `json:"kind"`              // "server" / "worker" / caller-defined
-	Name         string    `json:"name"`              // e.g. cluster name or "control-plane"
-	Hostname     string    `json:"hostname"`
-	PID          int       `json:"pid"`
-	StartTime    time.Time `json:"start_time"`
-	UptimeSec    float64   `json:"uptime_seconds"`
-	GoVersion    string    `json:"go_version"`
-	GoOS         string    `json:"goos"`
-	GoArch       string    `json:"goarch"`
-	AppVersion   string    `json:"app_version"`
-	NumCPU       int       `json:"num_cpu"`
+	Kind     string `json:"kind"` // "server" / "worker" / caller-defined
+	Name     string `json:"name"` // e.g. cluster name or "control-plane"
+	Hostname string `json:"hostname"`
+	PID      int    `json:"pid"`
+	// startTime is kept internal — used only to compute UptimeSec on
+	// each Identity() / Snapshot() call. Not exposed in JSON because
+	// uptime_seconds + the snapshot's `at` already give the dashboard
+	// everything it needs.
+	startTime  time.Time
+	UptimeSec  float64 `json:"uptime_seconds"`
+	GoVersion  string  `json:"go_version"`
+	GoOS       string  `json:"goos"`
+	GoArch     string  `json:"goarch"`
+	AppVersion string  `json:"app_version"`
+	NumCPU     int     `json:"num_cpu"`
 }
 
 // RuntimeMetrics is a flat projection of the small subset of runtime/metrics
@@ -52,11 +56,21 @@ type RuntimeMetrics struct {
 	SchedLatencyP90Seconds float64 `json:"sched_latency_p90_seconds"`
 	SchedLatencyP99Seconds float64 `json:"sched_latency_p99_seconds"`
 
+	// CPU class breakdown from runtime/metrics — Go scheduler's
+	// per-class view, plotted in the Scheduler tab's "CPU breakdown"
+	// chart. The headline CPU% / cores numbers come from kernel
+	// process counters (process_cpu_*_seconds below), not from these,
+	// because runtime/metrics excludes time spent in syscall waits
+	// and silently undercounts on an I/O-heavy server.
+	//
+	// We don't surface CPUTotalSeconds (the runtime's wall × GOMAXPROCS
+	// figure) — the old per-tick % algorithm used it as a denominator
+	// but the new kernel-counter algorithm uses real wall time and
+	// Identity.NumCPU instead.
 	CPUUserSeconds     float64 `json:"cpu_user_seconds"`
 	CPUScavengeSeconds float64 `json:"cpu_scavenge_seconds"`
 	CPUIdleSeconds     float64 `json:"cpu_idle_seconds"`
 	CPUGCSeconds       float64 `json:"cpu_gc_seconds"`
-	CPUTotalSeconds    float64 `json:"cpu_total_seconds"`
 
 	MutexWaitTotalSeconds float64 `json:"mutex_wait_total_seconds"`
 
@@ -68,6 +82,19 @@ type RuntimeMetrics struct {
 	// container, otherwise host total. Works on Linux (cgroup-aware)
 	// and macOS / Windows (host total via gopsutil).
 	MemTotalBytes uint64 `json:"mem_total_bytes"`
+
+	// WorkingSetBytes is the kubelet / cAdvisor equivalent of
+	// `container_memory_working_set_bytes` — the same number the
+	// MEMORY column of `kubectl top pod` shows. Computed from cgroup
+	// v2 (`memory.current − inactive_file`) or v1
+	// (`memory.usage_in_bytes − total_inactive_file`). Falls back to
+	// RSSBytes when no cgroup is detected (bare-metal Linux, macOS,
+	// Windows) — there's no kubelet to align with in that case.
+	//
+	// Use this (not RSSBytes) when the goal is "match kubectl top".
+	// RSSBytes is still exposed for operators who want the raw
+	// process RSS without the inactive-file deduction.
+	WorkingSetBytes uint64 `json:"working_set_bytes"`
 
 	// ProcessCPUUserSeconds + ProcessCPUSystemSeconds are
 	// kernel-counted CPU times for THIS pid (from /proc/[pid]/stat on
@@ -127,7 +154,6 @@ var metricNames = []string{
 	"/cpu/classes/scavenge/total:cpu-seconds",
 	"/cpu/classes/idle/total:cpu-seconds",
 	"/cpu/classes/gc/total:cpu-seconds",
-	"/cpu/classes/total:cpu-seconds",
 	"/sync/mutex/wait/total:seconds",
 }
 
@@ -152,7 +178,6 @@ const (
 	idxCPUScavenge
 	idxCPUIdle
 	idxCPUGC
-	idxCPUTotal
 	idxMutexWait
 )
 

@@ -1227,6 +1227,7 @@ export default {
   'errors.CLUSTER_NOT_CONNECTED': '集群未连接，Worker 可能已离线',
   'errors.WORKER_TIMEOUT': '集群响应超时，请稍后重试',
   'errors.WORKER_ERROR': 'Worker 执行出错',
+  'errors.SERVER_BUSY': '服务器繁忙,请稍后重试或减小条数',
   'errors.WORKER_CONFLICT': '资源已被其他人修改，请关闭后重新打开重试',
   'errors.RESOURCE_NOT_AVAILABLE': '集群未启用此资源类型',
   'errors.RESOURCE_NOT_AVAILABLE.subtitle':
@@ -1636,8 +1637,6 @@ export default {
   'system.kpi.sessions': '连接',
   'system.kpi.streams': '流',
   'system.kpi.inflight': '处理中',
-  'system.kpi.tunnelUp': '隧道↑',
-  'system.kpi.tunnelDown': '隧道↓',
 
   // System detail page (/system/:node)
   'system.detail.back': '返回节点列表',
@@ -1706,7 +1705,7 @@ export default {
   'system.chart.memPct': '内存利用率',
   'system.chart.rss': 'RSS',
   'system.chart.memUsage': '内存使用量',
-  'system.chart.systemMem': '系统内存（used / available）',
+  'system.chart.systemMem': '宿主机内存（host: used / available）',
   'system.chart.heapGoal': 'Heap：当前 vs GC 目标',
   'system.chart.cpuBreakdown': 'CPU 拆分（user / gc / scavenge）',
   'system.chart.procVsGoCpu': 'Process CPU vs Go Runtime CPU',

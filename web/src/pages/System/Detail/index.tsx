@@ -212,13 +212,26 @@ export default function SystemDetailPage() {
   const isWorker = latest?.identity.kind === 'worker';
 
   // ─── KPI cards (top row, derived from latest) ──────────────────────
-  // CPU% = process busy CPU-seconds / wall-clock CPU-seconds over the
-  // last 2 ring buffer samples. cpu_total includes idle, so this is
-  // a clean utilization ratio in [0, 1].
+  // CPU% = (procUser + procSys delta) / wallSec / NumCPU over the last
+  // two ring buffer samples — kernel-counted from gopsutil reading
+  // /proc/<pid>/stat (same source as kubectl top / cAdvisor, so the
+  // numbers agree). NumCPU reflects the cgroup CPU quota (since
+  // automaxprocs), so denominator matches what the container is
+  // actually allowed to use.
   //
-  // CPU cores = busy CPU-seconds / wall seconds — direct "how many
-  // cores worth of work were we doing in the last second". A process
-  // pinning 2 full cores reports 2.0, one barely-busy goroutine 0.05.
+  // CPU cores = (procUser + procSys delta) / wallSec — direct "how
+  // many cores worth of work were we doing in the last second". A
+  // process pinning 2 full cores reports 2.0; one barely-busy
+  // goroutine 0.05.
+  //
+  // Runtime/metrics cpu_classes_* is intentionally NOT used for the
+  // headline figure: it's the Go scheduler's view and excludes time
+  // in syscall waits, so an HTTP server (mostly I/O) silently
+  // undercounts by ~10× — the KPI tile showed 8% while kubectl
+  // reported 99%. The per-class breakdown chart on the Scheduler
+  // tab still uses cpu_classes_*; it's labeled as "what the runtime
+  // is doing" and the side-by-side procVsGoCpu chart makes any
+  // divergence visible.
   const cpuStats = useMemo(() => {
     const ring = ringRef.current;
     if (ring.length < 2) return { pct: 0, cores: 0 };
@@ -226,26 +239,54 @@ export default function SystemDetailPage() {
     const b = ring[ring.length - 1];
     const ar = a.runtime;
     const br = b.runtime;
-    const totalDelta = br.cpu_total_seconds - ar.cpu_total_seconds;
-    const busyDelta =
-      br.cpu_user_seconds +
-      br.cpu_gc_seconds +
-      br.cpu_scavenge_seconds -
-      (ar.cpu_user_seconds + ar.cpu_gc_seconds + ar.cpu_scavenge_seconds);
     const wallSec = (new Date(b.at).getTime() - new Date(a.at).getTime()) / 1000;
-    const pct = totalDelta > 0 ? Math.max(0, Math.min(1, busyDelta / totalDelta)) : 0;
-    const cores = wallSec > 0 ? Math.max(0, busyDelta / wallSec) : 0;
+    const procDelta =
+      br.process_cpu_user_seconds +
+      br.process_cpu_system_seconds -
+      (ar.process_cpu_user_seconds + ar.process_cpu_system_seconds);
+    if (wallSec <= 0 || procDelta < 0) return { pct: 0, cores: 0 };
+    const cores = procDelta / wallSec;
+    const numCPU = b.identity.num_cpu || 1;
+    const pct = Math.max(0, Math.min(1, cores / numCPU));
     return { pct, cores };
     // tick intentionally drives recompute via consumer
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
 
+  // Memory% uses working_set_bytes (cgroup
+  // `memory.current − inactive_file`) — the same number kubelet
+  // sends to `kubectl top pod`. Falls back to rss_bytes when no
+  // cgroup is detected (set by the backend already, so the field
+  // is always populated, but kept here for defensive 0-handling).
   const memPct = useMemo(() => {
     if (!latest) return 0;
     const r = latest.runtime;
-    if (r.rss_bytes <= 0 || r.mem_total_bytes <= 0) return 0;
-    return Math.max(0, Math.min(1, r.rss_bytes / r.mem_total_bytes));
+    const used = r.working_set_bytes || r.rss_bytes;
+    if (used <= 0 || r.mem_total_bytes <= 0) return 0;
+    return Math.max(0, Math.min(1, used / r.mem_total_bytes));
   }, [latest]);
+
+  // Pre-compute the memory KPI numerator + sub/subFull strings so
+  // the kpis array literal stays uniformly shaped (mixed object
+  // shapes in one array make TS infer a too-narrow union — kpis
+  // already needs optional `sub` / `subFull` to be readable across
+  // entries).
+  const memUsed = latest
+    ? latest.runtime.working_set_bytes || latest.runtime.rss_bytes
+    : 0;
+  const memTotal = latest?.runtime.mem_total_bytes ?? 0;
+  const memSubCompact =
+    memUsed > 0
+      ? memTotal > 0
+        ? `${formatBytes(memUsed, { compact: true })} / ${formatBytes(memTotal, { compact: true })}`
+        : formatBytes(memUsed, { compact: true })
+      : '—';
+  const memSubFull =
+    memUsed > 0
+      ? memTotal > 0
+        ? `${formatBytes(memUsed)} / ${formatBytes(memTotal)}`
+        : formatBytes(memUsed)
+      : undefined;
 
   const kpis = latest
     ? [
@@ -266,31 +307,18 @@ export default function SystemDetailPage() {
           value: formatPercent(cpuStats.pct),
           sub: `${cpuStats.cores.toFixed(2)} / ${latest.identity.num_cpu} ${intl.formatMessage({ id: 'system.kpi.coresUnit' })}`,
         },
-        // Memory: percent + absolute RSS. Falls back to "RSS only"
-        // when mem_total isn't available (macOS / Windows dev).
+        // Memory: percent + absolute working-set. Working-set matches
+        // `kubectl top pod` (cgroup `memory.current − inactive_file`);
+        // the backend falls back to RSS on non-cgroup hosts so the
+        // field is always populated. Compact form (e.g. "512M /
+        // 16G") so the line fits one row in the narrow `lg={3}`
+        // card without ellipsis; full precision goes in the
+        // Card-level tooltip below (memSubFull).
         {
           title: intl.formatMessage({ id: 'system.kpi.memory' }),
-          value:
-            latest.runtime.mem_total_bytes > 0 && latest.runtime.rss_bytes > 0
-              ? formatPercent(memPct)
-              : '—',
-          // Compact form (e.g. "512M / 16G" instead of "512.00 MiB /
-          // 16.00 GiB") so the line fits one row inside the narrow
-          // `lg={3}` KPI card without the ellipsis truncation; the
-          // full-precision value is exposed via the Card-level
-          // tooltip below in case operators want it.
-          sub:
-            latest.runtime.rss_bytes > 0
-              ? latest.runtime.mem_total_bytes > 0
-                ? `${formatBytes(latest.runtime.rss_bytes, { compact: true })} / ${formatBytes(latest.runtime.mem_total_bytes, { compact: true })}`
-                : formatBytes(latest.runtime.rss_bytes, { compact: true })
-              : '—',
-          subFull:
-            latest.runtime.rss_bytes > 0
-              ? latest.runtime.mem_total_bytes > 0
-                ? `${formatBytes(latest.runtime.rss_bytes)} / ${formatBytes(latest.runtime.mem_total_bytes)}`
-                : formatBytes(latest.runtime.rss_bytes)
-              : undefined,
+          value: memUsed > 0 && memTotal > 0 ? formatPercent(memPct) : '—',
+          sub: memSubCompact,
+          subFull: memSubFull,
         },
         {
           title: intl.formatMessage({ id: 'system.col.heap' }),
@@ -910,18 +938,23 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
       points: ring.map((s, i) => ({ t: ts[i], v: get(s) })),
     }));
 
-  // CPU% — per-tick delta over total. Needs i and i-1. First tick = 0.
-  // cpuCores = busy_delta_seconds / wall_delta_seconds — same source,
-  // different denominator (wall time vs cpu_total_seconds which is
-  // wall × GOMAXPROCS).
+  // CPU% / cpuCores: kernel-counted from process_cpu_{user,system}_seconds
+  // deltas (gopsutil /proc/<pid>/stat) — same source kubectl top
+  // uses. cpuCores = (procUser + procSys delta) / wallSec; CPU% =
+  // cpuCores / NumCPU. NumCPU == GOMAXPROCS, which automaxprocs
+  // sets from the cgroup CPU quota.
   //
-  // cpuBreakdown lines (user / gc / scavenge cores): same delta math
-  // per class. Operator can see at a glance whether CPU is "real
-  // work" (user climbs) or "GC pressure" (gc climbs).
+  // cpuBreakdown lines (user / gc / scavenge / idle cores) DO use
+  // runtime/metrics — that's the Go scheduler's per-class view, and
+  // the chart is explicitly the "what the runtime is doing" lens.
+  // Operator can see at a glance whether CPU is "real work" (user
+  // climbs) or "GC pressure" (gc climbs).
   //
-  // procVsGoCpu compares the kernel-counted process_cpu_user_seconds
-  // against runtime/metrics' cpu_user_seconds. They should track
-  // tightly; divergence usually means cgo or cgroup throttling.
+  // procVsGoCpu compares the kernel-counted total against runtime/
+  // metrics' cpu_user_seconds (the runtime has no separate sys
+  // line). They should track tightly; divergence usually means cgo
+  // or cgroup throttling — i.e. the kernel sees CPU time that Go's
+  // accounting can't attribute, and that's the actionable signal.
   const cpuPoints: { t: number; v: number }[] = [];
   const cpuCoresPoints: { t: number; v: number }[] = [];
   const cpuUserCores: { t: number; v: number }[] = [];
@@ -934,24 +967,28 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
   for (let i = 1; i < ring.length; i++) {
     const a = ring[i - 1].runtime;
     const b = ring[i].runtime;
-    const totalDelta = b.cpu_total_seconds - a.cpu_total_seconds;
     const wallSec = (ts[i] - ts[i - 1]) / 1000;
     const userDelta = b.cpu_user_seconds - a.cpu_user_seconds;
     const gcDelta = b.cpu_gc_seconds - a.cpu_gc_seconds;
     const scavDelta = b.cpu_scavenge_seconds - a.cpu_scavenge_seconds;
-    const busyDelta = userDelta + gcDelta + scavDelta;
-    if (totalDelta <= 0) {
-      cpuPoints.push({ t: ts[i], v: 0 });
-    } else {
-      cpuPoints.push({
-        t: ts[i],
-        v: Math.max(0, Math.min(100, (busyDelta / totalDelta) * 100)),
-      });
-    }
-    cpuCoresPoints.push({
+    // CPU%: from kernel process counters, not runtime/metrics.
+    // Latter excludes syscall waits, undercounting by ~10× on a
+    // server doing mostly HTTP I/O. Cores consumed = (user+sys)/wall;
+    // % is that against effective CPU count (NumCPU == GOMAXPROCS,
+    // which automaxprocs sets from cgroup quota).
+    const procUserDelta = b.process_cpu_user_seconds - a.process_cpu_user_seconds;
+    const procSysDelta = b.process_cpu_system_seconds - a.process_cpu_system_seconds;
+    const procCoresUsed = wallSec > 0 ? Math.max(0, (procUserDelta + procSysDelta) / wallSec) : 0;
+    const numCPU = ring[i].identity.num_cpu || 1;
+    cpuPoints.push({
       t: ts[i],
-      v: wallSec > 0 ? Math.max(0, busyDelta / wallSec) : 0,
+      v: Math.max(0, Math.min(100, (procCoresUsed / numCPU) * 100)),
     });
+    cpuCoresPoints.push({ t: ts[i], v: procCoresUsed });
+    // The per-class (user / gc / scavenge) cores breakdown below
+    // still uses runtime/metrics — fine because it's labeled clearly
+    // as the runtime's view, and the headline CPU% / cores series
+    // above no longer relies on it.
     cpuUserCores.push({ t: ts[i], v: wallSec > 0 ? Math.max(0, userDelta / wallSec) : 0 });
     cpuGCCores.push({ t: ts[i], v: wallSec > 0 ? Math.max(0, gcDelta / wallSec) : 0 });
     cpuScavengeCores.push({
@@ -969,15 +1006,12 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
       t: ts[i],
       v: wallSec > 0 && gcCyclesDelta >= 0 ? gcCyclesDelta / wallSec : 0,
     });
-    // Process vs Runtime CPU compares kernel user+system against
-    // Go's cpu_user_seconds (Go's accounting doesn't break out
-    // "system" — kernel does). Plot kernel total (user+sys) and Go
-    // total (user only, since Go has no separate sys metric).
-    const procUserDelta = b.process_cpu_user_seconds - a.process_cpu_user_seconds;
-    const procSysDelta = b.process_cpu_system_seconds - a.process_cpu_system_seconds;
+    // Process vs Runtime CPU comparison chart: kernel (user+sys
+    // from procUserDelta+procSysDelta computed above) plotted next
+    // to Go runtime's user (only — runtime has no separate sys).
     procCpuCores.push({
       t: ts[i],
-      v: wallSec > 0 ? Math.max(0, (procUserDelta + procSysDelta) / wallSec) : 0,
+      v: procCoresUsed,
     });
     goCpuCores.push({
       t: ts[i],
@@ -1116,8 +1150,19 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
     { name: 'streams_open', get: (s) => num(s.custom?.yamux, 'streams_open') },
   ]);
 
-  // DB pool.
+  // DB pool. `max` is the configured upper bound (SetMaxOpenConns)
+  // — plotted as a flat ceiling line so the operator can eyeball
+  // saturation: when `in_use` is hugging `max` the pool is the
+  // bottleneck and either MaxOpenConns needs raising or query
+  // duration trimming.
   const dbPool = multi([
+    {
+      name: 'max',
+      get: (s) =>
+        Number(
+          (s.custom?.db as { max_open_connections?: number } | undefined)?.max_open_connections,
+        ) || 0,
+    },
     {
       name: 'open',
       get: (s) =>
@@ -1237,17 +1282,24 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
       { name: 'runtime', get: (s) => s.runtime.runtime_overhead_bytes },
       { name: 'mapped (total)', get: (s) => s.runtime.total_mapped_bytes },
     ]),
-    rss: single('rss', (s) => s.runtime.rss_bytes),
+    // `rss` series feeds the "Memory usage" chart — plot working-set
+    // so the line matches `kubectl top pod` exactly. Backend already
+    // falls back working_set→rss when no cgroup, so this is safe on
+    // bare-metal Linux / macOS / Windows too.
+    rss: single('working set', (s) => s.runtime.working_set_bytes || s.runtime.rss_bytes),
     memPct: [
       {
-        name: 'rss / total',
-        points: ring.map((s, i) => ({
-          t: ts[i],
-          v:
-            s.runtime.mem_total_bytes > 0 && s.runtime.rss_bytes > 0
-              ? (s.runtime.rss_bytes / s.runtime.mem_total_bytes) * 100
-              : 0,
-        })),
+        name: 'working set / total',
+        points: ring.map((s, i) => {
+          const used = s.runtime.working_set_bytes || s.runtime.rss_bytes;
+          return {
+            t: ts[i],
+            v:
+              s.runtime.mem_total_bytes > 0 && used > 0
+                ? (used / s.runtime.mem_total_bytes) * 100
+                : 0,
+          };
+        }),
       },
     ],
     systemMem: [
