@@ -33,6 +33,13 @@ import (
 // bidi stream entirely.
 type ConnectedWorker struct {
 	ClusterID string
+	// ClusterName cached from the store row at register-time so
+	// snapshot endpoints (diag, /metrics) can render
+	// human-readable labels without hitting the DB per request.
+	// Goes stale if the admin renames a cluster while the worker
+	// is connected — next reconnect refreshes. Acceptable for
+	// a diag surface.
+	ClusterName string
 	// ClusterDomain is the K8s DNS suffix the worker reported on
 	// register (e.g. "cluster.local"). The reverse proxy uses it
 	// to build the FQDN of the in-cluster Service it forwards to.
@@ -193,10 +200,15 @@ func (g *GatewayServer) MetricsSnapshot() MetricsSnapshot {
 // DiagSnapshot is the projection consumed by the system-monitoring
 // dashboard. Fields chosen so a single per-cluster bar chart answers
 // "is one tenant hogging the tunnel?" at a glance.
+//
+// ClusterNames is a parallel map keyed by the same cluster IDs as
+// StreamsByCluster — the dashboard joins client-side so it can show
+// human-readable names while the wire stays normalized by ID.
 type DiagSnapshot struct {
-	Sessions         int            `json:"sessions"`
-	StreamsOpen      int            `json:"streams_open"`
-	StreamsByCluster map[string]int `json:"streams_by_cluster"`
+	Sessions         int               `json:"sessions"`
+	StreamsOpen      int               `json:"streams_open"`
+	StreamsByCluster map[string]int    `json:"streams_by_cluster"`
+	ClusterNames     map[string]string `json:"cluster_names"`
 }
 
 // DiagSnapshot returns the gateway's portion of the server diag
@@ -209,6 +221,7 @@ func (g *GatewayServer) DiagSnapshot() DiagSnapshot {
 	snap := DiagSnapshot{
 		Sessions:         len(g.workers),
 		StreamsByCluster: make(map[string]int, len(g.workers)),
+		ClusterNames:     make(map[string]string, len(g.workers)),
 	}
 	for id, w := range g.workers {
 		if w.Session == nil {
@@ -217,6 +230,9 @@ func (g *GatewayServer) DiagSnapshot() DiagSnapshot {
 		n := w.Session.NumStreams()
 		snap.StreamsByCluster[id] = n
 		snap.StreamsOpen += n
+		if w.ClusterName != "" {
+			snap.ClusterNames[id] = w.ClusterName
+		}
 	}
 	return snap
 }

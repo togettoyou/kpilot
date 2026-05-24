@@ -619,17 +619,29 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
   }
 
   // Streams by cluster (server only, yamux.streams_by_cluster).
+  // Series label resolution: server ships cluster_names in the same
+  // snapshot, so we look up the human name keyed by cluster_id and
+  // fall back to a truncated UUID when the name is missing (cluster
+  // disconnected mid-window, or pre-cache-warmup edge).
   const streamSeriesMap: Map<string, { t: number; v: number }[]> = new Map();
+  const latestNames: Record<string, string> = {};
   ring.forEach((s, i) => {
-    const yamux = s.custom?.yamux as { streams_by_cluster?: Record<string, number> } | undefined;
+    const yamux = s.custom?.yamux as
+      | { streams_by_cluster?: Record<string, number>; cluster_names?: Record<string, string> }
+      | undefined;
     if (!yamux?.streams_by_cluster) return;
+    if (yamux.cluster_names) {
+      for (const [cid, name] of Object.entries(yamux.cluster_names)) {
+        if (name) latestNames[cid] = name;
+      }
+    }
     for (const [cid, n] of Object.entries(yamux.streams_by_cluster)) {
       if (!streamSeriesMap.has(cid)) streamSeriesMap.set(cid, []);
       streamSeriesMap.get(cid)!.push({ t: ts[i], v: Number(n) || 0 });
     }
   });
   const streamsByCluster: SystemSeries[] = Array.from(streamSeriesMap.entries()).map(
-    ([cid, points]) => ({ name: cid.slice(0, 8), points }),
+    ([cid, points]) => ({ name: latestNames[cid] || cid.slice(0, 8), points }),
   );
 
   // HTTP custom collector.

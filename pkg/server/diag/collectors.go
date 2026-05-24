@@ -23,6 +23,7 @@ func (c YamuxCollector) Collect() map[string]any {
 		"sessions":           s.Sessions,
 		"streams_open":       s.StreamsOpen,
 		"streams_by_cluster": s.StreamsByCluster,
+		"cluster_names":      s.ClusterNames,
 	}
 }
 
