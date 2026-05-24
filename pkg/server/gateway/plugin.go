@@ -14,6 +14,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -50,6 +51,15 @@ func (g *GatewayServer) ClusterDomain(clusterID string) string {
 	}
 	return ""
 }
+
+// ErrPluginRejected is returned by SendPluginCommand when the worker
+// receives the command but explicitly rejects it (Ack.Success=false)
+// — e.g. blob sha256 mismatch, cache write failure. Distinct from
+// transport-level errors (worker disconnect, stream open failure)
+// so callers can map it to a different surface error code instead of
+// the misleading CLUSTER_NOT_CONNECTED. Wrap with the worker's
+// message via errors.Is + .Error() for the user-facing string.
+var ErrPluginRejected = errors.New("plugin rejected")
 
 // SendPluginCommand opens a STREAM_PLUGIN_COMMAND stream, ships
 // the command + (for local-chart enables) the .tgz blob, then
@@ -96,7 +106,7 @@ func (g *GatewayServer) SendPluginCommand(clusterID string, cmd *pluginservice.C
 		return g.mapStreamErr(clusterID, err, "read plugin ack")
 	}
 	if !ack.GetSuccess() {
-		return fmt.Errorf("worker rejected plugin command: %s", ack.GetError())
+		return fmt.Errorf("%w: %s", ErrPluginRejected, ack.GetError())
 	}
 	return nil
 }

@@ -506,9 +506,18 @@ func EnablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			return
 		}
 		// Push first; only persist Pending if the Worker actually
-		// accepted the command. SendPluginCommand returns an error if
-		// the Worker disconnected between the pre-flight and now.
+		// accepted the command. SendPluginCommand returns either a
+		// transport error (worker disconnected mid-send) or
+		// ErrPluginRejected (worker received the command but said no
+		// — sha256 mismatch, cache write failure, etc.). The two
+		// surface as different error codes so the operator isn't
+		// told "network problem" when the real cause is on the
+		// worker side.
 		if err := gw.SendPluginCommand(clusterID, cmd); err != nil {
+			if errors.Is(err, gateway.ErrPluginRejected) {
+				apiErrWorker(c, err.Error())
+				return
+			}
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
 		}
@@ -571,8 +580,13 @@ func DisablePlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		// Push first; persist the new phase only after the Worker
 		// accepted the command, so a failed push leaves the DB row
-		// untouched.
+		// untouched. Distinguish transport disconnect from worker-
+		// side rejection (see EnablePlugin for the rationale).
 		if err := gw.SendPluginCommand(clusterID, cmd); err != nil {
+			if errors.Is(err, gateway.ErrPluginRejected) {
+				apiErrWorker(c, err.Error())
+				return
+			}
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
 		}
