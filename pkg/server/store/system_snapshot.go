@@ -24,14 +24,19 @@ import (
 // (UUID). At is when the poll was assembled (UTC). Snapshot is the
 // full JSON the poller fetched from the node's /debug/snapshot
 // endpoint — opaque to this layer.
+//
+// Primary key is composite (node_id, at) — natural unique identity
+// (one poll per node per timestamp) instead of a synthetic id.
+// No other table FKs into this one, the API never returns row
+// identifiers, and the table is strictly append + TTL-delete; a
+// surrogate id was pure overhead (extra column + extra PK btree).
+// The composite PK also serves the per-node range queries (it IS
+// the index on `(node_id, at)`), so we drop the previously
+// separate idx_sys_snap_node_at. Only idx_sys_snap_at on `(at)`
+// alone remains, for the TTL DELETE.
 type SystemSnapshot struct {
-	ID       uint   `gorm:"primaryKey"`
-	NodeID   string `gorm:"size:64;not null;index:idx_sys_snap_node_at,priority:1"`
-	// Index order: (node_id, at DESC) serves both LatestSystemSnapshot
-	// per-node and SystemSnapshotsSince range queries with one index.
-	// A separate (at) index serves the TTL DELETE without forcing a
-	// seq scan.
-	At       time.Time `gorm:"not null;index:idx_sys_snap_node_at,priority:2,sort:desc;index:idx_sys_snap_at"`
+	NodeID   string    `gorm:"primaryKey;size:64"`
+	At       time.Time `gorm:"primaryKey;index:idx_sys_snap_at"`
 	Snapshot []byte    `gorm:"type:jsonb;not null"`
 }
 
@@ -73,7 +78,7 @@ func LatestSystemSnapshot(nodeID string) (*SystemSnapshot, error) {
 func LatestSystemSnapshots() ([]SystemSnapshot, error) {
 	var rows []SystemSnapshot
 	err := DB.Raw(
-		`SELECT DISTINCT ON (node_id) id, node_id, at, snapshot
+		`SELECT DISTINCT ON (node_id) node_id, at, snapshot
 		   FROM system_snapshots
 		   ORDER BY node_id, at DESC`,
 	).Scan(&rows).Error
