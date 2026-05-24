@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/automaxprocs/maxprocs"
+
 	"github.com/togettoyou/kpilot/pkg/common/version"
 	"github.com/togettoyou/kpilot/pkg/diag"
 	"github.com/togettoyou/kpilot/pkg/server/api"
@@ -22,6 +24,19 @@ import (
 var mainLog = kplog.L("server")
 
 func main() {
+	// In a container with a CPU limit (cgroup quota), runtime.NumCPU()
+	// returns the HOST's CPU count, not the container's allowance.
+	// GOMAXPROCS defaults to NumCPU, so the scheduler over-parallelises
+	// and ends up throttled by the kernel — and our `/system/monitor`
+	// CPU% reports denominator = wall × host-CPUs instead of × the
+	// effective container CPUs, making the value useless on a bounded
+	// pod. Setting GOMAXPROCS to the cgroup limit at startup fixes
+	// both. On non-container hosts (macOS dev, bare-metal) maxprocs
+	// detects no cgroup and leaves GOMAXPROCS at NumCPU.
+	_, _ = maxprocs.Set(maxprocs.Logger(func(format string, args ...any) {
+		mainLog.Infof(format, args...)
+	}))
+
 	cfg := config.Load()
 
 	if err := store.Init(cfg.DSN); err != nil {

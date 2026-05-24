@@ -62,7 +62,14 @@ func New(kind, name, appVersion string) *Diag {
 			GoOS:       runtime.GOOS,
 			GoArch:     runtime.GOARCH,
 			AppVersion: appVersion,
-			NumCPU:     runtime.NumCPU(),
+			// GOMAXPROCS(0) reads the current value without changing
+			// it. With go.uber.org/automaxprocs called early in main,
+			// this reflects the cgroup CPU quota when running in a
+			// container instead of the host's CPU count — making the
+			// /system/monitor CPU% denominator (wall × NumCPU)
+			// accurate for bounded pods. On bare-metal or non-cgroup
+			// hosts, GOMAXPROCS == NumCPU so behavior is unchanged.
+			NumCPU: runtime.GOMAXPROCS(0),
 		},
 		samples: samples,
 		sys:     newSysReader(),

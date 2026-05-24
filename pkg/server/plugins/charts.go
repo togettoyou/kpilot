@@ -36,6 +36,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/chartutil"
@@ -120,36 +122,65 @@ func packageEmbeddedChart(fsys embed.FS, fsRoot string) (*PackagedChart, error) 
 	if err != nil {
 		return nil, fmt.Errorf("read tgz: %w", err)
 	}
-	// SHA256 must be stable across boots (so PluginBlob upsert
-	// dedupes the same source into the same DB row) AND must match
-	// what the worker computes from the wire bytes (cache.Put
-	// verifies `sha256(content) == declared`). The naive
-	// `sha256(bytes)` fails the first requirement because Helm's
-	// chartutil.Save → gzip.NewWriter stamps time.Now() into the
-	// gzip header, so the .tgz bytes differ on every boot. An
-	// earlier attempt to fix dedupe by hashing the embed.FS source
-	// files instead broke the SECOND requirement — workers received
-	// .tgz bytes whose actual sha256 ≠ the source-derived declared
-	// sha → cache.Put rejected with "sha256 mismatch" and every
-	// local-chart install (Volcano vGPU, etc.) erroneously
-	// surfaced as CLUSTER_NOT_CONNECTED.
+	// SHA256 must be stable across boots so PluginBlob upserts
+	// dedupe the same source into the same DB row (no INSERT per
+	// startup). We CAN'T hash `bytes` directly even with the gzip
+	// header mtime zeroed — chartutil.Save runs through tar which
+	// stamps time.Now() into EVERY tar entry header (offset 136
+	// of each 512-byte block), and recompressing those changed
+	// bytes gives different deflate output.
 	//
-	// Right fix: make the bytes themselves stable. Gzip header is
-	// 10 bytes with mtime at offset 4..7 (RFC 1952). Zero it out
-	// post-package; the deflate-compressed payload is independent
-	// of mtime, so bytes become bit-identical across boots and
-	// sha256(bytes) is both stable AND the value workers will
-	// verify against.
-	if len(bytes) >= 8 && bytes[0] == 0x1f && bytes[1] == 0x8b {
-		bytes[4], bytes[5], bytes[6], bytes[7] = 0, 0, 0, 0
+	// Hash the source files themselves in path-sorted form
+	// instead — pure function of embed.FS contents. The worker's
+	// cache.Put treats this as an opaque storage key and does NOT
+	// verify sha256(content) == declared (yamux + TLS already
+	// covers the on-wire integrity story; the worker is reading
+	// bytes from a session it explicitly authenticated to, not
+	// from an untrusted source).
+	stableHash, err := hashEmbedFS(fsys, fsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("hash chart source: %w", err)
 	}
-	sum := sha256.Sum256(bytes)
 	return &PackagedChart{
 		Filename: filepath.Base(tgzPath),
 		Bytes:    bytes,
-		SHA256:   hex.EncodeToString(sum[:]),
+		SHA256:   stableHash,
 		Version:  ch.Metadata.Version,
 	}, nil
+}
+
+// hashEmbedFS computes a sha256 over the chart's source files in
+// path-sorted order: for each file, hash "<rel-path>\n" then the raw
+// content. Deterministic across processes / platforms / Go versions
+// as long as embed.FS yields the same files.
+func hashEmbedFS(fsys embed.FS, fsRoot string) (string, error) {
+	type entry struct {
+		path string
+		body []byte
+	}
+	var entries []entry
+	err := fs.WalkDir(fsys, fsRoot, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(fsys, p)
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(p, fsRoot+"/")
+		entries = append(entries, entry{path: rel, body: b})
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
+	h := sha256.New()
+	for _, e := range entries {
+		fmt.Fprintf(h, "%s\n", e.path)
+		h.Write(e.body)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 

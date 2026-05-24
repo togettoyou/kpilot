@@ -46,27 +46,38 @@ type Entry struct {
 // strings into the slot, so a 1 KB msg lives in the ring forever
 // until overwritten.
 //
-// Concurrency: a single sync.Mutex protects buf + head + count. The
-// slot array is fixed at New time so the mutex protects only short
-// scalar updates; we never hold it across a string allocation.
-// Readers (Snapshot) take the same mutex briefly to copy the slice
-// of pointers, then release before encoding to JSON, so a slow
-// reader doesn't block writers.
+// Concurrency: a single sync.Mutex (inside ringState) protects buf
+// + head + count. The slot array is fixed at New time so the mutex
+// protects only short scalar updates; we never hold it across a
+// string allocation. Readers (Snapshot) take the same mutex briefly
+// to copy the slice of pointers, then release before encoding to
+// JSON, so a slow reader doesn't block writers.
+//
+// `state` is a pointer so `RingCore.With` can shallow-clone the
+// outer struct (carrying per-clone baseFields) without copying the
+// mutex. A pre-pointer design where mu / buf / head / count lived
+// directly on RingCore broke once `lg.With(...)` came into the
+// picture: every `.With` clone got its own mu while sharing the
+// same buf, so concurrent writes via different child loggers raced
+// on slot writes. Pulling them behind a shared pointer makes the
+// "shared underlying ring + per-clone fields" intent explicit.
 type RingCore struct {
 	zapcore.LevelEnabler // delegated to global level
 
-	mu     sync.Mutex
-	buf    []*Entry // slot ring
-	head   int      // index of next write slot
-	count  int      // number of valid slots (≤ cap)
-	cap    int      // == len(buf)
-	seq    atomic.Uint64
+	state *ringState // shared across clones
 
-	// Fields shared as base context across entries (via With()).
-	// zap clones the core on With(); the base ring stays shared so
-	// every clone pushes into the same buffer. baseFields lives on
-	// the clone, not the underlying ring.
+	// baseFields lives on the clone (per-`.With` chain), not on the
+	// underlying ring. Each call to With appends to this slice.
 	baseFields []zapcore.Field
+}
+
+type ringState struct {
+	mu    sync.Mutex
+	buf   []*Entry // slot ring
+	head  int      // index of next write slot
+	count int      // number of valid slots (≤ cap)
+	cap   int      // == len(buf)
+	seq   atomic.Uint64
 }
 
 // NewRingCore creates a ring with the given capacity. enabler should
@@ -99,23 +110,28 @@ func NewRingCore(capacity int, enabler zapcore.LevelEnabler) *RingCore {
 	if capacity <= 0 {
 		capacity = 50_000
 	}
-	r := &RingCore{
-		LevelEnabler: enabler,
-		buf:          make([]*Entry, capacity),
-		cap:          capacity,
+	s := &ringState{
+		buf: make([]*Entry, capacity),
+		cap: capacity,
 	}
-	r.seq.Store(uint64(time.Now().UnixNano()))
-	return r
+	s.seq.Store(uint64(time.Now().UnixNano()))
+	return &RingCore{LevelEnabler: enabler, state: s}
 }
 
 // With clones the core and appends fields. zap calls this for every
 // `logger.With(...)` so cloned loggers carry per-context fields all
-// the way down to Write.
+// the way down to Write. The clone keeps a reference to the same
+// underlying *ringState so every clone pushes into one shared ring
+// (and shares one mutex — see ringState).
 func (r *RingCore) With(fields []zapcore.Field) zapcore.Core {
-	clone := *r // shallow — share ring + mutex + level
-	clone.baseFields = append([]zapcore.Field(nil), r.baseFields...)
-	clone.baseFields = append(clone.baseFields, fields...)
-	return &clone
+	merged := make([]zapcore.Field, 0, len(r.baseFields)+len(fields))
+	merged = append(merged, r.baseFields...)
+	merged = append(merged, fields...)
+	return &RingCore{
+		LevelEnabler: r.LevelEnabler,
+		state:        r.state,
+		baseFields:   merged,
+	}
 }
 
 // Check asks "should we accept this entry?" — same as the stderr
@@ -143,8 +159,9 @@ func (r *RingCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 		f.AddTo(enc)
 	}
 
+	s := r.state
 	e := &Entry{
-		Seq:    r.seq.Add(1),
+		Seq:    s.seq.Add(1),
 		TimeNs: ent.Time.UnixNano(),
 		Level:  ent.Level.String(),
 		Module: ent.LoggerName,
@@ -152,13 +169,13 @@ func (r *RingCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 		Fields: enc.Fields,
 	}
 
-	r.mu.Lock()
-	r.buf[r.head] = e
-	r.head = (r.head + 1) % r.cap
-	if r.count < r.cap {
-		r.count++
+	s.mu.Lock()
+	s.buf[s.head] = e
+	s.head = (s.head + 1) % s.cap
+	if s.count < s.cap {
+		s.count++
 	}
-	r.mu.Unlock()
+	s.mu.Unlock()
 	return nil
 }
 
@@ -178,25 +195,26 @@ func (r *RingCore) Sync() error { return nil }
 // N entries" or just continue. We don't fabricate a synthetic "gap"
 // record; that's a renderer concern.
 func (r *RingCore) Snapshot(sinceSeq uint64, limit int) []*Entry {
+	s := r.state
 	if limit <= 0 {
-		limit = r.cap
+		limit = s.cap
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.count == 0 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.count == 0 {
 		return nil
 	}
 	// Oldest slot: when count == cap, head points to it (next-write
 	// slot is also the oldest valid one in a full ring). When not
 	// full, the oldest slot is index 0.
 	oldest := 0
-	if r.count == r.cap {
-		oldest = r.head
+	if s.count == s.cap {
+		oldest = s.head
 	}
-	out := make([]*Entry, 0, min(limit, r.count))
-	for i := 0; i < r.count && len(out) < limit; i++ {
-		idx := (oldest + i) % r.cap
-		e := r.buf[idx]
+	out := make([]*Entry, 0, min(limit, s.count))
+	for i := 0; i < s.count && len(out) < limit; i++ {
+		idx := (oldest + i) % s.cap
+		e := s.buf[idx]
 		if e == nil || e.Seq <= sinceSeq {
 			continue
 		}
@@ -209,7 +227,7 @@ func (r *RingCore) Snapshot(sinceSeq uint64, limit int) []*Entry {
 // entries yet). Useful as a starting cursor for a fresh subscriber
 // that only wants new lines.
 func (r *RingCore) LastSeq() uint64 {
-	return r.seq.Load()
+	return r.state.seq.Load()
 }
 
 // FormatTime is a convenience for callers that want the entry timestamp

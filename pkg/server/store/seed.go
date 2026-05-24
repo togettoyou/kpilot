@@ -675,6 +675,22 @@ func SeedBuiltinPlugins(db *gorm.DB) error {
 			}
 		}
 	}
+	// Clean up plugin_blobs rows nobody references. Older builds
+	// used an unstable sha256(.tgz bytes) — which churned per
+	// boot — and earlier this build accumulated source-hash rows
+	// before the sha was made deterministic; left around, they're
+	// just dead weight. Safe because the only thing pointing at
+	// a blob row is plugins.chart_blob_id (set above), and we
+	// just finished writing the current pointers.
+	if err := db.Exec(`
+		DELETE FROM plugin_blobs
+		 WHERE id NOT IN (
+		   SELECT chart_blob_id FROM plugins
+		    WHERE chart_blob_id IS NOT NULL
+		 )
+	`).Error; err != nil {
+		return err
+	}
 	return nil
 }
 

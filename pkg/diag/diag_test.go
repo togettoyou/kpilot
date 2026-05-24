@@ -22,7 +22,7 @@ func TestNewIdentity(t *testing.T) {
 	if id.GoVersion != runtime.Version() {
 		t.Fatalf("go version mismatch: %s", id.GoVersion)
 	}
-	if id.NumCPU != runtime.NumCPU() {
+	if id.NumCPU != runtime.GOMAXPROCS(0) {
 		t.Fatalf("NumCPU mismatch: %d", id.NumCPU)
 	}
 	if id.PID == 0 {

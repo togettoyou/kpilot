@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/go-logr/logr"
+	"go.uber.org/automaxprocs/maxprocs"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -30,6 +31,13 @@ import (
 var mainLog = kplog.L("worker")
 
 func main() {
+	// Match GOMAXPROCS to the cgroup CPU quota when running in a
+	// container — see the matching call in cmd/server/main.go for
+	// the full rationale.
+	_, _ = maxprocs.Set(maxprocs.Logger(func(format string, args ...any) {
+		mainLog.Infof(format, args...)
+	}))
+
 	cfg := config.Load()
 
 	if cfg.ClusterToken == "" {

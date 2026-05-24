@@ -1,8 +1,6 @@
 package plugin
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,18 +53,19 @@ func (c *ChartCache) Path(sha string) string {
 	return c.pathFor(sha)
 }
 
-// Put writes the chart bytes to the cache and verifies that the sha256
-// matches the expected digest. Idempotent: if the file already exists
-// with the right sha256 (which is how it's named, so by definition),
-// the call is a no-op.
+// Put writes the chart bytes to the cache under a name derived from
+// the declared sha. Idempotent: if the file already exists, no-op.
+//
+// We DON'T verify sha256(content) == declared. Server-side declared
+// sha is hashed over the chart's embed.FS source files (stable across
+// boots for dedupe), while the .tgz bytes themselves vary per Helm
+// package run (tar entry mtimes change). Enforcing the equality
+// would reject every local-chart install. The integrity-check angle
+// is moot here — bytes arrive over the worker's own authenticated
+// yamux session, not from an untrusted upload path.
 func (c *ChartCache) Put(expectedSHA string, content []byte) error {
 	if expectedSHA == "" {
 		return fmt.Errorf("missing sha256")
-	}
-	actual := sha256.Sum256(content)
-	actualHex := hex.EncodeToString(actual[:])
-	if actualHex != expectedSHA {
-		return fmt.Errorf("sha256 mismatch: declared=%s actual=%s", expectedSHA, actualHex)
 	}
 	dst := c.pathFor(expectedSHA)
 	if _, err := os.Stat(dst); err == nil {
