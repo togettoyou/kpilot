@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -25,7 +24,11 @@ import (
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var proxyLog = kplog.L("resource-proxy")
 
 // ResourceResponse is the worker-side internal result shape for one
 // K8s operation. The tunnel chunks it onto the wire (Start + body
@@ -148,7 +151,7 @@ func (p *Proxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 	defer st.Close()
 	var wireReq pbv2.ResourceRequest
 	if err := st.ReadMsg(&wireReq); err != nil {
-		log.Printf("[wire] resource read req failed: request=%s err=%v", st.RequestID(), err)
+		proxyLog.Warnf("resource read req failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
 	req := &ResourceRequest{
@@ -165,7 +168,7 @@ func (p *Proxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 	if n := wireReq.GetBodySize(); n > 0 {
 		body := make([]byte, n)
 		if _, err := io.ReadFull(st.Reader(), body); err != nil {
-			log.Printf("[wire] resource read body failed: request=%s err=%v", st.RequestID(), err)
+			proxyLog.Warnf("resource read body failed: request=%s err=%v", st.RequestID(), err)
 			return
 		}
 		req.Body = body
@@ -188,7 +191,11 @@ func (p *Proxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 	defer cancel()
 	start := time.Now()
 	resp := p.execute(opCtx, req)
-	log.Printf("[wire] resource handled request=%s action=%s gvk=%s/%s/%s ns=%s name=%s success=%t dataBytes=%d err=%q elapsed=%s",
+	// Per-request status — useful for debugging but too noisy at info
+	// level (fires once per K8s resource RPC across every list cell).
+	// proxy.inflight_resource counter in pkg/worker/diag covers the
+	// cardinality side; flip KPILOT_LOG_LEVEL=debug to see this.
+	proxyLog.Debugf("resource handled request=%s action=%s gvk=%s/%s/%s ns=%s name=%s success=%t dataBytes=%d err=%q elapsed=%s",
 		st.RequestID(), req.Action, req.Group, req.Version, req.Kind, req.Namespace, req.Name,
 		resp.Success, len(resp.Data), resp.Error, time.Since(start))
 
@@ -197,12 +204,12 @@ func (p *Proxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 		Error:    resp.Error,
 		BodySize: int64(len(resp.Data)),
 	}); err != nil {
-		log.Printf("[wire] resource write resp failed: request=%s err=%v", st.RequestID(), err)
+		proxyLog.Warnf("resource write resp failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
 	if len(resp.Data) > 0 {
 		if _, err := st.Writer().Write(resp.Data); err != nil {
-			log.Printf("[wire] resource write body failed: request=%s err=%v", st.RequestID(), err)
+			proxyLog.Warnf("resource write body failed: request=%s err=%v", st.RequestID(), err)
 			return
 		}
 	}
@@ -374,7 +381,7 @@ func (p *Proxy) listFull(
 	for i := range list.Items {
 		stripManagedFields(&list.Items[i])
 	}
-	log.Printf("[proxy] list-full: kind=%s ns=%s count=%d continue=%t",
+	proxyLog.Debugf("list-full: kind=%s ns=%s count=%d continue=%t",
 		mapping.GroupVersionKind.Kind, effectiveNs, len(list.Items), list.GetContinue() != "")
 	return marshal(list)
 }
@@ -593,7 +600,7 @@ func marshal(v interface{}) *ResourceResponse {
 }
 
 func fail(msg string) *ResourceResponse {
-	log.Printf("[proxy] resource op failed: err=%v", msg)
+	proxyLog.Warnf("resource op failed: err=%v", msg)
 	return &ResourceResponse{Success: false, Error: msg}
 }
 

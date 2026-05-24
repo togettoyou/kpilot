@@ -3,13 +3,12 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"log"
-	"os"
 	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
 
 var DB *gorm.DB
@@ -30,22 +29,11 @@ func DBStats() sql.DBStats {
 }
 
 func Init(dsn string) error {
-	// Custom logger: keep Warn level for genuinely slow / failing
-	// queries, but suppress ErrRecordNotFound — that's intentional
-	// control flow in our Upsert* helpers ("look up, INSERT if
-	// absent") and produces a noisy startup log line per built-in
-	// plugin / model on first boot or after a new built-in is added.
-	gormLogger := logger.New(
-		log.New(os.Stderr, "\r\n", log.LstdFlags),
-		logger.Config{
-			SlowThreshold:             200 * time.Millisecond,
-			LogLevel:                  logger.Warn,
-			IgnoreRecordNotFoundError: true,
-			Colorful:                  true,
-		},
-	)
+	// Slow queries → Warn; failed queries → Error; ErrRecordNotFound
+	// is filtered (intentional control flow in our Upsert helpers).
+	// All output routed through pkg/log under module "gorm".
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: gormLogger,
+		Logger: kplog.NewGormLogger(200 * time.Millisecond),
 		// Map driver-level constraint violations to gorm.Err* sentinels
 		// (ErrDuplicatedKey, ErrForeignKeyViolated, ...) so handlers can
 		// translate them to user-facing error codes via errors.Is, instead

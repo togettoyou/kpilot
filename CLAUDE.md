@@ -195,6 +195,9 @@ web/src/
 | `ADMIN_PASSWORD` | `kpilot123` | 管理员密码 |
 | `JWT_SECRET` | 随机 | JWT 签名密钥，未设置则每次重启失效 |
 | `CORS_ORIGINS` | 空（开发宽松模式） | 生产环境设置前端域名，逗号分隔 |
+| `KPILOT_LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error`，运行时也可通过 `pkg/log.SetLevel()` 调整 |
+| `KPILOT_LOG_MODE` | `console` | `console`(人读)或 `json`(结构化) |
+| `KPILOT_LOG_COLOR` | `auto` | `always`/`never`/`auto`(stderr 是 TTY 时着色) |
 
 ### Worker 环境变量
 
@@ -231,11 +234,37 @@ Server / Worker 启动时自动加载 cwd 下的 `.env`（godotenv），shell / 
 
 GORM 启用 `TranslateError: true`：唯一索引冲突等驱动错误会被翻译成 `gorm.ErrDuplicatedKey` 等 sentinel，handler 用 `errors.Is` 翻译到对应业务错误码（如 `CLUSTER_NAME_EXISTS`），不要 string-match 原始 pq.Error。
 
-### 日志格式
-统一 `log.Printf("[component] msg: key=value", ...)`：
-- component 用小写横线（`gateway`、`pod-logs`、`pod-exec`、`proxy`、`tunnel`、`handler`）
-- 数据用 `key=value` 风格便于 grep
-- 错误用 `err=%v`
+### 日志（pkg/log，统一走 zap）
+所有 server / worker 日志必须经过 `pkg/log` —— 一层薄包,console 模式可读输出 + 模块名 + level filter。**不要 `import "log"` / `fmt.Println`**;GORM 和 Gin 也走我们的 logger(`pkg/log/gorm.go`、`pkg/log/gin.go`)。
+
+每个文件顶部声明一个文件级 logger:
+```go
+import kplog "github.com/togettoyou/kpilot/pkg/log"
+
+var pollerLog = kplog.L("diag-poller")  // 模块名 = lowercase kebab
+```
+
+调用点用 KV 变参(优先)或 `*f` 格式(porting 老代码):
+```go
+pollerLog.Info("fetch recovered", "node", nodeID)
+pollerLog.Warn("fetch failed", "node", nodeID, "err", err)
+pollerLog.Errorf("insert failed: node=%s err=%v", nodeID, err)  // 格式化等价
+pollerLog.Fatal("db init failed", "err", err)  // log + Sync + os.Exit(1)
+```
+
+**Level 约定**:
+- `Debug` — 每请求 / 每帧 / 每 poll 的状态日志(`KPILOT_LOG_LEVEL=debug` 才出);
+- `Info` — 启动停止 / 集群连断 / 状态变化(≪ 1/sec 稳态);
+- `Warn` — 失败但可恢复(单次 PromQL 失败、worker 重连前掉线、validation 拒绝);
+- `Error` — 需要运维介入(boot fail、insert fail、panic recover)。
+
+**模块名约定**:lowercase kebab,匹配 package 角色(`gateway`、`yamux`、`http-proxy`、`pod-exec`、`diag-poller`、`inference-proxy`、`tunnel`、`gorm`、`gin`、`router`、`handler.model` 子区域用点)。同包多文件用文件名做变量后缀避免冲突(`execLog`、`httpLog`、`vgpuLog`),module name 仍可相同。
+
+**热路径性能**:Sugar API ~1-2 µs/call,对所有控制面场景都够用。HTTP middleware(`pkg/log.GinMiddleware`)每请求一行,落在 < 1% 请求预算。极少数真正需要零 alloc 的地方:`lg.Zap()` 拿到原始 `*zap.Logger` 走 `zap.Field`。
+
+**Env 控制**:`KPILOT_LOG_LEVEL=debug|info|warn|error`(默认 info)、`KPILOT_LOG_MODE=console|json`(默认 console)、`KPILOT_LOG_COLOR=always|never|auto`。
+
+**GORM 慢查询阈值**:200ms,超过 Warn;查询错误(非 `ErrRecordNotFound`)Error。**Gin 5xx → Error / 4xx → Warn / 2xx 3xx → Info**(`pkg/log/gin.go::GinMiddleware`)。
 
 ### 用户输入字段长度限制（三层一致）
 任何用户输入的 string 字段，**DB 列类型 / 服务端 validator / 前端 maxLength** 三处必须配齐且数值一致：

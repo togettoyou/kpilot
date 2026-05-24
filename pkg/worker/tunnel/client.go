@@ -17,7 +17,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"net/url"
@@ -29,7 +28,11 @@ import (
 	"github.com/togettoyou/kpilot/pkg/common/version"
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var clientLog = kplog.L("tunnel")
 
 // dialResult is what resolveServerAddr returns: target host:port +
 // whether to wrap the dialed conn in TLS + (for TLS) the SNI/
@@ -256,7 +259,7 @@ func (c *Client) Run(ctx context.Context) error {
 			// shared server restart don't perfectly align their
 			// retry windows and thundering-herd the listener.
 			jittered := delay + time.Duration(rand.Int63n(int64(delay/2))) - delay/4
-			log.Printf("[tunnel] connection lost: %v (retry in %s)", err, jittered)
+			clientLog.Infof("connection lost: %v (retry in %s)", err, jittered)
 			select {
 			case <-time.After(jittered):
 			case <-ctx.Done():
@@ -306,7 +309,7 @@ func (c *Client) connectOnce(ctx context.Context) error {
 		_ = conn.Close()
 		return err
 	}
-	log.Printf("[tunnel] registered with server %s", dial.host)
+	clientLog.Infof("registered with server %s", dial.host)
 
 	// Publish session.
 	sessCtx, sessCancel := context.WithCancel(ctx)
@@ -423,18 +426,18 @@ func (c *Client) dispatch(ctx context.Context, st *transportv2.Stream) {
 	case pbv2.StreamKind_STREAM_WS_PROXY:
 		fn = h.OnWSProxy
 	default:
-		log.Printf("[tunnel] unknown stream kind: %v", st.Kind())
+		clientLog.Warnf("unknown stream kind: %v", st.Kind())
 		_ = st.Close()
 		return
 	}
 	if fn == nil {
-		log.Printf("[tunnel] no handler for stream kind %v — closing", st.Kind())
+		clientLog.Infof("no handler for stream kind %v — closing", st.Kind())
 		_ = st.Close()
 		return
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[tunnel] handler panic: kind=%v request=%s panic=%v",
+			clientLog.Errorf("handler panic: kind=%v request=%s panic=%v",
 				st.Kind(), st.RequestID(), r)
 			_ = st.Close()
 		}

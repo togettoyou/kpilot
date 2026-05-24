@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,7 +19,11 @@ import (
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var execLog = kplog.L("pod-exec")
 
 const shellProbeTimeout = 5 * time.Second
 
@@ -56,7 +59,7 @@ func (m *ExecManager) HandleStream(ctx context.Context, st *transportv2.Stream) 
 
 	var req pbv2.ExecStartRequest
 	if err := st.ReadMsg(&req); err != nil {
-		log.Printf("[wire] exec read req failed: request=%s err=%v", st.RequestID(), err)
+		execLog.Warnf("exec read req failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
 

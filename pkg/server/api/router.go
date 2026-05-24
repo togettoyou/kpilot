@@ -1,7 +1,6 @@
 package api
 
 import (
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 	"github.com/togettoyou/kpilot/pkg/server/api/handler"
 	"github.com/togettoyou/kpilot/pkg/server/api/middleware"
 	"github.com/togettoyou/kpilot/pkg/server/config"
@@ -16,8 +16,15 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
+var routerLog = kplog.L("router")
+
 func NewRouter(cfg *config.Config, gw *gateway.GatewayServer, httpDiag *serverdiag.HTTPCollector) *gin.Engine {
-	r := gin.Default()
+	// Release mode suppresses gin's "running in DEBUG mode" banner and
+	// per-route registration prints. Per-request access logs are
+	// emitted by our own middleware below.
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(kplog.GinRecovery(), kplog.GinMiddleware())
 
 	// Diag middleware must run first so the request counters bracket
 	// every other middleware (auth latency, CORS, etc.). Cost per
@@ -324,7 +331,7 @@ func mountSPA(r *gin.Engine, dir string) {
 	}
 	indexPath := filepath.Join(dir, "index.html")
 	if _, err := os.Stat(indexPath); err != nil {
-		log.Printf("[router] STATIC_DIR=%s but index.html not found, skipping SPA mount: err=%v", dir, err)
+		routerLog.Warn("STATIC_DIR set but index.html not found, skipping SPA mount", "dir", dir, "err", err)
 		return
 	}
 	// Single NoRoute serves both static assets and the SPA fallback.
@@ -364,5 +371,5 @@ func mountSPA(r *gin.Engine, dir string) {
 		// router takes over from here.
 		c.File(indexPath)
 	})
-	log.Printf("[router] SPA mounted: dir=%s", dir)
+	routerLog.Info("SPA mounted", "dir", dir)
 }

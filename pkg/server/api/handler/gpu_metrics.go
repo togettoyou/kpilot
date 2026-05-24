@@ -22,7 +22,6 @@ package handler
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"sort"
 	"sync"
@@ -31,7 +30,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var gpuMetricsLog = kplog.L("gpu-metrics")
 
 // metricRangeSpec mirrors gpu_hour's supportedRanges but with a wider
 // step floor — line charts don't need as fine granularity as billing
@@ -174,7 +177,7 @@ func GetGPUMetrics(gw *gateway.GatewayServer) gin.HandlerFunc {
 					defer wg.Done()
 					series, err := queryVMRange(ctx, gw, clusterID, vmURL, q.promql, from, to, tr.step)
 					if err != nil {
-						log.Printf("[gpu-metrics] VM range query failed: cluster=%s key=%s err=%v",
+						gpuMetricsLog.Warnf("VM range query failed: cluster=%s key=%s err=%v",
 							clusterID, q.key, err)
 						return
 					}

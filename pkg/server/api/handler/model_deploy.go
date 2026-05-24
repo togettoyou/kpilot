@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -29,7 +28,11 @@ import (
 	"github.com/togettoyou/kpilot/pkg/server/deploy"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 	"github.com/togettoyou/kpilot/pkg/server/store"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var modelDeployLog = kplog.L("model-list")
 
 // dnsLabelRe and the length caps live next to the validator since
 // the drawer enforces the same shape; keep both in sync.
@@ -505,7 +508,7 @@ func listInstancesInCluster(
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(resp.Data, &list); err != nil {
-		log.Printf("[model-list] decode list-full failed: cluster=%s err=%v", cl.ID, err)
+		modelDeployLog.Warnf("decode list-full failed: cluster=%s err=%v", cl.ID, err)
 		return nil, fmt.Errorf("decode deployment list: %w", err)
 	}
 

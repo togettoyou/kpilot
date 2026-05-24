@@ -51,7 +51,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -64,7 +63,11 @@ import (
 	serverdiag "github.com/togettoyou/kpilot/pkg/server/diag"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 	"github.com/togettoyou/kpilot/pkg/server/store"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var inferenceProxyLog = kplog.L("inference-proxy")
 
 // usageScanner extracts the OpenAI-shape `{prompt_tokens,
 // completion_tokens, total_tokens}` block from an inference
@@ -336,7 +339,7 @@ func ProxyInferenceOpenAI(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		stream, err := gw.SendHTTPRequestStream(ctx, clusterID, req)
 		if err != nil {
-			log.Printf("[inference-proxy] open stream failed: cluster=%s ns=%s name=%s err=%v",
+			inferenceProxyLog.Warnf("open stream failed: cluster=%s ns=%s name=%s err=%v",
 				clusterID, namespace, name, err)
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
@@ -358,7 +361,7 @@ func ProxyInferenceOpenAI(gw *gateway.GatewayServer) gin.HandlerFunc {
 			}
 			go func(id uint, p, comp int64) {
 				if err := store.IncrementAPIKeyUsage(id, p, comp, 1); err != nil {
-					log.Printf("[inference-proxy] usage increment failed: keyID=%d err=%v",
+					inferenceProxyLog.Warnf("usage increment failed: keyID=%d err=%v",
 						id, err)
 				}
 			}(keyID, prompt, completion)
@@ -414,7 +417,7 @@ func buildUpstreamInferenceHeaders(c *gin.Context) []*pbv2.HTTPHeader {
 func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterID, namespace, name string) *usageBlock {
 	// Worker-side dispatch error: 502 + error body, no streaming.
 	if stream.Error != "" {
-		log.Printf("[inference-proxy] worker dispatch failed: cluster=%s ns=%s name=%s err=%s",
+		inferenceProxyLog.Warnf("worker dispatch failed: cluster=%s ns=%s name=%s err=%s",
 			clusterID, namespace, name, stream.Error)
 		apiErrDetail(c, http.StatusBadGateway, CodeProxyUpstream, stream.Error)
 		return nil
@@ -509,7 +512,10 @@ func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterI
 			_, _ = scanner.Write(buf[:n])
 			_ = rc.SetWriteDeadline(time.Now().Add(inferenceWriteTimeout))
 			if _, werr := c.Writer.Write(buf[:n]); werr != nil {
-				log.Printf("[inference-proxy] client write failed (likely disconnect): cluster=%s ns=%s name=%s err=%v",
+				// Client closed the connection mid-stream — the common
+				// happy path for chat/SSE (user stopped, navigated away,
+				// got their answer). Not a server-side problem.
+				inferenceProxyLog.Debugf("client write failed (likely disconnect): cluster=%s ns=%s name=%s err=%v",
 					clusterID, namespace, name, werr)
 				return scanner.Done()
 			}
@@ -519,7 +525,11 @@ func writeStreamingResponse(c *gin.Context, stream *gateway.HTTPStream, clusterI
 		}
 		if rerr != nil {
 			if rerr != io.EOF {
-				log.Printf("[inference-proxy] upstream read ended: cluster=%s ns=%s name=%s err=%v",
+				// Non-EOF read termination — could be upstream cancel,
+				// worker disconnect, or yamux close. Info, not warn:
+				// by the time we see this the inference reply is what
+				// it is and there's nothing to react to.
+				inferenceProxyLog.Infof("upstream read ended: cluster=%s ns=%s name=%s err=%v",
 					clusterID, namespace, name, rerr)
 			}
 			return scanner.Done()

@@ -16,7 +16,6 @@ package handler
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"sort"
 	"sync"
@@ -25,7 +24,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var deviceHealthLog = kplog.L("device-health")
 
 // alertSeverity tracks the severity bucket the frontend uses for KPI
 // counts and the row color. critical > warning > info; the frontend
@@ -276,7 +279,7 @@ func collectDeviceAlerts(ctx context.Context, gw *gateway.GatewayServer, cluster
 				// reason: metric not yet populated (cluster just got
 				// dcgm-exporter; ECC counter is zero from the start so
 				// `increase()` returns no series rather than a value).
-				log.Printf("[device-health] VM query failed: cluster=%s promql=%q err=%v",
+				deviceHealthLog.Warnf("VM query failed: cluster=%s promql=%q err=%v",
 					clusterID, j.promql, err)
 				return
 			}

@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/togettoyou/kpilot/pkg/diag"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var serveLog = kplog.L("worker-diag")
 
 // Serve binds an HTTP server on 127.0.0.1:0 (OS-assigned port) and
 // mounts d under /debug. Returns the chosen port; the caller passes
@@ -43,9 +46,9 @@ func Serve(ctx context.Context, d *diag.Diag) (uint32, error) {
 	}
 
 	go func() {
-		log.Printf("[worker-diag] listening on 127.0.0.1:%d", port)
+		serveLog.Infof("listening on 127.0.0.1:%d", port)
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("[worker-diag] serve error: %v", err)
+			serveLog.Warnf("serve error: %v", err)
 		}
 	}()
 

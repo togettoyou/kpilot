@@ -3,7 +3,6 @@ package plugin
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +17,11 @@ import (
 	"helm.sh/helm/v3/pkg/storage/driver"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var helmLog = kplog.L("plugin-helm")
 
 // helmInstallTimeout caps how long Helm waits for resources to become
 // Ready before declaring failure. Big images on a first-time pull
@@ -105,7 +108,7 @@ func NewHelmRunner(cfg *rest.Config, dataDir string) *HelmRunner {
 	if err != nil {
 		// Degrade gracefully: OCI plugins will fail at install time with
 		// a clear message, but non-OCI plugins keep working.
-		log.Printf("[plugin-helm] registry client init failed: %v (OCI charts will fail until restart)", err)
+		helmLog.Warnf("registry client init failed: %v (OCI charts will fail until restart)", err)
 	}
 	return &HelmRunner{cfg: cfg, settings: settings, registryClient: rc}
 }
@@ -145,7 +148,7 @@ func (h *HelmRunner) newConfiguration(namespace string, logger Logger) (*action.
 // supplied (e.g. boot-time chart loads). Forwards to the standard log
 // package so reconcile output sits next to everything else.
 func helmLogf(format string, args ...interface{}) {
-	log.Printf("[plugin-helm] "+format, args...)
+	helmLog.Info(""+format, args...)
 }
 
 // ChartRef tells LoadChart how to resolve the Helm chart. Exactly one of

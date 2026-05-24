@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"sync"
@@ -16,7 +15,11 @@ import (
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 	"github.com/togettoyou/kpilot/pkg/server/store"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var pollerLog = kplog.L("diag-poller")
 
 // Poller drives the system-monitoring history pipeline. One ticker
 // goroutine per node fetches a /debug/snapshot every pollInterval
@@ -124,7 +127,7 @@ func (p *Poller) reconcileOnce(ctx context.Context) {
 	want := map[string]struct{}{"server": {}}
 	clusters, err := store.ListClusters()
 	if err != nil {
-		log.Printf("[diag-poller] reconcile: list clusters failed: %v", err)
+		pollerLog.Warnf("reconcile: list clusters failed: %v", err)
 	} else {
 		for _, c := range clusters {
 			want[c.ID] = struct{}{}
@@ -138,7 +141,7 @@ func (p *Poller) reconcileOnce(ctx context.Context) {
 			close(stop)
 			delete(p.tickers, nodeID)
 			delete(p.failing, nodeID)
-			log.Printf("[diag-poller] stopped ticker: node=%s", nodeID)
+			pollerLog.Infof("stopped ticker: node=%s", nodeID)
 		}
 	}
 	// Start tickers for nodes newly added.
@@ -149,7 +152,7 @@ func (p *Poller) reconcileOnce(ctx context.Context) {
 		stop := make(chan struct{})
 		p.tickers[nodeID] = stop
 		go p.nodeLoop(ctx, nodeID, stop)
-		log.Printf("[diag-poller] started ticker: node=%s", nodeID)
+		pollerLog.Infof("started ticker: node=%s", nodeID)
 	}
 	p.mu.Unlock()
 }
@@ -170,11 +173,11 @@ func (p *Poller) janitorLoop(ctx context.Context) {
 			cutoff := time.Now().Add(-p.retention)
 			n, err := store.DeleteSystemSnapshotsBefore(cutoff)
 			if err != nil {
-				log.Printf("[diag-poller] janitor delete failed: %v", err)
+				pollerLog.Warnf("janitor delete failed: %v", err)
 				continue
 			}
 			if n > 0 {
-				log.Printf("[diag-poller] janitor trimmed %d rows (cutoff=%s)", n, cutoff.Format(time.RFC3339))
+				pollerLog.Infof("janitor trimmed %d rows (cutoff=%s)", n, cutoff.Format(time.RFC3339))
 			}
 		}
 	}
@@ -185,7 +188,7 @@ func (p *Poller) janitorLoop(ctx context.Context) {
 func (p *Poller) nodeLoop(ctx context.Context, nodeID string, stop <-chan struct{}) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[diag-poller] node loop panic: node=%s panic=%v", nodeID, r)
+			pollerLog.Errorf("node loop panic: node=%s panic=%v", nodeID, r)
 		}
 	}()
 
@@ -231,7 +234,7 @@ func (p *Poller) pollOne(ctx context.Context, nodeID string) {
 		p.failing[nodeID] = true
 		p.mu.Unlock()
 		if !wasFailing {
-			log.Printf("[diag-poller] fetch failed: node=%s err=%v", nodeID, err)
+			pollerLog.Warnf("fetch failed: node=%s err=%v", nodeID, err)
 		}
 		return
 	}
@@ -240,7 +243,7 @@ func (p *Poller) pollOne(ctx context.Context, nodeID string) {
 	p.failing[nodeID] = false
 	p.mu.Unlock()
 	if wasFailing {
-		log.Printf("[diag-poller] fetch recovered: node=%s", nodeID)
+		pollerLog.Infof("fetch recovered: node=%s", nodeID)
 	}
 
 	// Patch the worker's snapshot identity.name to the cluster's
@@ -256,7 +259,7 @@ func (p *Poller) pollOne(ctx context.Context, nodeID string) {
 	}
 
 	if err := store.InsertSystemSnapshot(nodeID, time.Now().UTC(), body); err != nil {
-		log.Printf("[diag-poller] insert failed: node=%s err=%v", nodeID, err)
+		pollerLog.Errorf("insert failed: node=%s err=%v", nodeID, err)
 	}
 }
 

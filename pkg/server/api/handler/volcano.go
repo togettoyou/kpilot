@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -15,7 +14,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var volcanoLog = kplog.L("volcano")
 
 // volcano.go — dedicated list endpoints for the 算力调度 platform's
 // Volcano CR pages. These hit the worker's `list-full` action (which
@@ -161,7 +164,7 @@ func ListVolcanoQueues(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !queueResp.Success {
 			if isNoMatchMessage(queueResp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=Queue", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=Queue", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -212,13 +215,13 @@ func ListVolcanoQueues(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// cap" rather than blocking the whole list.
 		var clusterAllocatable map[string]string
 		if nodeErr != nil {
-			log.Printf("[volcano] node list failed (skipping cluster cap fallback): cluster=%s err=%v", clusterID, nodeErr)
+			volcanoLog.Warnf("node list failed (skipping cluster cap fallback): cluster=%s err=%v", clusterID, nodeErr)
 		} else if !nodeResp.Success {
-			log.Printf("[volcano] node list worker error (skipping cluster cap fallback): cluster=%s err=%s", clusterID, nodeResp.Error)
+			volcanoLog.Warnf("node list worker error (skipping cluster cap fallback): cluster=%s err=%s", clusterID, nodeResp.Error)
 		} else if nodes, _, _, err := unstructuredItems(nodeResp.Data); err == nil {
 			clusterAllocatable = aggregateNodeAllocatable(nodes)
 		} else {
-			log.Printf("[volcano] node list parse failed: cluster=%s err=%v", clusterID, err)
+			volcanoLog.Warnf("node list parse failed: cluster=%s err=%v", clusterID, err)
 		}
 
 		c.JSON(http.StatusOK, queueListResponse{
@@ -319,7 +322,7 @@ func ListVolcanoJobs(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=Job", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=Job", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -406,7 +409,7 @@ func ListVolcanoCronJobs(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=CronJob", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=CronJob", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -487,7 +490,7 @@ func ListVolcanoPodGroups(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=PodGroup", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=PodGroup", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -565,7 +568,7 @@ func ListVolcanoHyperNodes(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=HyperNode", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=HyperNode", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -651,7 +654,7 @@ func ListVolcanoJobFlows(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=JobFlow", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=JobFlow", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -732,7 +735,7 @@ func ListVolcanoJobTemplates(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=JobTemplate", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=JobTemplate", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -815,7 +818,7 @@ func ListVolcanoNumatopologies(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=Numatopology", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=Numatopology", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -905,7 +908,7 @@ func ListVolcanoNodeShards(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=NodeShard", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=NodeShard", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}
@@ -1007,7 +1010,7 @@ func ListVolcanoColocationConfigurations(gw *gateway.GatewayServer) gin.HandlerF
 		}
 		if !resp.Success {
 			if isNoMatchMessage(resp.Error) {
-				log.Printf("[volcano] CRD not available: cluster=%s kind=ColocationConfiguration", clusterID)
+				volcanoLog.Infof("CRD not available: cluster=%s kind=ColocationConfiguration", clusterID)
 				apiErr(c, http.StatusNotFound, CodeResourceNotAvailable)
 				return
 			}

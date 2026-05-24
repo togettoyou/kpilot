@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -20,7 +19,11 @@ import (
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var httpLog = kplog.L("http-proxy")
 
 // HTTPResponse is the worker-side internal result shape for one
 // reverse-proxy HTTP call. Body bytes are chunked onto the gRPC stream
@@ -162,9 +165,9 @@ func NewHTTPProxy(k8sCfg *rest.Config, router *InClusterRouter) *HTTPProxy {
 	if k8sCfg != nil {
 		hostURL, err := url.Parse(k8sCfg.Host)
 		if err != nil {
-			log.Printf("[http-proxy] parse api host failed (service-proxy fallback disabled): host=%s err=%v", k8sCfg.Host, err)
+			httpLog.Warnf("parse api host failed (service-proxy fallback disabled): host=%s err=%v", k8sCfg.Host, err)
 		} else if cli, err := newIndependentAPIClient(k8sCfg); err != nil {
-			log.Printf("[http-proxy] build api http client failed (service-proxy fallback disabled): err=%v", err)
+			httpLog.Warnf("build api http client failed (service-proxy fallback disabled): err=%v", err)
 		} else {
 			p.apiClient = cli
 			p.apiHost = hostURL
@@ -268,7 +271,7 @@ func (p *HTTPProxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 	defer st.Close()
 	var wireReq pbv2.HTTPRequestStart
 	if err := st.ReadMsg(&wireReq); err != nil {
-		log.Printf("[wire] http read req failed: request=%s err=%v", st.RequestID(), err)
+		httpLog.Warnf("http read req failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
 	req := &HTTPRequest{
@@ -282,7 +285,7 @@ func (p *HTTPProxy) HandleStream(ctx context.Context, st *transportv2.Stream) {
 	if n := wireReq.GetBodySize(); n > 0 {
 		body := make([]byte, n)
 		if _, err := io.ReadFull(st.Reader(), body); err != nil {
-			log.Printf("[wire] http read body failed: request=%s err=%v", st.RequestID(), err)
+			httpLog.Warnf("http read body failed: request=%s err=%v", st.RequestID(), err)
 			return
 		}
 		req.Body = body
@@ -317,7 +320,7 @@ func (p *HTTPProxy) handleBufferedResp(parent context.Context, st *transportv2.S
 	start := time.Now()
 	resp, err := p.do(bufCtx, req)
 	if err != nil {
-		log.Printf("[wire] http buffered failed request=%s err=%v elapsed=%s",
+		httpLog.Warnf("http buffered failed request=%s err=%v elapsed=%s",
 			st.RequestID(), err, time.Since(start))
 		_ = st.WriteMsg(&pbv2.HTTPResponseStart{
 			Status:   http.StatusBadGateway,
@@ -326,7 +329,9 @@ func (p *HTTPProxy) handleBufferedResp(parent context.Context, st *transportv2.S
 		})
 		return
 	}
-	log.Printf("[wire] http buffered handled request=%s status=%d bodyBytes=%d elapsed=%s",
+	// Per-request status — too noisy at info level. proxy.inflight_http_proxy
+	// covers the volume side; flip KPILOT_LOG_LEVEL=debug to see this.
+	httpLog.Debugf("http buffered handled request=%s status=%d bodyBytes=%d elapsed=%s",
 		st.RequestID(), resp.Status, len(resp.Body), time.Since(start))
 	if err := st.WriteMsg(&pbv2.HTTPResponseStart{
 		Status:   resp.Status,
@@ -387,7 +392,7 @@ func (p *HTTPProxy) handleStreamingResp(parent context.Context, st *transportv2.
 
 	hresp, err := p.dispatchForStream(ctx, req)
 	if err != nil {
-		log.Printf("[http-proxy] stream dispatch failed: url=%s err=%v", req.URL, err)
+		httpLog.Warnf("stream dispatch failed: url=%s err=%v", req.URL, err)
 		_ = st.WriteMsg(&pbv2.HTTPResponseStart{
 			Status: http.StatusBadGateway,
 			Error:  err.Error(),
@@ -401,7 +406,7 @@ func (p *HTTPProxy) handleStreamingResp(parent context.Context, st *transportv2.
 		Headers:  extractResponseHeaders(hresp),
 		BodySize: -1, // streaming — caller reads until stream close
 	}); err != nil {
-		log.Printf("[http-proxy] stream start write failed: request=%s err=%v", st.RequestID(), err)
+		httpLog.Warnf("stream start write failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
 
@@ -415,14 +420,14 @@ func (p *HTTPProxy) handleStreamingResp(parent context.Context, st *transportv2.
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				// Server closed the stream → cancel cascades via
 				// defer cancel() to the upstream HTTP request.
-				log.Printf("[http-proxy] stream write failed (likely cancel): request=%s err=%v",
+				httpLog.Warnf("stream write failed (likely cancel): request=%s err=%v",
 					st.RequestID(), werr)
 				return
 			}
 		}
 		if readErr != nil {
 			if readErr != io.EOF {
-				log.Printf("[http-proxy] stream upstream read err: request=%s err=%v",
+				httpLog.Warnf("stream upstream read err: request=%s err=%v",
 					st.RequestID(), readErr)
 			}
 			return
@@ -456,7 +461,7 @@ func (p *HTTPProxy) dispatchForStream(ctx context.Context, req *HTTPRequest) (*h
 		if !isDNSFailure(err) {
 			return nil, err
 		}
-		log.Printf("[http-proxy] stream direct dial failed (DNS), falling back to service-proxy: host=%s err=%v",
+		httpLog.Warnf("stream direct dial failed (DNS), falling back to service-proxy: host=%s err=%v",
 			svc.namespace+"/"+svc.name, err)
 		p.router.SetMode(routingProxy)
 		return p.dispatchViaServiceProxy(ctx, req, svc)
@@ -610,7 +615,7 @@ func (p *HTTPProxy) doInClusterService(
 	case routingDirect:
 		resp, err := p.doDirect(ctx, req)
 		if err != nil && isDNSFailure(err) {
-			log.Printf("[http-proxy] cached direct routing hit DNS failure, demoting to service-proxy: host=%s err=%v",
+			httpLog.Warnf("cached direct routing hit DNS failure, demoting to service-proxy: host=%s err=%v",
 				svc.namespace+"/"+svc.name, err)
 			p.router.SetMode(routingProxy)
 			return p.doViaServiceProxy(ctx, req, svc)
@@ -622,7 +627,7 @@ func (p *HTTPProxy) doInClusterService(
 	// routingUnknown — probe by trying direct first.
 	resp, err := p.doDirect(ctx, req)
 	if err == nil {
-		log.Printf("[http-proxy] in-cluster direct dial works, caching routing=direct (24h TTL)")
+		httpLog.Info("in-cluster direct dial works, caching routing=direct (24h TTL)")
 		p.router.SetMode(routingDirect)
 		return resp, nil
 	}
@@ -633,7 +638,7 @@ func (p *HTTPProxy) doInClusterService(
 		// cold so the next request re-probes, surface the error.
 		return nil, err
 	}
-	log.Printf("[http-proxy] in-cluster direct dial failed (DNS), caching routing=service-proxy (24h TTL): host=%s err=%v",
+	httpLog.Warnf("in-cluster direct dial failed (DNS), caching routing=service-proxy (24h TTL): host=%s err=%v",
 		svc.namespace+"/"+svc.name, err)
 	p.router.SetMode(routingProxy)
 	return p.doViaServiceProxy(ctx, req, svc)

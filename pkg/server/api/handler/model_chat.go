@@ -29,7 +29,6 @@ package handler
 import (
 	"context"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,7 +38,11 @@ import (
 
 	serverdiag "github.com/togettoyou/kpilot/pkg/server/diag"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var modelChatLog = kplog.L("model-chat")
 
 // inferenceProxyTimeout is the worker-tunnel deadline for one
 // inference call. LLM generation can be slow on cold cache; 10 min
@@ -127,7 +130,7 @@ func ProxyInference(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		stream, err := gw.SendHTTPRequestStream(ctx, clusterID, req)
 		if err != nil {
-			log.Printf("[model-chat] gateway open stream failed: cluster=%s ns=%s name=%s err=%v",
+			modelChatLog.Warnf("gateway open stream failed: cluster=%s ns=%s name=%s err=%v",
 				clusterID, namespace, name, err)
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return

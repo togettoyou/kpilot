@@ -3,12 +3,15 @@ package plugin
 import (
 	"context"
 	"io"
-	"log"
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var streamLog = kplog.L("plugin-stream")
 
 // HandleStream is the tunnel-dispatch entry point for an inbound
 // STREAM_PLUGIN_COMMAND yamux stream. Lives in the plugin
@@ -39,7 +42,7 @@ func HandleStream(mgr *Manager, cache *ChartCache) func(context.Context, *transp
 
 		var wire pbv2.PluginCommand
 		if err := st.ReadMsg(&wire); err != nil {
-			log.Printf("[plugin-stream] read req failed: %v", err)
+			streamLog.Warnf("read req failed: %v", err)
 			return
 		}
 
@@ -47,7 +50,7 @@ func HandleStream(mgr *Manager, cache *ChartCache) func(context.Context, *transp
 		if n := wire.GetChartBlobSize(); n > 0 {
 			blob = make([]byte, n)
 			if _, err := io.ReadFull(st.Reader(), blob); err != nil {
-				log.Printf("[plugin-stream] read blob failed: crd=%s err=%v",
+				streamLog.Warnf("read blob failed: crd=%s err=%v",
 					wire.GetCrdName(), err)
 				_ = st.WriteMsg(&pbv2.PluginCommandAck{Error: err.Error()})
 				return
@@ -62,7 +65,7 @@ func HandleStream(mgr *Manager, cache *ChartCache) func(context.Context, *transp
 		if cmd.Spec != nil && cmd.Spec.Chart != nil &&
 			cmd.Spec.Chart.Type == "local" && len(blob) > 0 {
 			if err := cache.Put(cmd.Spec.Chart.Sha256, blob); err != nil {
-				log.Printf("[plugin-stream] cache chart failed: crd=%s sha=%s err=%v",
+				streamLog.Warnf("cache chart failed: crd=%s sha=%s err=%v",
 					cmd.CrdName, cmd.Spec.Chart.Sha256, err)
 				_ = st.WriteMsg(&pbv2.PluginCommandAck{
 					Error: "cache chart: " + err.Error(),
@@ -76,7 +79,7 @@ func HandleStream(mgr *Manager, cache *ChartCache) func(context.Context, *transp
 		// our success — it'll retry. Dispatching anyway would
 		// process the command twice.
 		if err := st.WriteMsg(&pbv2.PluginCommandAck{Success: true}); err != nil {
-			log.Printf("[plugin-stream] ack write failed (not dispatching): crd=%s err=%v",
+			streamLog.Warnf("ack write failed (not dispatching): crd=%s err=%v",
 				cmd.CrdName, err)
 			return
 		}
@@ -88,7 +91,7 @@ func HandleStream(mgr *Manager, cache *ChartCache) func(context.Context, *transp
 		// on every session reconnect via replayPendingPluginCommands.
 		go func() {
 			if herr := mgr.Handle(context.Background(), cmd); herr != nil {
-				log.Printf("[plugin-stream] async handle err: crd=%s action=%s err=%v",
+				streamLog.Warnf("async handle err: crd=%s action=%s err=%v",
 					cmd.CrdName, cmd.Action, herr)
 			}
 		}()

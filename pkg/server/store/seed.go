@@ -3,13 +3,16 @@ package store
 import (
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/togettoyou/kpilot/pkg/server/plugins"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var seedLog = kplog.L("seed")
 
 // builtin lists the plugins we ship out of the box. They are seeded on
 // startup if absent and refreshed on every boot if the row exists, since
@@ -698,7 +701,7 @@ func seedLocalChartBlobs() error {
 		if err == nil {
 			break
 		}
-		log.Printf("[seed] package volcano-vgpu chart attempt %d failed: %v", attempt, err)
+		seedLog.Warnf("package volcano-vgpu chart attempt %d failed: %v", attempt, err)
 		time.Sleep(time.Duration(attempt) * time.Second)
 	}
 	if err != nil {

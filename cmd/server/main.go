@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 	"net"
 	"net/http"
 	"time"
@@ -16,17 +15,21 @@ import (
 	serverdiag "github.com/togettoyou/kpilot/pkg/server/diag"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 	"github.com/togettoyou/kpilot/pkg/server/store"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var mainLog = kplog.L("server")
 
 func main() {
 	cfg := config.Load()
 
 	if err := store.Init(cfg.DSN); err != nil {
-		log.Fatalf("db init: %v", err)
+		mainLog.Fatalf("db init: %v", err)
 	}
-	log.Println("database connected")
+	mainLog.Info("database connected")
 	if err := store.ResetAllClustersOffline(); err != nil {
-		log.Fatalf("reset cluster status: %v", err)
+		mainLog.Fatalf("reset cluster status: %v", err)
 	}
 	if cfg.BootstrapLocalClusterToken != "" {
 		if err := store.BootstrapLocalCluster(
@@ -34,7 +37,7 @@ func main() {
 			cfg.BootstrapLocalClusterToken,
 			"Auto-created at server bootstrap (helm bundled worker).",
 		); err != nil {
-			log.Fatalf("bootstrap local cluster: %v", err)
+			mainLog.Fatalf("bootstrap local cluster: %v", err)
 		}
 	}
 
@@ -63,7 +66,7 @@ func main() {
 
 	diagPort, err := serveDiag(ctx, diagInst)
 	if err != nil {
-		log.Fatalf("[server-diag] serve: %v", err)
+		mainLog.Fatalf("serve: %v", err)
 	}
 	// Hand the diag port to the handler package so /api/v1/system/server/*
 	// knows where to reverse-proxy. Worker diag ports come from the
@@ -85,20 +88,20 @@ func main() {
 	// come from yamux natively.
 	ylis, err := net.Listen("tcp", cfg.YamuxAddr)
 	if err != nil {
-		log.Fatalf("yamux listen %s: %v", cfg.YamuxAddr, err)
+		mainLog.Fatalf("yamux listen %s: %v", cfg.YamuxAddr, err)
 	}
-	log.Printf("yamux listening on %s", cfg.YamuxAddr)
+	mainLog.Infof("yamux listening on %s", cfg.YamuxAddr)
 	go func() {
 		if err := gw.AcceptYamux(ctx, ylis); err != nil {
-			log.Fatalf("[yamux] accept loop failed: %v", err)
+			mainLog.Fatalf("accept loop failed: %v", err)
 		}
 	}()
 
 	// HTTP server (REST API + WebSocket endpoints).
 	router := api.NewRouter(cfg, gw, httpCollector)
-	log.Printf("HTTP listening on %s", cfg.HTTPAddr)
+	mainLog.Infof("HTTP listening on %s", cfg.HTTPAddr)
 	if err := router.Run(cfg.HTTPAddr); err != nil {
-		log.Fatalf("http serve: %v", err)
+		mainLog.Fatalf("http serve: %v", err)
 	}
 }
 
@@ -121,9 +124,9 @@ func serveDiag(ctx context.Context, d *diag.Diag) (uint32, error) {
 		IdleTimeout:       60 * time.Second,
 	}
 	go func() {
-		log.Printf("[server-diag] listening on 127.0.0.1:%d", port)
+		mainLog.Infof("listening on 127.0.0.1:%d", port)
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("[server-diag] serve error: %v", err)
+			mainLog.Warnf("serve error: %v", err)
 		}
 	}()
 	go func() {

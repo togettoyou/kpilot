@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,7 +12,11 @@ import (
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var podLog = kplog.L("pod-logs")
 
 // upgrader for Pod logs / Exec / plugin install-log WS endpoints.
 // Origin is validated via the package-shared checkWSOrigin so cross-
@@ -92,7 +95,7 @@ func PodLogs(gw *gateway.GatewayServer) gin.HandlerFunc {
 			}
 			if chunk != nil {
 				if err := conn.WriteMessage(websocket.TextMessage, chunk.GetData()); err != nil {
-					log.Printf("[pod-logs] write failed: %v", err)
+					podLog.Warnf("write failed: %v", err)
 					return
 				}
 				continue
@@ -215,7 +218,7 @@ func PodExec(gw *gateway.GatewayServer) gin.HandlerFunc {
 				tag := byte(out.GetStream()) // 1 stdout, 2 stderr
 				frame := append([]byte{tag}, out.GetData()...)
 				if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
-					log.Printf("[pod-exec] write failed: %v", err)
+					podLog.Warnf("write failed: %v", err)
 					return
 				}
 				continue

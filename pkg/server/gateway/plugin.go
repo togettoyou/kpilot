@@ -15,7 +15,6 @@ package gateway
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,7 +22,11 @@ import (
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/pluginservice"
 	"github.com/togettoyou/kpilot/pkg/server/store"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var pluginLog = kplog.L("gateway")
 
 // pluginCommandAckTimeout caps the wait for the worker's
 // receipt-ack on a PluginCommand. Worker contract: ack
@@ -103,7 +106,7 @@ func (g *GatewayServer) SendPluginCommand(clusterID string, cmd *pluginservice.C
 // STREAM_PLUGIN_STATUS_PUSH stream.
 func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *pbv2.PluginStatusPush) {
 	if err := pluginservice.PersistStatus(w.ClusterID, st); err != nil {
-		log.Printf("[gateway] plugin status persist: cluster=%s crd=%s err=%v",
+		pluginLog.Warnf("plugin status persist: cluster=%s crd=%s err=%v",
 			w.ClusterID, st.GetCrdName(), err)
 	}
 }
@@ -115,12 +118,12 @@ func (g *GatewayServer) handlePluginStatus(w *ConnectedWorker, st *pbv2.PluginSt
 func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[gateway] replay panic: cluster=%s panic=%v", clusterID, r)
+			pluginLog.Errorf("replay panic: cluster=%s panic=%v", clusterID, r)
 		}
 	}()
 	rows, err := store.ListClusterPlugins(clusterID)
 	if err != nil {
-		log.Printf("[gateway] replay: list cluster plugins failed: cluster=%s err=%v",
+		pluginLog.Warnf("replay: list cluster plugins failed: cluster=%s err=%v",
 			clusterID, err)
 		return
 	}
@@ -148,12 +151,12 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 			}
 			maybePause()
 			if err := g.SendPluginCommand(clusterID, cmd); err != nil {
-				log.Printf("[gateway] replay disable failed: cluster=%s plugin=%s err=%v",
+				pluginLog.Warnf("replay disable failed: cluster=%s plugin=%s err=%v",
 					clusterID, plugin.Name, err)
 				continue
 			}
 			sent = true
-			log.Printf("[gateway] replay disable: cluster=%s plugin=%s",
+			pluginLog.Infof("replay disable: cluster=%s plugin=%s",
 				clusterID, plugin.Name)
 		case store.PluginPhasePending,
 			store.PluginPhaseInstalling,
@@ -167,18 +170,18 @@ func (g *GatewayServer) replayPendingPluginCommands(clusterID string) {
 			}
 			cmd, err := pluginservice.BuildEnableCommand(plugin, cp, g)
 			if err != nil {
-				log.Printf("[gateway] replay enable build failed: cluster=%s plugin=%s err=%v",
+				pluginLog.Warnf("replay enable build failed: cluster=%s plugin=%s err=%v",
 					clusterID, plugin.Name, err)
 				continue
 			}
 			maybePause()
 			if err := g.SendPluginCommand(clusterID, cmd); err != nil {
-				log.Printf("[gateway] replay enable failed: cluster=%s plugin=%s err=%v",
+				pluginLog.Warnf("replay enable failed: cluster=%s plugin=%s err=%v",
 					clusterID, plugin.Name, err)
 				continue
 			}
 			sent = true
-			log.Printf("[gateway] replay enable: cluster=%s plugin=%s phase=%s",
+			pluginLog.Infof("replay enable: cluster=%s plugin=%s phase=%s",
 				clusterID, plugin.Name, cp.Phase)
 		}
 	}

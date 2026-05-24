@@ -21,7 +21,6 @@ package middleware
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"strings"
 
@@ -29,7 +28,11 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/togettoyou/kpilot/pkg/server/store"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var bearerApiKeyLog = kplog.L("bearer-api-key")
 
 // Context keys for handlers downstream of BearerAPIKey to recover the
 // authorising key (e.g. for audit logging).
@@ -60,7 +63,7 @@ func BearerAPIKey(clusterParam, namespaceParam, deployParam string) gin.HandlerF
 			// DB error — log internally, expose generic 500 (don't
 			// give an attacker a side channel for "DB up vs key
 			// unknown").
-			log.Printf("[bearer-api-key] db lookup failed: hash=%s err=%v", hash[:8], err)
+			bearerApiKeyLog.Warnf("db lookup failed: hash=%s err=%v", hash[:8], err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR"})
 			return
 		}
@@ -81,7 +84,7 @@ func BearerAPIKey(clusterParam, namespaceParam, deployParam string) gin.HandlerF
 			return
 		}
 		if key.ClusterID != clusterID || key.Namespace != namespace || key.DeployName != deploy {
-			log.Printf("[bearer-api-key] scope mismatch: key=%d wants=%s/%s/%s got=%s/%s/%s",
+			bearerApiKeyLog.Infof("scope mismatch: key=%d wants=%s/%s/%s got=%s/%s/%s",
 				key.ID, key.ClusterID, key.Namespace, key.DeployName, clusterID, namespace, deploy)
 			abortUnauth(c, "API_KEY_SCOPE_MISMATCH", "api key not authorised for this deployment")
 			return
@@ -95,7 +98,7 @@ func BearerAPIKey(clusterParam, namespaceParam, deployParam string) gin.HandlerF
 		// a WHERE-clause guard.
 		go func(id uint) {
 			if err := store.TouchAPIKeyLastUsed(id); err != nil {
-				log.Printf("[bearer-api-key] touch last-used failed: id=%d err=%v", id, err)
+				bearerApiKeyLog.Warnf("touch last-used failed: id=%d err=%v", id, err)
 			}
 		}(key.ID)
 

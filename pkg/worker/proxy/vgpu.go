@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +17,11 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/togettoyou/kpilot/pkg/common/vgpu"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var vgpuLog = kplog.L("vgpu")
 
 // vgpu.go — projects Volcano's per-node + per-pod vGPU annotations
 // into a single cluster snapshot for the 算力调度 UI.
@@ -86,7 +89,7 @@ func (p *Proxy) vgpuSnapshot(ctx context.Context) *ResourceResponse {
 	if err != nil {
 		return fail("marshal vgpu snapshot: " + err.Error())
 	}
-	log.Printf("[vgpu] snapshot: nodes=%d cards=%d slots=%d/%d memory=%d/%d",
+	vgpuLog.Infof("snapshot: nodes=%d cards=%d slots=%d/%d memory=%d/%d",
 		len(snap.Nodes), snap.TotalCards, snap.UsedSlots, snap.TotalSlots,
 		snap.UsedMemory, snap.TotalMemory)
 	return &ResourceResponse{Success: true, Data: data}
@@ -254,7 +257,7 @@ func (t *VGPUTracker) snapshotLive(ctx context.Context) (*vgpu.Snapshot, error) 
 		for _, container := range decodePodIDs(ids) {
 			for _, dev := range container {
 				if !applyPodUsage(nv, dev, pod.Namespace, pod.Name) {
-					log.Printf("[vgpu] pod %s/%s references unknown card uuid=%s node=%s",
+					vgpuLog.Warnf("pod %s/%s references unknown card uuid=%s node=%s",
 						pod.Namespace, pod.Name, dev.uuid, nodeName)
 				}
 			}
@@ -331,7 +334,7 @@ func decodeNodeRegister(s string) []vgpu.Card {
 		}
 		items := strings.Split(p, ",")
 		if len(items) < 6 {
-			log.Printf("[vgpu] decodeNodeRegister: skipping malformed gpu entry %q", p)
+			vgpuLog.Warnf("decodeNodeRegister: skipping malformed gpu entry %q", p)
 			continue
 		}
 		// Parse each numeric / bool field with the real error path —
@@ -339,17 +342,17 @@ func decodeNodeRegister(s string) []vgpu.Card {
 		// the snapshot as zero-cap cards, dragging node totals down.
 		count, err := strconv.Atoi(items[1])
 		if err != nil {
-			log.Printf("[vgpu] decodeNodeRegister: bad count %q in entry %q: %v", items[1], p, err)
+			vgpuLog.Infof("decodeNodeRegister: bad count %q in entry %q: %v", items[1], p, err)
 			continue
 		}
 		mem, err := strconv.Atoi(items[2])
 		if err != nil {
-			log.Printf("[vgpu] decodeNodeRegister: bad memory %q in entry %q: %v", items[2], p, err)
+			vgpuLog.Infof("decodeNodeRegister: bad memory %q in entry %q: %v", items[2], p, err)
 			continue
 		}
 		health, err := strconv.ParseBool(items[4])
 		if err != nil {
-			log.Printf("[vgpu] decodeNodeRegister: bad health %q in entry %q: %v", items[4], p, err)
+			vgpuLog.Infof("decodeNodeRegister: bad health %q in entry %q: %v", items[4], p, err)
 			continue
 		}
 		cards = append(cards, vgpu.Card{

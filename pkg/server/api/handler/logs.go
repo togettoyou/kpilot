@@ -17,7 +17,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,7 +24,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var logsLog = kplog.L("diag-logs")
 
 // logsMetaPayload fires as the very first SSE event on a streaming
 // search. Echoes back the resolved query parameters so the frontend
@@ -143,8 +146,8 @@ func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// Stop hangs everything" report. Remove once root cause is
 		// locked.
 		dbgID := time.Now().UnixNano() % 1_000_000
-		log.Printf("[diag-logs] ENTER req=%d cluster=%s query=%q", dbgID, clusterID, query)
-		defer log.Printf("[diag-logs] EXIT req=%d", dbgID)
+		logsLog.Infof("ENTER req=%d cluster=%s query=%q", dbgID, clusterID, query)
+		defer logsLog.Infof("EXIT req=%d", dbgID)
 		if query == "" {
 			// Empty query == "everything in the window". The frontend
 			// presents an empty search box as "all logs"; mirroring
@@ -202,13 +205,13 @@ func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 		defer cancel()
 
 		start := time.Now()
-		log.Printf("[diag-logs] start streamVMLogs req=%d limit=%d", dbgID, limit)
+		logsLog.Infof("start streamVMLogs req=%d limit=%d", dbgID, limit)
 		total, endErr, sErr := streamVMLogs(ctx, gw, clusterID, vlURL,
 			query, from, to, limit,
 			func(ln vmLogLine) error {
 				return sse.send("line", ln)
 			})
-		log.Printf("[diag-logs] streamVMLogs returned req=%d total=%d endErr=%q sErr=%v ctxErr=%v",
+		logsLog.Infof("streamVMLogs returned req=%d total=%d endErr=%q sErr=%v ctxErr=%v",
 			dbgID, total, endErr, sErr, ctx.Err())
 		if sErr != nil {
 			if errors.Is(sErr, context.Canceled) {

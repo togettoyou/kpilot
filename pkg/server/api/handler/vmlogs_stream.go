@@ -22,12 +22,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var vmlogsStreamLog = kplog.L("diag-stream")
 
 // maxLogLineBytes caps a single NDJSON record before we drop it. VL
 // log lines can be huge (stack traces, JSON-encoded big payloads);
@@ -95,12 +98,12 @@ func streamVMLogs(
 	if sErr != nil {
 		return 0, "", fmt.Errorf("open VL stream: %w", sErr)
 	}
-	log.Printf("[diag-stream] opened cluster=%s status=%d url=%s", clusterID, stream.Status, u)
+	vmlogsStreamLog.Infof("opened cluster=%s status=%d url=%s", clusterID, stream.Status, u)
 	// v2: stream.Close cascades as yamux FIN → worker cancels its
 	// VL request mid-flight. ctx watcher goroutine triggers the
 	// Close on cancel so Body.Read unblocks fast.
 	defer func() {
-		log.Printf("[diag-stream] stream.Close() invoked cluster=%s total=%d endErr=%q",
+		vmlogsStreamLog.Infof("stream.Close() invoked cluster=%s total=%d endErr=%q",
 			clusterID, total, endErr)
 		stream.Close()
 	}()
@@ -156,7 +159,7 @@ func streamVMLogs(
 				buf.Write(c)
 				for {
 					if ctx.Err() != nil {
-						log.Printf("[diag-stream] EXIT via ctx.Done (inner) cluster=%s total=%d err=%v",
+						vmlogsStreamLog.Warnf("EXIT via ctx.Done (inner) cluster=%s total=%d err=%v",
 							clusterID, total, ctx.Err())
 						return total, "ctx cancelled", ctx.Err()
 					}
@@ -175,13 +178,13 @@ func streamVMLogs(
 						continue
 					}
 					if oErr := onLine(projectLogLine(rec)); oErr != nil {
-						log.Printf("[diag-stream] EXIT via onLine err cluster=%s total=%d err=%v",
+						vmlogsStreamLog.Warnf("EXIT via onLine err cluster=%s total=%d err=%v",
 							clusterID, total, oErr)
 						return total, "client send: " + oErr.Error(), nil
 					}
 					total++
 					if limit > 0 && total >= limit {
-						log.Printf("[diag-stream] EXIT via limit cluster=%s total=%d", clusterID, total)
+						vmlogsStreamLog.Infof("EXIT via limit cluster=%s total=%d", clusterID, total)
 						goto done
 					}
 				}
@@ -196,7 +199,7 @@ func streamVMLogs(
 	}
 done:
 	if dropped > 0 {
-		log.Printf("[vmlogs-stream] dropped malformed/oversized lines: cluster=%s dropped=%d",
+		vmlogsStreamLog.Infof("dropped malformed/oversized lines: cluster=%s dropped=%d",
 			clusterID, dropped)
 	}
 	return total, endErr, nil

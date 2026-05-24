@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"log"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,7 +10,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/togettoyou/kpilot/pkg/common/volcano"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var volcanoStatusLog = kplog.L("volcano-status")
 
 // volcano_status.go — cluster-side detection of Volcano so the
 // frontend doesn't need to gate on KPilot's plugin registry.
@@ -61,7 +64,7 @@ func (p *Proxy) volcanoStatus(ctx context.Context) *ResourceResponse {
 	)
 	if err != nil {
 		if apimeta.IsNoMatchError(err) {
-			log.Printf("[volcano-status] CRD not present (NoMatch); installed=false")
+			volcanoStatusLog.Info("CRD not present (NoMatch); installed=false")
 			return marshalStatus(status)
 		}
 		return fail("volcano-status: map Queue: " + err.Error())
@@ -75,7 +78,7 @@ func (p *Proxy) volcanoStatus(ctx context.Context) *ResourceResponse {
 		// Shouldn't happen — same cfg already drives dyn + vgpu — but
 		// surface as success-with-empty-ns so the scheduler page can
 		// fall back to its NotInstalled state rather than 500.
-		log.Printf("[volcano-status] kubernetes clientset: %v", err)
+		volcanoStatusLog.Infof("kubernetes clientset: %v", err)
 		return marshalStatus(status)
 	}
 
@@ -86,7 +89,7 @@ func (p *Proxy) volcanoStatus(ctx context.Context) *ResourceResponse {
 		Limit: 5,
 	})
 	if err != nil {
-		log.Printf("[volcano-status] list configmaps: %v", err)
+		volcanoStatusLog.Infof("list configmaps: %v", err)
 		return marshalStatus(status)
 	}
 	if len(cms.Items) > 0 {
@@ -100,11 +103,11 @@ func (p *Proxy) volcanoStatus(ctx context.Context) *ResourceResponse {
 			for _, c := range cms.Items[1:] {
 				others = append(others, c.Namespace)
 			}
-			log.Printf("[volcano-status] multiple volcano-scheduler-configmap found, using %q; other namespaces: %v",
+			volcanoStatusLog.Infof("multiple volcano-scheduler-configmap found, using %q; other namespaces: %v",
 				status.SchedulerConfigMapNamespace, others)
 		}
 	}
-	log.Printf("[volcano-status] installed=%t scheduler_ns=%q",
+	volcanoStatusLog.Infof("installed=%t scheduler_ns=%q",
 		status.Installed, status.SchedulerConfigMapNamespace)
 	return marshalStatus(status)
 }

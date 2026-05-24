@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,7 +19,11 @@ import (
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var wsLog = kplog.L("ws-proxy")
 
 // WSManager runs Pod WebSocket reverse proxy sessions. Phase C
 // dropped the in-memory session registry (one yamux stream per
@@ -50,7 +53,7 @@ func NewWSManager(k8sCfg *rest.Config, router *InClusterRouter) *WSManager {
 		if cfg, err := rest.TLSConfigFor(k8sCfg); err == nil {
 			m.apiTLS = cfg
 		} else {
-			log.Printf("[ws-proxy] tls config from rest.Config failed (service-proxy WS fallback disabled): err=%v", err)
+			wsLog.Warnf("tls config from rest.Config failed (service-proxy WS fallback disabled): err=%v", err)
 		}
 	}
 	return m
@@ -73,7 +76,7 @@ func (m *WSManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
 
 	var req pbv2.WSStartRequest
 	if err := st.ReadMsg(&req); err != nil {
-		log.Printf("[wire] ws read req failed: request=%s err=%v", st.RequestID(), err)
+		wsLog.Warnf("ws read req failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
 
@@ -108,7 +111,7 @@ func (m *WSManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
 			body := readDialBodyExcerpt(dialResp.Body)
 			extra = fmt.Sprintf(" status=%d body=%q", dialResp.StatusCode, body)
 		}
-		log.Printf("[ws-proxy] dial failed: url=%s err=%v%s", req.GetUrl(), err, extra)
+		wsLog.Warnf("dial failed: url=%s err=%v%s", req.GetUrl(), err, extra)
 		writeWSEnd(st, 0, "dial: "+err.Error())
 		return
 	}
@@ -134,7 +137,7 @@ func (m *WSManager) HandleStream(ctx context.Context, st *transportv2.Stream) {
 				op := int(frame.GetOpcode())
 				_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 				if werr := conn.WriteMessage(op, frame.GetData()); werr != nil {
-					log.Printf("[ws-proxy] upstream write failed: %v", werr)
+					wsLog.Warnf("upstream write failed: %v", werr)
 					_ = conn.Close()
 					return
 				}
@@ -230,7 +233,7 @@ func (m *WSManager) dial(
 	case routingDirect:
 		conn, resp, err := m.dialer.DialContext(ctx, rawURL, header)
 		if err != nil && isDNSFailure(err) {
-			log.Printf("[ws-proxy] cached direct routing hit DNS failure, demoting to service-proxy: host=%s err=%v",
+			wsLog.Warnf("cached direct routing hit DNS failure, demoting to service-proxy: host=%s err=%v",
 				svc.namespace+"/"+svc.name, err)
 			m.router.SetMode(routingProxy)
 			return m.dialViaServiceProxy(ctx, svc, header)
@@ -241,14 +244,14 @@ func (m *WSManager) dial(
 	}
 	conn, resp, err := m.dialer.DialContext(ctx, rawURL, header)
 	if err == nil {
-		log.Printf("[ws-proxy] in-cluster direct dial works, caching routing=direct (24h TTL)")
+		wsLog.Info("in-cluster direct dial works, caching routing=direct (24h TTL)")
 		m.router.SetMode(routingDirect)
 		return conn, resp, nil
 	}
 	if !isDNSFailure(err) {
 		return nil, resp, err
 	}
-	log.Printf("[ws-proxy] in-cluster direct dial failed (DNS), caching routing=service-proxy (24h TTL): host=%s err=%v",
+	wsLog.Warnf("in-cluster direct dial failed (DNS), caching routing=service-proxy (24h TTL): host=%s err=%v",
 		svc.namespace+"/"+svc.name, err)
 	m.router.SetMode(routingProxy)
 	return m.dialViaServiceProxy(ctx, svc, header)

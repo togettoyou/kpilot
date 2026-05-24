@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"sync/atomic"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,7 +12,11 @@ import (
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var logsLog = kplog.L("pod-logs")
 
 const (
 	// logsChunkSize bounds a single read+forward; smaller chunks
@@ -64,7 +67,7 @@ func (m *LogsManager) HandleStream(ctx context.Context, st *transportv2.Stream) 
 	defer st.Close()
 	var req pbv2.LogsStartRequest
 	if err := st.ReadMsg(&req); err != nil {
-		log.Printf("[wire] logs read req failed: request=%s err=%v", st.RequestID(), err)
+		logsLog.Warnf("logs read req failed: request=%s err=%v", st.RequestID(), err)
 		return
 	}
 
@@ -104,7 +107,7 @@ func (m *LogsManager) HandleStream(ctx context.Context, st *transportv2.Stream) 
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
 			if werr := st.WriteMsg(&pbv2.LogsChunk{Data: chunk}); werr != nil {
-				log.Printf("[logs] send failed (likely cancel): request=%s err=%v",
+				logsLog.Warnf("send failed (likely cancel): request=%s err=%v",
 					st.RequestID(), werr)
 				return
 			}

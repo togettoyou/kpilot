@@ -2,13 +2,16 @@ package pluginservice
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/store"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var statusLog = kplog.L("pluginservice")
 
 // PersistStatus persists a Worker → Server plugin status push into
 // the cluster_plugins table. Previously inlined in the gateway; pulled
@@ -26,7 +29,7 @@ func PersistStatus(clusterID string, st *pbv2.PluginStatusPush) error {
 		// likely a registry row got deleted while a CRD lingered. Log
 		// and drop; the worker will eventually stop emitting status
 		// when its own reconciler GCs the CRD.
-		log.Printf("[pluginservice] status for unknown plugin: cluster=%s crd=%s err=%v",
+		statusLog.Warnf("status for unknown plugin: cluster=%s crd=%s err=%v",
 			clusterID, st.CrdName, err)
 		return fmt.Errorf("unknown plugin %q: %w", st.CrdName, err)
 	}
@@ -44,7 +47,7 @@ func PersistStatus(clusterID string, st *pbv2.PluginStatusPush) error {
 		// re-enabled while this uninstall was still in flight, the
 		// new row has enabled=true and we must not wipe it.
 		if _, err := store.DeleteDisabledClusterPlugin(clusterID, plugin.ID); err != nil {
-			log.Printf("[pluginservice] delete disabled cluster plugin: cluster=%s plugin=%s err=%v",
+			statusLog.Warnf("delete disabled cluster plugin: cluster=%s plugin=%s err=%v",
 				clusterID, st.CrdName, err)
 			return err
 		}
@@ -75,12 +78,12 @@ func PersistStatus(clusterID string, st *pbv2.PluginStatusPush) error {
 	// and the AttemptHash gate blocks any retry.
 	skipped, err := store.PersistClusterPluginStatusIfActive(clusterID, plugin.ID, phase, updates)
 	if err != nil {
-		log.Printf("[pluginservice] update cluster plugin status: cluster=%s plugin=%s err=%v",
+		statusLog.Warnf("update cluster plugin status: cluster=%s plugin=%s err=%v",
 			clusterID, st.CrdName, err)
 		return err
 	}
 	if skipped {
-		log.Printf("[pluginservice] late status echo ignored (user already disabled): cluster=%s plugin=%s phase=%s",
+		statusLog.Infof("late status echo ignored (user already disabled): cluster=%s plugin=%s phase=%s",
 			clusterID, st.CrdName, phase)
 	}
 	return nil

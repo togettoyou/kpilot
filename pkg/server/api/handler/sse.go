@@ -26,7 +26,6 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -35,7 +34,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	serverdiag "github.com/togettoyou/kpilot/pkg/server/diag"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var sseLog = kplog.L("handler")
 
 // sseKeepaliveInterval is how often we emit a `progress` event while
 // the underlying query is still in flight. 25 s sits comfortably under
@@ -196,6 +199,6 @@ func (s *sseStream) sendError(code, message string, httpStatus int) {
 // real error in server logs, the client sees the generic code.
 func (s *sseStream) sendInternalError(err error) {
 	// Mirror apiErrInternal's log line so existing log greps still work.
-	log.Printf("[handler] internal error: %v", err)
+	sseLog.Warnf("internal error: %v", err)
 	s.sendError(CodeInternalError, "", http.StatusInternalServerError)
 }

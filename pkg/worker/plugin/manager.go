@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"log"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,7 +10,11 @@ import (
 
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var managerLog = kplog.L("plugin")
 
 // fieldManagerName scopes Server-Side Apply operations from the manager.
 // Same string as the proxy uses for Workload SSA so kubectl/Helm can see
@@ -73,7 +76,7 @@ func (m *Manager) handleEnable(ctx context.Context, cmd *tunnel.PluginCommand) e
 	// fieldManager=kpilot + Force=true matches the convention in
 	// pkg/worker/proxy for Workload writes.
 	desired := buildPluginCRD(cmd)
-	log.Printf("[plugin] applying CRD: name=%s", cmd.CrdName)
+	managerLog.Infof("applying CRD: name=%s", cmd.CrdName)
 	return m.Client.Patch(ctx, desired, client.Apply,
 		client.FieldOwner(fieldManagerName),
 		client.ForceOwnership,
@@ -88,7 +91,7 @@ func (m *Manager) handleDisable(ctx context.Context, cmd *tunnel.PluginCommand) 
 		// at Uninstalling (e.g. an earlier enable never reached us).
 		// Push an empty-phase status so Server settles to Disabled
 		// instead of staying stuck.
-		log.Printf("[plugin] disable: CRD already absent, sending Disabled push: name=%s",
+		managerLog.Infof("disable: CRD already absent, sending Disabled push: name=%s",
 			cmd.CrdName)
 		if m.Push != nil {
 			m.Push.PushPluginStatus(cmd.CrdName, &kpilotv1alpha1.PluginStatus{})
@@ -98,7 +101,7 @@ func (m *Manager) handleDisable(ctx context.Context, cmd *tunnel.PluginCommand) 
 	if err != nil {
 		return fmt.Errorf("get plugin: %w", err)
 	}
-	log.Printf("[plugin] deleting CRD: name=%s", cmd.CrdName)
+	managerLog.Infof("deleting CRD: name=%s", cmd.CrdName)
 	// The reconciler picks up the deletion timestamp, runs `helm
 	// uninstall`, and removes the finalizer; the API server then drops
 	// the object. We don't wait here.

@@ -3,12 +3,15 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"log"
 	"os"
 	"strings"
 
 	"github.com/joho/godotenv"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var configLog = kplog.L("config")
 
 // DefaultAdminPassword is the fallback used when ADMIN_PASSWORD isn't
 // set in the environment. Exported so other packages can check whether
@@ -59,7 +62,7 @@ func Load() *Config {
 	jwtSecret := envOr("JWT_SECRET", "")
 	if jwtSecret == "" {
 		jwtSecret = randomHex(32)
-		log.Println("[config] JWT_SECRET not set, using random secret (tokens will be invalidated on restart)")
+		configLog.Warn("JWT_SECRET not set, using random secret (tokens will be invalidated on restart)")
 	}
 
 	adminPassword := envOr("ADMIN_PASSWORD", "")
@@ -67,7 +70,7 @@ func Load() *Config {
 	if adminPassword == "" {
 		adminPassword = DefaultAdminPassword
 		adminPasswordIsDefault = true
-		log.Printf("[config] ADMIN_PASSWORD not set, using default %q — rotate before exposing this deployment publicly", DefaultAdminPassword)
+		configLog.Warnf("ADMIN_PASSWORD not set, using default %q — rotate before exposing this deployment publicly", DefaultAdminPassword)
 	}
 
 	var corsOrigins []string
@@ -110,11 +113,11 @@ func envOr(key, def string) string {
 func loadDotEnv() {
 	if err := godotenv.Load(); err != nil {
 		if !os.IsNotExist(err) {
-			log.Printf("[config] failed to load .env: %v", err)
+			configLog.Warnf("failed to load .env: %v", err)
 		}
 		return
 	}
-	log.Println("[config] loaded .env")
+	configLog.Info("loaded .env")
 }
 
 func randomHex(n int) string {

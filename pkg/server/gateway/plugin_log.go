@@ -1,12 +1,15 @@
 package gateway
 
 import (
-	"log"
 	"sync"
 	"time"
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var pluginLogLog = kplog.L("plugin-log")
 
 // Plugin install / upgrade / uninstall log fan-out.
 //
@@ -157,7 +160,7 @@ func (g *GatewayServer) appendPluginLog(clusterID, crdName string, entry PluginL
 		default:
 			sub.dropped++
 			if sub.dropped == 1 || sub.dropped&(sub.dropped-1) == 0 {
-				log.Printf("[plugin-log] subscriber backlog full, dropped frame: cluster=%s plugin=%s dropped_total=%d",
+				pluginLogLog.Infof("subscriber backlog full, dropped frame: cluster=%s plugin=%s dropped_total=%d",
 					clusterID, crdName, sub.dropped)
 			}
 		}

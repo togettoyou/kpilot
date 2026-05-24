@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,7 +16,11 @@ import (
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var proxyLog = kplog.L("proxy")
 
 // proxiableService is the in-cluster Service identity for a reverse-proxy-
 // enabled plugin. The release namespace comes from the ClusterPlugin row at
@@ -352,7 +355,7 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 
 		resp, err := gw.SendHTTPRequest(ctx, clusterID, req)
 		if err != nil {
-			log.Printf("[proxy] gateway send failed: cluster=%s plugin=%s err=%v",
+			proxyLog.Warnf("gateway send failed: cluster=%s plugin=%s err=%v",
 				clusterID, pluginName, err)
 			apiErr(c, http.StatusServiceUnavailable, CodeClusterNotConnected)
 			return
@@ -364,7 +367,7 @@ func ProxyPlugin(gw *gateway.GatewayServer) gin.HandlerFunc {
 			// envelope consistent with the rest of the API so the
 			// frontend's requestErrorConfig pipeline can translate
 			// `code: PROXY_UPSTREAM_ERROR` to a localized toast.
-			log.Printf("[proxy] worker dispatch failed: cluster=%s plugin=%s err=%s",
+			proxyLog.Warnf("worker dispatch failed: cluster=%s plugin=%s err=%s",
 				clusterID, pluginName, resp.Error)
 			apiErrDetail(c, http.StatusBadGateway, CodeProxyUpstream, resp.Error)
 			return

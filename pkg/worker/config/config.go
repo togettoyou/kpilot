@@ -1,12 +1,15 @@
 package config
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 
 	"github.com/joho/godotenv"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var configLog = kplog.L("config")
 
 type Config struct {
 	ServerAddr   string
@@ -53,9 +56,9 @@ func envOr(key, def string) string {
 func loadDotEnv() {
 	if err := godotenv.Load(); err != nil {
 		if !os.IsNotExist(err) {
-			log.Printf("[config] failed to load .env: %v", err)
+			configLog.Warnf("failed to load .env: %v", err)
 		}
 		return
 	}
-	log.Println("[config] loaded .env")
+	configLog.Info("loaded .env")
 }

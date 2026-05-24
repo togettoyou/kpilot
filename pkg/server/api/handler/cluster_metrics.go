@@ -17,7 +17,6 @@ package handler
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -25,16 +24,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
 // logSoftErr is shared with node_metrics / pod_metrics: a single PromQL
 // failure in a fan-out shouldn't blank out the page, just hide that one
-// panel. Component / handler / cluster id captured so an operator can
-// grep for the failing query.
+// panel. Handler name is passed in so the log line carries the actual
+// originating page (cluster-metrics / node-metrics / pod-metrics).
 func logSoftErr(handler, clusterID, key string, err error) {
-	log.Printf("[%s] PromQL fan-out failure: cluster=%s key=%s err=%v",
-		handler, clusterID, key, err)
+	kplog.L(handler).Warn("PromQL fan-out failure", "cluster", clusterID, "key", key, "err", err)
 }
 
 // clusterMetricsRanges are the preset windows the monitoring page picker

@@ -2,11 +2,14 @@ package store
 
 import (
 	"errors"
-	"log"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var bootstrapLog = kplog.L("bootstrap")
 
 // BootstrapLocalCluster creates a cluster row with the given (name, token)
 // on first start, so a single-release helm install (server + worker in
@@ -31,7 +34,7 @@ func BootstrapLocalCluster(name, token, description string) error {
 		// Row already exists — silently keep it. Log at info so the
 		// operator can correlate "worker registration failed because
 		// token doesn't match" with the boot-time message.
-		log.Printf("[bootstrap] cluster %q already exists (id=%s), skipping local-cluster bootstrap",
+		bootstrapLog.Warnf("cluster %q already exists (id=%s), skipping local-cluster bootstrap",
 			name, existing.ID)
 		return nil
 	}
@@ -50,11 +53,11 @@ func BootstrapLocalCluster(name, token, description string) error {
 		// same name concurrently. Detect via GORM's translated duplicate-
 		// key sentinel and downgrade to the same "already exists" no-op.
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			log.Printf("[bootstrap] cluster %q raced to insert, skipping", name)
+			bootstrapLog.Warnf("cluster %q raced to insert, skipping", name)
 			return nil
 		}
 		return err
 	}
-	log.Printf("[bootstrap] created local cluster: name=%s id=%s", name, cluster.ID)
+	bootstrapLog.Infof("created local cluster: name=%s id=%s", name, cluster.ID)
 	return nil
 }

@@ -16,7 +16,6 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -26,7 +25,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var nodeMetricsLog = kplog.L("node-metrics")
 
 // listNodeIPMap returns instanceIP → nodeName. Used to translate
 // node-exporter's `instance` label (e.g. "10.203.0.8:9100") to the
@@ -47,7 +50,7 @@ func listNodeIPMap(ctx context.Context, gw *gateway.GatewayServer, clusterID str
 	})
 	if err != nil || resp == nil || !resp.Success {
 		if err != nil {
-			log.Printf("[node-metrics] list nodes failed: cluster=%s err=%v", clusterID, err)
+			nodeMetricsLog.Warnf("list nodes failed: cluster=%s err=%v", clusterID, err)
 		}
 		return nil
 	}
@@ -65,7 +68,7 @@ func listNodeIPMap(ctx context.Context, gw *gateway.GatewayServer, clusterID str
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(resp.Data, &list); err != nil {
-		log.Printf("[node-metrics] decode node list failed: cluster=%s err=%v", clusterID, err)
+		nodeMetricsLog.Warnf("decode node list failed: cluster=%s err=%v", clusterID, err)
 		return nil
 	}
 	m := make(map[string]string, len(list.Items))

@@ -26,7 +26,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -36,7 +35,11 @@ import (
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 	"github.com/togettoyou/kpilot/pkg/server/store"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var systemLog = kplog.L("system")
 
 // systemNodeID is the URL :node path param value reserved for the
 // server itself. Workers use their cluster_id (UUID). The literal
@@ -263,7 +266,7 @@ func SystemPprof(gw *gateway.GatewayServer) gin.HandlerFunc {
 			if !c.Writer.Written() {
 				apiErrWorker(c, err.Error())
 			} else {
-				log.Printf("[system] pprof stream truncated: node=%s kind=%s err=%v", node, kind, err)
+				systemLog.Warnf("pprof stream truncated: node=%s kind=%s err=%v", node, kind, err)
 			}
 		}
 	}

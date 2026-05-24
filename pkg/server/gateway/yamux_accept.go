@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"time"
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/store"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var yamuxAcceptLog = kplog.L("yamux")
 
 // AcceptYamux runs the v2 transport listener: plain TCP (TLS to
 // be terminated at the ingress in production — same posture as
@@ -29,14 +32,14 @@ func (g *GatewayServer) AcceptYamux(ctx context.Context, lis net.Listener) error
 		<-ctx.Done()
 		_ = lis.Close() // unblocks Accept below with an error
 	}()
-	log.Printf("[yamux] listening on %s", lis.Addr())
+	yamuxAcceptLog.Infof("listening on %s", lis.Addr())
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
 				return nil
 			}
-			log.Printf("[yamux] accept: %v", err)
+			yamuxAcceptLog.Infof("accept: %v", err)
 			// Brief sleep prevents a hot loop on listener errors;
 			// real fatal errors return through net.ErrClosed.
 			time.Sleep(100 * time.Millisecond)
@@ -57,7 +60,7 @@ func (g *GatewayServer) AcceptYamux(ctx context.Context, lis net.Listener) error
 func (g *GatewayServer) handleYamuxConn(ctx context.Context, conn net.Conn) {
 	sess, err := transportv2.NewServerSession(conn, nil)
 	if err != nil {
-		log.Printf("[yamux] session: %v from %s", err, conn.RemoteAddr())
+		yamuxAcceptLog.Infof("session: %v from %s", err, conn.RemoteAddr())
 		_ = conn.Close()
 		return
 	}
@@ -68,15 +71,15 @@ func (g *GatewayServer) handleYamuxConn(ctx context.Context, conn net.Conn) {
 	defer cancel()
 	cluster, w, err := g.acceptYamuxRegister(regCtx, sess, conn.RemoteAddr().String())
 	if err != nil {
-		log.Printf("[yamux] register failed from %s: %v", conn.RemoteAddr(), err)
+		yamuxAcceptLog.Warnf("register failed from %s: %v", conn.RemoteAddr(), err)
 		_ = sess.Close()
 		_ = conn.Close()
 		return
 	}
-	log.Printf("[yamux] cluster %s (%s) registered from %s", cluster.ID, cluster.Name, conn.RemoteAddr())
+	yamuxAcceptLog.Infof("cluster %s (%s) registered from %s", cluster.ID, cluster.Name, conn.RemoteAddr())
 
 	if err := store.UpdateClusterStatus(cluster.ID, store.ClusterStatusOnline); err != nil {
-		log.Printf("[yamux] mark online: %v", err)
+		yamuxAcceptLog.Infof("mark online: %v", err)
 	}
 
 	// Re-push any pending plugin commands the previous session
@@ -96,7 +99,7 @@ func (g *GatewayServer) handleYamuxConn(ctx context.Context, conn net.Conn) {
 	g.unregister(w) // also flips cluster row to Offline
 	_ = sess.Close()
 	_ = conn.Close()
-	log.Printf("[yamux] cluster %s disconnected", cluster.ID)
+	yamuxAcceptLog.Infof("cluster %s disconnected", cluster.ID)
 }
 
 // acceptYamuxRegister waits for the worker to open its first stream
@@ -202,7 +205,7 @@ func (g *GatewayServer) acceptYamuxStreams(ctx context.Context, w *ConnectedWork
 				if errors.Is(err, transportv2.ErrSessionClosed) || errors.Is(err, io.EOF) {
 					return
 				}
-				log.Printf("[yamux] accept stream cluster=%s: %v", w.ClusterID, err)
+				yamuxAcceptLog.Infof("accept stream cluster=%s: %v", w.ClusterID, err)
 				return
 			}
 			go g.dispatchInboundStream(w, st)
@@ -224,7 +227,7 @@ func (g *GatewayServer) dispatchInboundStream(w *ConnectedWorker, st *transportv
 		// pluginservice.
 		var p pbv2.PluginStatusPush
 		if err := st.ReadMsg(&p); err != nil {
-			log.Printf("[yamux] cluster=%s read plugin-status-push: %v", w.ClusterID, err)
+			yamuxAcceptLog.Infof("cluster=%s read plugin-status-push: %v", w.ClusterID, err)
 			return
 		}
 		g.handlePluginStatus(w, &p)
@@ -253,7 +256,7 @@ func (g *GatewayServer) dispatchInboundStream(w *ConnectedWorker, st *transportv
 			g.recordPluginLog(w.ClusterID, &chunk)
 		}
 	default:
-		log.Printf("[yamux] cluster=%s unexpected inbound stream kind: %v", w.ClusterID, st.Kind())
+		yamuxAcceptLog.Infof("cluster=%s unexpected inbound stream kind: %v", w.ClusterID, st.Kind())
 	}
 }
 

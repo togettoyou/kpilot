@@ -1,11 +1,14 @@
 package handler
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var errorsLog = kplog.L("handler")
 
 // API error codes — must stay in sync with frontend locales errors.* keys.
 const (
@@ -57,7 +60,7 @@ func apiErr(c *gin.Context, status int, code string) {
 // apiErrInternal logs the real error server-side and returns a generic 500 to
 // the client, so internal details are never leaked.
 func apiErrInternal(c *gin.Context, err error) {
-	log.Printf("[handler] internal error: %v", err)
+	errorsLog.Warnf("internal error: %v", err)
 	c.JSON(http.StatusInternalServerError, gin.H{"code": CodeInternalError})
 }
 

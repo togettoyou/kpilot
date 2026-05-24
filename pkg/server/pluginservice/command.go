@@ -18,13 +18,16 @@ package pluginservice
 import (
 	"errors"
 	"fmt"
-	"log"
 	"regexp"
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/dashboards"
 	"github.com/togettoyou/kpilot/pkg/server/store"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var commandLog = kplog.L("pluginservice")
 
 // ClusterDomainResolver gives pluginservice a way to discover the
 // connected worker's reported DNS suffix without taking a direct
@@ -76,7 +79,7 @@ func expandKPilotVars(values string, vars map[string]string) string {
 		if v, ok := vars[name]; ok {
 			return v
 		}
-		log.Printf("[pluginservice] unknown placeholder ${KPILOT_%s} in values, left as-is", name)
+		commandLog.Warnf("unknown placeholder ${KPILOT_%s} in values, left as-is", name)
 		return match
 	})
 }
@@ -141,7 +144,7 @@ func BuildEnableCommand(p *store.Plugin, cp *store.ClusterPlugin, resolver Clust
 			// the whole plugin pipeline down. The dashboards just won't be
 			// pre-provisioned this time; the user can disable + fix the
 			// values + re-enable.
-			log.Printf("[pluginservice] grafana dashboards overlay failed: plugin=%s err=%v", p.Name, err)
+			commandLog.Warnf("grafana dashboards overlay failed: plugin=%s err=%v", p.Name, err)
 		} else {
 			values = merged
 		}

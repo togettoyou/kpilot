@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -21,7 +20,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	kpilotv1alpha1 "github.com/togettoyou/kpilot/pkg/worker/apis/v1alpha1"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var reconcilerLog = kplog.L("plugin")
 
 // finalizerName ensures the Worker can run `helm uninstall` before the
 // cluster API removes the Plugin CRD object.
@@ -286,7 +289,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	r.touchAndPush(ctx, &plugin, "")
 	r.Push.PushPluginLogEnd(plugin.Name, true,
 		fmt.Sprintf("running rev=%d ver=%s", rel.Version, rel.Chart.Metadata.Version))
-	log.Printf("[plugin] release reconciled: name=%s ns=%s rev=%d ver=%s",
+	reconcilerLog.Infof("release reconciled: name=%s ns=%s rev=%d ver=%s",
 		plugin.Spec.Release.Name, plugin.Spec.Release.Namespace, rel.Version, rel.Chart.Metadata.Version)
 	return ctrl.Result{}, nil
 }
@@ -326,21 +329,21 @@ func (r *Reconciler) touchAndPush(ctx context.Context, p *kpilotv1alpha1.Plugin,
 					r.Push.PushPluginStatus(p.Name, &p.Status)
 					return
 				} else {
-					log.Printf("[plugin] status update retry failed: name=%s err=%v", p.Name, upErr)
+					reconcilerLog.Warnf("status update retry failed: name=%s err=%v", p.Name, upErr)
 				}
 			} else {
-				log.Printf("[plugin] status refetch failed: name=%s err=%v", p.Name, getErr)
+				reconcilerLog.Warnf("status refetch failed: name=%s err=%v", p.Name, getErr)
 			}
 			return
 		}
-		log.Printf("[plugin] status update failed: name=%s err=%v", p.Name, err)
+		reconcilerLog.Warnf("status update failed: name=%s err=%v", p.Name, err)
 		return
 	}
 	r.Push.PushPluginStatus(p.Name, &p.Status)
 }
 
 func (r *Reconciler) markFailed(ctx context.Context, p *kpilotv1alpha1.Plugin, err error) {
-	log.Printf("[plugin] reconcile failed: name=%s err=%v", p.Name, err)
+	reconcilerLog.Warnf("reconcile failed: name=%s err=%v", p.Name, err)
 	p.Status.Phase = kpilotv1alpha1.PluginPhaseFailed
 	// Cap the message — Helm errors can be huge (full release manifests in
 	// some failure modes) and we don't want to bloat etcd or every poll

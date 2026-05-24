@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -24,13 +23,17 @@ import (
 	"github.com/togettoyou/kpilot/pkg/worker/plugin"
 	"github.com/togettoyou/kpilot/pkg/worker/proxy"
 	"github.com/togettoyou/kpilot/pkg/worker/tunnel"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var mainLog = kplog.L("worker")
 
 func main() {
 	cfg := config.Load()
 
 	if cfg.ClusterToken == "" {
-		log.Fatal("CLUSTER_TOKEN is required")
+		mainLog.Fatal("CLUSTER_TOKEN is required")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -38,7 +41,7 @@ func main() {
 
 	ctrl.SetLogger(logr.Discard())
 	resolvedDataDir, _ := filepath.Abs(cfg.DataDir)
-	log.Printf("[worker] starting: server=%s data_dir=%s", cfg.ServerAddr, resolvedDataDir)
+	mainLog.Infof("starting: server=%s data_dir=%s", cfg.ServerAddr, resolvedDataDir)
 
 	tunnelClient := tunnel.NewClient(cfg.ServerAddr, cfg.ClusterToken, cfg.ClusterDomain)
 
@@ -52,7 +55,7 @@ func main() {
 	diagInst.Register(workerdiag.TunnelCollector{Client: tunnelClient})
 	diagPort, err := workerdiag.Serve(ctx, diagInst)
 	if err != nil {
-		log.Fatalf("[worker] diag serve: %v", err)
+		mainLog.Fatalf("diag serve: %v", err)
 	}
 	tunnelClient.SetDiagPort(diagPort)
 
@@ -60,17 +63,17 @@ func main() {
 	// kubeconfig is available (e.g. local dev without a cluster).
 	k8sCfg, err := ctrlcfg.GetConfig()
 	if err != nil {
-		log.Printf("[worker] no kubeconfig available, node + plugin features disabled: %v", err)
+		mainLog.Infof("no kubeconfig available, node + plugin features disabled: %v", err)
 	} else {
 		scheme := runtime.NewScheme()
 		if err := clientgoscheme.AddToScheme(scheme); err != nil {
-			log.Fatalf("[worker] failed to add k8s scheme: %v", err)
+			mainLog.Fatalf("failed to add k8s scheme: %v", err)
 		}
 		if err := kpilotv1alpha1.AddToScheme(scheme); err != nil {
-			log.Fatalf("[worker] failed to add plugin scheme: %v", err)
+			mainLog.Fatalf("failed to add plugin scheme: %v", err)
 		}
 		if err := plugin.EnsurePluginCRD(ctx, k8sCfg); err != nil {
-			log.Fatalf("[worker] failed to install plugin CRD: %v", err)
+			mainLog.Fatalf("failed to install plugin CRD: %v", err)
 		}
 
 		mgr, err := ctrl.NewManager(k8sCfg, ctrl.Options{
@@ -79,18 +82,18 @@ func main() {
 			HealthProbeBindAddress: "0",
 		})
 		if err != nil {
-			log.Fatalf("[worker] failed to create manager: %v", err)
+			mainLog.Fatalf("failed to create manager: %v", err)
 		}
 
 		clientset, err := kubernetes.NewForConfig(k8sCfg)
 		if err != nil {
-			log.Fatalf("[worker] failed to create clientset: %v", err)
+			mainLog.Fatalf("failed to create clientset: %v", err)
 		}
 
 		// Resource proxy — owns K8s API call dispatch.
 		p, err := proxy.New(k8sCfg, mgr.GetRESTMapper())
 		if err != nil {
-			log.Fatalf("[worker] failed to create proxy: %v", err)
+			mainLog.Fatalf("failed to create proxy: %v", err)
 		}
 
 		// Shared routing cache between HTTP + WS proxies.
@@ -110,7 +113,7 @@ func main() {
 		// Plugin pipeline.
 		chartCache, err := plugin.NewChartCache(cfg.ChartCacheDir())
 		if err != nil {
-			log.Fatalf("[worker] chart cache init: %v", err)
+			mainLog.Fatalf("chart cache init: %v", err)
 		}
 		statusPusher := plugin.NewPusherAdapter(tunnelClient)
 		pluginMgr := plugin.NewManager(mgr.GetClient(), chartCache, statusPusher)
@@ -122,7 +125,7 @@ func main() {
 			Scheme: scheme,
 		}
 		if err := reconciler.SetupWithManager(mgr); err != nil {
-			log.Fatalf("[worker] plugin reconciler setup: %v", err)
+			mainLog.Fatalf("plugin reconciler setup: %v", err)
 		}
 
 		// Wire the tunnel-dispatch table. Each handler is invoked
@@ -147,15 +150,15 @@ func main() {
 
 		go func() {
 			if err := mgr.Start(ctx); err != nil {
-				log.Printf("[worker] manager error: %v", err)
+				mainLog.Warnf("manager error: %v", err)
 			}
 		}()
 	}
 
 	if err := tunnelClient.Run(ctx); err != nil {
-		log.Fatalf("[tunnel] fatal: %v", err)
+		mainLog.Fatalf("fatal: %v", err)
 	}
 
-	log.Println("worker stopped")
+	mainLog.Info("worker stopped")
 }
 

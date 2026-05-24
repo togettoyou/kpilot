@@ -19,14 +19,17 @@
 package gateway
 
 import (
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/togettoyou/kpilot/pkg/server/store"
 	transportv2 "github.com/togettoyou/kpilot/pkg/transport/yamux"
+
+	kplog "github.com/togettoyou/kpilot/pkg/log"
 )
+
+var serverLog = kplog.L("gateway")
 
 // ConnectedWorker represents a live worker connection. Always
 // backed by a yamux Session in v2 — phase B retired the v1 gRPC
@@ -149,17 +152,17 @@ func (g *GatewayServer) unregister(w *ConnectedWorker) {
 	g.mu.Unlock()
 
 	if !wasCurrent {
-		log.Printf("[gateway] worker exited (already replaced): cluster=%s", clusterID)
+		serverLog.Infof("worker exited (already replaced): cluster=%s", clusterID)
 		return
 	}
 
 	if err := store.UpdateClusterStatus(clusterID, store.ClusterStatusOffline); err != nil {
-		log.Printf("[gateway] update cluster offline failed: cluster=%s err=%v", clusterID, err)
+		serverLog.Warnf("update cluster offline failed: cluster=%s err=%v", clusterID, err)
 	}
 	w.cancelOnce.Do(func() {
 		close(w.done)
 	})
-	log.Printf("[gateway] worker disconnected: cluster=%s", clusterID)
+	serverLog.Infof("worker disconnected: cluster=%s", clusterID)
 }
 
 
