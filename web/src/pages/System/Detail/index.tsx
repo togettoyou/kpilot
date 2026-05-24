@@ -442,6 +442,22 @@ export default function SystemDetailPage() {
                   </Col>
                   <Col xs={24} lg={12}>
                     <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.systemMem' })}
+                      unit="MiB"
+                      unitScale={1 / (1024 * 1024)}
+                      series={series.systemMem}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.heapGoal' })}
+                      unit="MiB"
+                      unitScale={1 / (1024 * 1024)}
+                      series={series.heapGoal}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
                       title={intl.formatMessage({ id: 'system.chart.heap' })}
                       unit="MiB"
                       unitScale={1 / (1024 * 1024)}
@@ -475,6 +491,20 @@ export default function SystemDetailPage() {
                 <Row gutter={[12, 12]}>
                   <Col xs={24} lg={12}>
                     <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.cpuBreakdown' })}
+                      unit={intl.formatMessage({ id: 'system.kpi.coresUnit' })}
+                      series={series.cpuBreakdown}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.procVsGoCpu' })}
+                      unit={intl.formatMessage({ id: 'system.kpi.coresUnit' })}
+                      series={series.procVsGoCpu}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
                       title={intl.formatMessage({ id: 'system.chart.schedLat' })}
                       unit="µs"
                       unitScale={1_000_000}
@@ -487,6 +517,21 @@ export default function SystemDetailPage() {
                       unit="s"
                       series={series.mutexWait}
                       decimals={3}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.osThreads' })}
+                      series={series.osThreads}
+                      decimals={0}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.diskIO' })}
+                      unit="MiB/s"
+                      unitScale={1 / (1024 * 1024)}
+                      series={series.diskIO}
                     />
                   </Col>
                 </Row>
@@ -681,11 +726,17 @@ interface AllSeries {
   gcPause: SystemSeries[];
   cpu: SystemSeries[];
   cpuCores: SystemSeries[];
+  cpuBreakdown: SystemSeries[]; // user / gc / scavenge in cores
+  procVsGoCpu: SystemSeries[]; // kernel-counted vs Go runtime CPU
+  osThreads: SystemSeries[];
   heapSegments: SystemSeries[];
+  heapGoal: SystemSeries[]; // heap_inuse + heap_goal overlay
   rss: SystemSeries[];
   memPct: SystemSeries[];
+  systemMem: SystemSeries[]; // system used + available (host view)
   allocRate: SystemSeries[];
   liveObjects: SystemSeries[];
+  diskIO: SystemSeries[]; // process read/write bytes per sec
   schedLat: SystemSeries[];
   mutexWait: SystemSeries[];
   streamsByCluster: SystemSeries[];
@@ -721,18 +772,30 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
   // cpuCores = busy_delta_seconds / wall_delta_seconds — same source,
   // different denominator (wall time vs cpu_total_seconds which is
   // wall × GOMAXPROCS).
+  //
+  // cpuBreakdown lines (user / gc / scavenge cores): same delta math
+  // per class. Operator can see at a glance whether CPU is "real
+  // work" (user climbs) or "GC pressure" (gc climbs).
+  //
+  // procVsGoCpu compares the kernel-counted process_cpu_user_seconds
+  // against runtime/metrics' cpu_user_seconds. They should track
+  // tightly; divergence usually means cgo or cgroup throttling.
   const cpuPoints: { t: number; v: number }[] = [];
   const cpuCoresPoints: { t: number; v: number }[] = [];
+  const cpuUserCores: { t: number; v: number }[] = [];
+  const cpuGCCores: { t: number; v: number }[] = [];
+  const cpuScavengeCores: { t: number; v: number }[] = [];
+  const procCpuCores: { t: number; v: number }[] = [];
+  const goCpuCores: { t: number; v: number }[] = [];
   for (let i = 1; i < ring.length; i++) {
     const a = ring[i - 1].runtime;
     const b = ring[i].runtime;
     const totalDelta = b.cpu_total_seconds - a.cpu_total_seconds;
     const wallSec = (ts[i] - ts[i - 1]) / 1000;
-    const busyDelta =
-      b.cpu_user_seconds +
-      b.cpu_gc_seconds +
-      b.cpu_scavenge_seconds -
-      (a.cpu_user_seconds + a.cpu_gc_seconds + a.cpu_scavenge_seconds);
+    const userDelta = b.cpu_user_seconds - a.cpu_user_seconds;
+    const gcDelta = b.cpu_gc_seconds - a.cpu_gc_seconds;
+    const scavDelta = b.cpu_scavenge_seconds - a.cpu_scavenge_seconds;
+    const busyDelta = userDelta + gcDelta + scavDelta;
     if (totalDelta <= 0) {
       cpuPoints.push({ t: ts[i], v: 0 });
     } else {
@@ -744,6 +807,49 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
     cpuCoresPoints.push({
       t: ts[i],
       v: wallSec > 0 ? Math.max(0, busyDelta / wallSec) : 0,
+    });
+    cpuUserCores.push({ t: ts[i], v: wallSec > 0 ? Math.max(0, userDelta / wallSec) : 0 });
+    cpuGCCores.push({ t: ts[i], v: wallSec > 0 ? Math.max(0, gcDelta / wallSec) : 0 });
+    cpuScavengeCores.push({
+      t: ts[i],
+      v: wallSec > 0 ? Math.max(0, scavDelta / wallSec) : 0,
+    });
+    // Process vs Runtime CPU compares kernel user+system against
+    // Go's cpu_user_seconds (Go's accounting doesn't break out
+    // "system" — kernel does). Plot kernel total (user+sys) and Go
+    // total (user only, since Go has no separate sys metric).
+    const procUserDelta = b.process_cpu_user_seconds - a.process_cpu_user_seconds;
+    const procSysDelta = b.process_cpu_system_seconds - a.process_cpu_system_seconds;
+    procCpuCores.push({
+      t: ts[i],
+      v: wallSec > 0 ? Math.max(0, (procUserDelta + procSysDelta) / wallSec) : 0,
+    });
+    goCpuCores.push({
+      t: ts[i],
+      v: wallSec > 0 ? Math.max(0, userDelta / wallSec) : 0,
+    });
+  }
+
+  // Disk I/O bytes/sec from process_io_{read,write}_bytes deltas.
+  // Linux-only (0 elsewhere). Series stays at 0 on macOS/Windows.
+  const ioReadPoints: { t: number; v: number }[] = [];
+  const ioWritePoints: { t: number; v: number }[] = [];
+  for (let i = 1; i < ring.length; i++) {
+    const a = ring[i - 1].runtime;
+    const b = ring[i].runtime;
+    const dt = (ts[i] - ts[i - 1]) / 1000;
+    if (dt <= 0) {
+      ioReadPoints.push({ t: ts[i], v: 0 });
+      ioWritePoints.push({ t: ts[i], v: 0 });
+      continue;
+    }
+    ioReadPoints.push({
+      t: ts[i],
+      v: Math.max(0, (b.process_io_read_bytes - a.process_io_read_bytes) / dt),
+    });
+    ioWritePoints.push({
+      t: ts[i],
+      v: Math.max(0, (b.process_io_write_bytes - a.process_io_write_bytes) / dt),
     });
   }
 
@@ -883,6 +989,16 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
     ]),
     cpu: [{ name: 'busy %', points: cpuPoints }],
     cpuCores: [{ name: 'cores', points: cpuCoresPoints }],
+    cpuBreakdown: [
+      { name: 'user', points: cpuUserCores },
+      { name: 'gc', points: cpuGCCores },
+      { name: 'scavenge', points: cpuScavengeCores },
+    ],
+    procVsGoCpu: [
+      { name: 'kernel (user+sys)', points: procCpuCores },
+      { name: 'go runtime (user)', points: goCpuCores },
+    ],
+    osThreads: single('threads', (s) => s.runtime.os_threads),
     heapSegments: multi([
       { name: 'inuse', get: (s) => s.runtime.heap_inuse_bytes },
       { name: 'idle', get: (s) => s.runtime.heap_idle_bytes },
@@ -902,6 +1018,18 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
               : 0,
         })),
       },
+    ],
+    systemMem: [
+      { name: 'used', points: ring.map((s, i) => ({ t: ts[i], v: s.runtime.system_mem_used_bytes })) },
+      { name: 'available', points: ring.map((s, i) => ({ t: ts[i], v: s.runtime.system_mem_available_bytes })) },
+    ],
+    heapGoal: [
+      { name: 'inuse', points: ring.map((s, i) => ({ t: ts[i], v: s.runtime.heap_inuse_bytes })) },
+      { name: 'goal', points: ring.map((s, i) => ({ t: ts[i], v: s.runtime.heap_goal_bytes })) },
+    ],
+    diskIO: [
+      { name: 'read/s', points: ioReadPoints },
+      { name: 'write/s', points: ioWritePoints },
     ],
     allocRate: [{ name: 'alloc/s', points: allocPoints }],
     liveObjects: single('objects', (s) => s.runtime.live_objects),
@@ -936,6 +1064,12 @@ function emptySeries(): AllSeries {
     gcPause: [],
     cpu: [],
     cpuCores: [],
+    cpuBreakdown: [],
+    procVsGoCpu: [],
+    osThreads: [],
+    heapGoal: [],
+    systemMem: [],
+    diskIO: [],
     memPct: [],
     heapSegments: [],
     rss: [],
