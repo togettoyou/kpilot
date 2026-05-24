@@ -288,8 +288,15 @@ export default function SystemDetailPage() {
       }}
       extra={[
         latest && (
+          <Tag key="host" color="default">
+            {latest.identity.hostname} · pid {latest.identity.pid}
+          </Tag>
+        ),
+        latest && (
           <Tag key="ver" color="default">
-            {latest.identity.app_version} · {latest.identity.go_version}
+            {latest.identity.app_version} · {latest.identity.go_version} ·{' '}
+            {latest.identity.goos}/{latest.identity.goarch} ·{' '}
+            {latest.runtime.gomaxprocs}/{latest.identity.num_cpu} procs
           </Tag>
         ),
         <Tag
@@ -534,6 +541,14 @@ export default function SystemDetailPage() {
                       series={series.diskIO}
                     />
                   </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.gcFreq' })}
+                      unit="/s"
+                      series={series.gcFreq}
+                      decimals={2}
+                    />
+                  </Col>
                 </Row>
               </React.Suspense>
             ),
@@ -544,7 +559,14 @@ export default function SystemDetailPage() {
             children: (
               <React.Suspense fallback={null}>
                 <Row gutter={[12, 12]}>
-                  <Col xs={24}>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.yamuxTotals' })}
+                      series={series.yamuxTotals}
+                      decimals={0}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
                     <SystemChart
                       title={intl.formatMessage({ id: 'system.chart.streams' })}
                       series={series.streamsByCluster}
@@ -596,6 +618,13 @@ export default function SystemDetailPage() {
                       decimals={0}
                     />
                   </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.httpTotals' })}
+                      series={series.httpTotals}
+                      decimals={0}
+                    />
+                  </Col>
                 </Row>
               </React.Suspense>
             ),
@@ -617,6 +646,13 @@ export default function SystemDetailPage() {
                     <SystemChart
                       title="DB wait"
                       series={series.dbWait}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.dbClosed' })}
+                      series={series.dbClosed}
+                      decimals={0}
                     />
                   </Col>
                 </Row>
@@ -643,6 +679,20 @@ export default function SystemDetailPage() {
                       unitScale={100}
                       series={series.routerHit}
                       decimals={1}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.tunnelState' })}
+                      series={series.tunnelState}
+                      decimals={2}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.routerHits' })}
+                      series={series.routerHits}
+                      decimals={0}
                     />
                   </Col>
                 </Row>
@@ -730,13 +780,14 @@ function nodeTitle(
 interface AllSeries {
   goroutines: SystemSeries[];
   heap: SystemSeries[];
-  gcPause: SystemSeries[];
+  gcPause: SystemSeries[]; // p50/p90/p99 + max
+  gcFreq: SystemSeries[]; // cycles per second
   cpu: SystemSeries[];
   cpuCores: SystemSeries[];
-  cpuBreakdown: SystemSeries[]; // user / gc / scavenge in cores
+  cpuBreakdown: SystemSeries[]; // user / gc / scavenge / idle in cores
   procVsGoCpu: SystemSeries[]; // kernel-counted vs Go runtime CPU
   osThreads: SystemSeries[];
-  heapSegments: SystemSeries[];
+  heapSegments: SystemSeries[]; // + total_mapped
   heapGoal: SystemSeries[]; // heap_inuse + heap_goal overlay
   rss: SystemSeries[];
   memPct: SystemSeries[];
@@ -746,15 +797,20 @@ interface AllSeries {
   diskIO: SystemSeries[]; // process read/write bytes per sec
   schedLat: SystemSeries[];
   mutexWait: SystemSeries[];
+  yamuxTotals: SystemSeries[]; // sessions + streams_open (server only)
   streamsByCluster: SystemSeries[];
   httpRPS: SystemSeries[];
+  httpTotals: SystemSeries[]; // requests_total + status_5xx_total
   httpLatency: SystemSeries[];
   httpInflight: SystemSeries[];
-  sseInference: SystemSeries[];
+  sseInference: SystemSeries[]; // inflight + sse_clients + lifetime total
   dbPool: SystemSeries[];
   dbWait: SystemSeries[];
+  dbClosed: SystemSeries[]; // max_idle_closed + max_lifetime_closed
   proxyInflight: SystemSeries[];
+  tunnelState: SystemSeries[]; // streams_open + reconnect_total + uptime (worker)
   routerHit: SystemSeries[];
+  routerHits: SystemSeries[]; // hits + misses (worker)
   caches: SystemSeries[]; // handler-layer cache sizes (server only)
 }
 
@@ -793,6 +849,8 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
   const cpuUserCores: { t: number; v: number }[] = [];
   const cpuGCCores: { t: number; v: number }[] = [];
   const cpuScavengeCores: { t: number; v: number }[] = [];
+  const cpuIdleCores: { t: number; v: number }[] = [];
+  const gcFreqPoints: { t: number; v: number }[] = [];
   const procCpuCores: { t: number; v: number }[] = [];
   const goCpuCores: { t: number; v: number }[] = [];
   for (let i = 1; i < ring.length; i++) {
@@ -821,6 +879,17 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
     cpuScavengeCores.push({
       t: ts[i],
       v: wallSec > 0 ? Math.max(0, scavDelta / wallSec) : 0,
+    });
+    const idleDelta = b.cpu_idle_seconds - a.cpu_idle_seconds;
+    cpuIdleCores.push({
+      t: ts[i],
+      v: wallSec > 0 ? Math.max(0, idleDelta / wallSec) : 0,
+    });
+    // GC frequency = cycles per wall-second over the tick interval.
+    const gcCyclesDelta = b.gc_cycles_total - a.gc_cycles_total;
+    gcFreqPoints.push({
+      t: ts[i],
+      v: wallSec > 0 && gcCyclesDelta >= 0 ? gcCyclesDelta / wallSec : 0,
     });
     // Process vs Runtime CPU compares kernel user+system against
     // Go's cpu_user_seconds (Go's accounting doesn't break out
@@ -934,6 +1003,18 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
   const httpInflight = single('in-flight', (s) =>
     Number((s.custom?.http as { in_flight?: number } | undefined)?.in_flight) || 0,
   );
+  const httpTotals = multi([
+    {
+      name: 'requests_total',
+      get: (s) =>
+        Number((s.custom?.http as { requests_total?: number } | undefined)?.requests_total) || 0,
+    },
+    {
+      name: 'status_5xx_total',
+      get: (s) =>
+        Number((s.custom?.http as { status_5xx_total?: number } | undefined)?.status_5xx_total) || 0,
+    },
+  ]);
   const sseInference = multi([
     {
       name: 'sse_clients',
@@ -945,6 +1026,16 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
       get: (s) =>
         Number((s.custom?.inference as { inflight?: number } | undefined)?.inflight) || 0,
     },
+    {
+      name: 'inference_total',
+      get: (s) => Number((s.custom?.inference as { total?: number } | undefined)?.total) || 0,
+    },
+  ]);
+
+  // Yamux totals (sessions + global stream count) — server only.
+  const yamuxTotals = multi([
+    { name: 'sessions', get: (s) => num(s.custom?.yamux, 'sessions') },
+    { name: 'streams_open', get: (s) => num(s.custom?.yamux, 'streams_open') },
   ]);
 
   // DB pool.
@@ -976,6 +1067,23 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
         ) || 0,
     },
   ]);
+  // Connection eviction counters (cumulative). Both should be flat
+  // under steady state; sudden climb = MaxIdleTime / MaxLifetime is
+  // too aggressive for the workload.
+  const dbClosed = multi([
+    {
+      name: 'max_idle_closed',
+      get: (s) =>
+        Number((s.custom?.db as { max_idle_closed?: number } | undefined)?.max_idle_closed) || 0,
+    },
+    {
+      name: 'max_lifetime_closed',
+      get: (s) =>
+        Number(
+          (s.custom?.db as { max_lifetime_closed?: number } | undefined)?.max_lifetime_closed,
+        ) || 0,
+    },
+  ]);
 
   // Worker proxy / router.
   const proxyInflight = multi([
@@ -985,7 +1093,22 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
     { name: 'exec', get: (s) => num(s.custom?.proxy, 'inflight_exec') },
     { name: 'ws', get: (s) => num(s.custom?.proxy, 'inflight_ws') },
   ]);
+  // Tunnel state (worker only): active stream count + reconnect
+  // count over time + session uptime (seconds). A flapping tunnel
+  // shows as reconnect_total stepping up + uptime sawtoothing.
+  const tunnelState = multi([
+    { name: 'streams_open', get: (s) => num(s.custom?.tunnel, 'streams_open') },
+    { name: 'reconnect_total', get: (s) => num(s.custom?.tunnel, 'reconnect_total') },
+    {
+      name: 'session_uptime_min',
+      get: (s) => num(s.custom?.tunnel, 'session_uptime_seconds') / 60,
+    },
+  ]);
   const routerHit = single('hit_rate', (s) => num(s.custom?.in_cluster_router, 'hit_rate'));
+  const routerHits = multi([
+    { name: 'hits', get: (s) => num(s.custom?.in_cluster_router, 'hits') },
+    { name: 'misses', get: (s) => num(s.custom?.in_cluster_router, 'misses') },
+  ]);
 
   // Server handler-layer caches (plugin URL resolver, per-cluster
   // reverse-proxy semaphores, VM response TTL cache). All small;
@@ -1012,13 +1135,16 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
       { name: 'p50', get: (s) => s.runtime.gc_pause_p50_seconds },
       { name: 'p90', get: (s) => s.runtime.gc_pause_p90_seconds },
       { name: 'p99', get: (s) => s.runtime.gc_pause_p99_seconds },
+      { name: 'max', get: (s) => s.runtime.gc_pause_max_seconds },
     ]),
+    gcFreq: [{ name: 'cycles/s', points: gcFreqPoints }],
     cpu: [{ name: 'busy %', points: cpuPoints }],
     cpuCores: [{ name: 'cores', points: cpuCoresPoints }],
     cpuBreakdown: [
       { name: 'user', points: cpuUserCores },
       { name: 'gc', points: cpuGCCores },
       { name: 'scavenge', points: cpuScavengeCores },
+      { name: 'idle (scheduler)', points: cpuIdleCores },
     ],
     procVsGoCpu: [
       { name: 'kernel (user+sys)', points: procCpuCores },
@@ -1031,6 +1157,7 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
       { name: 'released', get: (s) => s.runtime.heap_released_bytes },
       { name: 'stacks', get: (s) => s.runtime.stack_inuse_bytes },
       { name: 'runtime', get: (s) => s.runtime.runtime_overhead_bytes },
+      { name: 'mapped (total)', get: (s) => s.runtime.total_mapped_bytes },
     ]),
     rss: single('rss', (s) => s.runtime.rss_bytes),
     memPct: [
@@ -1066,14 +1193,19 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
     ]),
     mutexWait: single('wait', (s) => s.runtime.mutex_wait_total_seconds),
     streamsByCluster,
+    yamuxTotals,
     httpRPS,
+    httpTotals,
     httpLatency,
     httpInflight,
     sseInference,
     dbPool,
     dbWait,
+    dbClosed,
     proxyInflight,
+    tunnelState,
     routerHit,
+    routerHits,
     caches,
   };
 }
@@ -1092,6 +1224,7 @@ function emptySeries(): AllSeries {
     cpu: [],
     cpuCores: [],
     cpuBreakdown: [],
+    gcFreq: [],
     procVsGoCpu: [],
     osThreads: [],
     heapGoal: [],
@@ -1105,14 +1238,19 @@ function emptySeries(): AllSeries {
     schedLat: [],
     mutexWait: [],
     streamsByCluster: [],
+    yamuxTotals: [],
     httpRPS: [],
+    httpTotals: [],
     httpLatency: [],
     httpInflight: [],
     sseInference: [],
     dbPool: [],
     dbWait: [],
+    dbClosed: [],
     proxyInflight: [],
+    tunnelState: [],
     routerHit: [],
+    routerHits: [],
     caches: [],
   };
 }
