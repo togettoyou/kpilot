@@ -178,23 +178,33 @@ export interface SystemLogsOpts {
 }
 
 export function listSystemLogs(nodeID: string, opts: SystemLogsOpts = {}) {
-  const params = new URLSearchParams();
+  // Filter params go through URLSearchParams (it encodes values for us).
+  // The range query, however, is ALREADY URL-encoded by buildRangeQuery
+  // — running it through URLSearchParams.set + toString() double-encodes
+  // (`%3A` → `%253A`), and the server's time.Parse(RFC3339) rejects the
+  // resulting string with INVALID_REQUEST. Concatenate the pre-encoded
+  // rangeQuery into the final URL string instead.
+  const filters = new URLSearchParams();
   if (opts.afterSeq !== undefined) {
-    // opts.afterSeq is already a decimal string; pass through verbatim.
-    params.set('after_seq', opts.afterSeq);
-  } else if (opts.rangeQuery) {
-    // rangeQuery is already a fully-encoded `range=24h` or
-    // `from=...&to=...` snippet from buildRangeQuery().
-    for (const pair of opts.rangeQuery.split('&')) {
-      const [k, v] = pair.split('=');
-      if (k) params.set(k, v ?? '');
-    }
+    filters.set('after_seq', opts.afterSeq);
   }
-  if (opts.level) params.set('level', opts.level);
-  if (opts.module) params.set('module', opts.module);
-  if (opts.q) params.set('q', opts.q);
-  if (opts.limit) params.set('limit', String(opts.limit));
-  const qs = params.toString();
+  if (opts.level) filters.set('level', opts.level);
+  if (opts.module) filters.set('module', opts.module);
+  if (opts.q) filters.set('q', opts.q);
+  if (opts.limit) filters.set('limit', String(opts.limit));
+
+  const parts: string[] = [];
+  // Range only applies when not in live-tail mode (afterSeq mutually
+  // exclusive at the handler level — sending both makes after_seq win
+  // and the time filter is ignored, but cleaner to not send the redundant
+  // bytes either).
+  if (opts.afterSeq === undefined && opts.rangeQuery) {
+    parts.push(opts.rangeQuery);
+  }
+  const fs = filters.toString();
+  if (fs) parts.push(fs);
+  const qs = parts.join('&');
+
   const url = `/api/v1/system/${encodeURIComponent(nodeID)}/logs${qs ? `?${qs}` : ''}`;
   return request<SystemLogEntry[]>(url, { method: 'GET' });
 }
