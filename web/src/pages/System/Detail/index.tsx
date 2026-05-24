@@ -145,22 +145,40 @@ export default function SystemDetailPage() {
   const isWorker = latest?.identity.kind === 'worker';
 
   // ─── KPI cards (top row, derived from latest) ──────────────────────
-  const cpuPct = useMemo(() => {
+  // CPU% = process busy CPU-seconds / wall-clock CPU-seconds over the
+  // last 2 ring buffer samples. cpu_total includes idle, so this is
+  // a clean utilization ratio in [0, 1].
+  //
+  // CPU cores = busy CPU-seconds / wall seconds — direct "how many
+  // cores worth of work were we doing in the last second". A process
+  // pinning 2 full cores reports 2.0, one barely-busy goroutine 0.05.
+  const cpuStats = useMemo(() => {
     const ring = ringRef.current;
-    if (ring.length < 2) return 0;
-    const a = ring[ring.length - 2].runtime;
-    const b = ring[ring.length - 1].runtime;
-    const totalDelta = b.cpu_total_seconds - a.cpu_total_seconds;
-    if (totalDelta <= 0) return 0;
+    if (ring.length < 2) return { pct: 0, cores: 0 };
+    const a = ring[ring.length - 2];
+    const b = ring[ring.length - 1];
+    const ar = a.runtime;
+    const br = b.runtime;
+    const totalDelta = br.cpu_total_seconds - ar.cpu_total_seconds;
     const busyDelta =
-      b.cpu_user_seconds +
-      b.cpu_gc_seconds +
-      b.cpu_scavenge_seconds -
-      (a.cpu_user_seconds + a.cpu_gc_seconds + a.cpu_scavenge_seconds);
-    return Math.max(0, Math.min(1, busyDelta / totalDelta));
+      br.cpu_user_seconds +
+      br.cpu_gc_seconds +
+      br.cpu_scavenge_seconds -
+      (ar.cpu_user_seconds + ar.cpu_gc_seconds + ar.cpu_scavenge_seconds);
+    const wallSec = (new Date(b.at).getTime() - new Date(a.at).getTime()) / 1000;
+    const pct = totalDelta > 0 ? Math.max(0, Math.min(1, busyDelta / totalDelta)) : 0;
+    const cores = wallSec > 0 ? Math.max(0, busyDelta / wallSec) : 0;
+    return { pct, cores };
     // tick intentionally drives recompute via consumer
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
+
+  const memPct = useMemo(() => {
+    if (!latest) return 0;
+    const r = latest.runtime;
+    if (r.rss_bytes <= 0 || r.mem_total_bytes <= 0) return 0;
+    return Math.max(0, Math.min(1, r.rss_bytes / r.mem_total_bytes));
+  }, [latest]);
 
   const kpis = latest
     ? [
@@ -171,6 +189,30 @@ export default function SystemDetailPage() {
         {
           title: intl.formatMessage({ id: 'system.col.goroutines' }),
           value: formatBigNumber(latest.runtime.goroutines),
+        },
+        // CPU: percent + cores side by side in one card so the 8-card
+        // grid stays balanced. cores/numCPU gives operator the "am I
+        // capacity-bound?" answer at a glance (1.0 / 8 = lots of room,
+        // 7.5 / 8 = near saturation).
+        {
+          title: intl.formatMessage({ id: 'system.kpi.cpu' }),
+          value: formatPercent(cpuStats.pct),
+          sub: `${cpuStats.cores.toFixed(2)} / ${latest.identity.num_cpu} ${intl.formatMessage({ id: 'system.kpi.coresUnit' })}`,
+        },
+        // Memory: percent + absolute RSS. Falls back to "RSS only"
+        // when mem_total isn't available (macOS / Windows dev).
+        {
+          title: intl.formatMessage({ id: 'system.kpi.memory' }),
+          value:
+            latest.runtime.mem_total_bytes > 0 && latest.runtime.rss_bytes > 0
+              ? formatPercent(memPct)
+              : '—',
+          sub:
+            latest.runtime.rss_bytes > 0
+              ? latest.runtime.mem_total_bytes > 0
+                ? `${formatBytes(latest.runtime.rss_bytes)} / ${formatBytes(latest.runtime.mem_total_bytes)}`
+                : formatBytes(latest.runtime.rss_bytes)
+              : '—',
         },
         {
           title: intl.formatMessage({ id: 'system.col.heap' }),
@@ -183,15 +225,6 @@ export default function SystemDetailPage() {
         {
           title: intl.formatMessage({ id: 'system.kpi.schedLat' }),
           value: formatMillis(latest.runtime.sched_latency_p99_seconds),
-        },
-        {
-          title: intl.formatMessage({ id: 'system.kpi.cpu' }),
-          value: formatPercent(cpuPct),
-        },
-        {
-          title: intl.formatMessage({ id: 'system.col.rss' }),
-          value:
-            latest.runtime.rss_bytes > 0 ? formatBytes(latest.runtime.rss_bytes) : '—',
         },
         {
           title: intl.formatMessage({ id: 'system.kpi.fds' }),
@@ -242,12 +275,27 @@ export default function SystemDetailPage() {
         />
       )}
 
-      {/* 8 KPI cards row */}
+      {/* 8 KPI cards row — `sub` is a secondary line under the main
+          value (e.g. CPU cores under CPU%, absolute RSS under Mem%). */}
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
         {kpis.map((k) => (
           <Col key={k.title} xs={12} sm={8} md={6} lg={3}>
             <Card size="small">
               <Statistic title={k.title} value={k.value} />
+              {k.sub && (
+                <div
+                  style={{
+                    marginTop: 4,
+                    fontSize: 12,
+                    color: 'var(--ant-color-text-tertiary, #999)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {k.sub}
+                </div>
+              )}
             </Card>
           </Col>
         ))}
@@ -294,6 +342,13 @@ export default function SystemDetailPage() {
                       decimals={1}
                     />
                   </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.cpuCores' })}
+                      unit={intl.formatMessage({ id: 'system.kpi.coresUnit' })}
+                      series={series.cpuCores}
+                    />
+                  </Col>
                 </Row>
               </React.Suspense>
             ),
@@ -333,6 +388,14 @@ export default function SystemDetailPage() {
                       title="Live objects"
                       series={series.liveObjects}
                       decimals={0}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.memPct' })}
+                      unit="%"
+                      series={series.memPct}
+                      decimals={1}
                     />
                   </Col>
                 </Row>
@@ -552,8 +615,10 @@ interface AllSeries {
   heap: SystemSeries[];
   gcPause: SystemSeries[];
   cpu: SystemSeries[];
+  cpuCores: SystemSeries[];
   heapSegments: SystemSeries[];
   rss: SystemSeries[];
+  memPct: SystemSeries[];
   allocRate: SystemSeries[];
   liveObjects: SystemSeries[];
   schedLat: SystemSeries[];
@@ -588,21 +653,33 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
     }));
 
   // CPU% — per-tick delta over total. Needs i and i-1. First tick = 0.
+  // cpuCores = busy_delta_seconds / wall_delta_seconds — same source,
+  // different denominator (wall time vs cpu_total_seconds which is
+  // wall × GOMAXPROCS).
   const cpuPoints: { t: number; v: number }[] = [];
+  const cpuCoresPoints: { t: number; v: number }[] = [];
   for (let i = 1; i < ring.length; i++) {
     const a = ring[i - 1].runtime;
     const b = ring[i].runtime;
     const totalDelta = b.cpu_total_seconds - a.cpu_total_seconds;
-    if (totalDelta <= 0) {
-      cpuPoints.push({ t: ts[i], v: 0 });
-      continue;
-    }
+    const wallSec = (ts[i] - ts[i - 1]) / 1000;
     const busyDelta =
       b.cpu_user_seconds +
       b.cpu_gc_seconds +
       b.cpu_scavenge_seconds -
       (a.cpu_user_seconds + a.cpu_gc_seconds + a.cpu_scavenge_seconds);
-    cpuPoints.push({ t: ts[i], v: Math.max(0, Math.min(100, (busyDelta / totalDelta) * 100)) });
+    if (totalDelta <= 0) {
+      cpuPoints.push({ t: ts[i], v: 0 });
+    } else {
+      cpuPoints.push({
+        t: ts[i],
+        v: Math.max(0, Math.min(100, (busyDelta / totalDelta) * 100)),
+      });
+    }
+    cpuCoresPoints.push({
+      t: ts[i],
+      v: wallSec > 0 ? Math.max(0, busyDelta / wallSec) : 0,
+    });
   }
 
   // Alloc rate (MiB/s — but unit scaling happens in the chart).
@@ -740,6 +817,7 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
       { name: 'p99', get: (s) => s.runtime.gc_pause_p99_seconds },
     ]),
     cpu: [{ name: 'busy %', points: cpuPoints }],
+    cpuCores: [{ name: 'cores', points: cpuCoresPoints }],
     heapSegments: multi([
       { name: 'inuse', get: (s) => s.runtime.heap_inuse_bytes },
       { name: 'idle', get: (s) => s.runtime.heap_idle_bytes },
@@ -748,6 +826,18 @@ function mapSeries(ring: SystemSnapshot[], _isWorker: boolean): AllSeries {
       { name: 'runtime', get: (s) => s.runtime.runtime_overhead_bytes },
     ]),
     rss: single('rss', (s) => s.runtime.rss_bytes),
+    memPct: [
+      {
+        name: 'rss / total',
+        points: ring.map((s, i) => ({
+          t: ts[i],
+          v:
+            s.runtime.mem_total_bytes > 0 && s.runtime.rss_bytes > 0
+              ? (s.runtime.rss_bytes / s.runtime.mem_total_bytes) * 100
+              : 0,
+        })),
+      },
+    ],
     allocRate: [{ name: 'alloc/s', points: allocPoints }],
     liveObjects: single('objects', (s) => s.runtime.live_objects),
     schedLat: multi([
@@ -780,6 +870,8 @@ function emptySeries(): AllSeries {
     heap: [],
     gcPause: [],
     cpu: [],
+    cpuCores: [],
+    memPct: [],
     heapSegments: [],
     rss: [],
     allocRate: [],

@@ -53,6 +53,7 @@ export interface SystemRuntime {
   mutex_wait_total_seconds: number;
   open_fds: number;
   max_fds: number;
+  mem_total_bytes: number;
 }
 
 export interface SystemSnapshot {

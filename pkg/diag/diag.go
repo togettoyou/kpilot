@@ -198,6 +198,7 @@ func (d *Diag) readRuntimeLocked() RuntimeMetrics {
 	rt.OSThreads = threads
 	rt.OpenFDs = readOpenFDs()
 	rt.MaxFDs = readMaxFDs()
+	rt.MemTotalBytes = readMemTotalBytes()
 
 	return rt
 }

@@ -10,3 +10,4 @@ package diag
 func readProcStatus() (rssBytes uint64, threads int) { return 0, 0 }
 func readOpenFDs() int                               { return 0 }
 func readMaxFDs() uint64                             { return 0 }
+func readMemTotalBytes() uint64                      { return 0 }

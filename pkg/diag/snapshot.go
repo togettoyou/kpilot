@@ -62,6 +62,13 @@ type RuntimeMetrics struct {
 
 	OpenFDs int    `json:"open_fds"`
 	MaxFDs  uint64 `json:"max_fds"`
+
+	// MemTotalBytes is the effective memory limit available to the
+	// process — cgroup memory limit if running inside a constrained
+	// container, otherwise host MemTotal. Linux-only; 0 elsewhere.
+	// The dashboard derives memory utilization as rss_bytes /
+	// mem_total_bytes when both are non-zero.
+	MemTotalBytes uint64 `json:"mem_total_bytes"`
 }
 
 // Snapshot is one point-in-time JSON payload. Custom is keyed by
