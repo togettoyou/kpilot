@@ -1675,6 +1675,8 @@ export default {
   'system.col.heap': 'Heap',
   'system.col.gcPause': 'GC p99',
   'system.col.rss': 'RSS',
+  'system.col.cpu': 'CPU',
+  'system.col.memory': 'Memory',
   'system.col.kpi': 'KPIs',
   'system.col.actions': 'Actions',
   'system.action.detail': 'Open',

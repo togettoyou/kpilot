@@ -10,7 +10,7 @@ import {
   type SystemNode,
   type SystemSnapshotEnvelope,
 } from '@/services/kpilot/system';
-import { formatBigNumber, formatBytes, formatDurationSeconds, formatMillis } from './format';
+import { formatBigNumber, formatBytes, formatDurationSeconds, formatPercent } from './format';
 
 // One-row record fed to ProTable. Merges the static node list with
 // the most-recent batched snapshot envelope; KPI cells render the
@@ -31,12 +31,25 @@ export default function SystemLandingPage() {
   const intl = useIntl();
   const [nodes, setNodes] = useState<SystemNode[]>([]);
   const [envelopes, setEnvelopes] = useState<Record<string, SystemSnapshotEnvelope>>({});
+  // prevEnvelopes is the previous poll's batch — we need two samples
+  // to derive CPU% / CPU cores from the cumulative cpu_*_seconds
+  // counters in runtime/metrics. First load shows "—" for CPU; the
+  // second poll has both, so it's accurate from then on. 10 s window
+  // between samples (REFRESH_INTERVAL_MS) gives a 10-second averaged
+  // CPU number, which is fine for a navigation page.
+  const [prevEnvelopes, setPrevEnvelopes] = useState<Record<string, SystemSnapshotEnvelope>>(
+    {},
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // Refs let the polling timer call latest fetchers without re-creating
-  // the interval every render.
+  // the interval every render. envelopesRef mirrors `envelopes` so we
+  // can read the most-recent batch inside `reload` (which is captured
+  // by setInterval at mount-time — without the ref we'd close over the
+  // initial empty object and never compute a real CPU delta).
   const inflightRef = useRef(false);
+  const envelopesRef = useRef<Record<string, SystemSnapshotEnvelope>>({});
 
   const reload = async () => {
     if (inflightRef.current) return;
@@ -49,6 +62,8 @@ export default function SystemLandingPage() {
       (batch || []).forEach((e) => {
         next[e.node_id] = e;
       });
+      setPrevEnvelopes(envelopesRef.current);
+      envelopesRef.current = next;
       setEnvelopes(next);
     } catch {
       // Errors are toasted globally by requestErrorConfig.
@@ -142,35 +157,63 @@ export default function SystemLandingPage() {
     },
     {
       title: intl.formatMessage({ id: 'system.col.goroutines', defaultMessage: 'Goroutines' }),
-      width: 130,
+      width: 110,
       render: (_, row) => {
         const n = row.envelope?.snapshot?.runtime?.goroutines;
         return n === undefined ? '—' : formatBigNumber(n);
       },
     },
+    // CPU — % primary, cores secondary. Needs delta of two snapshots
+    // so first poll shows "—"; from the 2nd 10 s tick onwards it's
+    // an accurate 10-second-window CPU utilization.
     {
-      title: intl.formatMessage({ id: 'system.col.heap', defaultMessage: 'Heap' }),
-      width: 130,
+      title: intl.formatMessage({ id: 'system.col.cpu', defaultMessage: 'CPU' }),
+      width: 150,
       render: (_, row) => {
-        const b = row.envelope?.snapshot?.runtime?.heap_inuse_bytes;
-        return b === undefined ? '—' : formatBytes(b);
+        const cur = row.envelope?.snapshot;
+        const prev = prevEnvelopes[row.node_id]?.snapshot;
+        if (!cur || !prev) return '—';
+        const a = prev.runtime;
+        const b = cur.runtime;
+        const totalDelta = b.cpu_total_seconds - a.cpu_total_seconds;
+        const busyDelta =
+          b.cpu_user_seconds +
+          b.cpu_gc_seconds +
+          b.cpu_scavenge_seconds -
+          (a.cpu_user_seconds + a.cpu_gc_seconds + a.cpu_scavenge_seconds);
+        const wallSec = (new Date(cur.at).getTime() - new Date(prev.at).getTime()) / 1000;
+        if (totalDelta <= 0 || wallSec <= 0) return '—';
+        const pct = Math.max(0, Math.min(1, busyDelta / totalDelta));
+        const cores = Math.max(0, busyDelta / wallSec);
+        return (
+          <div style={{ lineHeight: 1.3 }}>
+            <div>{formatPercent(pct)}</div>
+            <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #999)' }}>
+              {cores.toFixed(2)} / {cur.identity.num_cpu}{' '}
+              {intl.formatMessage({ id: 'system.kpi.coresUnit', defaultMessage: '核' })}
+            </div>
+          </div>
+        );
       },
     },
+    // Memory — % primary, RSS / total secondary. Single-snapshot
+    // derivation (no delta needed). Linux-only data; macOS/Windows
+    // workers report 0 and we show "—".
     {
-      title: intl.formatMessage({ id: 'system.col.gcPause', defaultMessage: 'GC p99' }),
-      width: 110,
+      title: intl.formatMessage({ id: 'system.col.memory', defaultMessage: '内存' }),
+      width: 180,
       render: (_, row) => {
-        const s = row.envelope?.snapshot?.runtime?.gc_pause_p99_seconds;
-        return s === undefined ? '—' : formatMillis(s);
-      },
-    },
-    {
-      title: intl.formatMessage({ id: 'system.col.rss', defaultMessage: 'RSS' }),
-      width: 130,
-      render: (_, row) => {
-        const b = row.envelope?.snapshot?.runtime?.rss_bytes;
-        if (b === undefined || b === 0) return '—';
-        return formatBytes(b);
+        const r = row.envelope?.snapshot?.runtime;
+        if (!r || r.rss_bytes <= 0 || r.mem_total_bytes <= 0) return '—';
+        const pct = Math.max(0, Math.min(1, r.rss_bytes / r.mem_total_bytes));
+        return (
+          <div style={{ lineHeight: 1.3 }}>
+            <div>{formatPercent(pct)}</div>
+            <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #999)' }}>
+              {formatBytes(r.rss_bytes)} / {formatBytes(r.mem_total_bytes)}
+            </div>
+          </div>
+        );
       },
     },
     {
@@ -195,19 +238,15 @@ export default function SystemLandingPage() {
             </Space>
           );
         }
-        const tunnel = snap.custom.tunnel as
-          | { connected?: boolean; streams_open?: number; reconnect_total?: number }
-          | undefined;
+        // Tunnel up/down status was removed — the row's overall
+        // online/offline tag in the Status column already conveys
+        // the same signal; the Tag here was redundant.
+        const tunnel = snap.custom.tunnel as { streams_open?: number } | undefined;
         const proxy = snap.custom.proxy as
           | { inflight_resource?: number; inflight_http_proxy?: number }
           | undefined;
         return (
           <Space size="middle">
-            <Tag color={tunnel?.connected ? 'success' : 'error'}>
-              {tunnel?.connected
-                ? intl.formatMessage({ id: 'system.kpi.tunnelUp', defaultMessage: 'tunnel↑' })
-                : intl.formatMessage({ id: 'system.kpi.tunnelDown', defaultMessage: 'tunnel↓' })}
-            </Tag>
             <span>
               {intl.formatMessage({ id: 'system.kpi.streams', defaultMessage: 'streams' })}:{' '}
               {tunnel?.streams_open ?? 0}

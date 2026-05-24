@@ -1628,6 +1628,8 @@ export default {
   'system.col.heap': 'Heap',
   'system.col.gcPause': 'GC p99',
   'system.col.rss': 'RSS',
+  'system.col.cpu': 'CPU',
+  'system.col.memory': '内存',
   'system.col.kpi': '业务指标',
   'system.col.actions': '操作',
   'system.action.detail': '查看',
