@@ -7,6 +7,8 @@ export default {
   'menu.models': 'Model Serving',
   'menu.plugins': 'Plugins',
   'menu.system': 'System',
+  'menu.system.monitor': 'Monitor',
+  'menu.system.logs': 'Logs',
 
   // Cluster detail sider — injected when a cluster is selected under
   // /clusters/:id/*. Locale keys auto-derive as menu.clusters.{name}.

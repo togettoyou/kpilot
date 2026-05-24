@@ -292,7 +292,7 @@ export default function SystemDetailPage() {
       header={{
         title: nodeTitle(intl, latest, nodeID, isServer),
         breadcrumb: {},
-        onBack: () => history.push('/system'),
+        onBack: () => history.push('/system/monitor'),
       }}
       extra={[
         latest && (

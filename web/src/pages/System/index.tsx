@@ -302,7 +302,7 @@ export default function SystemLandingPage() {
         <Button
           type="link"
           size="small"
-          onClick={() => history.push(`/system/${encodeURIComponent(row.node_id)}`)}
+          onClick={() => history.push(`/system/monitor/${encodeURIComponent(row.node_id)}`)}
         >
           {intl.formatMessage({ id: 'system.action.detail', defaultMessage: '查看' })}
         </Button>

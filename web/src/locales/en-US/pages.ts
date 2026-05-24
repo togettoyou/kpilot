@@ -1689,6 +1689,12 @@ export default {
   // System detail page (/system/:node)
   'system.detail.back': 'Back to nodes',
   'system.detail.paused': 'Polling paused. Charts keep their current data; click Resume to restart the 15 s polling.',
+  'pages.system.logs.title': 'System Logs',
+  'pages.system.logs.placeholder.title': 'System logs page — coming soon',
+  'pages.system.logs.placeholder.desc':
+    'Future home for querying KPilot Server + Worker runtime logs, filterable by node / time / level.',
+  'pages.system.logs.placeholder.hint':
+    'For now use `kubectl logs` against the Pod or `docker logs` on the container.',
   'system.detail.stale': 'Node appears offline — showing the most recent history retained in the database. Live updates will resume automatically when the node reconnects.',
   'system.pprof.staleDisabled': 'Node is offline. pprof needs a live connection and is unavailable.',
   'system.action.pause': 'Pause',

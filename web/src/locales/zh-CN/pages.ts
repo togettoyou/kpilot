@@ -1642,6 +1642,11 @@ export default {
   // System detail page (/system/:node)
   'system.detail.back': '返回节点列表',
   'system.detail.paused': '已暂停拉取，图表保留当前数据；点「恢复」重新开始 15 秒一次的轮询',
+  'pages.system.logs.title': '系统日志',
+  'pages.system.logs.placeholder.title': '系统日志页面 — 待落地',
+  'pages.system.logs.placeholder.desc':
+    '后续在这里查询 KPilot Server 与各 Worker 的运行日志，按节点 / 时间 / 等级过滤。',
+  'pages.system.logs.placeholder.hint': '当前可以通过 `kubectl logs` 直连 Pod 或 docker logs 查看。',
   'system.detail.stale': '节点似乎已离线，正在展示数据库里保留的最近历史；恢复在线后会自动接续',
   'system.pprof.staleDisabled': '节点离线，pprof 需要实时通信，暂不可用',
   'system.action.pause': '暂停',

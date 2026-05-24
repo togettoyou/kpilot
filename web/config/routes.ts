@@ -251,21 +251,42 @@ export default [
     icon: 'appstore',
     component: './Plugins/index',
   },
-  // ─── 系统监控 — self-observability for KPilot server + workers ────────
-  // Sits at the rightmost menu position: it's an ops/diag tool used to
-  // troubleshoot the control plane itself, not a primary workflow tab.
+  // ─── 系统管理 — control-plane ops surface ──────────────────────────────
+  // Sits at the rightmost menu position: this is the ops/diag area for
+  // the KPilot control plane itself (server + every worker), not a
+  // primary user-facing workflow. Sub-menus follow the模型服务 pattern
+  // — flat URL → page mapping, no breadcrumbs.
+  //
+  // /system 默认重定向到 /system/monitor。后续可继续扩展 系统设置 /
+  // 用户管理 等;系统日志现为占位页(后端 endpoint 落地后接入)。
   {
     path: '/system',
     name: 'system',
-    icon: 'dashboard',
+    icon: 'setting',
     routes: [
       {
         path: '/system',
+        redirect: '/system/monitor',
+      },
+      {
+        path: '/system/monitor',
+        name: 'monitor',
+        icon: 'dashboard',
         component: './System/index',
       },
       {
-        path: '/system/:node',
+        // Detail page lives under monitor since it's the drill-down
+        // target of the monitor landing. Hidden from the sider via
+        // hideInMenu so it doesn't show up as a third sub-menu.
+        path: '/system/monitor/:node',
+        hideInMenu: true,
         component: './System/Detail/index',
+      },
+      {
+        path: '/system/logs',
+        name: 'logs',
+        icon: 'profile',
+        component: './SystemLogs/index',
       },
     ],
   },
