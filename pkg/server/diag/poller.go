@@ -3,6 +3,7 @@ package diag
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -242,9 +243,45 @@ func (p *Poller) pollOne(ctx context.Context, nodeID string) {
 		log.Printf("[diag-poller] fetch recovered: node=%s", nodeID)
 	}
 
+	// Patch the worker's snapshot identity.name to the cluster's
+	// human name. Worker process can't self-set this at boot — it
+	// doesn't know its own cluster name until after STREAM_REGISTER,
+	// and propagating the assignment back is more work than just
+	// rewriting it here where we already have gw.GetWorker. Server
+	// snapshots are left as-is (identity.name = "control-plane").
+	if nodeID != "server" && p.gw != nil {
+		if w, ok := p.gw.GetWorker(nodeID); ok && w.ClusterName != "" {
+			body = patchIdentityName(body, w.ClusterName)
+		}
+	}
+
 	if err := store.InsertSystemSnapshot(nodeID, time.Now().UTC(), body); err != nil {
 		log.Printf("[diag-poller] insert failed: node=%s err=%v", nodeID, err)
 	}
+}
+
+// patchIdentityName decodes the snapshot JSON, swaps identity.name,
+// re-encodes. On any malformed input it returns the original bytes
+// unchanged — keeping the row write fail-open is better than dropping
+// a poll because of a one-off encoding hiccup.
+//
+// ~50 µs at typical 2 KB snapshot size; negligible against the 15 s
+// poll cadence.
+func patchIdentityName(body []byte, name string) []byte {
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body
+	}
+	identity, ok := m["identity"].(map[string]any)
+	if !ok {
+		return body
+	}
+	identity["name"] = name
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // fetchNodeSnapshot mirrors the logic that used to live in
