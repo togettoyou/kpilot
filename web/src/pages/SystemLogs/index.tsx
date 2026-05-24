@@ -125,7 +125,13 @@ const LogRow = React.memo(function LogRow({ row }: LogRowProps) {
         lineHeight: 1.55,
       }}
     >
-      <Space size={8} align="start" style={{ width: '100%' }}>
+      {/* baseline alignment so the tag text + message text sit on
+          the same typographic line. Default `start` top-aligns the
+          element BOXES — and tags have internal padding that pushes
+          their text down, so the bare message span ends up visually
+          higher than the tag text. baseline is what makes "TIME
+          LEVEL MODULE  message text" read as one row. */}
+      <Space size={8} align="baseline" style={{ width: '100%' }}>
         <Text type="secondary" style={{ minWidth: 88, whiteSpace: 'nowrap' }}>
           {formatAt(row.at)}
         </Text>
