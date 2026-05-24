@@ -431,7 +431,7 @@ func (c *Client) dispatch(ctx context.Context, st *transportv2.Stream) {
 		return
 	}
 	if fn == nil {
-		clientLog.Infof("no handler for stream kind %v — closing", st.Kind())
+		clientLog.Warnf("no handler for stream kind %v — closing", st.Kind())
 		_ = st.Close()
 		return
 	}

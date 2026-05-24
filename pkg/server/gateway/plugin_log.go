@@ -160,7 +160,7 @@ func (g *GatewayServer) appendPluginLog(clusterID, crdName string, entry PluginL
 		default:
 			sub.dropped++
 			if sub.dropped == 1 || sub.dropped&(sub.dropped-1) == 0 {
-				pluginLogLog.Infof("subscriber backlog full, dropped frame: cluster=%s plugin=%s dropped_total=%d",
+				pluginLogLog.Warnf("subscriber backlog full, dropped frame: cluster=%s plugin=%s dropped_total=%d",
 					clusterID, crdName, sub.dropped)
 			}
 		}

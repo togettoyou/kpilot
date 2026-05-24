@@ -250,6 +250,29 @@ func (l *Logger) Fatalf(format string, args ...any) {
 // project.
 func (l *Logger) Zap() *zap.Logger { return l.z }
 
+// Enabled reports whether a given level passes the current filter.
+// Use at the top of middleware / hot-path callers to skip expensive
+// kv-slice construction when the message would be dropped anyway:
+//
+//	if lg.Enabled(kplog.InfoLevel) {
+//	    lg.Info("request", "status", c.Writer.Status(), ...)
+//	}
+//
+// Without the guard, the variadic call still builds the slice and
+// formats values before zap's internal level check drops it.
+func (l *Logger) Enabled(lvl zapcore.Level) bool {
+	return l.z.Core().Enabled(lvl)
+}
+
+// Level constants re-exported so callers don't have to import zapcore
+// just to spell a level for Enabled().
+const (
+	DebugLevel = zapcore.DebugLevel
+	InfoLevel  = zapcore.InfoLevel
+	WarnLevel  = zapcore.WarnLevel
+	ErrorLevel = zapcore.ErrorLevel
+)
+
 // Sugar returns the underlying *zap.SugaredLogger for code that wants
 // the full Sugar API (.With, .DPanic, etc.).
 func (l *Logger) Sugar() *zap.SugaredLogger { return l.sugar }

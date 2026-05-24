@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap/zapcore"
 )
 
 // GinMiddleware logs one line per request via the "gin" module logger.
@@ -44,6 +45,24 @@ func GinMiddleware(skipPaths ...string) gin.HandlerFunc {
 		latency := time.Since(start)
 		status := c.Writer.Status()
 
+		// Pick the level first so we can short-circuit the kv-slice
+		// build (plus ClientIP / latency.String / c.Errors scan) when
+		// the current filter would drop the line. At Info level all
+		// 2xx/3xx requests still log — this fast-path matters when
+		// operators bump to Warn / Error in production for quiet logs.
+		var lvl zapcore.Level
+		switch {
+		case status >= 500:
+			lvl = zapcore.ErrorLevel
+		case status >= 400:
+			lvl = zapcore.WarnLevel
+		default:
+			lvl = zapcore.InfoLevel
+		}
+		if !lg.Enabled(lvl) {
+			return
+		}
+
 		kv := []any{
 			"status", status,
 			"method", c.Request.Method,
@@ -58,11 +77,10 @@ func GinMiddleware(skipPaths ...string) gin.HandlerFunc {
 		if errs := c.Errors.ByType(gin.ErrorTypePrivate).String(); errs != "" {
 			kv = append(kv, "err", errs)
 		}
-
-		switch {
-		case status >= 500:
+		switch lvl {
+		case zapcore.ErrorLevel:
 			lg.Error("request", kv...)
-		case status >= 400:
+		case zapcore.WarnLevel:
 			lg.Warn("request", kv...)
 		default:
 			lg.Info("request", kv...)

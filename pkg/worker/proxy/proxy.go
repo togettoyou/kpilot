@@ -505,6 +505,12 @@ func (p *Proxy) describe(mapping *apimeta.RESTMapping, namespace, name string) (
 	}
 	defer func() {
 		if r := recover(); r != nil {
+			// Log the panic server-side too — the "describe panicked"
+			// response goes to the UI as a toast, but operators need
+			// the worker-side context (gvk + ns + name) and stack to
+			// actually file a bug.
+			proxyLog.Errorf("describe panicked: gvk=%s ns=%s name=%s panic=%v",
+				mapping.GroupVersionKind, namespace, name, r)
 			resp = fail(fmt.Sprintf("describe panicked: %v", r))
 		}
 	}()

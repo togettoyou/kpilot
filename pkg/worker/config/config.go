@@ -60,5 +60,11 @@ func loadDotEnv() {
 		}
 		return
 	}
+	// Re-apply log level — same fix as server-side: package-level
+	// `var configLog = kplog.L(...)` ran before godotenv loaded .env,
+	// so KPILOT_LOG_LEVEL needs a re-read to take effect from .env.
+	if v := os.Getenv("KPILOT_LOG_LEVEL"); v != "" {
+		kplog.SetLevel(v)
+	}
 	configLog.Info("loaded .env")
 }

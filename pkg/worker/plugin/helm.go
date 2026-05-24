@@ -145,10 +145,11 @@ func (h *HelmRunner) newConfiguration(namespace string, logger Logger) (*action.
 }
 
 // helmLogf is the fallback progress sink when no per-install logger is
-// supplied (e.g. boot-time chart loads). Forwards to the standard log
-// package so reconcile output sits next to everything else.
+// supplied (e.g. boot-time chart loads). Helm's action logger interface
+// is printf-style (format + args), so we use the *f variant — calling
+// Info(msg, kv...) would misinterpret the args as alternating KV pairs.
 func helmLogf(format string, args ...interface{}) {
-	helmLog.Info(""+format, args...)
+	helmLog.Infof(format, args...)
 }
 
 // ChartRef tells LoadChart how to resolve the Helm chart. Exactly one of

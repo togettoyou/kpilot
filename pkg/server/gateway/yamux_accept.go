@@ -39,7 +39,7 @@ func (g *GatewayServer) AcceptYamux(ctx context.Context, lis net.Listener) error
 			if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
 				return nil
 			}
-			yamuxAcceptLog.Infof("accept: %v", err)
+			yamuxAcceptLog.Warnf("accept: %v", err)
 			// Brief sleep prevents a hot loop on listener errors;
 			// real fatal errors return through net.ErrClosed.
 			time.Sleep(100 * time.Millisecond)
@@ -60,7 +60,7 @@ func (g *GatewayServer) AcceptYamux(ctx context.Context, lis net.Listener) error
 func (g *GatewayServer) handleYamuxConn(ctx context.Context, conn net.Conn) {
 	sess, err := transportv2.NewServerSession(conn, nil)
 	if err != nil {
-		yamuxAcceptLog.Infof("session: %v from %s", err, conn.RemoteAddr())
+		yamuxAcceptLog.Warnf("session: %v from %s", err, conn.RemoteAddr())
 		_ = conn.Close()
 		return
 	}
@@ -79,7 +79,7 @@ func (g *GatewayServer) handleYamuxConn(ctx context.Context, conn net.Conn) {
 	yamuxAcceptLog.Infof("cluster %s (%s) registered from %s", cluster.ID, cluster.Name, conn.RemoteAddr())
 
 	if err := store.UpdateClusterStatus(cluster.ID, store.ClusterStatusOnline); err != nil {
-		yamuxAcceptLog.Infof("mark online: %v", err)
+		yamuxAcceptLog.Warnf("mark online: %v", err)
 	}
 
 	// Re-push any pending plugin commands the previous session
@@ -205,7 +205,7 @@ func (g *GatewayServer) acceptYamuxStreams(ctx context.Context, w *ConnectedWork
 				if errors.Is(err, transportv2.ErrSessionClosed) || errors.Is(err, io.EOF) {
 					return
 				}
-				yamuxAcceptLog.Infof("accept stream cluster=%s: %v", w.ClusterID, err)
+				yamuxAcceptLog.Warnf("accept stream cluster=%s: %v", w.ClusterID, err)
 				return
 			}
 			go g.dispatchInboundStream(w, st)
@@ -227,7 +227,7 @@ func (g *GatewayServer) dispatchInboundStream(w *ConnectedWorker, st *transportv
 		// pluginservice.
 		var p pbv2.PluginStatusPush
 		if err := st.ReadMsg(&p); err != nil {
-			yamuxAcceptLog.Infof("cluster=%s read plugin-status-push: %v", w.ClusterID, err)
+			yamuxAcceptLog.Warnf("cluster=%s read plugin-status-push: %v", w.ClusterID, err)
 			return
 		}
 		g.handlePluginStatus(w, &p)
@@ -256,7 +256,7 @@ func (g *GatewayServer) dispatchInboundStream(w *ConnectedWorker, st *transportv
 			g.recordPluginLog(w.ClusterID, &chunk)
 		}
 	default:
-		yamuxAcceptLog.Infof("cluster=%s unexpected inbound stream kind: %v", w.ClusterID, st.Kind())
+		yamuxAcceptLog.Warnf("cluster=%s unexpected inbound stream kind: %v", w.ClusterID, st.Kind())
 	}
 }
 

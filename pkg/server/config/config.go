@@ -117,6 +117,13 @@ func loadDotEnv() {
 		}
 		return
 	}
+	// Re-apply log level from env — package-level `var configLog = kplog.L(...)`
+	// initialized the logger BEFORE godotenv had a chance to fold .env in,
+	// so KPILOT_LOG_LEVEL=debug in .env would otherwise be silently ignored.
+	// SetLevel is safe to call anytime (atomic level).
+	if v := os.Getenv("KPILOT_LOG_LEVEL"); v != "" {
+		kplog.SetLevel(v)
+	}
 	configLog.Info("loaded .env")
 }
 
