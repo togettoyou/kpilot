@@ -1710,6 +1710,7 @@ export default {
   'system.chart.cpuCores': 'CPU cores used',
   'system.chart.memPct': 'Memory utilization',
   'system.chart.rss': 'RSS',
+  'system.chart.memUsage': 'Memory usage',
   'system.chart.allocRate': 'Allocation rate',
   'system.chart.schedLat': 'Scheduler latency percentiles',
   'system.chart.mutexWait': 'Mutex wait (cumulative)',

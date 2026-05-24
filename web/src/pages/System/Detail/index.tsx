@@ -275,27 +275,29 @@ export default function SystemDetailPage() {
         />
       )}
 
-      {/* 8 KPI cards row — `sub` is a secondary line under the main
-          value (e.g. CPU cores under CPU%, absolute RSS under Mem%). */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+      {/* 8 KPI cards row. Row align="stretch" + Card style.height=100%
+          keeps every cell the same height regardless of whether `sub`
+          is present — cards without a sub-line render an empty
+          placeholder div of matching height so the value line stays
+          vertically aligned across the row. */}
+      <Row gutter={[12, 12]} align="stretch" style={{ marginBottom: 12 }}>
         {kpis.map((k) => (
           <Col key={k.title} xs={12} sm={8} md={6} lg={3}>
-            <Card size="small">
+            <Card size="small" style={{ height: '100%' }}>
               <Statistic title={k.title} value={k.value} />
-              {k.sub && (
-                <div
-                  style={{
-                    marginTop: 4,
-                    fontSize: 12,
-                    color: 'var(--ant-color-text-tertiary, #999)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {k.sub}
-                </div>
-              )}
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 12,
+                  minHeight: 18, // reserve room for `sub` even when absent
+                  color: 'var(--ant-color-text-tertiary, #999)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {k.sub || ' '}
+              </div>
             </Card>
           </Col>
         ))}
@@ -311,6 +313,21 @@ export default function SystemDetailPage() {
             children: (
               <React.Suspense fallback={null}>
                 <Row gutter={[12, 12]}>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.cpu' })}
+                      unit="%"
+                      series={series.cpu}
+                      decimals={1}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.cpuCores' })}
+                      unit={intl.formatMessage({ id: 'system.kpi.coresUnit' })}
+                      series={series.cpuCores}
+                    />
+                  </Col>
                   <Col xs={24} lg={12}>
                     <SystemChart
                       title={intl.formatMessage({ id: 'system.chart.goroutines' })}
@@ -334,21 +351,6 @@ export default function SystemDetailPage() {
                       series={series.gcPause}
                     />
                   </Col>
-                  <Col xs={24} lg={12}>
-                    <SystemChart
-                      title={intl.formatMessage({ id: 'system.chart.cpu' })}
-                      unit="%"
-                      series={series.cpu}
-                      decimals={1}
-                    />
-                  </Col>
-                  <Col xs={24} lg={12}>
-                    <SystemChart
-                      title={intl.formatMessage({ id: 'system.chart.cpuCores' })}
-                      unit={intl.formatMessage({ id: 'system.kpi.coresUnit' })}
-                      series={series.cpuCores}
-                    />
-                  </Col>
                 </Row>
               </React.Suspense>
             ),
@@ -361,18 +363,26 @@ export default function SystemDetailPage() {
                 <Row gutter={[12, 12]}>
                   <Col xs={24} lg={12}>
                     <SystemChart
-                      title={intl.formatMessage({ id: 'system.chart.heap' })}
-                      unit="MiB"
-                      unitScale={1 / (1024 * 1024)}
-                      series={series.heapSegments}
+                      title={intl.formatMessage({ id: 'system.chart.memPct' })}
+                      unit="%"
+                      series={series.memPct}
+                      decimals={1}
                     />
                   </Col>
                   <Col xs={24} lg={12}>
                     <SystemChart
-                      title={intl.formatMessage({ id: 'system.chart.rss' })}
+                      title={intl.formatMessage({ id: 'system.chart.memUsage' })}
                       unit="MiB"
                       unitScale={1 / (1024 * 1024)}
                       series={series.rss}
+                    />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <SystemChart
+                      title={intl.formatMessage({ id: 'system.chart.heap' })}
+                      unit="MiB"
+                      unitScale={1 / (1024 * 1024)}
+                      series={series.heapSegments}
                     />
                   </Col>
                   <Col xs={24} lg={12}>
@@ -388,14 +398,6 @@ export default function SystemDetailPage() {
                       title="Live objects"
                       series={series.liveObjects}
                       decimals={0}
-                    />
-                  </Col>
-                  <Col xs={24} lg={12}>
-                    <SystemChart
-                      title={intl.formatMessage({ id: 'system.chart.memPct' })}
-                      unit="%"
-                      series={series.memPct}
-                      decimals={1}
                     />
                   </Col>
                 </Row>

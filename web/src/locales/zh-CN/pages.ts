@@ -1663,6 +1663,7 @@ export default {
   'system.chart.cpuCores': 'CPU 占用核数',
   'system.chart.memPct': '内存利用率',
   'system.chart.rss': 'RSS',
+  'system.chart.memUsage': '内存使用量',
   'system.chart.allocRate': 'Alloc 速率',
   'system.chart.schedLat': '调度延迟分位',
   'system.chart.mutexWait': 'Mutex 等待累计',
