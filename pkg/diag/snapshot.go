@@ -65,10 +65,33 @@ type RuntimeMetrics struct {
 
 	// MemTotalBytes is the effective memory limit available to the
 	// process — cgroup memory limit if running inside a constrained
-	// container, otherwise host MemTotal. Linux-only; 0 elsewhere.
-	// The dashboard derives memory utilization as rss_bytes /
-	// mem_total_bytes when both are non-zero.
+	// container, otherwise host total. Works on Linux (cgroup-aware)
+	// and macOS / Windows (host total via gopsutil).
 	MemTotalBytes uint64 `json:"mem_total_bytes"`
+
+	// ProcessCPUUserSeconds + ProcessCPUSystemSeconds are
+	// kernel-counted CPU times for THIS pid (from /proc/[pid]/stat on
+	// Linux). More accurate than the Go-runtime cpu_user_seconds
+	// fields above when the process uses cgo or runs in a cpu-
+	// throttled container — the kernel sees real on-CPU time while
+	// Go's accounting only covers Go-managed threads.
+	ProcessCPUUserSeconds   float64 `json:"process_cpu_user_seconds"`
+	ProcessCPUSystemSeconds float64 `json:"process_cpu_system_seconds"`
+
+	// ProcessIOReadBytes + ProcessIOWriteBytes are cumulative disk
+	// bytes read/written by this pid. Linux-only (gopsutil reads
+	// /proc/[pid]/io); 0 elsewhere.
+	ProcessIOReadBytes  uint64 `json:"process_io_read_bytes"`
+	ProcessIOWriteBytes uint64 `json:"process_io_write_bytes"`
+
+	// SystemMemUsedBytes + SystemMemAvailableBytes are the system-
+	// wide view of memory pressure (not specific to our pid). In
+	// containers these reflect HOST totals — for the per-container
+	// cgroup limit see MemTotalBytes. Useful when an operator is
+	// trying to tell apart "process is fine, host is OOM" from
+	// "process is the OOM cause".
+	SystemMemUsedBytes      uint64 `json:"system_mem_used_bytes"`
+	SystemMemAvailableBytes uint64 `json:"system_mem_available_bytes"`
 }
 
 // Snapshot is one point-in-time JSON payload. Custom is keyed by

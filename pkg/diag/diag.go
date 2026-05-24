@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"runtime/metrics"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -35,6 +36,7 @@ type Diag struct {
 	samples   []metrics.Sample
 	gcHist    histTracker
 	schedHist histTracker
+	sys       *sysReader
 }
 
 // New returns a Diag configured with the caller-supplied identity.
@@ -63,6 +65,7 @@ func New(kind, name, appVersion string) *Diag {
 			NumCPU:     runtime.NumCPU(),
 		},
 		samples: samples,
+		sys:     newSysReader(),
 	}
 }
 
@@ -193,14 +196,39 @@ func (d *Diag) readRuntimeLocked() RuntimeMetrics {
 		rt.SchedLatencyP99Seconds = percentile(dcounts, dbuckets, 0.99)
 	}
 
-	rssBytes, threads := readProcStatus()
-	rt.RSSBytes = rssBytes
-	rt.OSThreads = threads
-	rt.OpenFDs = readOpenFDs()
+	// Process + system stats via gopsutil. Kept outside sampleMu's
+	// hot path conceptually but called here for one-call snapshot
+	// shape; gopsutil's per-call /proc reads are ~µs each.
+	if d.sys != nil {
+		ps := d.sys.readProcess()
+		rt.RSSBytes = ps.RSSBytes
+		rt.OSThreads = ps.Threads
+		rt.OpenFDs = ps.OpenFDs
+		rt.ProcessCPUUserSeconds = ps.UserSeconds
+		rt.ProcessCPUSystemSeconds = ps.SystemSeconds
+		rt.ProcessIOReadBytes = ps.ReadBytes
+		rt.ProcessIOWriteBytes = ps.WriteBytes
+
+		sm := d.sys.readSystemMem()
+		rt.SystemMemUsedBytes = sm.UsedBytes
+		rt.SystemMemAvailableBytes = sm.AvailableBytes
+
+		rt.MemTotalBytes = d.sys.readMemTotalBytes()
+	}
 	rt.MaxFDs = readMaxFDs()
-	rt.MemTotalBytes = readMemTotalBytes()
 
 	return rt
+}
+
+// readMaxFDs reads the per-process file-descriptor rlimit. Stdlib
+// syscall.Getrlimit works identically on Linux + macOS; for Windows
+// it returns ENOSYS and we leave the field at 0.
+func readMaxFDs() uint64 {
+	var rl syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rl); err != nil {
+		return 0
+	}
+	return rl.Cur
 }
 
 // histTracker keeps the prior cumulative bucket counts of a runtime

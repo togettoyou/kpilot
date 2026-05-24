@@ -54,6 +54,18 @@ export interface SystemRuntime {
   open_fds: number;
   max_fds: number;
   mem_total_bytes: number;
+  // Kernel-counted (not Go-runtime) CPU times for this PID — more
+  // accurate than cpu_user_seconds in cgo / cpu-throttled containers
+  // because the kernel sees every thread, not just Go-managed ones.
+  process_cpu_user_seconds: number;
+  process_cpu_system_seconds: number;
+  // Disk I/O bytes (Linux only; 0 elsewhere).
+  process_io_read_bytes: number;
+  process_io_write_bytes: number;
+  // System-wide memory view (host total in containers; the per-
+  // container cgroup limit is mem_total_bytes above).
+  system_mem_used_bytes: number;
+  system_mem_available_bytes: number;
 }
 
 export interface SystemSnapshot {
