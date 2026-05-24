@@ -242,7 +242,6 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer, httpDiag *serverdi
 		system := protected.Group("/system")
 		system.GET("/nodes", handler.SystemNodes(gw))
 		system.GET("/snapshots", handler.SystemSnapshots(gw))
-		system.GET("/:node/snapshot", handler.SystemSnapshot(gw))
 		system.GET("/:node/history", handler.SystemHistory(gw))
 		system.GET("/:node/pprof/:kind", handler.SystemPprof(gw))
 

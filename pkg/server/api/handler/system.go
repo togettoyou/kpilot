@@ -33,7 +33,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	pbv2 "github.com/togettoyou/kpilot/pkg/common/proto/v2"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
@@ -94,25 +93,6 @@ func SystemNodes(gw *gateway.GatewayServer) gin.HandlerFunc {
 }
 
 // ─── Snapshot reads (from system_snapshots) ────────────────────────
-
-// SystemSnapshot returns the latest stored snapshot for one node.
-// 404 + EMPTY_SNAPSHOT when the poller hasn't produced anything yet
-// (server cold-start window, worker just registered, worker stayed
-// offline since boot).
-func SystemSnapshot(_ *gateway.GatewayServer) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		s, err := store.LatestSystemSnapshot(c.Param("node"))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			apiErrWorker(c, "no snapshot yet")
-			return
-		}
-		if err != nil {
-			apiErrInternal(c, err)
-			return
-		}
-		c.Data(http.StatusOK, "application/json; charset=utf-8", s.Snapshot)
-	}
-}
 
 // SystemSnapshots returns the latest snapshot per known node. Used
 // by the landing table — one DB roundtrip (DISTINCT ON) replaces the

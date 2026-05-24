@@ -12,12 +12,7 @@
 // repeated JSON key names.
 package store
 
-import (
-	"errors"
-	"time"
-
-	"gorm.io/gorm"
-)
+import "time"
 
 // SystemSnapshot is one point-in-time poll of a single node.
 // NodeID is either the literal "server" or a worker's cluster_id
@@ -53,22 +48,6 @@ func InsertSystemSnapshot(nodeID string, at time.Time, snapshot []byte) error {
 		At:       at,
 		Snapshot: snapshot,
 	}).Error
-}
-
-// LatestSystemSnapshot returns the most recent row for one node, or
-// gorm.ErrRecordNotFound when nothing has been polled yet (node
-// just registered / server cold-started). Caller usually wraps as
-// 404 for the UI.
-func LatestSystemSnapshot(nodeID string) (*SystemSnapshot, error) {
-	var s SystemSnapshot
-	err := DB.Where("node_id = ?", nodeID).Order("at DESC").Limit(1).Take(&s).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &s, nil
 }
 
 // LatestSystemSnapshots returns the latest row per distinct node_id

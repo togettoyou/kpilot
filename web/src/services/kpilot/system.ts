@@ -98,12 +98,6 @@ export function batchSystemSnapshots() {
   return request<SystemSnapshotEnvelope[]>('/api/v1/system/snapshots', { method: 'GET' });
 }
 
-export function getSystemSnapshot(nodeID: string) {
-  return request<SystemSnapshot>(`/api/v1/system/${encodeURIComponent(nodeID)}/snapshot`, {
-    method: 'GET',
-  });
-}
-
 // pprofURL builds the absolute REST path the browser hands to a
 // download link / window.open. confirm=true is required for CPU
 // profile + trace (server returns 403 PPROF_CONFIRMATION_REQUIRED
