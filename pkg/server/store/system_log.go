@@ -22,32 +22,48 @@ import (
 // SystemLog is one log entry from the in-process ring buffer of a
 // single node. NodeID is the literal "server" or a worker's
 // cluster_id (UUID). Seq is the per-node monotonic counter assigned
-// by pkg/log.RingCore — never repeats, never wraps. The composite
-// PK (node_id, seq) is the natural identity; one entry per node per
-// seq, and seq itself sorts entries within a node chronologically
-// (atomic counter, set under no lock, so it's monotonic even across
-// goroutines on the source process).
+// by pkg/log.RingCore (atomic.Uint64). It exists primarily because
+// the worker's /debug/logs?since=<n> protocol needs a stable cursor:
+// wall-clock at can collide at ns precision under bursty writes and
+// can regress on NTP correction, so it's not a safe cursor. Once we
+// have seq for the cursor anyway, persisting it as the composite PK
+// (node_id, seq) is just consistency — no surrogate id needed.
 //
-// At duplicates the timestamp also encoded in the entry, but having
-// it as a column means we can index it for the TTL janitor and the
-// /api/v1/system/:node/logs?from=&to= range query. Going through
-// JSONB extraction for those would be 10×+ slower.
+// At is the wall-clock timestamp, indexed for the TTL janitor and
+// time-range queries. We index (node_id, at DESC) composite (not
+// just (at) on its own) because the dominant read pattern is
+// "rows for this node in this window".
 //
-// Level is stored as int8 for cheap WHERE level >= ? filtering
-// (avoid string comparisons in the index). Mapping:
+// Level is stored as int8 for cheap WHERE level >= ? filtering:
 //
-//	-1 = debug   0 = info   1 = warn   2 = error
+//	-1 = debug   0 = info   1 = warn   2 = error   3 = fatal
 //
 // matches zap's zapcore.Level. Module is the dotted module name
 // (gateway, http-proxy, handler.model, ...). Fields is the raw JSON
-// of any structured KV pairs the call site passed. Msg is the human
+// of any structured KV pairs the call site passed; Msg is the human
 // message.
+//
+// Indexes (the GORM tag composite-index syntax is `index:name,...`
+// with priority controlling field order):
+//
+//   - PK (node_id, seq)              — cursor reads + uniqueness
+//   - idx_sys_log_node_at composite  — (node_id, at DESC) for range
+//                                       queries by node + time window
+//   - idx_sys_log_at                 — (at) alone for the TTL janitor
+//                                       (matches WHERE at < cutoff
+//                                       without needing node_id)
+//
+// We deliberately do NOT index level alone (only 4 distinct values,
+// useless cardinality) or module alone (almost always queried in
+// combination with node_id, and the prefix-match `module LIKE 'x.%'`
+// query already lives within a node-at index seek so filtering
+// module sequentially within that range is cheap at our scale).
 type SystemLog struct {
-	NodeID string    `gorm:"primaryKey;size:64"`
+	NodeID string    `gorm:"primaryKey;size:64;index:idx_sys_log_node_at,priority:1"`
 	Seq    uint64    `gorm:"primaryKey;autoIncrement:false"`
-	At     time.Time `gorm:"index:idx_sys_log_at;not null"`
-	Level  int8      `gorm:"index:idx_sys_log_node_level;not null"`
-	Module string    `gorm:"size:64;index:idx_sys_log_node_module;not null"`
+	At     time.Time `gorm:"index:idx_sys_log_node_at,priority:2,sort:desc;index:idx_sys_log_at;not null"`
+	Level  int8      `gorm:"not null"`
+	Module string    `gorm:"size:64;not null"`
 	Msg    string    `gorm:"type:text;not null"`
 	Fields []byte    `gorm:"type:jsonb"`
 }
@@ -95,18 +111,14 @@ func LevelString(l int8) string {
 // BatchInsertSystemLogs writes a slice of rows in a single INSERT.
 // Used by the LogsPoller, which pulls /debug/logs from each node
 // every 5 s and dumps the result here. CreateInBatches caps the
-// per-statement size so very long bursts don't blow Postgres'
-// parameter limit (~65 535 parameters per statement; with 7
-// columns that's ~9 300 rows per chunk — we use 500 for safety
-// margin and to keep individual statement latency bounded).
+// per-statement size at 500: with 7 columns that's 3500 parameters,
+// well under Postgres' 65 535 cap, and keeps individual statement
+// latency bounded.
 //
-// Idempotent on the composite PK: if the poller re-fetches an
-// already-persisted slice (e.g. after a crash mid-flush), ON CONFLICT
-// DO NOTHING keeps the insert from failing. We use plain Create
-// here and rely on the poller to track its last-seen cursor correctly;
-// the safety net would be ON CONFLICT, but in practice the cursor
-// logic is the contract and we want a Postgres error to surface
-// real bugs rather than silently swallowing duplicates.
+// No ON CONFLICT handling: the poller is the only writer per node
+// and tracks lastSeq carefully, so duplicate (node_id, seq) writes
+// would indicate a bug in the cursor logic we WANT to see surface.
+// Silently swallowing PK violations would hide it.
 func BatchInsertSystemLogs(rows []SystemLog) error {
 	if len(rows) == 0 {
 		return nil

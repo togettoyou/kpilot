@@ -14,7 +14,7 @@ import {
   theme,
 } from 'antd';
 import { ClearOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import TimeRangePicker, {
   buildRangeQuery,
@@ -30,32 +30,32 @@ import {
 
 const { Text } = Typography;
 
-// 2 s polling matches the existing Clusters/Logging page's Live tail
-// cadence, and is well below the 5 s LogsPoller interval so the UI
-// catches up within one tick of new persisted rows. Polling stops
-// when the toggle is off — no background work for static range
-// queries.
+// 2 s polling matches the existing /clusters/:id/logging Live tail
+// cadence, and is well below the 5 s LogsPoller server-side interval
+// so the UI catches up within one tick of new persisted rows.
 const LIVE_POLL_INTERVAL_MS = 2000;
 
-// Max rows we keep in memory. Beyond this we trim oldest so a stuck
-// live-tail session doesn't blow up the browser. 5 000 lines × ~300 B
-// per row ≈ 1.5 MB, comfortably below any practical limit; virtuoso
-// keeps the rendered DOM tiny regardless of the underlying array size.
+// Cap rows kept in memory. Beyond this we drop oldest so a stuck
+// live-tail session doesn't blow up the browser. 5 000 rows ×
+// ~300 B ≈ 1.5 MB; virtuoso keeps the rendered DOM small regardless
+// of the underlying array size.
 const MAX_ROWS = 5000;
 
-// Level filter dropdown options. Severity-ordered so the picker reads
-// top-down as "less noisy → more noisy" (debug at the bottom).
-const LEVEL_OPTIONS = [
-  { value: '', label: '所有等级' },
-  { value: 'error', label: 'Error+' },
-  { value: 'warn', label: 'Warn+' },
-  { value: 'info', label: 'Info+' },
-  { value: 'debug', label: 'Debug+' },
+// Level filter dropdown options. Severity-ordered top-down — clearer
+// for an operator skimming "show me only the loud stuff" → "show me
+// everything". Sticking to enum values matches the backend's
+// `level >= ?` semantics.
+const LEVEL_OPTIONS: { value: string; messageId: string }[] = [
+  { value: '', messageId: 'pages.system.logs.level.all' },
+  { value: 'error', messageId: 'pages.system.logs.level.errorPlus' },
+  { value: 'warn', messageId: 'pages.system.logs.level.warnPlus' },
+  { value: 'info', messageId: 'pages.system.logs.level.infoPlus' },
+  { value: 'debug', messageId: 'pages.system.logs.level.debugPlus' },
 ];
 
-// Color mapping for the level tag — matches the level severity bands
-// used elsewhere in the UI (Compute usageColor + Grafana defaults).
-function levelColor(level: string): string | undefined {
+// Tag color per level — sits next to each row. The mapping matches
+// the severity bands used elsewhere (Compute usageColor).
+function levelColor(level: string): string {
   switch (level) {
     case 'error':
     case 'fatal':
@@ -67,27 +67,101 @@ function levelColor(level: string): string | undefined {
     case 'debug':
       return 'default';
     default:
-      return undefined;
+      return 'default';
   }
 }
 
+// HH:MM:SS.mmm — log views want time-of-day with millisecond
+// resolution for ordering. Date part is in the row's `at` if anyone
+// needs it (e.g. cross-day ranges); cluttering every row with
+// YYYY-MM-DD is wasted column width.
 function formatAt(at: string): string {
-  // Browser-local time, second precision is enough for log grepping;
-  // ms is in the raw row for the expanded view.
   const d = new Date(at);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (Number.isNaN(d.getTime())) return at;
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
+
+// ─── LogRow ────────────────────────────────────────────────────────
+//
+// Memoized so Virtuoso's itemContent re-renders don't walk the
+// antd Tag / Typography subtree for every visible row when only the
+// expansion set changed elsewhere. Same pattern Clusters/Logging
+// uses for its LogRow — under live-tail polling the rows array
+// changes often, but each individual entry's data is immutable.
+interface LogRowProps {
+  row: SystemLogEntry;
+  expanded: boolean;
+  onToggleExpand: (seq: number) => void;
+}
+
+const LogRow = React.memo(function LogRow({ row, expanded, onToggleExpand }: LogRowProps) {
+  const { token } = theme.useToken();
+  const hasFields = row.fields && Object.keys(row.fields).length > 0;
+  return (
+    <div
+      onClick={hasFields ? () => onToggleExpand(row.seq) : undefined}
+      style={{
+        padding: '6px 12px',
+        borderBottom: `1px solid ${token.colorBorderSecondary}`,
+        cursor: hasFields ? 'pointer' : 'default',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        fontSize: 12,
+        lineHeight: 1.6,
+        background: expanded ? token.colorFillTertiary : undefined,
+        // Hover affordance only when the row has fields to expand.
+        ...(hasFields ? { transition: 'background 80ms ease' } : null),
+      }}
+    >
+      <Space size={8} align="start" style={{ width: '100%' }}>
+        <Text type="secondary" style={{ minWidth: 88, whiteSpace: 'nowrap' }}>
+          {formatAt(row.at)}
+        </Text>
+        <Tag
+          color={levelColor(row.level)}
+          style={{ minWidth: 56, textAlign: 'center', margin: 0 }}
+        >
+          {row.level.toUpperCase()}
+        </Tag>
+        {row.module && (
+          <Tag color="default" style={{ margin: 0 }}>
+            {row.module}
+          </Tag>
+        )}
+        <span style={{ flex: 1, wordBreak: 'break-word', color: token.colorText }}>
+          {row.msg}
+        </span>
+      </Space>
+      {expanded && hasFields && (
+        <pre
+          style={{
+            margin: '8px 0 0 96px',
+            padding: 8,
+            background: token.colorFillQuaternary,
+            border: `1px solid ${token.colorBorderSecondary}`,
+            borderRadius: 4,
+            fontSize: 11,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+            color: token.colorTextSecondary,
+          }}
+        >
+          {JSON.stringify(row.fields, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+});
 
 export default function SystemLogsPage() {
   const intl = useIntl();
   const { token } = theme.useToken();
 
-  // ─── Static lookups (nodes + modules) ─────────────────────────────
+  // ─── Lookups (nodes + modules) ────────────────────────────────────
   const [nodes, setNodes] = useState<SystemNode[]>([]);
   const [modules, setModules] = useState<string[]>([]);
 
-  // ─── Query controls ────────────────────────────────────────────────
+  // ─── Query controls ───────────────────────────────────────────────
   const [nodeID, setNodeID] = useState<string>('server');
   const [level, setLevel] = useState<string>('');
   const [moduleFilter, setModuleFilter] = useState<string>('');
@@ -100,16 +174,15 @@ export default function SystemLogsPage() {
   const [rows, setRows] = useState<SystemLogEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
 
-  // Refs that the polling timer + Run handler need without becoming
-  // useEffect deps (otherwise the interval would be torn down and
-  // recreated on every state tick).
+  // Refs the polling timer reads without becoming deps (a render-loop
+  // tear-down + recreate would defeat the interval entirely).
   const liveTailRef = useRef(liveTail);
   useEffect(() => {
     liveTailRef.current = liveTail;
   }, [liveTail]);
   const lastSeqRef = useRef<number>(0);
 
-  // ─── Node + module lookups (once on mount) ─────────────────────────
+  // ─── Lookups on mount ─────────────────────────────────────────────
   useEffect(() => {
     listSystemNodes()
       .then((arr) => setNodes(arr || []))
@@ -119,7 +192,7 @@ export default function SystemLogsPage() {
       .catch(() => {});
   }, []);
 
-  // ─── Range-mode query (full re-fetch) ──────────────────────────────
+  // ─── Range-mode query ─────────────────────────────────────────────
   const runRangeQuery = useCallback(async () => {
     setLoading(true);
     try {
@@ -132,27 +205,27 @@ export default function SystemLogsPage() {
       });
       const arr = data || [];
       setRows(arr);
-      // Track newest seq so the live-tail incremental call picks up
-      // strictly newer rows when enabled.
+      // Track newest seq so an incremental live-tail call picks up
+      // strictly newer rows after the user toggles into live mode.
       lastSeqRef.current = arr.length > 0 ? Math.max(...arr.map((r) => r.seq)) : 0;
     } finally {
       setLoading(false);
     }
   }, [nodeID, range, level, moduleFilter, q]);
 
-  // Refetch whenever the node / filters / range change. Live-tail OFF.
+  // Refetch whenever the node / filters / range change. Live-tail OFF
+  // — the polling effect below handles its own fetching.
   useEffect(() => {
-    if (liveTail) return; // Tail mode handles fetching on its own.
+    if (liveTail) return;
     runRangeQuery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeID, range, level, moduleFilter, q]);
 
-  // ─── Live tail polling ─────────────────────────────────────────────
+  // ─── Live tail polling ────────────────────────────────────────────
   useEffect(() => {
     if (!liveTail) return;
-    // Seed: if we don't have any rows yet, do a range-mode pull so
-    // the operator immediately sees the most recent slice. Without
-    // this the panel stays empty until the first 2 s tick.
+    // Seed: if we have no rows yet, fire a range-mode pull so the
+    // panel doesn't sit empty for the first 2 s tick.
     if (rows.length === 0) {
       runRangeQuery();
     }
@@ -169,10 +242,9 @@ export default function SystemLogsPage() {
         const arr = data || [];
         if (arr.length === 0) return;
         // Backend returns DESC; our local array is also DESC (newest
-        // first). Splice the new rows in at the top, then trim to
-        // MAX_ROWS so we don't grow unbounded.
+        // first). Prepend new rows + dedupe defensively in case
+        // poller windows overlap.
         setRows((prev) => {
-          // Defensive seq de-dup in case the poller window overlapped.
           const known = new Set(prev.map((r) => r.seq));
           const fresh = arr.filter((r) => !known.has(r.seq));
           if (fresh.length === 0) return prev;
@@ -188,26 +260,103 @@ export default function SystemLogsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveTail, nodeID, level, moduleFilter, q]);
 
-  // ─── Derived UI bits ───────────────────────────────────────────────
+  // ─── Full-bleed layout: wrapper consumes viewport-top-footer-gap ──
+  //
+  // Mirrors Clusters/Logging's closed-form measurement so the page
+  // never produces a browser-level scrollbar. Walks up resetting
+  // ancestor scrollTops on mount (Umi keeps content-area scroll on
+  // navigation) so getBoundingClientRect().top is meaningful.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [containerHeight, setContainerHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    let el: HTMLElement | null = wrapperRef.current;
+    if (!el) {
+      requestAnimationFrame(() => {
+        let inner: HTMLElement | null = wrapperRef.current;
+        while (inner && inner !== document.body) {
+          if (inner.scrollTop) inner.scrollTop = 0;
+          inner = inner.parentElement;
+        }
+      });
+      return;
+    }
+    while (el && el !== document.body) {
+      if (el.scrollTop) el.scrollTop = 0;
+      el = el.parentElement;
+    }
+  }, []);
+
+  useEffect(() => {
+    let pending = 0;
+    const measure = () => {
+      pending = 0;
+      const el = wrapperRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const footer = document.querySelector<HTMLElement>('.kpilot-footer');
+      if (!footer) {
+        const h = Math.max(0, Math.floor(window.innerHeight - rect.top));
+        setContainerHeight((prev) => (prev === h ? prev : h));
+        return;
+      }
+      const footerRect = footer.getBoundingClientRect();
+      const gap = footerRect.top - rect.bottom;
+      const h = Math.max(
+        0,
+        Math.floor(window.innerHeight - rect.top - footerRect.height - gap),
+      );
+      setContainerHeight((prev) => (prev === h ? prev : h));
+    };
+    const schedule = () => {
+      if (pending) return;
+      pending = requestAnimationFrame(measure);
+    };
+    schedule();
+    window.addEventListener('resize', schedule);
+    const ro = new ResizeObserver(schedule);
+    ro.observe(document.body);
+    return () => {
+      if (pending) cancelAnimationFrame(pending);
+      window.removeEventListener('resize', schedule);
+      ro.disconnect();
+    };
+  }, []);
+
+  // ─── Derived UI ───────────────────────────────────────────────────
   const nodeOptions = useMemo(
     () =>
       nodes.map((n) => ({
         value: n.node_id,
         label:
           n.kind === 'server'
-            ? `Server (control-plane)`
-            : `Worker · ${n.cluster_name || n.node_id}${n.online ? '' : ' (离线)'}`,
-        disabled: !n.diag_available && n.online,
+            ? intl.formatMessage({ id: 'pages.system.logs.node.server' })
+            : intl.formatMessage({ id: 'pages.system.logs.node.workerPrefix' }) +
+              (n.cluster_name || n.node_id) +
+              (!n.online ? intl.formatMessage({ id: 'pages.system.logs.node.offlineSuffix' }) : ''),
       })),
-    [nodes],
+    [nodes, intl],
+  );
+
+  const levelOptions = useMemo(
+    () =>
+      LEVEL_OPTIONS.map((o) => ({
+        value: o.value,
+        label: intl.formatMessage({ id: o.messageId }),
+      })),
+    [intl],
   );
 
   const moduleOptions = useMemo(
     () => [
-      { value: '', label: '所有模块' },
-      ...modules.map((m) => ({ value: m, label: m || '(无模块)' })),
+      { value: '', label: intl.formatMessage({ id: 'pages.system.logs.module.all' }) },
+      ...modules.map((m) => ({
+        value: m,
+        label: m || intl.formatMessage({ id: 'pages.system.logs.module.empty' }),
+      })),
     ],
-    [modules],
+    [modules, intl],
   );
 
   const toggleExpanded = useCallback((seq: number) => {
@@ -225,70 +374,34 @@ export default function SystemLogsPage() {
     lastSeqRef.current = 0;
   };
 
-  // ─── Render a single row ───────────────────────────────────────────
-  const renderRow = useCallback(
-    (_index: number, row: SystemLogEntry) => {
-      const isOpen = expanded.has(row.seq);
-      const hasFields = row.fields && Object.keys(row.fields).length > 0;
-      return (
-        <div
-          onClick={() => toggleExpanded(row.seq)}
-          style={{
-            padding: '6px 12px',
-            borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            cursor: hasFields ? 'pointer' : 'default',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            fontSize: 12,
-            lineHeight: 1.5,
-            background: isOpen ? token.colorFillTertiary : undefined,
-          }}
-        >
-          <Space size={8} style={{ width: '100%' }} align="start">
-            <Text type="secondary" style={{ minWidth: 150, whiteSpace: 'nowrap' }}>
-              {formatAt(row.at)}
-            </Text>
-            <Tag color={levelColor(row.level)} style={{ minWidth: 48, textAlign: 'center', margin: 0 }}>
-              {row.level.toUpperCase()}
-            </Tag>
-            {row.module && (
-              <Tag color="default" style={{ margin: 0 }}>
-                {row.module}
-              </Tag>
-            )}
-            <span style={{ flex: 1, wordBreak: 'break-word' }}>{row.msg}</span>
-          </Space>
-          {isOpen && hasFields && (
-            <pre
-              style={{
-                margin: '8px 0 0 158px',
-                padding: 8,
-                background: token.colorFillQuaternary,
-                borderRadius: 4,
-                fontSize: 11,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-              }}
-            >
-              {JSON.stringify(row.fields, null, 2)}
-            </pre>
-          )}
-        </div>
-      );
-    },
-    [expanded, toggleExpanded, token],
-  );
-
+  // ─── Render ───────────────────────────────────────────────────────
   return (
     <PageContainer
       header={{
-        title: intl.formatMessage({ id: 'pages.system.logs.title', defaultMessage: '系统日志' }),
+        title: intl.formatMessage({ id: 'pages.system.logs.title' }),
         breadcrumb: {},
       }}
+      // ProLayout has its own padding around children; we still want
+      // the page to feel "full-bleed" within the content area but
+      // PageContainer's own internal padding is fine here.
     >
-      <Card
-        styles={{ body: { padding: 12 } }}
-        // Filter strip — single row, wraps on narrow screens.
-        title={
+      <div
+        ref={wrapperRef}
+        style={{
+          // Closed-form height (viewport - top - footer - gap). Falls
+          // back to a sensible default before ResizeObserver fires.
+          height: containerHeight != null ? containerHeight : 'calc(100vh - 220px)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        {/* ─── Toolbar card ─── */}
+        <Card
+          size="small"
+          styles={{ body: { padding: '10px 12px' } }}
+          style={{ flex: '0 0 auto' }}
+        >
           <Space size={8} wrap>
             <Select
               value={nodeID}
@@ -296,37 +409,43 @@ export default function SystemLogsPage() {
               options={nodeOptions}
               style={{ minWidth: 220 }}
               size="small"
+              placeholder={intl.formatMessage({
+                id: 'pages.system.logs.toolbar.nodePlaceholder',
+              })}
             />
             <Select
               value={level}
               onChange={setLevel}
-              options={LEVEL_OPTIONS}
-              style={{ width: 130 }}
+              options={levelOptions}
+              style={{ width: 150 }}
               size="small"
             />
             <Select
               value={moduleFilter}
               onChange={setModuleFilter}
               options={moduleOptions}
-              style={{ minWidth: 160 }}
+              style={{ minWidth: 180 }}
               size="small"
               showSearch
               optionFilterProp="label"
               allowClear
               onClear={() => setModuleFilter('')}
+              placeholder={intl.formatMessage({
+                id: 'pages.system.logs.toolbar.modulePlaceholder',
+              })}
             />
             <Input
-              placeholder="搜索消息..."
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onPressEnter={() => runRangeQuery()}
-              style={{ width: 220 }}
+              style={{ width: 240 }}
               size="small"
               allowClear
+              placeholder={intl.formatMessage({ id: 'pages.system.logs.toolbar.search' })}
             />
-            {/* Live tail mode hides the picker — only static range
-                queries need it. Avoids the visual conflict where the
-                operator might think the range is still respected. */}
+            {/* Range picker only meaningful in static-query mode.
+                Hidden in live tail so operators don't think the range
+                still constrains the polling tick. */}
             {!liveTail && (
               <TimeRangePicker
                 value={range}
@@ -334,16 +453,12 @@ export default function SystemLogsPage() {
                 presets={['1h', '3h', '6h', '12h', '24h']}
               />
             )}
-            <Tooltip
-              title={
-                liveTail
-                  ? '关闭后可手动指定时间范围查询'
-                  : '开启后每 2 秒拉取新行,prepend 到顶部'
-              }
-            >
-              <Space size={4}>
+            <Tooltip title={intl.formatMessage({ id: 'pages.system.logs.tooltip.liveTail' })}>
+              <Space size={6} align="center">
                 <Switch checked={liveTail} onChange={setLiveTail} size="small" />
-                <span style={{ fontSize: 12 }}>Live Tail</span>
+                <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                  {intl.formatMessage({ id: 'pages.system.logs.toolbar.liveTail' })}
+                </span>
               </Space>
             </Tooltip>
             <Button
@@ -353,7 +468,7 @@ export default function SystemLogsPage() {
               loading={loading}
               disabled={liveTail}
             >
-              刷新
+              {intl.formatMessage({ id: 'pages.system.logs.toolbar.refresh' })}
             </Button>
             <Button
               size="small"
@@ -361,53 +476,83 @@ export default function SystemLogsPage() {
               onClick={clearRows}
               disabled={rows.length === 0}
             >
-              清空
+              {intl.formatMessage({ id: 'pages.system.logs.toolbar.clear' })}
             </Button>
+            <span
+              style={{
+                marginLeft: 'auto',
+                fontSize: 12,
+                color: token.colorTextTertiary,
+              }}
+            >
+              {rows.length > 0 &&
+                intl.formatMessage(
+                  {
+                    id:
+                      rows.length === MAX_ROWS
+                        ? 'pages.system.logs.status.countTrimmed'
+                        : 'pages.system.logs.status.count',
+                  },
+                  { count: rows.length },
+                )}
+            </span>
           </Space>
-        }
-      >
-        <div
+        </Card>
+
+        {/* ─── Result card — fills remaining height, internal scroll only ─── */}
+        <Card
+          size="small"
+          styles={{
+            body: {
+              padding: 0,
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+            },
+          }}
           style={{
-            // Fixed-height viewport for virtuoso. ~75vh keeps the
-            // filter strip + footer visible; users on tall screens get
-            // more rows automatically, narrow ones still get a usable
-            // panel without page-wide scrolling.
-            height: 'calc(100vh - 240px)',
-            background: token.colorBgContainer,
-            border: `1px solid ${token.colorBorderSecondary}`,
-            borderRadius: 4,
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           {rows.length === 0 ? (
-            <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+            <div
+              style={{
+                display: 'flex',
+                flex: 1,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
               <Empty
-                description={
-                  loading
-                    ? '加载中...'
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={intl.formatMessage({
+                  id: loading
+                    ? 'pages.system.logs.empty.loading'
                     : liveTail
-                    ? '等待新日志...'
-                    : '该范围内没有匹配的日志'
-                }
+                    ? 'pages.system.logs.empty.liveWaiting'
+                    : 'pages.system.logs.empty.noMatch',
+                })}
               />
             </div>
           ) : (
             <Virtuoso<SystemLogEntry>
+              style={{ flex: 1, minHeight: 0 }}
               data={rows}
-              itemContent={renderRow}
-              followOutput={false}
-              style={{ height: '100%' }}
+              itemContent={(_i, row) => (
+                <LogRow
+                  row={row}
+                  expanded={expanded.has(row.seq)}
+                  onToggleExpand={toggleExpanded}
+                />
+              )}
             />
           )}
-        </div>
-        <div style={{ marginTop: 8, fontSize: 12, color: token.colorTextTertiary }}>
-          {rows.length > 0 && (
-            <span>
-              {rows.length} 条
-              {rows.length === MAX_ROWS && ' (已达上限, 旧行已被裁剪)'}
-            </span>
-          )}
-        </div>
-      </Card>
+        </Card>
+      </div>
     </PageContainer>
   );
 }

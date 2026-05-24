@@ -183,10 +183,3 @@ func (r *RingCore) LastSeq() uint64 {
 // as time.Time (renderers, sorters). Pulled out so we don't pollute
 // every Entry with a parsed time.Time field.
 func (e *Entry) Time() time.Time { return time.Unix(0, e.TimeNs) }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
