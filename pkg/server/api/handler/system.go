@@ -119,7 +119,7 @@ func SystemSnapshot(_ *gateway.GatewayServer) gin.HandlerFunc {
 // pre-DB fan-out that opened one yamux stream per worker on every
 // refresh. Nodes without a row yet appear with `error="no data"`
 // so partial coverage doesn't drop the response shape.
-func SystemSnapshots(gw *gateway.GatewayServer) gin.HandlerFunc {
+func SystemSnapshots(_ *gateway.GatewayServer) gin.HandlerFunc {
 	type item struct {
 		NodeID   string          `json:"node_id"`
 		Snapshot json.RawMessage `json:"snapshot,omitempty"`
@@ -157,7 +157,6 @@ func SystemSnapshots(gw *gateway.GatewayServer) gin.HandlerFunc {
 			}
 			out = append(out, item{NodeID: id, Error: "no data"})
 		}
-		_ = gw // signature parity with the rest of the system handlers
 		c.JSON(http.StatusOK, out)
 	}
 }

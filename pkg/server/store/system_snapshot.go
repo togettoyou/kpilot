@@ -88,6 +88,13 @@ func LatestSystemSnapshots() ([]SystemSnapshot, error) {
 // its local ring. Bounded by limit (typical: 240 for a 1 h window).
 // since == zero time means "from the oldest available row in the
 // table" (caller asks for full history).
+//
+// Pagination strategy: ORDER BY at DESC LIMIT N (keep the NEWEST
+// N rows when matched > limit), then reverse client-side so the
+// returned slice is still ASC. Doing it the other way (ASC LIMIT N)
+// would cut off the freshest data — invisible in the normal case
+// where matched ≈ limit, but biting on URL-hack `?since=2h-ago`
+// against a 1 h retention window.
 func SystemSnapshotsSince(nodeID string, since time.Time, limit int) ([]SystemSnapshot, error) {
 	if limit <= 0 || limit > 10_000 {
 		limit = 240
@@ -97,8 +104,14 @@ func SystemSnapshotsSince(nodeID string, since time.Time, limit int) ([]SystemSn
 		q = q.Where("at > ?", since)
 	}
 	var rows []SystemSnapshot
-	err := q.Order("at ASC").Limit(limit).Find(&rows).Error
-	return rows, err
+	if err := q.Order("at DESC").Limit(limit).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	// Reverse to ASC. Cheap (≤ limit rows, just a slice swap loop).
+	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+		rows[i], rows[j] = rows[j], rows[i]
+	}
+	return rows, nil
 }
 
 // DeleteSystemSnapshotsBefore removes rows older than the cutoff.

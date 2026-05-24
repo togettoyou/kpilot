@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
@@ -33,8 +35,10 @@ import (
 //   - reconcile / janitor share one goroutine so the process stays
 //     simple to reason about
 type Poller struct {
-	gw         *gateway.GatewayServer
-	serverPort uint32
+	gw *gateway.GatewayServer
+	// serverPort is atomic — set once at boot, read on every poll;
+	// no need to fight the tickers map mutex for it.
+	serverPort atomic.Uint32
 
 	pollInterval time.Duration
 	retention    time.Duration
@@ -50,9 +54,8 @@ type Poller struct {
 // the reconcile + janitor goroutines (and the per-node tickers
 // they spawn).
 func NewPoller(gw *gateway.GatewayServer, serverDiagPort uint32) *Poller {
-	return &Poller{
+	p := &Poller{
 		gw:           gw,
-		serverPort:   serverDiagPort,
 		pollInterval: 15 * time.Second,
 		// 1 h window + 5 min buffer keeps last-hour reads complete
 		// even when janitor lags. Effective storage growth is
@@ -71,6 +74,8 @@ func NewPoller(gw *gateway.GatewayServer, serverDiagPort uint32) *Poller {
 		tickers: make(map[string]chan struct{}),
 		failing: make(map[string]bool),
 	}
+	p.serverPort.Store(serverDiagPort)
+	return p
 }
 
 // Start launches:
@@ -91,11 +96,10 @@ func (p *Poller) Start(ctx context.Context) {
 
 // SetServerDiagPort updates the loopback port the "server" poller
 // hits. Called from cmd/server/main.go after the diag listener has
-// bound but possibly before Start() — either order works.
+// bound but possibly before Start() — either order works. Atomic
+// so reads on the hot poll path stay lock-free.
 func (p *Poller) SetServerDiagPort(port uint32) {
-	p.mu.Lock()
-	p.serverPort = port
-	p.mu.Unlock()
+	p.serverPort.Store(port)
 }
 
 // ─── reconcile + janitor ──────────────────────────────────────────
@@ -177,7 +181,19 @@ func (p *Poller) nodeLoop(ctx context.Context, nodeID string, stop <-chan struct
 		}
 	}()
 
-	// First poll fires immediately; subsequent on the ticker.
+	// Stagger first poll by a uniform random offset in [0, pollInterval).
+	// Without this all tickers spawned in one reconcileOnce fire on
+	// the same clock instant — a 50-cluster deployment then sees a
+	// 50-way simultaneous yamux RPC burst + 50 concurrent PG INSERTs
+	// every 15 s. The jitter spreads them uniformly across the window.
+	jitter := time.Duration(rand.Int63n(int64(p.pollInterval)))
+	select {
+	case <-ctx.Done():
+		return
+	case <-stop:
+		return
+	case <-time.After(jitter):
+	}
 	p.pollOne(ctx, nodeID)
 
 	t := time.NewTicker(p.pollInterval)
@@ -230,9 +246,7 @@ func (p *Poller) pollOne(ctx context.Context, nodeID string) {
 // the snapshots table) is self-contained.
 func (p *Poller) fetchNodeSnapshot(ctx context.Context, nodeID string) ([]byte, error) {
 	if nodeID == "server" {
-		p.mu.Lock()
-		port := p.serverPort
-		p.mu.Unlock()
+		port := p.serverPort.Load()
 		if port == 0 {
 			return nil, errors.New("server diag port unset")
 		}
