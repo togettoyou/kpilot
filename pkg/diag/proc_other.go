@@ -1,11 +1,14 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package diag
 
-// On non-Linux platforms we have no portable /proc-equivalent for RSS,
-// thread count, or FD count. The dashboard renders these as 0 with a
-// note in docs/system.md. (Darwin would need task_info via cgo;
-// Windows would need PSAPI.)
+// Catch-all stub for platforms we haven't implemented sys-stat readers
+// on. In practice this is Windows — kpilot is deployed on Linux pods
+// and developed on macOS, so Windows support is a "if someone files
+// an issue" item. Real Windows impl would use PSAPI's
+// GetProcessMemoryInfo + GlobalMemoryStatusEx via
+// golang.org/x/sys/windows, which would break pkg/diag's zero-OSS-dep
+// property; would belong in a sibling package instead.
 
 func readProcStatus() (rssBytes uint64, threads int) { return 0, 0 }
 func readOpenFDs() int                               { return 0 }
