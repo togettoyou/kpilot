@@ -439,6 +439,24 @@ export default function SystemLogsPage() {
     lastSeqRef.current = '';
   };
 
+  // Restore every toolbar control to its initial state — useful when
+  // the operator has drilled into a specific filter and wants to
+  // bail back to "everything, default node, last hour" in one click
+  // instead of resetting each control individually. Clearing rows
+  // alongside avoids a stale view while the new (post-reset) query
+  // is in flight.
+  const resetForm = () => {
+    setNodeID('server');
+    setLevel('');
+    setModuleFilter('');
+    setQ('');
+    setRange({ mode: 'preset', preset: '1h' });
+    setLiveTail(false);
+    setLimit(100);
+    setRows([]);
+    lastSeqRef.current = '';
+  };
+
   // ─── Export current rows ──────────────────────────────────────────
   //
   // Frontend-only: builds the file from the in-memory `rows`, no
@@ -567,6 +585,9 @@ export default function SystemLogsPage() {
               allowClear
               placeholder={intl.formatMessage({ id: 'pages.system.logs.toolbar.search' })}
             />
+            <Button size="small" onClick={resetForm}>
+              {intl.formatMessage({ id: 'pages.system.logs.toolbar.reset' })}
+            </Button>
             {/* Range picker only meaningful in static-query mode.
                 Hidden in live tail so operators don't think the range
                 still constrains the polling tick. */}
@@ -632,7 +653,12 @@ export default function SystemLogsPage() {
                 ],
               }}
             >
-              <Button size="small" icon={<DownloadOutlined />} disabled={rows.length === 0}>
+              <Button
+                size="small"
+                type="text"
+                icon={<DownloadOutlined />}
+                disabled={rows.length === 0}
+              >
                 {intl.formatMessage({ id: 'pages.system.logs.toolbar.download' })}
               </Button>
             </Dropdown>
