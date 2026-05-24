@@ -11,6 +11,7 @@ import {
   Statistic,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import {
@@ -226,12 +227,23 @@ export default function SystemDetailPage() {
             latest.runtime.mem_total_bytes > 0 && latest.runtime.rss_bytes > 0
               ? formatPercent(memPct)
               : '—',
+          // Compact form (e.g. "512M / 16G" instead of "512.00 MiB /
+          // 16.00 GiB") so the line fits one row inside the narrow
+          // `lg={3}` KPI card without the ellipsis truncation; the
+          // full-precision value is exposed via the Card-level
+          // tooltip below in case operators want it.
           sub:
+            latest.runtime.rss_bytes > 0
+              ? latest.runtime.mem_total_bytes > 0
+                ? `${formatBytes(latest.runtime.rss_bytes, { compact: true })} / ${formatBytes(latest.runtime.mem_total_bytes, { compact: true })}`
+                : formatBytes(latest.runtime.rss_bytes, { compact: true })
+              : '—',
+          subFull:
             latest.runtime.rss_bytes > 0
               ? latest.runtime.mem_total_bytes > 0
                 ? `${formatBytes(latest.runtime.rss_bytes)} / ${formatBytes(latest.runtime.mem_total_bytes)}`
                 : formatBytes(latest.runtime.rss_bytes)
-              : '—',
+              : undefined,
         },
         {
           title: intl.formatMessage({ id: 'system.col.heap' }),
@@ -321,26 +333,37 @@ export default function SystemDetailPage() {
           placeholder div of matching height so the value line stays
           vertically aligned across the row. */}
       <Row gutter={[12, 12]} align="stretch" style={{ marginBottom: 12 }}>
-        {kpis.map((k) => (
-          <Col key={k.title} xs={12} sm={8} md={6} lg={3}>
-            <Card size="small" style={{ height: '100%' }}>
-              <Statistic title={k.title} value={k.value} />
-              <div
-                style={{
-                  marginTop: 4,
-                  fontSize: 12,
-                  minHeight: 18, // reserve room for `sub` even when absent
-                  color: 'var(--ant-color-text-tertiary, #999)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {k.sub || ' '}
-              </div>
-            </Card>
-          </Col>
-        ))}
+        {kpis.map((k) => {
+          const subEl = (
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: 12,
+                minHeight: 18, // reserve room for `sub` even when absent
+                color: 'var(--ant-color-text-tertiary, #999)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {k.sub || ' '}
+            </div>
+          );
+          return (
+            <Col key={k.title} xs={12} sm={8} md={6} lg={3}>
+              <Card size="small" style={{ height: '100%' }}>
+                <Statistic title={k.title} value={k.value} />
+                {k.subFull ? (
+                  <Tooltip title={k.subFull} placement="bottom">
+                    {subEl}
+                  </Tooltip>
+                ) : (
+                  subEl
+                )}
+              </Card>
+            </Col>
+          );
+        })}
       </Row>
 
       <Tabs
