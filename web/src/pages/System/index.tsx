@@ -19,12 +19,11 @@ type Row = SystemNode & {
   envelope?: SystemSnapshotEnvelope;
 };
 
-// 10 s is slow enough that the server's tunnel fan-out cost stays
-// negligible even at ~50 connected workers (one yamux roundtrip per
-// worker per refresh), and fast enough that a worker coming online /
-// dropping out is visible within ~10 s without the operator clicking
-// Refresh. The detail page's 1 Hz WS stream is where you go for the
-// "live" view; this is just the landing index.
+// 10 s is fast enough that a worker coming online / dropping out is
+// visible within ~10 s without the operator clicking Refresh, and slow
+// enough that the cost (two GETs against the snapshots table, served
+// out of PG with no fan-out) stays negligible. The detail page is
+// where you go for higher-resolution views; this is just the index.
 const REFRESH_INTERVAL_MS = 10_000;
 
 export default function SystemLandingPage() {
