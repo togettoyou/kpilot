@@ -29,7 +29,12 @@ KPilot 自身的运行时观测面板 —— server 和每个 worker 进程的 G
         └── pprof    下载按钮组(heap / goroutine / allocs / block / mutex / threadcreate / CPU / trace)
 ```
 
-**架构**:后端 `diag.Poller` 每 15 秒拉一次所有节点的 snapshot,落到 PG `system_snapshots` 表;TTL janitor 每分钟清理 1 小时前的行。前端 15 秒一次 HTTP 增量拉取(`?since=lastTimestamp`),首次进页面立刻拿到完整 1 小时历史。Server / worker 进程内存零增长(数据在 PG 里),server 重启**保留**历史。
+**架构**:后端 `diag.Poller` 每 15 秒拉一次所有节点的 snapshot,落到 PG `system_snapshots` 表(JSONB);TTL janitor **每 15 分钟**清理 25 小时前的行(保留 1 天 + 1 小时 buffer)。前端 15 秒一次 HTTP 拉取,首次进页面立刻拿到所选范围的历史。Server / worker 进程内存零增长(数据在 PG 里),server 重启**保留**历史。
+
+**时间范围**:详情页头部有 `<TimeRangePicker>`,预设 `1h / 3h / 6h / 12h / 24h` + 绝对范围 picker。默认 1 小时。后端按范围**自动降采样到 ~240 行**(返回响应永远不超过 ~500 KB):
+- `1h` → 240 行原始,15 s 间隔(精度无损)
+- `24h` → 240 行采样,~6 min/sample(看趋势用,看精度请选窄范围)
+- 自定义"昨晚 23:50 → 00:10"那 20 分钟 → 80 行原始,精度完整
 
 ## API 端点
 
@@ -38,7 +43,9 @@ KPilot 自身的运行时观测面板 —— server 和每个 worker 进程的 G
 | `GET /api/v1/system/nodes` | 列出 server + 所有 worker 节点的注册视图 |
 | `GET /api/v1/system/snapshots` | 批量返回所有节点的**最新一行**(landing,15s 轮询) |
 | `GET /api/v1/system/:node/snapshot` | 单节点最新 snapshot |
-| `GET /api/v1/system/:node/history?since=RFC3339&limit=N` | 单节点时序窗口,ASC 排序,默认最近 1 小时,默认上限 240 行 |
+| `GET /api/v1/system/:node/history?range=1h\|3h\|6h\|12h\|24h` | 预设范围,后端按范围自动降采样到 ~240 行,ASC |
+| `GET /api/v1/system/:node/history?from=RFC3339&to=RFC3339` | 绝对范围,同样降采样;31 天 cap |
+| `GET /api/v1/system/:node/history?since=RFC3339` | 增量(详情页 1h live 模式的 15 s 轮询用),返回 since 之后 ≤ 240 行,不降采样 |
 | `GET /api/v1/system/:node/pprof/:kind` | 反代 pprof 端点,返回 `.pb.gz`(浏览器直接下载,**实时,不进 DB**) |
 
 `:node` = `server` 或 worker 的 `cluster_id`。

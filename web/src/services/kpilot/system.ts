@@ -125,15 +125,34 @@ export interface SystemHistoryItem {
   snapshot: SystemSnapshot;
 }
 
-// listSystemHistory fetches the rolling 1 h of snapshots for one
-// node. Pass `since` to get only rows newer than a previous fetch —
-// used by the detail page's 15 s incremental polling so we don't
-// re-download the whole window each tick.
-export function listSystemHistory(nodeID: string, opts?: { since?: string; limit?: number }) {
-  const params = new URLSearchParams();
-  if (opts?.since) params.set('since', opts.since);
-  if (opts?.limit) params.set('limit', String(opts.limit));
-  const q = params.toString();
-  const url = `/api/v1/system/${encodeURIComponent(nodeID)}/history${q ? '?' + q : ''}`;
+// listSystemHistory fetches snapshots for one node. Three calling
+// modes — at most one set of params can be active at a time:
+//
+//   { since }                      — incremental: rows strictly
+//                                    after `since` (RFC3339). Only
+//                                    used by the 1 h live mode's
+//                                    15 s polling tick. Backend
+//                                    returns ≤ 240 raw rows.
+//   { rangeQuery: 'range=24h' }    — preset window. Backend
+//                                    downsamples to ~240 rows so a
+//                                    24 h pull stays renderable.
+//   { rangeQuery: 'from=&to=' }    — absolute window via the shared
+//                                    TimeRangePicker.buildRangeQuery
+//                                    output. Same downsampling.
+//
+// Callers typically use the latter two for the initial fetch + on
+// range-change, and the first for steady-state incremental polling
+// when the user is on the live 1 h preset.
+export function listSystemHistory(
+  nodeID: string,
+  opts: { since?: string; rangeQuery?: string },
+) {
+  let qs = '';
+  if (opts.since) {
+    qs = `?since=${encodeURIComponent(opts.since)}`;
+  } else if (opts.rangeQuery) {
+    qs = `?${opts.rangeQuery}`;
+  }
+  const url = `/api/v1/system/${encodeURIComponent(nodeID)}/history${qs}`;
   return request<SystemHistoryItem[]>(url, { method: 'GET' });
 }

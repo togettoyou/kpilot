@@ -57,10 +57,12 @@ func NewPoller(gw *gateway.GatewayServer, serverDiagPort uint32) *Poller {
 	p := &Poller{
 		gw:           gw,
 		pollInterval: 15 * time.Second,
-		// 1 h window + 5 min buffer keeps last-hour reads complete
-		// even when janitor lags. Effective storage growth is
-		// pollInterval-bounded: 65 min × 4/min = 260 rows / node.
-		retention:    65 * time.Minute,
+		// 25 h = 1 d window + 1 h buffer. Lets the dashboard show a
+		// full 24 h history even when the TTL janitor (every 15 min)
+		// is mid-cycle. Storage per node: 25 h × 4/min = 6000 rows ≈
+		// 12 MB raw, ~6 MB after JSONB TOAST compression. A 50-cluster
+		// deployment ends up at ~300-500 MB steady state, trivial for PG.
+		retention:    25 * time.Hour,
 		fetchTimeout: 5 * time.Second,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
@@ -152,7 +154,12 @@ func (p *Poller) reconcileOnce(ctx context.Context) {
 }
 
 func (p *Poller) janitorLoop(ctx context.Context) {
-	t := time.NewTicker(60 * time.Second)
+	// 15 min cadence: with retention 25 h, missing one tick still
+	// leaves the table within tolerance. Less frequent than the
+	// previous 1 min mostly reduces log noise — each janitor run
+	// at the new rate trims ~50 nodes × 4/min × 15 min = ~3000 rows,
+	// done in ms.
+	t := time.NewTicker(15 * time.Minute)
 	defer t.Stop()
 	for {
 		select {

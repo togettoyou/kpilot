@@ -25,6 +25,10 @@ import {
   pprofURL,
   type SystemSnapshot,
 } from '@/services/kpilot/system';
+import TimeRangePicker, {
+  buildRangeQuery,
+  type TimeRangeValue,
+} from '@/components/TimeRangePicker';
 import {
   formatBigNumber,
   formatBytes,
@@ -71,8 +75,8 @@ export default function SystemDetailPage() {
   // trigger memo recomputation.
   const ringRef = useRef<SystemSnapshot[]>([]);
   // lastAtRef tracks the most recent `at` timestamp we've ingested
-  // so subsequent polls can ask for `?since=lastAt` and download
-  // only new rows. Cleared by the Reset button (= Pause now).
+  // so the 1 h live mode can ask for ?since=lastAt and download only
+  // new rows. Reset on range change / replace.
   const lastAtRef = useRef<string>('');
   const [tick, setTick] = useState(0);
   const [latest, setLatest] = useState<SystemSnapshot | null>(null);
@@ -80,10 +84,15 @@ export default function SystemDetailPage() {
   // already-rendered ring stays on screen so the operator can
   // inspect a frozen snapshot during triage.
   const [paused, setPaused] = useState(false);
+  // Time range — default 1 h preset (= "live" mode). Other presets
+  // and absolute ranges trigger non-incremental polling (server-side
+  // downsampled, full replace per tick).
+  const [range, setRange] = useState<TimeRangeValue>({ mode: 'preset', preset: '1h' });
+  const isLive = range.mode === 'preset' && range.preset === '1h';
 
-  // pushHistory appends a chronological batch (oldest → newest) to
-  // the ring. Idempotent on duplicates: we only push rows whose
-  // `at` is strictly greater than what we've already seen.
+  // pushHistory appends rows STRICTLY NEWER than the current tail —
+  // used by the 1 h live mode's incremental polling so a refetch with
+  // ?since=lastAt doesn't duplicate the boundary row.
   const pushHistory = useCallback((items: { at: string; snapshot: SystemSnapshot }[]) => {
     if (items.length === 0) return;
     const ring = ringRef.current;
@@ -97,6 +106,30 @@ export default function SystemDetailPage() {
     if (!anyNew) return;
     if (ring.length > RING_CAPACITY) ring.splice(0, ring.length - RING_CAPACITY);
     setLatest(ring[ring.length - 1]);
+    setTick((t) => t + 1);
+  }, []);
+
+  // replaceHistory rebuilds the ring from scratch with the supplied
+  // batch — used on (a) initial fetch, (b) range change, and (c)
+  // every polling tick when the range isn't the 1 h live mode (the
+  // server-side downsampling step would otherwise shift on each tick
+  // and produce a jittery chart if we tried to do since-incrementals).
+  const replaceHistory = useCallback((items: { at: string; snapshot: SystemSnapshot }[]) => {
+    ringRef.current = [];
+    lastAtRef.current = '';
+    if (items.length === 0) {
+      setLatest(null);
+      setTick((t) => t + 1);
+      return;
+    }
+    for (const it of items) {
+      ringRef.current.push(it.snapshot);
+      lastAtRef.current = it.at;
+    }
+    if (ringRef.current.length > RING_CAPACITY) {
+      ringRef.current.splice(0, ringRef.current.length - RING_CAPACITY);
+    }
+    setLatest(ringRef.current[ringRef.current.length - 1]);
     setTick((t) => t + 1);
   }, []);
 
@@ -115,20 +148,15 @@ export default function SystemDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
 
-  // Initial fetch: pull the full retained window so the chart paints
-  // with up-to-1-hour of context immediately, no "wait for first
-  // tick" gap.
+  // Initial fetch: pull the chosen range so the chart paints with
+  // full context immediately. Reruns on node OR range change —
+  // either resets the ring, then loads fresh.
   useEffect(() => {
     let cancelled = false;
-    // Reset ring + cursor on node change so we don't mix two nodes.
-    ringRef.current = [];
-    lastAtRef.current = '';
-    setLatest(null);
-    setTick(0);
-    listSystemHistory(nodeID)
+    listSystemHistory(nodeID, { rangeQuery: buildRangeQuery(range) })
       .then((items) => {
         if (cancelled) return;
-        pushHistory(items || []);
+        replaceHistory(items || []);
       })
       .catch(() => {
         // Toasted globally.
@@ -136,26 +164,37 @@ export default function SystemDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [nodeID, pushHistory]);
+  }, [nodeID, range, replaceHistory]);
 
-  // Incremental polling: every 15 s, fetch ?since=lastAt. Paused
-  // skips the fetch entirely (no backend cost, no overlay arrives
-  // until resumed). nodeID change re-runs the effect, which the
-  // initial-fetch effect above already handled — this one just
-  // covers steady state.
+  // Polling: 15 s tick. Two modes:
+  //   Live (range=1h preset) — ?since=lastAt incremental append.
+  //   Other ranges          — full re-fetch + replace. Server-side
+  //                            downsampling means the row set can
+  //                            shift slightly between ticks, so
+  //                            "append only newer" wouldn't compose
+  //                            cleanly; cheaper to just replace.
   useEffect(() => {
     if (paused) return;
     const tick = async () => {
       try {
-        const items = await listSystemHistory(nodeID, { since: lastAtRef.current || undefined });
-        pushHistory(items || []);
+        if (isLive) {
+          const items = await listSystemHistory(nodeID, {
+            since: lastAtRef.current || undefined,
+          });
+          pushHistory(items || []);
+        } else {
+          const items = await listSystemHistory(nodeID, {
+            rangeQuery: buildRangeQuery(range),
+          });
+          replaceHistory(items || []);
+        }
       } catch {
         // Toasted globally; just try again next tick.
       }
     };
     const handle = window.setInterval(tick, POLL_INTERVAL_MS);
     return () => window.clearInterval(handle);
-  }, [nodeID, paused, pushHistory]);
+  }, [nodeID, range, paused, isLive, pushHistory, replaceHistory]);
 
   // Reset scroll on mount — see P18 cross-page scroll-reset memory
   // (other fixed-viewport pages inherited scrollTop from previous page
@@ -307,6 +346,13 @@ export default function SystemDetailPage() {
             {latest.runtime.gomaxprocs}/{latest.identity.num_cpu} procs
           </Tag>
         ),
+        <TimeRangePicker
+          key="range"
+          value={range}
+          onChange={setRange}
+          presets={['1h', '3h', '6h', '12h', '24h']}
+          maxDays={1}
+        />,
         <Tag key="poll" color={paused ? 'default' : 'processing'}>
           {paused
             ? intl.formatMessage({ id: 'system.poll.paused' })

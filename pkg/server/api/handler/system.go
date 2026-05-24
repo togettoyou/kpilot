@@ -28,7 +28,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -141,16 +140,45 @@ func SystemSnapshots(_ *gateway.GatewayServer) gin.HandlerFunc {
 	}
 }
 
+// systemHistoryPresets — the five durations the detail page's
+// TimeRangePicker offers. Step is set to roughly (duration / 240)
+// so resolveTimeRange's cache key has meaningful granularity,
+// though we don't actually use step (PG-side downsampling picks
+// its own modulo). Listed in resolveTimeRange's `presets` arg.
+var systemHistoryPresets = map[string]timeRangeSpec{
+	"1h":  {duration: 1 * time.Hour, step: 15 * time.Second},
+	"3h":  {duration: 3 * time.Hour, step: 45 * time.Second},
+	"6h":  {duration: 6 * time.Hour, step: 90 * time.Second},
+	"12h": {duration: 12 * time.Hour, step: 3 * time.Minute},
+	"24h": {duration: 24 * time.Hour, step: 6 * time.Minute},
+}
+
+// systemHistoryMaxRows caps every /history response so the chart
+// stays renderable regardless of how wide the requested range is.
+// 240 ≈ 1 sample / 15 s for 1 h (no actual downsample), 1/6 min
+// for 24 h (visible-trend resolution; spike detail requires
+// narrowing the range).
+const systemHistoryMaxRows = 240
+
 // SystemHistory returns the chronological run of snapshots for one
-// node. Query params:
+// node. Two operating modes:
 //
-//	?since=<RFC3339>   only rows with at > since; default = now - 1 h
-//	?limit=<n>         max rows; default 240 (1 h at 15 s polling)
+//	?since=<RFC3339>           — incremental: rows strictly after
+//	                              since, no downsampling. The detail
+//	                              page uses this only on the 1 h
+//	                              preset for its 15 s polling tick
+//	                              (each tick adds 1-2 rows).
 //
-// Response shape: [{at, snapshot}, ...] in ASC time order so the
-// frontend can append directly to its local ring. Used by the
-// detail page's first-load (no since) and its 15 s polling tick
-// (since=lastSampleAt) — incremental fetch, no overlap.
+//	?range=1h|3h|6h|12h|24h    — full window via the shared
+//	?from=<RFC3339>&to=<RFC3339>  TimeRangePicker vocabulary; uses
+//	                              resolveTimeRange. Result is
+//	                              uniformly downsampled to at most
+//	                              ~240 rows so a 24 h selection
+//	                              still renders fast.
+//
+// Response shape (both modes): [{at, snapshot}, ...] in ASC time
+// order so the frontend can append (since path) or replace (range
+// path) its local ring buffer directly.
 func SystemHistory(_ *gateway.GatewayServer) gin.HandlerFunc {
 	type item struct {
 		At       time.Time       `json:"at"`
@@ -158,25 +186,33 @@ func SystemHistory(_ *gateway.GatewayServer) gin.HandlerFunc {
 	}
 	return func(c *gin.Context) {
 		nodeID := c.Param("node")
-		// Defaults: last hour, capped at 240 samples (≈ 1 h at
-		// 15 s polling). Caller can override either.
-		since := time.Now().UTC().Add(-1 * time.Hour)
-		if s := c.Query("since"); s != "" {
-			t, err := time.Parse(time.RFC3339, s)
+
+		// Incremental mode — used by the 1 h live polling tick.
+		if sinceStr := c.Query("since"); sinceStr != "" {
+			since, err := time.Parse(time.RFC3339, sinceStr)
 			if err != nil {
 				apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
 				return
 			}
-			since = t
-		}
-		limit := 240
-		if l := c.Query("limit"); l != "" {
-			if n, err := strconv.Atoi(l); err == nil && n > 0 {
-				limit = n
+			rows, err := store.SystemSnapshotsSince(nodeID, since, systemHistoryMaxRows)
+			if err != nil {
+				apiErrInternal(c, err)
+				return
 			}
+			out := make([]item, 0, len(rows))
+			for _, r := range rows {
+				out = append(out, item{At: r.At, Snapshot: r.Snapshot})
+			}
+			c.JSON(http.StatusOK, out)
+			return
 		}
 
-		rows, err := store.SystemSnapshotsSince(nodeID, since, limit)
+		// Range mode — preset or custom. Downsampled.
+		rng, ok := resolveTimeRange(c, systemHistoryPresets)
+		if !ok {
+			return // resolveTimeRange already wrote the error
+		}
+		rows, err := store.SystemSnapshotsRange(nodeID, rng.from, rng.to, systemHistoryMaxRows)
 		if err != nil {
 			apiErrInternal(c, err)
 			return

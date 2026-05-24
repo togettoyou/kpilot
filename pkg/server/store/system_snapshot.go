@@ -98,6 +98,74 @@ func SystemSnapshotsSince(nodeID string, since time.Time, limit int) ([]SystemSn
 	return rows, nil
 }
 
+// SystemSnapshotsRange returns rows for one node within [from, to],
+// uniformly down-sampled to at most maxRows. The frontend uses this
+// for the "view last N hours" range picker; capping output keeps the
+// JSON response and downstream chart-render cost bounded regardless
+// of how wide the range is.
+//
+// Sampling strategy: ROW_NUMBER() over the matched range, then keep
+// every (matched / maxRows)-th row using mod. Postgres-side — we
+// never ship the full row set to Go just to throw most of them away.
+// Always includes the latest row so the chart's right edge is fresh.
+//
+// from defaults to (to - 1h) when zero. to defaults to now() when
+// zero. maxRows ≤ 0 falls back to 240.
+func SystemSnapshotsRange(nodeID string, from, to time.Time, maxRows int) ([]SystemSnapshot, error) {
+	if to.IsZero() {
+		to = time.Now().UTC()
+	}
+	if from.IsZero() {
+		from = to.Add(-1 * time.Hour)
+	}
+	if maxRows <= 0 || maxRows > 5_000 {
+		maxRows = 240
+	}
+
+	// Two-step: count matched, decide step, run the filtered query.
+	// One extra round-trip vs a clever single CTE, but keeps the
+	// SQL readable + avoids edge cases when matched < maxRows.
+	var matched int64
+	if err := DB.Model(&SystemSnapshot{}).
+		Where("node_id = ? AND at >= ? AND at <= ?", nodeID, from, to).
+		Count(&matched).Error; err != nil {
+		return nil, err
+	}
+	if matched == 0 {
+		return nil, nil
+	}
+
+	step := int64(1)
+	if matched > int64(maxRows) {
+		step = matched / int64(maxRows)
+		if step < 1 {
+			step = 1
+		}
+	}
+
+	// `rn % step = 0` picks every step-th row. rn starts at 1 so
+	// the OLDEST row in the range gets rn=1 → always sampled when
+	// step | (matched-1). The very latest row may or may not land on
+	// the modulo grid; we union it in explicitly so the right edge
+	// of the chart is always current.
+	var rows []SystemSnapshot
+	err := DB.Raw(
+		`WITH ranked AS (
+		   SELECT node_id, at, snapshot,
+		          ROW_NUMBER() OVER (ORDER BY at ASC) AS rn,
+		          COUNT(*)    OVER ()                  AS total
+		     FROM system_snapshots
+		    WHERE node_id = ? AND at >= ? AND at <= ?
+		 )
+		 SELECT node_id, at, snapshot
+		   FROM ranked
+		  WHERE rn % ? = 0 OR rn = total
+		  ORDER BY at ASC`,
+		nodeID, from, to, step,
+	).Scan(&rows).Error
+	return rows, err
+}
+
 // DeleteSystemSnapshotsBefore removes rows older than the cutoff.
 // Returns the number of rows deleted so the janitor can log a
 // meaningful "trimmed N rows" line. Uses the idx_sys_snap_at index

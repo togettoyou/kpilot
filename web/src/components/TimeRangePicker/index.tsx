@@ -20,7 +20,13 @@ const { RangePicker } = DatePicker;
 //               "I picked a specific start and it keeps updating".
 //   - custom:   both ends fixed. Historical investigation / sharing
 //               a snapshot URL. Doesn't slide.
-export type TimeRangePreset = '1h' | '24h' | '7d' | '30d';
+// Widened to include intermediate hours (3h/6h/12h) for pages whose
+// retention window is bounded by something tighter than 7 d — the
+// system-monitoring DB-backed history retains 1 d, so the picker
+// there offers 1h/3h/6h/12h/24h instead of the default 1h/24h/7d/30d.
+// Per-page presets are still selected via the `presets` prop; this
+// type just makes "3h" etc. legal everywhere.
+export type TimeRangePreset = '1h' | '3h' | '6h' | '12h' | '24h' | '7d' | '30d';
 
 export type TimeRangeValue =
   | { mode: 'preset'; preset: TimeRangePreset }
@@ -29,6 +35,9 @@ export type TimeRangeValue =
 
 const PRESET_MS: Record<TimeRangePreset, number> = {
   '1h': 60 * 60 * 1000,
+  '3h': 3 * 60 * 60 * 1000,
+  '6h': 6 * 60 * 60 * 1000,
+  '12h': 12 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000,
   '30d': 30 * 24 * 60 * 60 * 1000,
