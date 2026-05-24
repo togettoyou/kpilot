@@ -85,32 +85,44 @@ function formatAt(at: string): string {
 // ─── LogRow ────────────────────────────────────────────────────────
 //
 // Memoized so Virtuoso's itemContent re-renders don't walk the
-// antd Tag / Typography subtree for every visible row when only the
-// expansion set changed elsewhere. Same pattern Clusters/Logging
-// uses for its LogRow — under live-tail polling the rows array
-// changes often, but each individual entry's data is immutable.
+// antd Tag / Typography subtree for every visible row when the rows
+// array changes (live-tail prepends new entries every 2 s, but each
+// individual entry's data is immutable — memo lets React skip the
+// reconcile for non-tail rows).
 interface LogRowProps {
   row: SystemLogEntry;
-  expanded: boolean;
-  onToggleExpand: (seq: string) => void;
 }
 
-const LogRow = React.memo(function LogRow({ row, expanded, onToggleExpand }: LogRowProps) {
+// formatFieldValue renders one structured field's value as a single
+// inline token. Scalars (string / number / bool / null) get their
+// natural toString; objects + arrays fall back to compact JSON so
+// nested shapes still show without ballooning into multi-line blocks.
+function formatFieldValue(v: unknown): string {
+  if (v === null) return 'null';
+  const t = typeof v;
+  if (t === 'string' || t === 'number' || t === 'boolean') return String(v);
+  // Object / array — compact JSON keeps it on one segment.
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
+const LogRow = React.memo(function LogRow({ row }: LogRowProps) {
   const { token } = theme.useToken();
-  const hasFields = row.fields && Object.keys(row.fields).length > 0;
+  const fieldEntries =
+    row.fields && Object.keys(row.fields).length > 0
+      ? Object.entries(row.fields)
+      : null;
   return (
     <div
-      onClick={hasFields ? () => onToggleExpand(row.seq) : undefined}
       style={{
-        padding: '6px 12px',
+        padding: '4px 12px',
         borderBottom: `1px solid ${token.colorBorderSecondary}`,
-        cursor: hasFields ? 'pointer' : 'default',
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
         fontSize: 12,
-        lineHeight: 1.6,
-        background: expanded ? token.colorFillTertiary : undefined,
-        // Hover affordance only when the row has fields to expand.
-        ...(hasFields ? { transition: 'background 80ms ease' } : null),
+        lineHeight: 1.55,
       }}
     >
       <Space size={8} align="start" style={{ width: '100%' }}>
@@ -132,22 +144,32 @@ const LogRow = React.memo(function LogRow({ row, expanded, onToggleExpand }: Log
           {row.msg}
         </span>
       </Space>
-      {expanded && hasFields && (
-        <pre
+      {fieldEntries && (
+        // Inline KV under the message — same indent as the message
+        // column (88 + tag widths ≈ 96px) so fields visually attach
+        // to the line they came from. flex-wrap lets long field sets
+        // break across multiple lines without horizontal scrolling.
+        <div
           style={{
-            margin: '8px 0 0 96px',
-            padding: 8,
-            background: token.colorFillQuaternary,
-            border: `1px solid ${token.colorBorderSecondary}`,
-            borderRadius: 4,
+            marginLeft: 96,
+            marginTop: 2,
+            display: 'flex',
+            flexWrap: 'wrap',
+            columnGap: 12,
+            rowGap: 2,
             fontSize: 11,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-            color: token.colorTextSecondary,
+            color: token.colorTextTertiary,
           }}
         >
-          {JSON.stringify(row.fields, null, 2)}
-        </pre>
+          {fieldEntries.map(([k, v]) => (
+            <span key={k}>
+              <span style={{ color: token.colorTextSecondary }}>{k}</span>=
+              <span style={{ color: token.colorText, wordBreak: 'break-all' }}>
+                {formatFieldValue(v)}
+              </span>
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -168,7 +190,6 @@ export default function SystemLogsPage() {
   const [q, setQ] = useState<string>('');
   const [range, setRange] = useState<TimeRangeValue>({ mode: 'preset', preset: '1h' });
   const [liveTail, setLiveTail] = useState<boolean>(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // ─── Result state ─────────────────────────────────────────────────
   const [rows, setRows] = useState<SystemLogEntry[]>([]);
@@ -375,18 +396,8 @@ export default function SystemLogsPage() {
     [modules, intl],
   );
 
-  const toggleExpanded = useCallback((seq: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(seq)) next.delete(seq);
-      else next.add(seq);
-      return next;
-    });
-  }, []);
-
   const clearRows = () => {
     setRows([]);
-    setExpanded(new Set());
     lastSeqRef.current = '';
   };
 
@@ -558,13 +569,7 @@ export default function SystemLogsPage() {
             <Virtuoso<SystemLogEntry>
               style={{ flex: 1, minHeight: 0 }}
               data={rows}
-              itemContent={(_i, row) => (
-                <LogRow
-                  row={row}
-                  expanded={expanded.has(row.seq)}
-                  onToggleExpand={toggleExpanded}
-                />
-              )}
+              itemContent={(_i, row) => <LogRow row={row} />}
             />
           )}
         </Card>
