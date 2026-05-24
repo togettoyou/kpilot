@@ -10,7 +10,6 @@ import {
   Switch,
   Tag,
   Tooltip,
-  Typography,
   theme,
 } from 'antd';
 import { ClearOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -28,7 +27,6 @@ import {
   type SystemNode,
 } from '@/services/kpilot/system';
 
-const { Text } = Typography;
 
 // 2 s polling matches the existing /clusters/:id/logging Live tail
 // cadence, and is well below the 5 s LogsPoller server-side interval
@@ -132,9 +130,24 @@ const LogRow = React.memo(function LogRow({ row }: LogRowProps) {
           higher than the tag text. baseline is what makes "TIME
           LEVEL MODULE  message text" read as one row. */}
       <Space size={8} align="baseline" style={{ width: '100%' }}>
-        <Text type="secondary" style={{ minWidth: 88, whiteSpace: 'nowrap' }}>
+        {/* Plain span (not <Typography.Text>) so it inherits the
+            parent div's monospace fontFamily. Typography.Text would
+            override it back to antd's default sans-serif → digits
+            are no longer equal-width and "20:41:17.844" renders a
+            hair narrower than "20:41:09.478", making the column
+            look ragged. Width pinned to 12ch (= "HH:MM:SS.mmm")
+            so every row's level tag starts at the exact same x. */}
+        <span
+          style={{
+            width: '12ch',
+            flex: '0 0 auto',
+            whiteSpace: 'nowrap',
+            color: token.colorTextSecondary,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
           {formatAt(row.at)}
-        </Text>
+        </span>
         <Tag
           color={levelColor(row.level)}
           style={{ minWidth: 56, textAlign: 'center', margin: 0 }}
