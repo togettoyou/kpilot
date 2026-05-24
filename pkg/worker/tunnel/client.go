@@ -321,6 +321,22 @@ func (c *Client) connectOnce(ctx context.Context) error {
 	c.connectedAtNS.Store(time.Now().UnixNano())
 	c.reconnectTotal.Add(1)
 
+	// Tie session lifetime to ctx. yamux's sess.Accept() blocks
+	// indefinitely and doesn't watch any ctx — so without this
+	// watcher, ctx cancel (SIGINT, SIGTERM) leaves acceptLoop wedged
+	// forever and Run never returns: the worker process hangs on
+	// shutdown and has to be force-killed. Closing the session is
+	// what makes Accept return ErrSessionClosed and unblock the loop.
+	// sess.CloseChan also fires on natural session death (peer close,
+	// keepalive timeout) so the goroutine exits either way.
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = sess.Close()
+		case <-sess.CloseChan():
+		}
+	}()
+
 	// Accept loop.
 	loopErr := c.acceptLoop(sessCtx, sess)
 
