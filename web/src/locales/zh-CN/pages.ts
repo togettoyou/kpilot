@@ -1640,6 +1640,9 @@ export default {
   // System detail page (/system/:node)
   'system.detail.back': '返回节点列表',
   'system.detail.disconnected': '与节点的实时连接已断开，正在尝试重连',
+  'system.detail.paused': '实时流已暂停。当前图表数据不再更新，已积累的历史保留；点「恢复」继续接收',
+  'system.action.pause': '暂停',
+  'system.action.resume': '恢复',
   'system.kpi.uptime': '上线时长',
   'system.kpi.cpu': 'CPU 使用率',
   'system.kpi.cpuCores': 'CPU 占用核数',

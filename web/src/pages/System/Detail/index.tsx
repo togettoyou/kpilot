@@ -13,7 +13,11 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { DownloadOutlined } from '@ant-design/icons';
+import {
+  DownloadOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+} from '@ant-design/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getSystemSnapshot,
@@ -64,6 +68,13 @@ export default function SystemDetailPage() {
   const [tick, setTick] = useState(0);
   const [latest, setLatest] = useState<SystemSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
+  // paused = operator clicked Pause. When true: the WS effect skips
+  // setup (so no socket open → server-side hub unsub fires → if
+  // we were the last subscriber, the per-node ticker goroutine
+  // stops). Toggle back to false re-opens the socket. Ring buffer
+  // is preserved across the pause so existing chart history stays
+  // on screen.
+  const [paused, setPaused] = useState(false);
 
   const push = useCallback((snap: SystemSnapshot) => {
     const ring = ringRef.current;
@@ -89,7 +100,15 @@ export default function SystemDetailPage() {
   }, [nodeID, push]);
 
   // WS lifecycle. Reconnect with simple backoff (1s → 5s) on drop.
+  // `paused` is in deps so toggling it tears down / re-establishes
+  // the socket — paused=true short-circuits before any open() so the
+  // server-side fan-out hub sees the unsub and stops ticking too
+  // (real resource release, not just frame-dropping on the client).
   useEffect(() => {
+    if (paused) {
+      setConnected(false);
+      return;
+    }
     let stopped = false;
     let ws: WebSocket | null = null;
     let backoff = 1000;
@@ -127,7 +146,7 @@ export default function SystemDetailPage() {
       if (retry !== null) window.clearTimeout(retry);
       if (ws) ws.close();
     };
-  }, [nodeID, push]);
+  }, [nodeID, push, paused]);
 
   // Reset scroll on mount — see P18 cross-page scroll-reset memory
   // (other fixed-viewport pages inherited scrollTop from previous page
@@ -261,17 +280,38 @@ export default function SystemDetailPage() {
             {latest.identity.app_version} · {latest.identity.go_version}
           </Tag>
         ),
-        <Tag key="ws" color={connected ? 'success' : 'warning'}>
-          {connected ? 'WS ●' : 'WS ○'}
+        <Tag
+          key="ws"
+          color={paused ? 'default' : connected ? 'success' : 'warning'}
+        >
+          {paused ? 'WS ⏸' : connected ? 'WS ●' : 'WS ○'}
         </Tag>,
+        <Button
+          key="pause"
+          size="small"
+          icon={paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
+          onClick={() => setPaused((p) => !p)}
+        >
+          {intl.formatMessage({
+            id: paused ? 'system.action.resume' : 'system.action.pause',
+          })}
+        </Button>,
       ]}
     >
-      {!connected && latest && (
+      {!connected && !paused && latest && (
         <Alert
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
           message={intl.formatMessage({ id: 'system.detail.disconnected' })}
+        />
+      )}
+      {paused && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={intl.formatMessage({ id: 'system.detail.paused' })}
         />
       )}
 

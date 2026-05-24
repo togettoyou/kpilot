@@ -1687,6 +1687,9 @@ export default {
   // System detail page (/system/:node)
   'system.detail.back': 'Back to nodes',
   'system.detail.disconnected': 'Live stream disconnected — reconnecting',
+  'system.detail.paused': 'Live stream paused. Charts have stopped updating; existing history is kept. Click Resume to start receiving again.',
+  'system.action.pause': 'Pause',
+  'system.action.resume': 'Resume',
   'system.kpi.uptime': 'Uptime',
   'system.kpi.cpu': 'CPU',
   'system.kpi.cpuCores': 'CPU cores',
