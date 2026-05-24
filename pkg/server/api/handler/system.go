@@ -341,6 +341,25 @@ func (h *systemHub) subscribe(nodeID string, ws *wsConn) func() {
 }
 
 func (h *systemHub) runNode(ns *nodeStream) {
+	// Defensive recover. If anything in the fetch / fan-out path
+	// panics (collector bug, write to torn pipe, …) we don't want
+	// the process to crash. Evict the node from h.nodes on the way
+	// out so a fresh subscribe spawns a new goroutine — otherwise
+	// future subscribers would find the stale ns and never get a
+	// running ticker behind them. Existing subscribers' unsub
+	// closures still reference `ns` directly; their delete on
+	// h.nodes[nodeID] is idempotent so the eviction here doesn't
+	// race them.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[system] hub panic node=%s: %v", ns.nodeID, r)
+			h.mu.Lock()
+			if cur, ok := h.nodes[ns.nodeID]; ok && cur == ns {
+				delete(h.nodes, ns.nodeID)
+			}
+			h.mu.Unlock()
+		}
+	}()
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	log.Printf("[system] hub started node=%s", ns.nodeID)
