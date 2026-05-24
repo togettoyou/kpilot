@@ -64,15 +64,40 @@ type RingCore struct {
 // NewRingCore creates a ring with the given capacity. enabler should
 // be the same atomic level used by the stderr core, so a single
 // SetLevel call quiets both outputs.
+//
+// Seq anchor: the atomic counter starts at the current Unix nano,
+// not 0. This is what makes the cursor protocol survive worker
+// restarts. If seq started fresh at 0 on every process boot, then:
+//
+//   1. Server's persisted cursor (`lastSeqs[nodeID] = 500`) would
+//      always be GREATER than a fresh worker's first emitted seqs
+//      (1, 2, 3, ...).
+//   2. The worker-side `Snapshot(since=500, ...)` filter
+//      `e.Seq <= since` would drop EVERY new entry as "before
+//      cursor" — they'd never make it back to the server.
+//   3. Even if the cursor were reset, PG's PK (node_id, seq) would
+//      conflict with the old run's rows for seq = 1..N.
+//
+// Anchoring at UnixNano sidesteps all three: each process boot
+// starts in a numerically distinct seq region (~ns granularity is
+// fine — anything bigger than the max log rate × max run duration
+// works, and UnixNano gives ~10^18 of headroom). The cursor
+// monotonic check then naturally accepts the new boot's seqs.
+//
+// Bigint headroom: UnixNano is ~1.8e18 in 2026; bigint max is
+// ~9.2e18. ~5× headroom = the seq column won't overflow for ~150
+// years. We're fine.
 func NewRingCore(capacity int, enabler zapcore.LevelEnabler) *RingCore {
 	if capacity <= 0 {
 		capacity = 50_000
 	}
-	return &RingCore{
+	r := &RingCore{
 		LevelEnabler: enabler,
 		buf:          make([]*Entry, capacity),
 		cap:          capacity,
 	}
+	r.seq.Store(uint64(time.Now().UnixNano()))
+	return r
 }
 
 // With clones the core and appends fields. zap calls this for every

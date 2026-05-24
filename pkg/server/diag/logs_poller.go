@@ -234,6 +234,25 @@ func (p *LogsPoller) pollOne(ctx context.Context, nodeID string) {
 		logsPollerLog.Infof("fetch recovered: node=%s", nodeID)
 	}
 
+	// Restart / clock-regression detection. If the worker's most
+	// recent seq is BELOW our cursor, the worker's ring is in a
+	// numerically lower space than what we last saw — only possible
+	// after a restart that produced fewer entries than our cursor
+	// position, or a clock regression that defeated the UnixNano
+	// anchor in NewRingCore. Reset the cursor so the next tick
+	// pulls from this epoch's head_seq. PG PK collisions are
+	// impossible by design (the anchor puts each boot's seq in a
+	// distinct numerical region), so resetting is safe.
+	if resp.HeadSeq > 0 && resp.HeadSeq < since {
+		logsPollerLog.Warnf(
+			"node=%s seq regression detected (head_seq=%d < cursor=%d), resetting cursor",
+			nodeID, resp.HeadSeq, since)
+		p.mu.Lock()
+		p.lastSeqs[nodeID] = 0
+		p.mu.Unlock()
+		return // next tick re-pulls from cursor=0
+	}
+
 	if len(resp.Lines) == 0 {
 		// Even an empty pull may advance the cursor (head_seq drift
 		// when nothing was new since `since`). HeadSeq is the source
