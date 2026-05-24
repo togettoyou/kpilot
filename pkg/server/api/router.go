@@ -225,11 +225,6 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer, httpDiag *serverdi
 		// external OpenAI-compat endpoint below.
 		clusters.Any("/:id/inference/:namespace/:name/*subpath", handler.ProxyInference(gw))
 
-		// In-process observability snapshot. Auth-protected (admin-only
-		// in the single-tenant model). Returns JSON; not Prometheus text
-		// format — this is a debug surface for the human operator.
-		protected.GET("/metrics", handler.GetMetrics(gw))
-
 		// Tunnel bandwidth diagnostic — fires a one-shot N-byte echo
 		// from worker→server and reports the effective throughput.
 		// Use after onboarding a cross-region worker to set realistic

@@ -56,8 +56,34 @@ func (InferenceCollector) Name() string { return "inference" }
 
 func (InferenceCollector) Collect() map[string]any {
 	return map[string]any{
-		"inflight":        InferenceInflight.Load(),
-		"total":           InferenceTotal.Load(),
-		"sse_clients":     SSEClients.Load(),
+		"inflight":    InferenceInflight.Load(),
+		"total":       InferenceTotal.Load(),
+		"sse_clients": SSEClients.Load(),
 	}
+}
+
+// CachesCollector surfaces handler-layer cache sizes that used to
+// live on the /api/v1/metrics debug endpoint. Functions injected
+// from cmd/server/main.go to avoid a server/diag → handler import
+// cycle. Any field whose getter is nil is omitted from the output.
+type CachesCollector struct {
+	PluginResolve  func() int
+	ProxySemaphore func() int
+	VMResponse     func() int
+}
+
+func (CachesCollector) Name() string { return "caches" }
+
+func (c CachesCollector) Collect() map[string]any {
+	out := map[string]any{}
+	if c.PluginResolve != nil {
+		out["plugin_resolve"] = c.PluginResolve()
+	}
+	if c.ProxySemaphore != nil {
+		out["proxy_semaphores"] = c.ProxySemaphore()
+	}
+	if c.VMResponse != nil {
+		out["vm_response"] = c.VMResponse()
+	}
+	return out
 }

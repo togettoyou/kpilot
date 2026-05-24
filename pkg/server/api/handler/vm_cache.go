@@ -140,12 +140,17 @@ func (c *vmResponseCache) InvalidateCluster(clusterID string) {
 }
 
 // Size returns the current entry count (including not-yet-reaped
-// expired entries). Used by the /metrics endpoint.
+// expired entries). Used by the diag caches collector.
 func (c *vmResponseCache) Size() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return len(c.entries)
 }
+
+// VMResponseCacheSize is the exported wrapper the server diag layer
+// uses (vmResponseCache itself stays package-private — only the
+// count is interesting to outside callers).
+func VMResponseCacheSize() int { return sharedVMResponseCache.Size() }
 
 func (c *vmResponseCache) reapForever(interval time.Duration) {
 	t := time.NewTicker(interval)

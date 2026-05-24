@@ -11,6 +11,7 @@ import (
 	"github.com/togettoyou/kpilot/pkg/common/version"
 	"github.com/togettoyou/kpilot/pkg/diag"
 	"github.com/togettoyou/kpilot/pkg/server/api"
+	"github.com/togettoyou/kpilot/pkg/server/api/handler"
 	"github.com/togettoyou/kpilot/pkg/server/config"
 	serverdiag "github.com/togettoyou/kpilot/pkg/server/diag"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
@@ -54,6 +55,11 @@ func main() {
 	diagInst.Register(serverdiag.DBCollector{})
 	diagInst.Register(httpCollector)
 	diagInst.Register(serverdiag.InferenceCollector{})
+	diagInst.Register(serverdiag.CachesCollector{
+		PluginResolve:  handler.PluginResolveCacheSize,
+		ProxySemaphore: handler.ProxySemaphoreCount,
+		VMResponse:     handler.VMResponseCacheSize,
+	})
 
 	diagPort, err := serveDiag(ctx, diagInst)
 	if err != nil {

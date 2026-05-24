@@ -162,40 +162,6 @@ func (g *GatewayServer) unregister(w *ConnectedWorker) {
 	log.Printf("[gateway] worker disconnected: cluster=%s", clusterID)
 }
 
-// MetricsSnapshot is the JSON shape /api/v1/metrics returns. Phase B
-// reduces this to yamux-specific counters; the v1 sender queue
-// depths / pending response map sizes are gone.
-type MetricsSnapshot struct {
-	Workers []WorkerSnapshot `json:"workers"`
-}
-
-// WorkerSnapshot is the per-worker debug view.
-type WorkerSnapshot struct {
-	ClusterID     string `json:"cluster_id"`
-	ClusterDomain string `json:"cluster_domain"`
-	NumStreams    int    `json:"num_streams"`
-	LastSeen      int64  `json:"last_seen_unix_nano"`
-}
-
-// MetricsSnapshot returns the current observability snapshot.
-func (g *GatewayServer) MetricsSnapshot() MetricsSnapshot {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	snap := MetricsSnapshot{Workers: make([]WorkerSnapshot, 0, len(g.workers))}
-	for _, w := range g.workers {
-		var n int
-		if w.Session != nil {
-			n = w.Session.NumStreams()
-		}
-		snap.Workers = append(snap.Workers, WorkerSnapshot{
-			ClusterID:     w.ClusterID,
-			ClusterDomain: w.ClusterDomain,
-			NumStreams:    n,
-			LastSeen:      w.lastSeenNS.Load(),
-		})
-	}
-	return snap
-}
 
 // DiagSnapshot is the projection consumed by the system-monitoring
 // dashboard. Fields chosen so a single per-cluster bar chart answers
