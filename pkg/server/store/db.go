@@ -70,7 +70,11 @@ func Init(dsn string) error {
 	sqlDB.SetMaxIdleConns(20)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
-	if err = db.AutoMigrate(&Cluster{}, &PluginBlob{}, &Plugin{}, &ClusterPlugin{}, &Model{}, &APIKey{}); err != nil {
+	if err = db.AutoMigrate(
+		&Cluster{}, &PluginBlob{}, &Plugin{}, &ClusterPlugin{},
+		&Model{}, &APIKey{},
+		&SystemSnapshot{},
+	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 

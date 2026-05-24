@@ -70,6 +70,15 @@ func main() {
 	// gateway's ConnectedWorker.DiagPort field.
 	api.SetServerDiagPort(diagPort)
 
+	// Diag poller — the SINGLE writer to system_snapshots. Polls the
+	// server and every registered cluster's worker every 15 s, INSERTs
+	// the snapshot, and runs a TTL janitor that trims rows older than
+	// ~1 h. Handlers in pkg/server/api/handler/system.go are pure
+	// readers against the table — strict R/W split keeps the dashboard
+	// cheap and survives server restarts (history is in PG).
+	pollerInst := serverdiag.NewPoller(gw, diagPort)
+	pollerInst.Start(ctx)
+
 	// Transport v2 (docs/transport-v2.md): TCP + hashicorp/yamux
 	// session-per-worker. One yamux stream per RPC / streaming
 	// session — flow control, fair scheduling, and cancellation all

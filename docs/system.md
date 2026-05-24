@@ -29,17 +29,17 @@ KPilot 自身的运行时观测面板 —— server 和每个 worker 进程的 G
         └── pprof    下载按钮组(heap / goroutine / allocs / block / mutex / threadcreate / CPU / trace)
 ```
 
-WebSocket 0.5 Hz(每 2 秒一帧)推流;前端 ringBuffer 默认保留 3600 点 ≈ 2 小时窗口。
+**架构**:后端 `diag.Poller` 每 15 秒拉一次所有节点的 snapshot,落到 PG `system_snapshots` 表;TTL janitor 每分钟清理 1 小时前的行。前端 15 秒一次 HTTP 增量拉取(`?since=lastTimestamp`),首次进页面立刻拿到完整 1 小时历史。Server / worker 进程内存零增长(数据在 PG 里),server 重启**保留**历史。
 
 ## API 端点
 
 | 路径 | 用途 |
 |---|---|
-| `GET /api/v1/system/nodes` | 列出 server + 所有在线 worker 节点(JSON) |
-| `GET /api/v1/system/snapshots` | 批量返回所有节点当前 snapshot(landing 用,4s 轮询) |
-| `GET /api/v1/system/:node/snapshot` | 单节点完整 snapshot |
-| `GET /api/v1/system/:node/stream` | WebSocket,每秒推一帧 snapshot JSON |
-| `GET /api/v1/system/:node/pprof/:kind` | 反代 pprof 端点,返回 `.pb.gz`(浏览器直接下载) |
+| `GET /api/v1/system/nodes` | 列出 server + 所有 worker 节点的注册视图 |
+| `GET /api/v1/system/snapshots` | 批量返回所有节点的**最新一行**(landing,15s 轮询) |
+| `GET /api/v1/system/:node/snapshot` | 单节点最新 snapshot |
+| `GET /api/v1/system/:node/history?since=RFC3339&limit=N` | 单节点时序窗口,ASC 排序,默认最近 1 小时,默认上限 240 行 |
+| `GET /api/v1/system/:node/pprof/:kind` | 反代 pprof 端点,返回 `.pb.gz`(浏览器直接下载,**实时,不进 DB**) |
 
 `:node` = `server` 或 worker 的 `cluster_id`。
 
@@ -87,11 +87,13 @@ go tool pprof -http=:6060 -nodefraction=0 goroutine.pb.gz
 
 | 场景 | 开销 |
 |---|---|
-| 没人看 dashboard | 每进程 +1 sleeping goroutine,空载内存增量 ~100 KB |
-| 1 个 browser 看 1 个节点 | 每秒一次 `runtime/metrics.Read()`(~10 µs)+ 一次 JSON encode + 一次 WS write(~1.5 KB);worker 路径多一次 tunnel HTTP round-trip(~200 µs loopback / 几 ms 跨网络) |
-| N 个 browser 看同一节点 | **不放大** —— fan-out hub 共享同一次 0.5 Hz 采集 |
-| HTTPCollector hot path | 每请求 5–7 个 atomic 操作,**无 mutex / 无 CAS 重试**;p50/p90/p99 算在 reader 路径外 |
-| CPU profile 30s | 节点 CPU 短时升高 ~5%(这是 profile 的本意) |
+| 后台 polling | 每节点 4 次/分钟。50 节点集群 ≈ **3.3 INSERT/秒**,Postgres 玩剩下的 |
+| 每次 INSERT 体积 | ~2 KB JSONB,稳态 50 节点 × 240 行 = ~24 MB,TOAST 压缩后 **~12-15 MB** |
+| 1 个 browser 打开 detail | 首屏 GET /history 一次 ~10 ms,之后每 15 秒一次增量 GET(typically 1-2 行)|
+| N 个 browser 看同一节点 | **不放大** —— 都查同一份 PG 行,后台 polling 只跑 1 路 |
+| Server 进程内存增量 | **0**(数据在 PG 里) |
+| HTTPCollector hot path | 每请求 5–7 个 atomic 操作,**无 mutex / 无 CAS 重试** |
+| CPU profile 30s | 节点 CPU 短时升高 ~5%(这是 profile 的本意,不进 DB) |
 
 ## 复用 `pkg/diag` 接入自己的 Go 程序
 
@@ -140,4 +142,4 @@ func (myCustomCollector) Collect() map[string]any {
 
 - **不做告警**:这是诊断工具不是监控平台。告警走 VictoriaMetrics + Alertmanager 那一套。
 - **不做历史趋势**:浏览器 ringBuffer 最长 1 小时,关页面即丢。要看 7d / 30d 趋势,export 到 VM。
-- **不做多用户共享视图**:每个 browser 独立 ring buffer,但 server 端 0.5 Hz 采集 fan-out,不会因为 N 个浏览器把后端打爆。
+- **不做多用户共享视图**:数据在 PG 共享,但每个 browser 独立本地 ring;后台 polling 跟订阅者数量无关(`always-on` 模式)。

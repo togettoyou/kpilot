@@ -21,9 +21,8 @@ import {
 } from '@ant-design/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  getSystemSnapshot,
+  listSystemHistory,
   pprofURL,
-  systemStreamURL,
   type SystemSnapshot,
 } from '@/services/kpilot/system';
 import {
@@ -37,11 +36,16 @@ import {
 const SystemChart = React.lazy(() => import('./SystemChart'));
 import type { SystemSeries } from './SystemChart';
 
-// Ring buffer is bounded — 1 Hz × 60 min = 3600 entries × ~2 KB JSON ≈ 7 MB
-// per tab. Modern browser handles this fine; older devices may want a
-// shorter window, but for an ops dashboard the operator wants to
-// scroll back at least an hour.
-const RING_CAPACITY = 3600;
+// Ring buffer is bounded — backend retains ~1 h at 15 s polling
+// = 240 samples × ~2 KB JSON ≈ 480 KB per tab. We cap a bit higher
+// (300) to absorb minor timing drift / cross-day overlap without
+// dropping points. Server-side history is the source of truth; the
+// local ring is just for chart rendering.
+const RING_CAPACITY = 300;
+// 15 s matches the backend poller cadence. Going faster would
+// download the same row twice; going slower would lag behind the
+// fresh data the poller just landed.
+const POLL_INTERVAL_MS = 15_000;
 
 // Pprof endpoints surfaced as download buttons. The two high-cost
 // ones (profile, trace) require ?confirm=true — the page wraps those
@@ -66,31 +70,50 @@ export default function SystemDetailPage() {
   // of storing the buffer in a ref and bumping a numeric state to
   // trigger memo recomputation.
   const ringRef = useRef<SystemSnapshot[]>([]);
+  // lastAtRef tracks the most recent `at` timestamp we've ingested
+  // so subsequent polls can ask for `?since=lastAt` and download
+  // only new rows. Cleared by the Reset button (= Pause now).
+  const lastAtRef = useRef<string>('');
   const [tick, setTick] = useState(0);
   const [latest, setLatest] = useState<SystemSnapshot | null>(null);
-  const [connected, setConnected] = useState(false);
-  // paused = operator clicked Pause. When true: the WS effect skips
-  // setup (so no socket open → server-side hub unsub fires → if
-  // we were the last subscriber, the per-node ticker goroutine
-  // stops). Toggle back to false re-opens the socket. Ring buffer
-  // is preserved across the pause so existing chart history stays
-  // on screen.
+  // `paused` toggles the 15 s history poll. Paused = no new fetches;
+  // already-rendered ring stays on screen so the operator can
+  // inspect a frozen snapshot during triage.
   const [paused, setPaused] = useState(false);
 
-  const push = useCallback((snap: SystemSnapshot) => {
+  // pushHistory appends a chronological batch (oldest → newest) to
+  // the ring. Idempotent on duplicates: we only push rows whose
+  // `at` is strictly greater than what we've already seen.
+  const pushHistory = useCallback((items: { at: string; snapshot: SystemSnapshot }[]) => {
+    if (items.length === 0) return;
     const ring = ringRef.current;
-    ring.push(snap);
+    let anyNew = false;
+    for (const it of items) {
+      if (it.at <= lastAtRef.current) continue;
+      ring.push(it.snapshot);
+      lastAtRef.current = it.at;
+      anyNew = true;
+    }
+    if (!anyNew) return;
     if (ring.length > RING_CAPACITY) ring.splice(0, ring.length - RING_CAPACITY);
-    setLatest(snap);
+    setLatest(ring[ring.length - 1]);
     setTick((t) => t + 1);
   }, []);
 
-  // Initial paint via REST so we don't wait a full second for the WS.
+  // Initial fetch: pull the full retained window so the chart paints
+  // with up-to-1-hour of context immediately, no "wait for first
+  // tick" gap.
   useEffect(() => {
     let cancelled = false;
-    getSystemSnapshot(nodeID)
-      .then((snap) => {
-        if (!cancelled && snap) push(snap);
+    // Reset ring + cursor on node change so we don't mix two nodes.
+    ringRef.current = [];
+    lastAtRef.current = '';
+    setLatest(null);
+    setTick(0);
+    listSystemHistory(nodeID)
+      .then((items) => {
+        if (cancelled) return;
+        pushHistory(items || []);
       })
       .catch(() => {
         // Toasted globally.
@@ -98,56 +121,26 @@ export default function SystemDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [nodeID, push]);
+  }, [nodeID, pushHistory]);
 
-  // WS lifecycle. Reconnect with simple backoff (1s → 5s) on drop.
-  // `paused` is in deps so toggling it tears down / re-establishes
-  // the socket — paused=true short-circuits before any open() so the
-  // server-side fan-out hub sees the unsub and stops ticking too
-  // (real resource release, not just frame-dropping on the client).
+  // Incremental polling: every 15 s, fetch ?since=lastAt. Paused
+  // skips the fetch entirely (no backend cost, no overlay arrives
+  // until resumed). nodeID change re-runs the effect, which the
+  // initial-fetch effect above already handled — this one just
+  // covers steady state.
   useEffect(() => {
-    if (paused) {
-      setConnected(false);
-      return;
-    }
-    let stopped = false;
-    let ws: WebSocket | null = null;
-    let backoff = 1000;
-    let retry: number | null = null;
-
-    const open = () => {
-      if (stopped) return;
-      ws = new WebSocket(systemStreamURL(nodeID));
-      ws.onopen = () => {
-        backoff = 1000;
-        setConnected(true);
-      };
-      ws.onmessage = (e) => {
-        try {
-          const snap: SystemSnapshot = JSON.parse(e.data);
-          push(snap);
-        } catch {
-          /* skip malformed frame */
-        }
-      };
-      ws.onclose = () => {
-        setConnected(false);
-        if (stopped) return;
-        retry = window.setTimeout(open, backoff);
-        backoff = Math.min(backoff * 2, 5000);
-      };
-      ws.onerror = () => {
-        // onclose will follow with the actual cleanup.
-      };
+    if (paused) return;
+    const tick = async () => {
+      try {
+        const items = await listSystemHistory(nodeID, { since: lastAtRef.current || undefined });
+        pushHistory(items || []);
+      } catch {
+        // Toasted globally; just try again next tick.
+      }
     };
-    open();
-
-    return () => {
-      stopped = true;
-      if (retry !== null) window.clearTimeout(retry);
-      if (ws) ws.close();
-    };
-  }, [nodeID, push, paused]);
+    const handle = window.setInterval(tick, POLL_INTERVAL_MS);
+    return () => window.clearInterval(handle);
+  }, [nodeID, paused, pushHistory]);
 
   // Reset scroll on mount — see P18 cross-page scroll-reset memory
   // (other fixed-viewport pages inherited scrollTop from previous page
@@ -299,11 +292,10 @@ export default function SystemDetailPage() {
             {latest.runtime.gomaxprocs}/{latest.identity.num_cpu} procs
           </Tag>
         ),
-        <Tag
-          key="ws"
-          color={paused ? 'default' : connected ? 'success' : 'warning'}
-        >
-          {paused ? 'WS ⏸' : connected ? 'WS ●' : 'WS ○'}
+        <Tag key="poll" color={paused ? 'default' : 'processing'}>
+          {paused
+            ? intl.formatMessage({ id: 'system.poll.paused' })
+            : intl.formatMessage({ id: 'system.poll.live' })}
         </Tag>,
         <Button
           key="pause"
@@ -317,14 +309,6 @@ export default function SystemDetailPage() {
         </Button>,
       ]}
     >
-      {!connected && !paused && latest && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message={intl.formatMessage({ id: 'system.detail.disconnected' })}
-        />
-      )}
       {paused && (
         <Alert
           type="info"

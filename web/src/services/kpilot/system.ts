@@ -122,9 +122,24 @@ export function pprofURL(
   return q ? `${base}?${q}` : base;
 }
 
-// systemStreamURL returns the WS URL relative to the current host so
-// the auth cookie rides along. ws:// vs wss:// follows page protocol.
-export function systemStreamURL(nodeID: string) {
-  const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${wsProto}//${window.location.host}/api/v1/system/${encodeURIComponent(nodeID)}/stream`;
+// SystemHistoryItem is one row of GET /api/v1/system/:node/history.
+// `at` is the server-side ingest timestamp (UTC). `snapshot` is the
+// full diag snapshot JSON the poller stored — same shape as
+// SystemSnapshot, just embedded inside the history array.
+export interface SystemHistoryItem {
+  at: string;
+  snapshot: SystemSnapshot;
+}
+
+// listSystemHistory fetches the rolling 1 h of snapshots for one
+// node. Pass `since` to get only rows newer than a previous fetch —
+// used by the detail page's 15 s incremental polling so we don't
+// re-download the whole window each tick.
+export function listSystemHistory(nodeID: string, opts?: { since?: string; limit?: number }) {
+  const params = new URLSearchParams();
+  if (opts?.since) params.set('since', opts.since);
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  const q = params.toString();
+  const url = `/api/v1/system/${encodeURIComponent(nodeID)}/history${q ? '?' + q : ''}`;
+  return request<SystemHistoryItem[]>(url, { method: 'GET' });
 }

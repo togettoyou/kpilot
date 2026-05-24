@@ -233,16 +233,18 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer, httpDiag *serverdi
 		clusters.GET("/:id/debug/tunnel-bench", handler.TunnelBench(gw))
 
 		// System monitoring — self-observability for the server and
-		// each connected worker. Routes are flat under /system so the
-		// frontend can address node IDs (cluster_id or the literal
-		// "server") as path params.
-		handler.SetSystemHubGateway(gw)
+		// each connected worker. Writes go through the diag.Poller
+		// (started in cmd/server/main.go), which INSERTs one
+		// system_snapshots row per node every 15 s. These handlers
+		// are pure DB readers — no live tunnel hit per page load,
+		// no WebSocket. pprof stays live-tunneled because those
+		// profiles are operator-initiated and not worth persisting.
 		system := protected.Group("/system")
 		system.GET("/nodes", handler.SystemNodes(gw))
 		system.GET("/snapshots", handler.SystemSnapshots(gw))
 		system.GET("/:node/snapshot", handler.SystemSnapshot(gw))
+		system.GET("/:node/history", handler.SystemHistory(gw))
 		system.GET("/:node/pprof/:kind", handler.SystemPprof(gw))
-		system.GET("/:node/stream", handler.SystemStream(gw))
 
 		// Global plugin registry
 		plugins := protected.Group("/plugins")

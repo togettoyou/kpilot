@@ -1688,10 +1688,11 @@ export default {
 
   // System detail page (/system/:node)
   'system.detail.back': 'Back to nodes',
-  'system.detail.disconnected': 'Live stream disconnected — reconnecting',
-  'system.detail.paused': 'Live stream paused. Charts have stopped updating; existing history is kept. Click Resume to start receiving again.',
+  'system.detail.paused': 'Polling paused. Charts keep their current data; click Resume to restart the 15 s polling.',
   'system.action.pause': 'Pause',
   'system.action.resume': 'Resume',
+  'system.poll.live': 'Auto-refresh 15s',
+  'system.poll.paused': 'Paused',
   'system.kpi.uptime': 'Uptime',
   'system.kpi.cpu': 'CPU',
   'system.kpi.cpuCores': 'CPU cores',
