@@ -166,6 +166,7 @@ func GetLogsSearch(gw *gateway.GatewayServer) gin.HandlerFunc {
 		if sse == nil {
 			return
 		}
+		defer sse.Close()
 		stopKeepalive := sse.startKeepalive()
 		defer stopKeepalive()
 
@@ -273,6 +274,7 @@ func GetLogsHistogram(gw *gateway.GatewayServer) gin.HandlerFunc {
 		if sse == nil {
 			return
 		}
+		defer sse.Close()
 		stopKeepalive := sse.startKeepalive()
 		defer stopKeepalive()
 

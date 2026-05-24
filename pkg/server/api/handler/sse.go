@@ -29,9 +29,12 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	serverdiag "github.com/togettoyou/kpilot/pkg/server/diag"
 )
 
 // sseKeepaliveInterval is how often we emit a `progress` event while
@@ -68,6 +71,7 @@ type sseStream struct {
 	flusher http.Flusher
 	mu      sync.Mutex
 	started time.Time
+	closed  atomic.Bool // diag.SSEClients decrement guard — idempotent Close
 }
 
 // startSSE writes the SSE response headers and flushes them, so the
@@ -81,6 +85,9 @@ func startSSE(c *gin.Context) *sseStream {
 		apiErrInternal(c, fmt.Errorf("ResponseWriter does not support Flusher"))
 		return nil
 	}
+	// Increment BEFORE writing the response headers — paired with the
+	// matching decrement in s.Close(). Callers MUST defer s.Close().
+	serverdiag.SSEClients.Add(1)
 	h := c.Writer.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache, no-transform")
@@ -157,6 +164,16 @@ func (s *sseStream) startKeepalive() (stop func()) {
 	return func() {
 		close(stopCh)
 		<-doneCh
+	}
+}
+
+// Close drops the connection's contribution to diag.SSEClients.
+// Idempotent: safe to call from multiple defer chains. Callers MUST
+// `defer s.Close()` right after startSSE, otherwise the gauge leaks
+// upward on every handler return.
+func (s *sseStream) Close() {
+	if s.closed.CompareAndSwap(false, true) {
+		serverdiag.SSEClients.Add(-1)
 	}
 }
 

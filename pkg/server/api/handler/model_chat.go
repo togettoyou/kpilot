@@ -37,6 +37,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	serverdiag "github.com/togettoyou/kpilot/pkg/server/diag"
 	"github.com/togettoyou/kpilot/pkg/server/gateway"
 )
 
@@ -67,6 +68,9 @@ const maxInferenceRequestBytes = 2 << 20
 // prefix (so /chat/completions reaches /v1/chat/completions).
 func ProxyInference(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		serverdiag.InferenceInflight.Add(1)
+		defer serverdiag.InferenceInflight.Add(-1)
+		serverdiag.InferenceTotal.Add(1)
 		clusterID := c.Param("id")
 		namespace := c.Param("namespace")
 		name := c.Param("name")

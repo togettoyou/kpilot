@@ -168,6 +168,11 @@ func SystemSnapshots(gw *gateway.GatewayServer) gin.HandlerFunc {
 //
 // CPU profile / trace require ?confirm=true to prevent accidental
 // clicks: those endpoints take 30 s and visibly impact server CPU.
+//
+// Streams the upstream body straight to c.Writer instead of buffering —
+// pprof CPU profile / trace can be tens of MB and a buffered path
+// would briefly hold all of that on the heap for every concurrent
+// download. The streaming path keeps server-side allocation flat.
 func SystemPprof(gw *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		node := c.Param("node")
@@ -188,21 +193,24 @@ func SystemPprof(gw *gateway.GatewayServer) gin.HandlerFunc {
 		// because the upstream completes early.
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
 		defer cancel()
-		body, status, contentType, err := proxyDiagGET(ctx, gw, node, path)
+		// streamDiagGET sets Content-Type itself when the upstream
+		// responds; Content-Disposition we set inline below so a
+		// pre-stream error path (worker offline, etc.) doesn't leak
+		// the download header onto the JSON error response.
+		err := streamDiagGET(ctx, c, gw, node, path, func() {
+			c.Header("Content-Disposition", fmt.Sprintf(
+				`attachment; filename="%s-%s.pb.gz"`, node, kind))
+		})
 		if err != nil {
-			apiErrWorker(c, err.Error())
-			return
+			// Header may already be partly written if we got past the
+			// status line; in that case fall through silently — the
+			// download truncates and the browser surfaces the partial.
+			if !c.Writer.Written() {
+				apiErrWorker(c, err.Error())
+			} else {
+				log.Printf("[system] pprof stream truncated: node=%s kind=%s err=%v", node, kind, err)
+			}
 		}
-		ct := contentType
-		if ct == "" {
-			ct = "application/octet-stream"
-		}
-		// Suggest a filename so the browser drops it straight into the
-		// user's Downloads directory; without this they get
-		// "Untitled" and have to rename to use go tool pprof.
-		c.Header("Content-Disposition", fmt.Sprintf(
-			`attachment; filename="%s-%s.pb.gz"`, node, kind))
-		c.Data(status, ct, body)
 	}
 }
 
@@ -211,10 +219,14 @@ func SystemPprof(gw *gateway.GatewayServer) gin.HandlerFunc {
 // systemHub is the per-process map of nodeID → ongoing 1 Hz pull.
 // Goroutine count = number of distinct nodes with at least one
 // active subscriber, NOT × number of subscribers per node.
+//
+// gateway lives in an atomic.Pointer (set once at boot, read lock-
+// free on every tick) so the per-tick fetch doesn't contend with
+// subscribe/unsubscribe for the hub mutex.
 type systemHub struct {
 	mu      sync.Mutex
 	nodes   map[string]*nodeStream
-	gateway *gateway.GatewayServer
+	gateway atomic.Pointer[gateway.GatewayServer]
 }
 
 var hub = &systemHub{nodes: map[string]*nodeStream{}}
@@ -224,19 +236,27 @@ var hub = &systemHub{nodes: map[string]*nodeStream{}}
 // the gateway on the hub avoids threading it through every Subscribe
 // invocation.
 func SetSystemHubGateway(gw *gateway.GatewayServer) {
-	hub.mu.Lock()
-	hub.gateway = gw
-	hub.mu.Unlock()
+	hub.gateway.Store(gw)
 }
 
 // nodeStream is one ticking source feeding fan-out to N WS subscribers.
 type nodeStream struct {
 	nodeID   string
 	subsMu   sync.Mutex
-	subs     map[*wsConn]struct{}
+	subs     map[*wsConn]*subscriber
 	stop     chan struct{}
 	stopOnce sync.Once
 	last     atomic.Pointer[[]byte] // most recent snapshot JSON (for new subscribers)
+}
+
+// subscriber tracks one WS conn's in-flight write state. The atomic
+// flag lets the fan-out path skip queueing a new write goroutine for
+// a slow consumer whose previous write hasn't completed yet — without
+// it a paused tab could accumulate N goroutines per second waiting on
+// the per-write deadline (10 s) before noticing the peer is gone.
+type subscriber struct {
+	conn    *wsConn
+	writing atomic.Bool
 }
 
 // SystemStream is the WS upgrade handler. On connect: subscribe to
@@ -282,19 +302,20 @@ func SystemStream(gw *gateway.GatewayServer) gin.HandlerFunc {
 }
 
 func (h *systemHub) subscribe(nodeID string, ws *wsConn) func() {
+	sub := &subscriber{conn: ws}
 	h.mu.Lock()
 	ns, ok := h.nodes[nodeID]
 	if !ok {
 		ns = &nodeStream{
 			nodeID: nodeID,
-			subs:   map[*wsConn]struct{}{},
+			subs:   map[*wsConn]*subscriber{},
 			stop:   make(chan struct{}),
 		}
 		h.nodes[nodeID] = ns
 		go h.runNode(ns)
 	}
 	ns.subsMu.Lock()
-	ns.subs[ws] = struct{}{}
+	ns.subs[ws] = sub
 	ns.subsMu.Unlock()
 	h.mu.Unlock()
 
@@ -323,39 +344,54 @@ func (h *systemHub) runNode(ns *nodeStream) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	log.Printf("[system] hub started node=%s", ns.nodeID)
+	// Only log fetch failures on the OK → failing transition (and the
+	// failing → OK recovery). A worker that disconnects mid-subscription
+	// would otherwise spam one line per second per node forever.
+	var failing bool
 	for {
 		select {
 		case <-ns.stop:
 			return
 		case <-t.C:
-			h.mu.Lock()
-			gw := h.gateway
-			h.mu.Unlock()
+			gw := h.gateway.Load()
 			ctx, cancel := context.WithTimeout(context.Background(), snapshotTimeout)
 			body, err := fetchNodeSnapshot(ctx, gw, ns.nodeID)
 			cancel()
 			if err != nil {
-				log.Printf("[system] fetch failed: node=%s err=%v", ns.nodeID, err)
+				if !failing {
+					log.Printf("[system] fetch failed: node=%s err=%v", ns.nodeID, err)
+					failing = true
+				}
 				continue
+			}
+			if failing {
+				log.Printf("[system] fetch recovered: node=%s", ns.nodeID)
+				failing = false
 			}
 			ns.last.Store(&body)
 
 			// Snapshot subscriber set under subsMu, then write
 			// outside it so a stuck WS doesn't block fan-out to
-			// other subscribers. We spawn a write goroutine per
-			// subscriber; each respects wsConn.writeWait (10 s)
-			// so worst-case backlog per slow consumer is bounded.
+			// other subscribers. Per-subscriber `writing` flag
+			// (CAS) skips queueing a second goroutine while the
+			// first is still inside WriteMessage's 10 s
+			// writeWait — without it a paused tab would accrete
+			// goroutines linearly at 1/sec until the deadline
+			// finally returned errors.
 			ns.subsMu.Lock()
-			subs := make([]*wsConn, 0, len(ns.subs))
-			for ws := range ns.subs {
-				subs = append(subs, ws)
+			subs := make([]*subscriber, 0, len(ns.subs))
+			for _, s := range ns.subs {
+				subs = append(subs, s)
 			}
 			ns.subsMu.Unlock()
-			for _, ws := range subs {
-				ws := ws
-				go func() {
-					_ = ws.WriteMessage(websocket.TextMessage, body)
-				}()
+			for _, s := range subs {
+				if !s.writing.CompareAndSwap(false, true) {
+					continue // previous write still pending; skip this tick
+				}
+				go func(sub *subscriber) {
+					defer sub.writing.Store(false)
+					_ = sub.conn.WriteMessage(websocket.TextMessage, body)
+				}(s)
 			}
 		}
 	}
@@ -422,6 +458,78 @@ func localDiagGET(ctx context.Context, url string) ([]byte, int, string, error) 
 		return nil, 0, "", err
 	}
 	return buf.Bytes(), resp.StatusCode, resp.Header.Get("Content-Type"), nil
+}
+
+// streamDiagGET is the streaming counterpart to proxyDiagGET — used
+// by SystemPprof so multi-MB CPU / trace profiles never get fully
+// buffered on the server. Writes Content-Type + body straight to
+// c.Writer with periodic Flush.
+//
+// beforeWrite, if non-nil, runs after we've decided the upstream is
+// reachable but before any bytes are written to the response — the
+// caller uses it to set headers (Content-Disposition) that would
+// otherwise leak onto an error JSON response if the upstream failed
+// pre-flight.
+//
+// Worker path opens a yamux STREAM_HTTP_REQUEST with stream_response;
+// the worker forwards bytes live and we io.Copy them through. Local
+// path uses the loopback http.Client with body left as a Reader.
+func streamDiagGET(ctx context.Context, c *gin.Context, gw *gateway.GatewayServer, nodeID, path string, beforeWrite func()) error {
+	if nodeID == systemNodeID {
+		port := ServerDiagPort()
+		if port == 0 {
+			return fmt.Errorf("server diag not initialized")
+		}
+		url := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := localDiagClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if beforeWrite != nil {
+			beforeWrite()
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != "" {
+			c.Writer.Header().Set("Content-Type", ct)
+		}
+		c.Writer.WriteHeader(resp.StatusCode)
+		_, copyErr := io.Copy(c.Writer, resp.Body)
+		return copyErr
+	}
+
+	if gw == nil {
+		return fmt.Errorf("gateway unavailable")
+	}
+	w, ok := gw.GetWorker(nodeID)
+	if !ok {
+		return fmt.Errorf("worker offline")
+	}
+	if w.DiagPort == 0 {
+		return fmt.Errorf("diag not enabled on worker")
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", w.DiagPort, path)
+	req := &gateway.HTTPRequest{Method: http.MethodGet, URL: url, StreamResponse: true}
+	stream, err := gw.SendHTTPRequestStream(ctx, nodeID, req)
+	if err != nil {
+		return fmt.Errorf("tunnel: %w", err)
+	}
+	defer stream.Close()
+	if stream.Error != "" {
+		return fmt.Errorf("worker: %s", stream.Error)
+	}
+	if beforeWrite != nil {
+		beforeWrite()
+	}
+	if ct := headerValue(stream.Headers, "Content-Type"); ct != "" {
+		c.Writer.Header().Set("Content-Type", ct)
+	}
+	c.Writer.WriteHeader(int(stream.Status))
+	_, copyErr := io.Copy(c.Writer, stream.Body)
+	return copyErr
 }
 
 // Dedicated client for loopback diag fetches. Short dial timeout

@@ -22,8 +22,11 @@ var (
 	// InferenceTotal — lifetime count of inference requests handled.
 	InferenceTotal atomic.Uint64
 
-	// SSEClients — concurrent SSE writers currently held open
-	// (logs /search, /histogram; chat completions; api-key proxy).
-	// Bracket open/close on every SSE handler.
+	// SSEClients — concurrent SSE writers currently held open by the
+	// shared sse.go helper (logs /search, /histogram). Inference
+	// streaming maintains its own counter via InferenceInflight so it
+	// isn't double-counted here; if you add a new SSE-style handler,
+	// either route it through startSSE (auto-instrumented) or bump
+	// SSEClients explicitly with a paired defer.
 	SSEClients atomic.Int32
 )

@@ -223,7 +223,7 @@ export default function SystemLandingPage() {
         <Button
           type="link"
           size="small"
-          disabled={!row.online}
+          disabled={!row.online || !row.diag_available}
           onClick={() => history.push(`/system/${encodeURIComponent(row.node_id)}`)}
         >
           {intl.formatMessage({ id: 'system.action.detail', defaultMessage: '查看' })}
