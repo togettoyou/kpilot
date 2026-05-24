@@ -100,6 +100,21 @@ export default function SystemDetailPage() {
     setTick((t) => t + 1);
   }, []);
 
+  // Stale = the most recent sample is older than 2× the polling
+  // interval (≈ "the poller missed at least 2 ticks"). For an
+  // offline worker that means we're looking at frozen history —
+  // pprof can't reach the node, charts won't refresh until the
+  // worker reconnects and the poller catches up.
+  //
+  // For the server node this can also briefly fire during a slow
+  // poll, but resolves on the next successful insert.
+  const stale = useMemo(() => {
+    if (!lastAtRef.current) return false; // no data yet ≠ stale
+    const ageMs = Date.now() - new Date(lastAtRef.current).getTime();
+    return ageMs > POLL_INTERVAL_MS * 2;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
+
   // Initial fetch: pull the full retained window so the chart paints
   // with up-to-1-hour of context immediately, no "wait for first
   // tick" gap.
@@ -315,6 +330,14 @@ export default function SystemDetailPage() {
           showIcon
           style={{ marginBottom: 12 }}
           message={intl.formatMessage({ id: 'system.detail.paused' })}
+        />
+      )}
+      {stale && !paused && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={intl.formatMessage({ id: 'system.detail.stale' })}
         />
       )}
 
@@ -691,6 +714,14 @@ export default function SystemDetailPage() {
                 <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
                   {intl.formatMessage({ id: 'system.pprof.hint' })}
                 </Typography.Paragraph>
+                {stale && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message={intl.formatMessage({ id: 'system.pprof.staleDisabled' })}
+                  />
+                )}
                 <Space wrap>
                   {PPROF_ITEMS.map((it) => (
                     <Button
@@ -698,6 +729,7 @@ export default function SystemDetailPage() {
                       type={it.cost === 'high' ? 'default' : 'primary'}
                       danger={it.cost === 'high'}
                       icon={<DownloadOutlined />}
+                      disabled={stale}
                       onClick={() => {
                         if (it.cost === 'high') {
                           setConfirmKind({ kind: it.kind, seconds: it.seconds });

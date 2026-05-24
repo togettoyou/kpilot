@@ -1689,6 +1689,8 @@ export default {
   // System detail page (/system/:node)
   'system.detail.back': 'Back to nodes',
   'system.detail.paused': 'Polling paused. Charts keep their current data; click Resume to restart the 15 s polling.',
+  'system.detail.stale': 'Node appears offline — showing the most recent history retained in the database. Live updates will resume automatically when the node reconnects.',
+  'system.pprof.staleDisabled': 'Node is offline. pprof needs a live connection and is unavailable.',
   'system.action.pause': 'Pause',
   'system.action.resume': 'Resume',
   'system.poll.live': 'Auto-refresh 15s',

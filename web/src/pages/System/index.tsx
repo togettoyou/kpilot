@@ -279,10 +279,14 @@ export default function SystemLandingPage() {
       fixed: 'right',
       width: 100,
       render: (_, row) => (
+        // Always allow drilling in: with DB-backed history, an offline
+        // worker still has its last ~1 h of polled snapshots in PG.
+        // The detail page surfaces a banner + disables pprof when the
+        // most recent sample is stale, so post-mortem analysis works
+        // even after a worker disconnects.
         <Button
           type="link"
           size="small"
-          disabled={!row.online || !row.diag_available}
           onClick={() => history.push(`/system/${encodeURIComponent(row.node_id)}`)}
         >
           {intl.formatMessage({ id: 'system.action.detail', defaultMessage: '查看' })}
