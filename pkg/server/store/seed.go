@@ -724,5 +724,21 @@ func seedLocalChartBlobs() error {
 			builtinPlugins[i].DefaultVersion = vgpu.Version
 		}
 	}
+
+	// One-shot cleanup of orphaned blob rows. Before the sha256-
+	// stability fix in plugins/charts.go, every server boot
+	// upserted a fresh PluginBlob row (helm's gzip mtime made the
+	// hash differ each time) and the old row stayed in the table
+	// with no plugin referencing it. The new sha256 is stable so
+	// new accumulation stops; this DELETE catches the historical
+	// pile-up. Safe: only Plugin.ChartBlobID references blob.id —
+	// ClusterPlugin doesn't hold a blob FK.
+	if err := DB.Exec(
+		`DELETE FROM plugin_blobs WHERE id NOT IN (
+			SELECT chart_blob_id FROM plugins WHERE chart_blob_id IS NOT NULL
+		)`,
+	).Error; err != nil {
+		log.Printf("[seed] orphan plugin_blobs cleanup failed (non-fatal): %v", err)
+	}
 	return nil
 }
