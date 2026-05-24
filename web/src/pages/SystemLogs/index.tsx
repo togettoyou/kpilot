@@ -3,6 +3,7 @@ import { PageContainer } from '@ant-design/pro-components';
 import {
   Button,
   Card,
+  Dropdown,
   Empty,
   Input,
   Select,
@@ -12,7 +13,7 @@ import {
   Tooltip,
   theme,
 } from 'antd';
-import { ClearOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ClearOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import TimeRangePicker, {
@@ -33,11 +34,12 @@ import {
 // so the UI catches up within one tick of new persisted rows.
 const LIVE_POLL_INTERVAL_MS = 2000;
 
-// Cap rows kept in memory. Beyond this we drop oldest so a stuck
-// live-tail session doesn't blow up the browser. 5 000 rows ×
-// ~300 B ≈ 1.5 MB; virtuoso keeps the rendered DOM small regardless
-// of the underlying array size.
-const MAX_ROWS = 5000;
+// LIMIT_OPTIONS drive the toolbar picker. Each value is both the
+// backend ?limit= passed on range fetches AND the in-memory cap
+// for live-tail accumulation (older rows fall off the top when
+// new ones prepend past the picked size). 10000 is the backend's
+// hard ceiling — picking more would be silently clamped.
+const LIMIT_OPTIONS = [100, 1000, 5000, 10000] as const;
 
 // Level filter dropdown options. Severity-ordered top-down — clearer
 // for an operator skimming "show me only the loud stuff" → "show me
@@ -209,6 +211,7 @@ export default function SystemLogsPage() {
   const [q, setQ] = useState<string>('');
   const [range, setRange] = useState<TimeRangeValue>({ mode: 'preset', preset: '1h' });
   const [liveTail, setLiveTail] = useState<boolean>(false);
+  const [limit, setLimit] = useState<number>(100);
 
   // ─── Result state ─────────────────────────────────────────────────
   const [rows, setRows] = useState<SystemLogEntry[]>([]);
@@ -259,7 +262,7 @@ export default function SystemLogsPage() {
         level: level || undefined,
         module: moduleFilter || undefined,
         q: q || undefined,
-        limit: MAX_ROWS,
+        limit,
       });
       const arr = data || [];
       setRows(arr);
@@ -271,15 +274,15 @@ export default function SystemLogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [nodeID, range, level, moduleFilter, q]);
+  }, [nodeID, range, level, moduleFilter, q, limit]);
 
-  // Refetch whenever the node / filters / range change. Live-tail OFF
-  // — the polling effect below handles its own fetching.
+  // Refetch whenever the node / filters / range / limit change.
+  // Live-tail OFF — the polling effect below handles its own fetching.
   useEffect(() => {
     if (liveTail) return;
     runRangeQuery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodeID, range, level, moduleFilter, q]);
+  }, [nodeID, range, level, moduleFilter, q, limit]);
 
   // ─── Live tail polling ────────────────────────────────────────────
   useEffect(() => {
@@ -313,7 +316,10 @@ export default function SystemLogsPage() {
           const fresh = arr.filter((r) => !known.has(r.seq));
           if (fresh.length === 0) return prev;
           const merged = [...fresh, ...prev];
-          return merged.length > MAX_ROWS ? merged.slice(0, MAX_ROWS) : merged;
+          // Trim oldest rows past the picked limit. (Live-tail size
+          // matches the static-query size so toggling between modes
+          // doesn't show different volumes.)
+          return merged.length > limit ? merged.slice(0, limit) : merged;
         });
         // arr is newest-first → first row is the new max. Compare via
         // BigInt to safely handle the 19-digit values.
@@ -327,7 +333,7 @@ export default function SystemLogsPage() {
     }, LIVE_POLL_INTERVAL_MS);
     return () => window.clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveTail, nodeID, level, moduleFilter, q]);
+  }, [liveTail, nodeID, level, moduleFilter, q, limit]);
 
   // ─── Full-bleed layout: wrapper consumes viewport-top-footer-gap ──
   //
@@ -433,6 +439,65 @@ export default function SystemLogsPage() {
     lastSeqRef.current = '';
   };
 
+  // ─── Export current rows ──────────────────────────────────────────
+  //
+  // Frontend-only: builds the file from the in-memory `rows`, no
+  // backend round-trip. The user already sees exactly these rows in
+  // the virtuoso list, so a "download" hits the same content they're
+  // looking at — no surprise empty exports because a filter trimmed
+  // server-side after the page was rendered.
+  //
+  // TXT: one human-readable line per entry, columns ordered to match
+  //      the on-screen layout (time level module msg fields).
+  // NDJSON: one full Entry per line, easy to grep / pipe through jq.
+  const downloadBlob = useCallback(
+    (mime: string, body: string, ext: string) => {
+      const blob = new Blob([body], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date()
+        .toISOString()
+        .replace(/[:T]/g, '-')
+        .replace(/\..+$/, '');
+      a.href = url;
+      a.download = `kpilot-logs-${nodeID}-${ts}.${ext}`;
+      a.click();
+      // Defer revoke so the browser has a chance to dereference the
+      // blob URL into the download. revokeObjectURL is safe to call
+      // even if the download already finished.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    [nodeID],
+  );
+
+  const downloadTxt = useCallback(() => {
+    // Chronological (oldest first) reads more naturally as a file.
+    // rows is newest-first, so reverse.
+    const lines = rows
+      .slice()
+      .reverse()
+      .map((r) => {
+        const fields = r.fields
+          ? Object.entries(r.fields)
+              .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
+              .join(' ')
+          : '';
+        const module = r.module ? ` ${r.module}` : '';
+        return `${r.at} ${r.level.toUpperCase().padEnd(5)}${module} ${r.msg}${fields ? '  ' + fields : ''}`;
+      })
+      .join('\n');
+    downloadBlob('text/plain;charset=utf-8', lines + '\n', 'txt');
+  }, [rows, downloadBlob]);
+
+  const downloadNdjson = useCallback(() => {
+    const lines = rows
+      .slice()
+      .reverse()
+      .map((r) => JSON.stringify(r))
+      .join('\n');
+    downloadBlob('application/x-ndjson;charset=utf-8', lines + '\n', 'jsonl');
+  }, [rows, downloadBlob]);
+
   // ─── Render ───────────────────────────────────────────────────────
   return (
     <PageContainer
@@ -512,6 +577,19 @@ export default function SystemLogsPage() {
                 presets={['1h', '3h', '6h', '12h', '24h']}
               />
             )}
+            {/* Result-size picker. Drives both the backend ?limit= AND
+                the live-tail in-memory cap, so toggling between modes
+                doesn't change how many rows the operator sees. */}
+            <Select
+              value={limit}
+              onChange={setLimit}
+              options={LIMIT_OPTIONS.map((n) => ({
+                value: n,
+                label: `${intl.formatMessage({ id: 'pages.system.logs.toolbar.limit' })} ${n}`,
+              }))}
+              style={{ width: 110 }}
+              size="small"
+            />
             <Tooltip title={intl.formatMessage({ id: 'pages.system.logs.tooltip.liveTail' })}>
               <Space size={6} align="center">
                 <Switch checked={liveTail} onChange={setLiveTail} size="small" />
@@ -537,6 +615,27 @@ export default function SystemLogsPage() {
             >
               {intl.formatMessage({ id: 'pages.system.logs.toolbar.clear' })}
             </Button>
+            <Dropdown
+              disabled={rows.length === 0}
+              menu={{
+                items: [
+                  {
+                    key: 'txt',
+                    label: intl.formatMessage({ id: 'pages.system.logs.download.txt' }),
+                    onClick: downloadTxt,
+                  },
+                  {
+                    key: 'ndjson',
+                    label: intl.formatMessage({ id: 'pages.system.logs.download.ndjson' }),
+                    onClick: downloadNdjson,
+                  },
+                ],
+              }}
+            >
+              <Button size="small" icon={<DownloadOutlined />} disabled={rows.length === 0}>
+                {intl.formatMessage({ id: 'pages.system.logs.toolbar.download' })}
+              </Button>
+            </Dropdown>
             <span
               style={{
                 marginLeft: 'auto',
@@ -548,7 +647,7 @@ export default function SystemLogsPage() {
                 intl.formatMessage(
                   {
                     id:
-                      rows.length === MAX_ROWS
+                      rows.length === limit
                         ? 'pages.system.logs.status.countTrimmed'
                         : 'pages.system.logs.status.count',
                   },

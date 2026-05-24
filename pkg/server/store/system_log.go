@@ -207,8 +207,14 @@ func QuerySystemLogs(f SystemLogFilter) ([]SystemLog, error) {
 	if limit <= 0 {
 		limit = 500
 	}
-	if limit > 5000 {
-		limit = 5000
+	// Hard cap 10 000. The frontend picker exposes 100/1k/5k/10k; the
+	// cap is the absolute ceiling that bounds JSON encode time
+	// (~10 ms at 10k rows) and response size (~1 MB at typical row
+	// width). Going higher would push browser parse + initial paint
+	// over a perceptible threshold without giving operators a
+	// usefully different view than "many recent lines".
+	if limit > 10000 {
+		limit = 10000
 	}
 	var rows []SystemLog
 	err := q.Order("at DESC, seq DESC").Limit(limit).Find(&rows).Error
