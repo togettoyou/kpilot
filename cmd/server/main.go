@@ -82,6 +82,14 @@ func main() {
 	pollerInst := serverdiag.NewPoller(gw, diagPort)
 	pollerInst.Start(ctx)
 
+	// Logs poller — sister of the snapshot poller, but for log lines.
+	// Pulls /debug/logs from every node every 5 s, batch-INSERTs into
+	// system_logs, TTL-trims > 25 h. 5 s cadence is tighter than the
+	// 15 s snapshot cadence because logs are bursty: at 15 s we'd
+	// routinely drop hundreds of lines off the ring buffer under load.
+	logsPollerInst := serverdiag.NewLogsPoller(gw, diagPort)
+	logsPollerInst.Start(ctx)
+
 	// Transport v2 (docs/transport-v2.md): TCP + hashicorp/yamux
 	// session-per-worker. One yamux stream per RPC / streaming
 	// session — flow control, fair scheduling, and cancellation all
@@ -112,6 +120,9 @@ func main() {
 func serveDiag(ctx context.Context, d *diag.Diag) (uint32, error) {
 	mux := http.NewServeMux()
 	d.Mount(mux, "/debug")
+	// In-process log ring buffer (pkg/log). The LogsPoller pulls this
+	// every 5 s and persists to PG system_logs alongside snapshots.
+	mux.Handle("/debug/logs", kplog.LogsHandler())
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

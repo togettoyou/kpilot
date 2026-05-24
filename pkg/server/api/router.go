@@ -251,6 +251,12 @@ func NewRouter(cfg *config.Config, gw *gateway.GatewayServer, httpDiag *serverdi
 		system.GET("/snapshots", handler.SystemSnapshots(gw))
 		system.GET("/:node/history", handler.SystemHistory(gw))
 		system.GET("/:node/pprof/:kind", handler.SystemPprof(gw))
+		// System logs — server-side LogsPoller flushes the in-process
+		// log ring buffer into system_logs every 5 s; this is the
+		// reader surface. /logs/modules feeds the frontend filter
+		// picker.
+		system.GET("/:node/logs", handler.SystemLogs(gw))
+		system.GET("/logs/modules", handler.SystemLogModules(gw))
 
 		// Global plugin registry
 		plugins := protected.Group("/plugins")

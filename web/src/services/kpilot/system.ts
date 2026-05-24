@@ -125,6 +125,71 @@ export interface SystemHistoryItem {
   snapshot: SystemSnapshot;
 }
 
+// ─── System logs (/system/logs) ──────────────────────────────────────
+
+// SystemLogEntry is one row from /api/v1/system/:node/logs. `fields`
+// is the structured KV map the call site passed to pkg/log (already
+// stringified by the backend; render as JSON in the UI for the
+// expanded row view).
+export interface SystemLogEntry {
+  seq: number;
+  at: string;
+  level: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+  module?: string;
+  msg: string;
+  fields?: Record<string, unknown>;
+}
+
+// Call modes:
+//
+//   { afterSeq }                    — live-tail incremental: rows with
+//                                     seq > afterSeq, newest first.
+//                                     Frontend polling every 2 s.
+//
+//   { rangeQuery, level?, module?,  — windowed query via the shared
+//     q?, limit? }                     TimeRangePicker vocabulary,
+//                                     same key as monitoring.
+//
+// Filters (any combination):
+//   level     — 'debug'|'info'|'warn'|'error'|'fatal' (min level)
+//   module    — exact name OR dotted prefix ('handler' matches
+//                'handler.model', 'handler.volcano', …)
+//   q         — case-insensitive substring in msg
+//   limit     — cap rows; backend hard cap 5 000.
+export interface SystemLogsOpts {
+  afterSeq?: number;
+  rangeQuery?: string;
+  level?: string;
+  module?: string;
+  q?: string;
+  limit?: number;
+}
+
+export function listSystemLogs(nodeID: string, opts: SystemLogsOpts = {}) {
+  const params = new URLSearchParams();
+  if (opts.afterSeq !== undefined) {
+    params.set('after_seq', String(opts.afterSeq));
+  } else if (opts.rangeQuery) {
+    // rangeQuery is already a fully-encoded `range=24h` or
+    // `from=...&to=...` snippet from buildRangeQuery().
+    for (const pair of opts.rangeQuery.split('&')) {
+      const [k, v] = pair.split('=');
+      if (k) params.set(k, v ?? '');
+    }
+  }
+  if (opts.level) params.set('level', opts.level);
+  if (opts.module) params.set('module', opts.module);
+  if (opts.q) params.set('q', opts.q);
+  if (opts.limit) params.set('limit', String(opts.limit));
+  const qs = params.toString();
+  const url = `/api/v1/system/${encodeURIComponent(nodeID)}/logs${qs ? `?${qs}` : ''}`;
+  return request<SystemLogEntry[]>(url, { method: 'GET' });
+}
+
+export function listSystemLogModules() {
+  return request<string[]>('/api/v1/system/logs/modules', { method: 'GET' });
+}
+
 // listSystemHistory fetches snapshots for one node. Three calling
 // modes — at most one set of params can be active at a time:
 //

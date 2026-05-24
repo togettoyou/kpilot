@@ -65,6 +65,12 @@ var (
 	level   = zap.NewAtomicLevelAt(zap.InfoLevel)
 	cache   sync.Map // string -> *Logger
 	initial sync.Once
+
+	// ring is the process-wide in-memory log buffer. Populated by
+	// Init(); read by the /debug/logs endpoint via Ring(). nil before
+	// Init runs, which is fine — that path is only reached if someone
+	// imports pkg/log without ever calling L() (impossible in practice).
+	ring *RingCore
 )
 
 // Init configures the global logger. Idempotent — first call wins;
@@ -128,7 +134,14 @@ func initFromEnv() {
 		enc = zapcore.NewConsoleEncoder(encCfg)
 	}
 
-	core := zapcore.NewCore(enc, zapcore.Lock(os.Stderr), level)
+	stderrCore := zapcore.NewCore(enc, zapcore.Lock(os.Stderr), level)
+	// Ring buffer sized for ~50 k entries — caps memory ~12 MB at
+	// realistic average entry size (250 B). The pkg/server/diag
+	// LogsPoller pulls this every 5 s and flushes to PG, so the ring
+	// is just a staging buffer for in-flight lines, not the durable
+	// store.
+	ring = NewRingCore(50_000, level)
+	core := zapcore.NewTee(stderrCore, ring)
 	// No automatic stack traces — they bloat console output and the
 	// useful frame is almost always the call site, which the log line
 	// itself tells you. Stack traces are still added for Panic+
@@ -139,6 +152,12 @@ func initFromEnv() {
 	base = z
 	baseMu.Unlock()
 }
+
+// Ring exposes the in-process log ring buffer so the diag endpoint
+// (pkg/diag./debug/logs) can pull from it. Returns nil if Init() has
+// not run yet — practically impossible since L() calls Init lazily,
+// but cheap to nil-check.
+func Ring() *RingCore { return ring }
 
 // SetLevel adjusts the global level at runtime (atomic, lock-free
 // reads on the hot path). Useful for /debug toggles.

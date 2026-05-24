@@ -61,7 +61,7 @@ func Init(dsn string) error {
 	if err = db.AutoMigrate(
 		&Cluster{}, &PluginBlob{}, &Plugin{}, &ClusterPlugin{},
 		&Model{}, &APIKey{},
-		&SystemSnapshot{},
+		&SystemSnapshot{}, &SystemLog{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}

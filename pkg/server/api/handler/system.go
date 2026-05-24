@@ -228,6 +228,134 @@ func SystemHistory(_ *gateway.GatewayServer) gin.HandlerFunc {
 	}
 }
 
+// ─── Log reads (from system_logs) ─────────────────────────────────
+
+// systemLogsRangePresets — TimeRangePicker offers for the logs page.
+// Same vocabulary as SystemHistory so the operator can flip between
+// the monitoring + logs tabs with the same range. Step values are
+// unused (PG-side filtering doesn't downsample log rows; capped via
+// `limit` instead).
+var systemLogsRangePresets = map[string]timeRangeSpec{
+	"15m": {duration: 15 * time.Minute},
+	"1h":  {duration: 1 * time.Hour},
+	"3h":  {duration: 3 * time.Hour},
+	"6h":  {duration: 6 * time.Hour},
+	"12h": {duration: 12 * time.Hour},
+	"24h": {duration: 24 * time.Hour},
+}
+
+// SystemLogs returns log entries for one node. Pulls from
+// system_logs (the LogsPoller is the sole writer).
+//
+// Two operating modes, mutually exclusive:
+//
+//	?after_seq=<uint64>            — live tail. Returns rows with
+//	                                  seq > after_seq, newest first,
+//	                                  capped at limit. The frontend's
+//	                                  2 s polling tick uses this to
+//	                                  pick up just-arrived lines.
+//
+//	?range= | ?from=&to=           — windowed query via the shared
+//	                                  TimeRangePicker vocabulary. Plus
+//	                                  optional filters:
+//	                                    ?level=info|warn|error  (>=)
+//	                                    ?module=<exact-or-prefix>
+//	                                    ?q=<substring>
+//
+// Hard cap 5 000 rows/response. Frontend uses virtual scrolling so
+// larger windows just trim oldest first (newest-first order).
+//
+// Response: [{seq, at, level, module, msg, fields}, ...] newest first.
+func SystemLogs(_ *gateway.GatewayServer) gin.HandlerFunc {
+	type item struct {
+		Seq    uint64          `json:"seq"`
+		At     time.Time       `json:"at"`
+		Level  string          `json:"level"`
+		Module string          `json:"module,omitempty"`
+		Msg    string          `json:"msg"`
+		Fields json.RawMessage `json:"fields,omitempty"`
+	}
+	return func(c *gin.Context) {
+		nodeID := c.Param("node")
+
+		filter := store.SystemLogFilter{
+			NodeID: nodeID,
+			Level:  store.SystemLogLevelAny,
+		}
+
+		// Live-tail mode: after_seq is exclusive. No time range —
+		// caller assumes "anything newer than this seq".
+		if afterStr := c.Query("after_seq"); afterStr != "" {
+			var after uint64
+			if _, err := fmt.Sscanf(afterStr, "%d", &after); err != nil {
+				apiErr(c, http.StatusBadRequest, CodeInvalidRequest)
+				return
+			}
+			filter.AfterSeq = after
+		} else {
+			// Range mode. Time window required; default to last 1h
+			// when nothing specified (matches what an operator
+			// landing on the page would expect).
+			rng, ok := resolveTimeRange(c, systemLogsRangePresets)
+			if !ok {
+				return
+			}
+			filter.From = rng.from
+			filter.To = rng.to
+		}
+
+		// Level filter — accepts string or int8. Empty means "all".
+		if lvlStr := c.Query("level"); lvlStr != "" {
+			filter.Level = store.ParseLogLevel(strings.ToLower(lvlStr))
+		}
+		if mod := strings.TrimSpace(c.Query("module")); mod != "" {
+			filter.Module = mod
+		}
+		if q := strings.TrimSpace(c.Query("q")); q != "" {
+			filter.Q = q
+		}
+		if limStr := c.Query("limit"); limStr != "" {
+			var lim int
+			if _, err := fmt.Sscanf(limStr, "%d", &lim); err == nil && lim > 0 {
+				filter.Limit = lim
+			}
+		}
+
+		rows, err := store.QuerySystemLogs(filter)
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+		out := make([]item, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, item{
+				Seq:    r.Seq,
+				At:     r.At,
+				Level:  store.LevelString(r.Level),
+				Module: r.Module,
+				Msg:    r.Msg,
+				Fields: json.RawMessage(r.Fields),
+			})
+		}
+		c.JSON(http.StatusOK, out)
+	}
+}
+
+// SystemLogModules returns the distinct module names present in
+// the log table. Used by the frontend module picker to populate
+// its options. Cheap query (scans the small distinct set of
+// modules — typically a few dozen).
+func SystemLogModules(_ *gateway.GatewayServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mods, err := store.DistinctSystemLogModules()
+		if err != nil {
+			apiErrInternal(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, mods)
+	}
+}
+
 // ─── pprof reverse proxy (live, never persisted) ───────────────────
 
 // SystemPprof reverse-proxies pprof endpoints to the underlying diag

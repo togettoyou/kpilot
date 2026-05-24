@@ -29,6 +29,9 @@ var serveLog = kplog.L("worker-diag")
 func Serve(ctx context.Context, d *diag.Diag) (uint32, error) {
 	mux := http.NewServeMux()
 	d.Mount(mux, "/debug")
+	// In-process log ring buffer (pkg/log). Server-side LogsPoller
+	// pulls this over the yamux tunnel and persists to system_logs.
+	mux.Handle("/debug/logs", kplog.LogsHandler())
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
