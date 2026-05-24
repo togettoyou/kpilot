@@ -209,8 +209,14 @@ export function listSystemLogs(nodeID: string, opts: SystemLogsOpts = {}) {
   return request<SystemLogEntry[]>(url, { method: 'GET' });
 }
 
-export function listSystemLogModules() {
-  return request<string[]>('/api/v1/system/logs/modules', { method: 'GET' });
+// listSystemLogModules returns the distinct module names for the
+// given node. Pass the empty string to fetch the union across all
+// nodes — only useful for debugging; normally the picker is
+// node-scoped so operators don't see "tunnel" in the server view
+// or "gorm" in the worker view.
+export function listSystemLogModules(nodeID = '') {
+  const qs = nodeID ? `?node_id=${encodeURIComponent(nodeID)}` : '';
+  return request<string[]>(`/api/v1/system/logs/modules${qs}`, { method: 'GET' });
 }
 
 // listSystemHistory fetches snapshots for one node. Three calling

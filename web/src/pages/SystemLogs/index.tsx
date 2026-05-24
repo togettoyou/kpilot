@@ -208,15 +208,28 @@ export default function SystemLogsPage() {
   // so both work for the initial fetch.
   const lastSeqRef = useRef<string>('');
 
-  // ─── Lookups on mount ─────────────────────────────────────────────
+  // ─── Lookups ──────────────────────────────────────────────────────
+  // Nodes are static for the session — fetch once.
   useEffect(() => {
     listSystemNodes()
       .then((arr) => setNodes(arr || []))
       .catch(() => {});
-    listSystemLogModules()
-      .then((arr) => setModules(arr || []))
-      .catch(() => {});
   }, []);
+
+  // Modules are per-node: server-side router/gorm/handler.* don't
+  // belong in a worker picker (and tunnel/http-proxy don't belong
+  // in the server picker). Re-fetch whenever the user switches
+  // node, and clear any picked module that isn't valid in the new
+  // node's list to keep the filter coherent.
+  useEffect(() => {
+    listSystemLogModules(nodeID)
+      .then((arr) => {
+        const mods = arr || [];
+        setModules(mods);
+        setModuleFilter((cur) => (cur && !mods.includes(cur) ? '' : cur));
+      })
+      .catch(() => {});
+  }, [nodeID]);
 
   // ─── Range-mode query ─────────────────────────────────────────────
   const runRangeQuery = useCallback(async () => {

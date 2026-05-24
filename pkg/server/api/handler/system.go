@@ -347,11 +347,14 @@ func SystemLogs(_ *gateway.GatewayServer) gin.HandlerFunc {
 
 // SystemLogModules returns the distinct module names present in
 // the log table. Used by the frontend module picker to populate
-// its options. Cheap query (scans the small distinct set of
-// modules — typically a few dozen).
+// its options. The ?node_id= query param scopes the list to a
+// single node — strongly recommended for picker UX (server-only
+// module names like "router" / "gorm" don't belong in a worker's
+// picker, and vice versa). When omitted, returns the global union.
 func SystemLogModules(_ *gateway.GatewayServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		mods, err := store.DistinctSystemLogModules()
+		nodeID := c.Query("node_id")
+		mods, err := store.DistinctSystemLogModules(nodeID)
 		if err != nil {
 			apiErrInternal(c, err)
 			return

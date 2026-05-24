@@ -216,16 +216,28 @@ func QuerySystemLogs(f SystemLogFilter) ([]SystemLog, error) {
 }
 
 // DistinctSystemLogModules returns the distinct module names present
-// in the table — used by the frontend module-picker. Ordered by
-// alphabetic name. Includes empty string entries (the unnamed root
-// logger) explicitly because operators may want to filter "no module"
-// noise. Cheap query: scans the (node_id, module) index, dedups.
-func DistinctSystemLogModules() ([]string, error) {
+// in the table, optionally filtered to a single node. Used by the
+// frontend module picker on /system/logs — when the picker shows
+// modules for "server", only server-emitted module names are
+// relevant (worker tunnel internals would just confuse the user),
+// and vice versa.
+//
+// Cost: with nodeID set, PK (node_id, seq) seek narrows the scan
+// to one node's rows (~100k for a day's retention) before the
+// DISTINCT collapse — typically <10 ms. Without nodeID it falls
+// back to a whole-table scan + hash distinct, which on a busy
+// multi-cluster deployment can be hundreds of ms. Prefer the
+// node-scoped form.
+//
+// Empty nodeID = no filter (returns all modules across all nodes).
+// Kept as a fallback for callers that genuinely want the union.
+func DistinctSystemLogModules(nodeID string) ([]string, error) {
+	q := DB.Model(&SystemLog{})
+	if nodeID != "" {
+		q = q.Where("node_id = ?", nodeID)
+	}
 	var rows []string
-	err := DB.Model(&SystemLog{}).
-		Distinct("module").
-		Order("module ASC").
-		Pluck("module", &rows).Error
+	err := q.Distinct("module").Order("module ASC").Pluck("module", &rows).Error
 	return rows, err
 }
 
