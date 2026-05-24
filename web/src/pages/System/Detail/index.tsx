@@ -326,58 +326,53 @@ export default function SystemDetailPage() {
     window.open(url, '_blank');
   };
 
+  // Identity subtitle — small gray line under the page title showing
+  // host / pid / version / arch / procs. Kept out of `extra` so the
+  // header bar stays uncluttered.
+  const identitySubtitle = latest ? (
+    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+      {latest.identity.hostname} · pid {latest.identity.pid} ·{' '}
+      {latest.identity.app_version} · {latest.identity.go_version} ·{' '}
+      {latest.identity.goos}/{latest.identity.goarch} ·{' '}
+      {latest.runtime.gomaxprocs}/{latest.identity.num_cpu} procs
+    </Typography.Text>
+  ) : null;
+
   return (
     <PageContainer
       header={{
         title: nodeTitle(intl, latest, nodeID, isServer),
+        subTitle: identitySubtitle,
         breadcrumb: {},
         onBack: () => history.push('/system/monitor'),
       }}
-      extra={
-        // Two stacked rows so the identity tags + range picker +
-        // controls don't crush each other in a single overflow line.
-        // Row 1 = static identity (host / version). Row 2 = active
-        // controls (time range + polling state + pause).
-        <Space direction="vertical" size={6} style={{ alignItems: 'flex-end' }}>
-          <Space size={6} wrap>
-            {latest && (
-              <Tag color="default">
-                {latest.identity.hostname} · pid {latest.identity.pid}
-              </Tag>
-            )}
-            {latest && (
-              <Tag color="default">
-                {latest.identity.app_version} · {latest.identity.go_version} ·{' '}
-                {latest.identity.goos}/{latest.identity.goarch} ·{' '}
-                {latest.runtime.gomaxprocs}/{latest.identity.num_cpu} procs
-              </Tag>
-            )}
-          </Space>
-          <Space size={6} wrap>
-            <TimeRangePicker
-              value={range}
-              onChange={setRange}
-              presets={['1h', '3h', '6h', '12h', '24h']}
-              maxDays={1}
-            />
-            <Tag color={paused ? 'default' : 'processing'}>
-              {paused
-                ? intl.formatMessage({ id: 'system.poll.paused' })
-                : intl.formatMessage({ id: 'system.poll.live' })}
-            </Tag>
-            <Button
-              size="small"
-              icon={paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
-              onClick={() => setPaused((p) => !p)}
-            >
-              {intl.formatMessage({
-                id: paused ? 'system.action.resume' : 'system.action.pause',
-              })}
-            </Button>
-          </Space>
-        </Space>
-      }
     >
+      {/* Toolbar row — time-range picker + polling state + pause.
+          Lives in the body (not the header `extra`) so identity tags
+          + controls don't crush each other on narrow viewports. */}
+      <Space size={8} wrap style={{ marginBottom: 12 }}>
+        <TimeRangePicker
+          value={range}
+          onChange={setRange}
+          presets={['1h', '3h', '6h', '12h', '24h']}
+          maxDays={1}
+        />
+        <Tag color={paused ? 'default' : 'processing'}>
+          {paused
+            ? intl.formatMessage({ id: 'system.poll.paused' })
+            : intl.formatMessage({ id: 'system.poll.live' })}
+        </Tag>
+        <Button
+          size="small"
+          icon={paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
+          onClick={() => setPaused((p) => !p)}
+        >
+          {intl.formatMessage({
+            id: paused ? 'system.action.resume' : 'system.action.pause',
+          })}
+        </Button>
+      </Space>
+
       {paused && (
         <Alert
           type="info"
