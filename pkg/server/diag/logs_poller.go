@@ -335,9 +335,11 @@ func (p *LogsPoller) setCursor(nodeID string, seq uint64) {
 // ─── fetch (loopback for server, tunnel for worker) ─────────────────
 
 type logsResp struct {
-	Lines   []*kplog.Entry `json:"lines"`
-	NextSeq uint64         `json:"next_seq"`
-	HeadSeq uint64         `json:"head_seq"`
+	Lines []*kplog.Entry `json:"lines"`
+	// JSON strings on the wire (see http.go) — match shape so
+	// json.Unmarshal can decode back into uint64.
+	NextSeq uint64 `json:"next_seq,string"`
+	HeadSeq uint64 `json:"head_seq,string"`
 }
 
 func (p *LogsPoller) fetchLogs(ctx context.Context, nodeID string, since uint64, limit int) (*logsResp, error) {

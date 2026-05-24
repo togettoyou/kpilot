@@ -268,7 +268,11 @@ var systemLogsRangePresets = map[string]timeRangeSpec{
 // Response: [{seq, at, level, module, msg, fields}, ...] newest first.
 func SystemLogs(_ *gateway.GatewayServer) gin.HandlerFunc {
 	type item struct {
-		Seq    uint64          `json:"seq"`
+		// seq is the anchored UnixNano (~1.8e18) — exceeds
+		// JavaScript Number precision (2^53). Serialize as JSON
+		// string so the browser keeps lossless cursor identity
+		// across the dedupe Set / lastSeq tracking.
+		Seq    uint64          `json:"seq,string"`
 		At     time.Time       `json:"at"`
 		Level  string          `json:"level"`
 		Module string          `json:"module,omitempty"`

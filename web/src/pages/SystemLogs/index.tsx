@@ -92,7 +92,7 @@ function formatAt(at: string): string {
 interface LogRowProps {
   row: SystemLogEntry;
   expanded: boolean;
-  onToggleExpand: (seq: number) => void;
+  onToggleExpand: (seq: string) => void;
 }
 
 const LogRow = React.memo(function LogRow({ row, expanded, onToggleExpand }: LogRowProps) {
@@ -168,7 +168,7 @@ export default function SystemLogsPage() {
   const [q, setQ] = useState<string>('');
   const [range, setRange] = useState<TimeRangeValue>({ mode: 'preset', preset: '1h' });
   const [liveTail, setLiveTail] = useState<boolean>(false);
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // ─── Result state ─────────────────────────────────────────────────
   const [rows, setRows] = useState<SystemLogEntry[]>([]);
@@ -180,7 +180,12 @@ export default function SystemLogsPage() {
   useEffect(() => {
     liveTailRef.current = liveTail;
   }, [liveTail]);
-  const lastSeqRef = useRef<number>(0);
+  // Decimal string, NOT number. seq is uint64 anchored at UnixNano
+  // (~1.8e18) — exceeds 2^53, so Number would lose precision and the
+  // cursor would silently desync. Empty string is the "no cursor yet"
+  // sentinel; the backend treats after_seq=0 as "no filter" anyway,
+  // so both work for the initial fetch.
+  const lastSeqRef = useRef<string>('');
 
   // ─── Lookups on mount ─────────────────────────────────────────────
   useEffect(() => {
@@ -205,9 +210,11 @@ export default function SystemLogsPage() {
       });
       const arr = data || [];
       setRows(arr);
-      // Track newest seq so an incremental live-tail call picks up
-      // strictly newer rows after the user toggles into live mode.
-      lastSeqRef.current = arr.length > 0 ? Math.max(...arr.map((r) => r.seq)) : 0;
+      // Track newest seq for the live-tail cursor. BigInt compare
+      // because seq strings are 19-digit uint64 — Number.MAX_SAFE_INTEGER
+      // can't hold them. The backend returns rows newest-first so the
+      // first one IS the max, no full scan needed.
+      lastSeqRef.current = arr.length > 0 ? arr[0].seq : '';
     } finally {
       setLoading(false);
     }
@@ -233,7 +240,9 @@ export default function SystemLogsPage() {
       if (!liveTailRef.current) return;
       try {
         const data = await listSystemLogs(nodeID, {
-          afterSeq: lastSeqRef.current,
+          // empty string == no cursor: backend treats missing/0
+          // after_seq as "no filter", returns the newest batch.
+          afterSeq: lastSeqRef.current || undefined,
           level: level || undefined,
           module: moduleFilter || undefined,
           q: q || undefined,
@@ -243,7 +252,9 @@ export default function SystemLogsPage() {
         if (arr.length === 0) return;
         // Backend returns DESC; our local array is also DESC (newest
         // first). Prepend new rows + dedupe defensively in case
-        // poller windows overlap.
+        // poller windows overlap. Set<string> works correctly with
+        // BigInt-sized seqs (vs Set<number> which would collapse
+        // seqs differing by < ~1µs onto the same key).
         setRows((prev) => {
           const known = new Set(prev.map((r) => r.seq));
           const fresh = arr.filter((r) => !known.has(r.seq));
@@ -251,7 +262,12 @@ export default function SystemLogsPage() {
           const merged = [...fresh, ...prev];
           return merged.length > MAX_ROWS ? merged.slice(0, MAX_ROWS) : merged;
         });
-        lastSeqRef.current = Math.max(lastSeqRef.current, ...arr.map((r) => r.seq));
+        // arr is newest-first → first row is the new max. Compare via
+        // BigInt to safely handle the 19-digit values.
+        const newest = arr[0].seq;
+        if (lastSeqRef.current === '' || BigInt(newest) > BigInt(lastSeqRef.current)) {
+          lastSeqRef.current = newest;
+        }
       } catch {
         // Network blip — next tick retries.
       }
@@ -359,7 +375,7 @@ export default function SystemLogsPage() {
     [modules, intl],
   );
 
-  const toggleExpanded = useCallback((seq: number) => {
+  const toggleExpanded = useCallback((seq: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(seq)) next.delete(seq);
@@ -371,7 +387,7 @@ export default function SystemLogsPage() {
   const clearRows = () => {
     setRows([]);
     setExpanded(new Set());
-    lastSeqRef.current = 0;
+    lastSeqRef.current = '';
   };
 
   // ─── Render ───────────────────────────────────────────────────────

@@ -16,8 +16,16 @@ import (
 // reuses. Callers use it as a cursor: "give me lines since seq".
 // When the ring overwrites old entries the seq numbers simply skip
 // forward; the caller sees the gap and knows it missed some lines.
+//
+// `json:"seq,string"` is non-negotiable: post-anchor seq values are
+// the current UnixNano (~1.8e18 in 2026), which exceeds JavaScript's
+// Number precision (2^53 = ~9e15). Serializing as a JSON string
+// keeps every browser-side consumer (the /system/logs UI dedupe
+// Set, the lastSeq cursor) lossless. The Go decoder accepts the
+// same shape symmetrically via the ,string tag, so the LogsPoller
+// stays unchanged on the read side.
 type Entry struct {
-	Seq    uint64         `json:"seq"`
+	Seq    uint64         `json:"seq,string"`
 	TimeNs int64          `json:"ts_ns"`           // unix nanos
 	Level  string         `json:"level"`           // "debug" | "info" | "warn" | "error" | ...
 	Module string         `json:"module,omitempty"`

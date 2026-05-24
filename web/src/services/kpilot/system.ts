@@ -131,8 +131,16 @@ export interface SystemHistoryItem {
 // is the structured KV map the call site passed to pkg/log (already
 // stringified by the backend; render as JSON in the UI for the
 // expanded row view).
+//
+// `seq` is a STRING, not a number. The backend anchors seq at the
+// process's UnixNano (~1.8e18 in 2026) which exceeds JavaScript's
+// safe-integer range (2^53 ≈ 9e15). Parsed as Number, two seqs
+// emitted within ~1µs of each other collapse onto the same value
+// — breaking dedup, live-tail cursor advancement, and Set identity.
+// The Go side serializes via `json:"seq,string"`; we keep the wire
+// string here and compare via BigInt when ordering matters.
 export interface SystemLogEntry {
-  seq: number;
+  seq: string;
   at: string;
   level: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
   module?: string;
@@ -157,7 +165,11 @@ export interface SystemLogEntry {
 //   q         — case-insensitive substring in msg
 //   limit     — cap rows; backend hard cap 5 000.
 export interface SystemLogsOpts {
-  afterSeq?: number;
+  // String for the same precision reason as SystemLogEntry.seq —
+  // the backend's `?after_seq=` Sscanf parses the URL value back
+  // into uint64, so we hand it the raw decimal string we got out
+  // of a previous response (no Number round-trip).
+  afterSeq?: string;
   rangeQuery?: string;
   level?: string;
   module?: string;
@@ -168,7 +180,8 @@ export interface SystemLogsOpts {
 export function listSystemLogs(nodeID: string, opts: SystemLogsOpts = {}) {
   const params = new URLSearchParams();
   if (opts.afterSeq !== undefined) {
-    params.set('after_seq', String(opts.afterSeq));
+    // opts.afterSeq is already a decimal string; pass through verbatim.
+    params.set('after_seq', opts.afterSeq);
   } else if (opts.rangeQuery) {
     // rangeQuery is already a fully-encoded `range=24h` or
     // `from=...&to=...` snippet from buildRangeQuery().

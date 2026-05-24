@@ -78,9 +78,12 @@ func LogsHandler() http.Handler {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(struct {
-			Lines   []*Entry `json:"lines"`
-			NextSeq uint64   `json:"next_seq"`
-			HeadSeq uint64   `json:"head_seq"`
+			Lines []*Entry `json:"lines"`
+			// next_seq + head_seq encoded as JSON strings for the
+			// same JavaScript-precision reason as Entry.Seq —
+			// post-anchor these are ~1.8e18, far beyond Number.
+			NextSeq uint64 `json:"next_seq,string"`
+			HeadSeq uint64 `json:"head_seq,string"`
 		}{
 			Lines:   lines,
 			NextSeq: nextSeq,
