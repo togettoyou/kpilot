@@ -722,25 +722,38 @@ export default function SystemDetailPage() {
                     message={intl.formatMessage({ id: 'system.pprof.staleDisabled' })}
                   />
                 )}
-                <Space wrap>
-                  {PPROF_ITEMS.map((it) => (
-                    <Button
-                      key={it.kind}
-                      type={it.cost === 'high' ? 'default' : 'primary'}
-                      danger={it.cost === 'high'}
-                      icon={<DownloadOutlined />}
-                      disabled={stale}
-                      onClick={() => {
-                        if (it.cost === 'high') {
-                          setConfirmKind({ kind: it.kind, seconds: it.seconds });
-                        } else {
-                          openPprof(it.kind);
-                        }
-                      }}
-                    >
-                      {intl.formatMessage({ id: it.labelId })}
-                    </Button>
-                  ))}
+                {/* Split into two rows: cheap snapshot profiles on
+                    top (heap / goroutine / allocs / block / mutex /
+                    threadcreate), high-cost ones below (CPU profile,
+                    trace). Visual separation reinforces the danger
+                    boundary on top of the danger=true color. */}
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Space wrap>
+                    {PPROF_ITEMS.filter((it) => it.cost !== 'high').map((it) => (
+                      <Button
+                        key={it.kind}
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        disabled={stale}
+                        onClick={() => openPprof(it.kind)}
+                      >
+                        {intl.formatMessage({ id: it.labelId })}
+                      </Button>
+                    ))}
+                  </Space>
+                  <Space wrap>
+                    {PPROF_ITEMS.filter((it) => it.cost === 'high').map((it) => (
+                      <Button
+                        key={it.kind}
+                        danger
+                        icon={<DownloadOutlined />}
+                        disabled={stale}
+                        onClick={() => setConfirmKind({ kind: it.kind, seconds: it.seconds })}
+                      >
+                        {intl.formatMessage({ id: it.labelId })}
+                      </Button>
+                    ))}
+                  </Space>
                 </Space>
               </Card>
             ),
