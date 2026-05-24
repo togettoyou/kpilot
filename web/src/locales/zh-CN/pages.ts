@@ -1738,4 +1738,19 @@ export default {
   'system.serverOnly': '此面板仅 Server 可用',
 
   'errors.PPROF_CONFIRMATION_REQUIRED': 'CPU profile 需要二次确认才能下发',
+
+  // Shared <TimeRangePicker> — popover preset sidebar + endpoint labels.
+  // Used by monitoring / logging / GPU 监控 / 系统监控 / 系统日志.
+  'components.timeRangePicker.now': '现在',
+  'components.timeRangePicker.from': '起始时间',
+  'components.timeRangePicker.to': '结束时间',
+  'components.timeRangePicker.preset.last5m': '近 5 分钟',
+  'components.timeRangePicker.preset.last15m': '近 15 分钟',
+  'components.timeRangePicker.preset.last1h': '近 1 小时',
+  'components.timeRangePicker.preset.last6h': '近 6 小时',
+  'components.timeRangePicker.preset.last24h': '近 24 小时',
+  'components.timeRangePicker.preset.today': '今天',
+  'components.timeRangePicker.preset.yesterday': '昨天',
+  'components.timeRangePicker.preset.last7d': '近 7 天',
+  'components.timeRangePicker.preset.last30d': '近 30 天',
 };

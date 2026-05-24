@@ -1785,4 +1785,19 @@ export default {
   'system.serverOnly': 'This panel is server-only',
 
   'errors.PPROF_CONFIRMATION_REQUIRED': 'CPU profile requires confirmation before being dispatched',
+
+  // Shared <TimeRangePicker> — popover preset sidebar + endpoint labels.
+  // Used by monitoring / logging / GPU monitoring / system monitoring / system logs.
+  'components.timeRangePicker.now': 'now',
+  'components.timeRangePicker.from': 'From',
+  'components.timeRangePicker.to': 'To',
+  'components.timeRangePicker.preset.last5m': 'Last 5 min',
+  'components.timeRangePicker.preset.last15m': 'Last 15 min',
+  'components.timeRangePicker.preset.last1h': 'Last 1 hour',
+  'components.timeRangePicker.preset.last6h': 'Last 6 hours',
+  'components.timeRangePicker.preset.last24h': 'Last 24 hours',
+  'components.timeRangePicker.preset.today': 'Today',
+  'components.timeRangePicker.preset.yesterday': 'Yesterday',
+  'components.timeRangePicker.preset.last7d': 'Last 7 days',
+  'components.timeRangePicker.preset.last30d': 'Last 30 days',
 };
