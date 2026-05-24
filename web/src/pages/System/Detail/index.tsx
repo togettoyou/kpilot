@@ -8,6 +8,7 @@ import {
   Modal,
   Row,
   Space,
+  Spin,
   Statistic,
   Tabs,
   Tag,
@@ -80,6 +81,13 @@ export default function SystemDetailPage() {
   const lastAtRef = useRef<string>('');
   const [tick, setTick] = useState(0);
   const [latest, setLatest] = useState<SystemSnapshot | null>(null);
+  // `initialLoading` covers the first history fetch (and any
+  // subsequent range change that triggers a non-incremental refetch).
+  // A 24h history pull can take seconds on a busy server — without
+  // this the page renders a blank toolbar + empty KPI row, which
+  // looks frozen. Cleared after the first response (success OR
+  // error) so a slow / failing node still surfaces SOMETHING.
+  const [initialLoading, setInitialLoading] = useState(true);
   // `paused` toggles the 15 s history poll. Paused = no new fetches;
   // already-rendered ring stays on screen so the operator can
   // inspect a frozen snapshot during triage.
@@ -150,9 +158,12 @@ export default function SystemDetailPage() {
 
   // Initial fetch: pull the chosen range so the chart paints with
   // full context immediately. Reruns on node OR range change —
-  // either resets the ring, then loads fresh.
+  // either resets the ring, then loads fresh. Flips initialLoading
+  // off on the first settle (success or failure) so a broken /
+  // slow node still escapes the spinner.
   useEffect(() => {
     let cancelled = false;
+    setInitialLoading(true);
     listSystemHistory(nodeID, { rangeQuery: buildRangeQuery(range) })
       .then((items) => {
         if (cancelled) return;
@@ -160,6 +171,9 @@ export default function SystemDetailPage() {
       })
       .catch(() => {
         // Toasted globally.
+      })
+      .finally(() => {
+        if (!cancelled) setInitialLoading(false);
       });
     return () => {
       cancelled = true;
@@ -418,6 +432,33 @@ export default function SystemDetailPage() {
         />
       )}
 
+      {/* Initial fetch in flight: show a centered spinner in place
+          of the KPI row + tabs so the page doesn't render as a blank
+          toolbar over empty content. The toolbar itself stays
+          interactive — operator can change range / pause without
+          waiting for the first response. Once data lands (or fetch
+          fails / returns empty), this falls through to the normal
+          KPI + Tabs render below. */}
+      {initialLoading && !latest && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            minHeight: 240,
+          }}
+        >
+          <Spin size="large" />
+        </div>
+      )}
+
+      {/* KPI Row + Tabs hidden during the initial-fetch window so
+          the spinner above isn't accompanied by an empty Row + a
+          tab strip with empty charts. After the first response
+          (success OR error) this falls through and renders normally
+          — even on a no-data node, an empty KPI row beats a stuck
+          spinner because the toolbar is still actionable. */}
+      {(!initialLoading || latest) && <>
       {/* 8 KPI cards row. Row align="stretch" + Card style.height=100%
           keeps every cell the same height regardless of whether `sub`
           is present — cards without a sub-line render an empty
@@ -837,6 +878,7 @@ export default function SystemDetailPage() {
           },
         ].filter(Boolean) as { key: string; label: React.ReactNode; children: React.ReactNode }[]}
       />
+      </>}
 
       <Modal
         open={!!confirmKind}
