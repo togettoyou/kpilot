@@ -52,10 +52,17 @@ func Init(dsn string) error {
 	// clusters × 5 open tabs × per-handler 2-4 GORM queries comfortably
 	// fits inside 100 with headroom. Previous 25-conn cap hit `sql:
 	// connection refused` long before any individual query was slow.
-	// MaxIdleConns at 20 keeps a working set warm without bleeding the
-	// idle ones too aggressively on quiet periods.
+	//
+	// MaxIdleConns == MaxOpenConns deliberately. Setting MaxIdleConns
+	// below MaxOpenConns triggers connection thrash: under any burst
+	// that briefly exceeds the idle cap, conn-finished returns are
+	// CLOSED instead of cached, and the next request pays a fresh
+	// TCP + PG auth handshake (5-20 ms). The cycle repeats on every
+	// burst and shows up as a 2-3 % p99 long-tail on otherwise-fast
+	// endpoints. PG handles 100 idle conns trivially; ConnMaxLifetime
+	// retires them after 5 min of quiet so we don't pin them forever.
 	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetMaxIdleConns(20)
+	sqlDB.SetMaxIdleConns(100)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
 	if err = db.AutoMigrate(
