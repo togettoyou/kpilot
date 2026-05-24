@@ -164,27 +164,36 @@ export default function SystemLandingPage() {
       },
     },
     // CPU — % primary, cores secondary. Needs delta of two snapshots
-    // so first poll shows "—"; from the 2nd 10 s tick onwards it's
-    // an accurate 10-second-window CPU utilization.
+    // to derive; until the 2nd 10 s tick arrives (or after a node
+    // restart that resets cumulative counters) we render 0% rather
+    // than "—" so the column always shows a number an operator can
+    // skim. A genuinely missing snapshot (node offline) shows "—".
     {
       title: intl.formatMessage({ id: 'system.col.cpu', defaultMessage: 'CPU' }),
       width: 150,
       render: (_, row) => {
         const cur = row.envelope?.snapshot;
+        if (!cur) return '—';
         const prev = prevEnvelopes[row.node_id]?.snapshot;
-        if (!cur || !prev) return '—';
-        const a = prev.runtime;
-        const b = cur.runtime;
-        const totalDelta = b.cpu_total_seconds - a.cpu_total_seconds;
-        const busyDelta =
-          b.cpu_user_seconds +
-          b.cpu_gc_seconds +
-          b.cpu_scavenge_seconds -
-          (a.cpu_user_seconds + a.cpu_gc_seconds + a.cpu_scavenge_seconds);
-        const wallSec = (new Date(cur.at).getTime() - new Date(prev.at).getTime()) / 1000;
-        if (totalDelta <= 0 || wallSec <= 0) return '—';
-        const pct = Math.max(0, Math.min(1, busyDelta / totalDelta));
-        const cores = Math.max(0, busyDelta / wallSec);
+        let pct = 0;
+        let cores = 0;
+        if (prev) {
+          const a = prev.runtime;
+          const b = cur.runtime;
+          const totalDelta = b.cpu_total_seconds - a.cpu_total_seconds;
+          const busyDelta =
+            b.cpu_user_seconds +
+            b.cpu_gc_seconds +
+            b.cpu_scavenge_seconds -
+            (a.cpu_user_seconds + a.cpu_gc_seconds + a.cpu_scavenge_seconds);
+          const wallSec = (new Date(cur.at).getTime() - new Date(prev.at).getTime()) / 1000;
+          if (totalDelta > 0) {
+            pct = Math.max(0, Math.min(1, busyDelta / totalDelta));
+          }
+          if (wallSec > 0 && busyDelta >= 0) {
+            cores = busyDelta / wallSec;
+          }
+        }
         return (
           <div style={{ lineHeight: 1.3 }}>
             <div>{formatPercent(pct)}</div>
@@ -197,20 +206,25 @@ export default function SystemLandingPage() {
       },
     },
     // Memory — % primary, RSS / total secondary. Single-snapshot
-    // derivation (no delta needed). Linux-only data; macOS/Windows
-    // workers report 0 and we show "—".
+    // derivation. When mem_total isn't populated (macOS/Windows
+    // workers — no /proc) we still render the 0% / 0 B line so the
+    // column visually behaves the same as a Linux row at idle.
     {
       title: intl.formatMessage({ id: 'system.col.memory', defaultMessage: '内存' }),
       width: 180,
       render: (_, row) => {
         const r = row.envelope?.snapshot?.runtime;
-        if (!r || r.rss_bytes <= 0 || r.mem_total_bytes <= 0) return '—';
-        const pct = Math.max(0, Math.min(1, r.rss_bytes / r.mem_total_bytes));
+        if (!r) return '—';
+        const hasTotal = r.mem_total_bytes > 0;
+        const pct = hasTotal
+          ? Math.max(0, Math.min(1, r.rss_bytes / r.mem_total_bytes))
+          : 0;
         return (
           <div style={{ lineHeight: 1.3 }}>
             <div>{formatPercent(pct)}</div>
             <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #999)' }}>
-              {formatBytes(r.rss_bytes)} / {formatBytes(r.mem_total_bytes)}
+              {formatBytes(r.rss_bytes)}
+              {hasTotal && ` / ${formatBytes(r.mem_total_bytes)}`}
             </div>
           </div>
         );
