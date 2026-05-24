@@ -1,5 +1,6 @@
 import { Line } from '@ant-design/plots';
 import { Card, Empty } from 'antd';
+import { useThemeMode } from 'antd-style';
 import React from 'react';
 
 // SystemChart is a thin Line wrapper with the conventions the System
@@ -32,6 +33,12 @@ interface Flat {
 function SystemChart({ title, unit, unitScale, series, height, decimals }: Props) {
   const scale = unitScale ?? 1;
   const dec = decimals ?? 2;
+  // G2 ships two named themes ('classic' / 'classicDark') that match
+  // antd's light/dark token sets. Without this the chart axis labels
+  // and gridlines stay light-gray over the dark background and become
+  // unreadable.
+  const { appearance } = useThemeMode();
+  const dark = appearance === 'dark';
 
   const flat: Flat[] = React.useMemo(() => {
     const out: Flat[] = [];
@@ -88,6 +95,7 @@ function SystemChart({ title, unit, unitScale, series, height, decimals }: Props
             }}
             interaction={{ tooltip: { shared: true } }}
             style={{ lineWidth: 1.5 }}
+            theme={dark ? 'classicDark' : 'classic'}
             animate={false}
           />
         ) : (
