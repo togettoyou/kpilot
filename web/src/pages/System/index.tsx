@@ -3,7 +3,6 @@ import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import { Badge, Button, Progress, Space, Tag, Tooltip, theme } from 'antd';
 import { usageColor } from '@/pages/Compute/Volcano/shared/utils';
-import { ReloadOutlined } from '@ant-design/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   batchSystemSnapshots,
@@ -43,7 +42,6 @@ export default function SystemLandingPage() {
     {},
   );
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
   // Refs let the polling timer call latest fetchers without re-creating
   // the interval every render. envelopesRef mirrors `envelopes` so we
@@ -56,7 +54,6 @@ export default function SystemLandingPage() {
   const reload = async () => {
     if (inflightRef.current) return;
     inflightRef.current = true;
-    setRefreshing(true);
     try {
       const [list, batch] = await Promise.all([listSystemNodes(), batchSystemSnapshots()]);
       setNodes(list || []);
@@ -71,7 +68,6 @@ export default function SystemLandingPage() {
       // Errors are toasted globally by requestErrorConfig.
     } finally {
       setLoading(false);
-      setRefreshing(false);
       inflightRef.current = false;
     }
   };
@@ -316,15 +312,6 @@ export default function SystemLandingPage() {
         title: intl.formatMessage({ id: 'system.title', defaultMessage: '系统监控' }),
         breadcrumb: {},
       }}
-      extra={[
-        <Button
-          key="refresh"
-          icon={<ReloadOutlined spin={refreshing} />}
-          onClick={reload}
-        >
-          {intl.formatMessage({ id: 'system.refresh', defaultMessage: '刷新' })}
-        </Button>,
-      ]}
     >
       <ProTable<Row>
         rowKey="node_id"
