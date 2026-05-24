@@ -29,7 +29,7 @@ KPilot 自身的运行时观测面板 —— server 和每个 worker 进程的 G
         └── pprof    下载按钮组(heap / goroutine / allocs / block / mutex / threadcreate / CPU / trace)
 ```
 
-WebSocket 1 Hz 实时推流;前端 ringBuffer 默认保留 1 小时(3600 点)的图。
+WebSocket 0.5 Hz(每 2 秒一帧)推流;前端 ringBuffer 默认保留 3600 点 ≈ 2 小时窗口。
 
 ## API 端点
 
@@ -89,7 +89,7 @@ go tool pprof -http=:6060 -nodefraction=0 goroutine.pb.gz
 |---|---|
 | 没人看 dashboard | 每进程 +1 sleeping goroutine,空载内存增量 ~100 KB |
 | 1 个 browser 看 1 个节点 | 每秒一次 `runtime/metrics.Read()`(~10 µs)+ 一次 JSON encode + 一次 WS write(~1.5 KB);worker 路径多一次 tunnel HTTP round-trip(~200 µs loopback / 几 ms 跨网络) |
-| N 个 browser 看同一节点 | **不放大** —— fan-out hub 共享同一次 1 Hz 采集 |
+| N 个 browser 看同一节点 | **不放大** —— fan-out hub 共享同一次 0.5 Hz 采集 |
 | HTTPCollector hot path | 每请求 5–7 个 atomic 操作,**无 mutex / 无 CAS 重试**;p50/p90/p99 算在 reader 路径外 |
 | CPU profile 30s | 节点 CPU 短时升高 ~5%(这是 profile 的本意) |
 
@@ -140,4 +140,4 @@ func (myCustomCollector) Collect() map[string]any {
 
 - **不做告警**:这是诊断工具不是监控平台。告警走 VictoriaMetrics + Alertmanager 那一套。
 - **不做历史趋势**:浏览器 ringBuffer 最长 1 小时,关页面即丢。要看 7d / 30d 趋势,export 到 VM。
-- **不做多用户共享视图**:每个 browser 独立 ring buffer,但 server 端 1 Hz 采集 fan-out,不会因为 N 个浏览器把后端打爆。
+- **不做多用户共享视图**:每个 browser 独立 ring buffer,但 server 端 0.5 Hz 采集 fan-out,不会因为 N 个浏览器把后端打爆。

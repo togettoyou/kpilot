@@ -360,7 +360,14 @@ func (h *systemHub) runNode(ns *nodeStream) {
 			h.mu.Unlock()
 		}
 	}()
-	t := time.NewTicker(time.Second)
+	// 2 s cadence: 1 s redrew @ant-design/plots ~5–10 ms per chart;
+	// the Scheduler tab has 9 charts visible at once = 50–90 ms /
+	// sec ≈ 5–9% CPU on the browser tab just on redraws. Slowing to
+	// 2 s halves that, doubles the ring-buffer window (2 h instead of
+	// 1 h at 3600 samples), and stabilizes the per-tick CPU% delta
+	// (a 2-second sampling window is less noisy than 1 s). Operator
+	// can't perceive 1 Hz vs 0.5 Hz refresh anyway.
+	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
 	log.Printf("[system] hub started node=%s", ns.nodeID)
 	// Only log fetch failures on the OK → failing transition (and the
