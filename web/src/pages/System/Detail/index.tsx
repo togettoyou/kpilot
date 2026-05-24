@@ -364,7 +364,7 @@ export default function SystemDetailPage() {
             </div>
           );
           return (
-            <Col key={k.title} xs={12} sm={8} md={6} lg={3}>
+            <Col key={k.title} xs={12} sm={12} md={6} lg={6}>
               <Card size="small" style={{ height: '100%' }}>
                 <Statistic title={k.title} value={k.value} />
                 {k.subFull ? (
