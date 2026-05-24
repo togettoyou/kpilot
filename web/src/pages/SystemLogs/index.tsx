@@ -11,9 +11,16 @@ import {
   Switch,
   Tag,
   Tooltip,
+  Typography,
   theme,
 } from 'antd';
-import { ClearOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  ClearOutlined,
+  DownloadOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import TimeRangePicker, {
@@ -212,6 +219,7 @@ export default function SystemLogsPage() {
   const [range, setRange] = useState<TimeRangeValue>({ mode: 'preset', preset: '1h' });
   const [liveTail, setLiveTail] = useState<boolean>(false);
   const [limit, setLimit] = useState<number>(100);
+  const [fullscreen, setFullscreen] = useState<boolean>(false);
 
   // ─── Result state ─────────────────────────────────────────────────
   const [rows, setRows] = useState<SystemLogEntry[]>([]);
@@ -444,7 +452,9 @@ export default function SystemLogsPage() {
   // bail back to "everything, default node, last hour" in one click
   // instead of resetting each control individually. Clearing rows
   // alongside avoids a stale view while the new (post-reset) query
-  // is in flight.
+  // is in flight. Fullscreen flag intentionally NOT reset so a user
+  // in fullscreen reading mode can hit Reset without losing the
+  // immersive view.
   const resetForm = () => {
     setNodeID('server');
     setLevel('');
@@ -456,6 +466,21 @@ export default function SystemLogsPage() {
     setRows([]);
     lastSeqRef.current = '';
   };
+
+  // Esc exits fullscreen — global keydown listener while fullscreen
+  // is active. Skip when the user is in an input/textarea so Esc
+  // there still does its normal thing (blur / close picker).
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      setFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
 
   // ─── Export current rows ──────────────────────────────────────────
   //
@@ -538,154 +563,184 @@ export default function SystemLogsPage() {
           gap: 12,
         }}
       >
-        {/* ─── Toolbar card ─── */}
-        <Card
-          size="small"
-          styles={{ body: { padding: '10px 12px' } }}
-          style={{ flex: '0 0 auto' }}
-        >
-          <Space size={8} wrap>
-            <Select
-              value={nodeID}
-              onChange={setNodeID}
-              options={nodeOptions}
-              style={{ minWidth: 220 }}
-              size="small"
-              placeholder={intl.formatMessage({
-                id: 'pages.system.logs.toolbar.nodePlaceholder',
-              })}
-            />
-            <Select
-              value={level}
-              onChange={setLevel}
-              options={levelOptions}
-              style={{ width: 150 }}
-              size="small"
-            />
-            <Select
-              value={moduleFilter}
-              onChange={setModuleFilter}
-              options={moduleOptions}
-              style={{ minWidth: 180 }}
-              size="small"
-              showSearch
-              optionFilterProp="label"
-              allowClear
-              onClear={() => setModuleFilter('')}
-              placeholder={intl.formatMessage({
-                id: 'pages.system.logs.toolbar.modulePlaceholder',
-              })}
-            />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onPressEnter={() => runRangeQuery()}
-              style={{ width: 240 }}
-              size="small"
-              allowClear
-              placeholder={intl.formatMessage({ id: 'pages.system.logs.toolbar.search' })}
-            />
-            <Button size="small" onClick={resetForm}>
-              {intl.formatMessage({ id: 'pages.system.logs.toolbar.reset' })}
-            </Button>
-            {/* Range picker only meaningful in static-query mode.
-                Hidden in live tail so operators don't think the range
-                still constrains the polling tick. */}
-            {!liveTail && (
-              <TimeRangePicker
-                value={range}
-                onChange={setRange}
-                presets={['1h', '3h', '6h', '12h', '24h']}
+        {/* ─── Toolbar card (hidden in fullscreen mode) ─── */}
+        {!fullscreen && (
+          <Card
+            size="small"
+            styles={{ body: { padding: '10px 12px' } }}
+            style={{ flex: '0 0 auto' }}
+          >
+            <Space size={8} wrap>
+              <Select
+                value={nodeID}
+                onChange={setNodeID}
+                options={nodeOptions}
+                style={{ minWidth: 220 }}
+                size="small"
+                placeholder={intl.formatMessage({
+                  id: 'pages.system.logs.toolbar.nodePlaceholder',
+                })}
               />
-            )}
-            {/* Result-size picker. Drives both the backend ?limit= AND
-                the live-tail in-memory cap, so toggling between modes
-                doesn't change how many rows the operator sees. */}
-            <Select
-              value={limit}
-              onChange={setLimit}
-              options={LIMIT_OPTIONS.map((n) => ({
-                value: n,
-                label: `${intl.formatMessage({ id: 'pages.system.logs.toolbar.limit' })} ${n}`,
-              }))}
-              style={{ width: 110 }}
-              size="small"
-            />
-            <Tooltip title={intl.formatMessage({ id: 'pages.system.logs.tooltip.liveTail' })}>
-              <Space size={6} align="center">
-                <Switch checked={liveTail} onChange={setLiveTail} size="small" />
-                <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
-                  {intl.formatMessage({ id: 'pages.system.logs.toolbar.liveTail' })}
-                </span>
-              </Space>
-            </Tooltip>
-            <Button
-              size="small"
-              icon={<ReloadOutlined />}
-              onClick={() => runRangeQuery()}
-              loading={loading}
-              disabled={liveTail}
-            >
-              {intl.formatMessage({ id: 'pages.system.logs.toolbar.refresh' })}
-            </Button>
-            <Button
-              size="small"
-              icon={<ClearOutlined />}
-              onClick={clearRows}
-              disabled={rows.length === 0}
-            >
-              {intl.formatMessage({ id: 'pages.system.logs.toolbar.clear' })}
-            </Button>
-            <Dropdown
-              disabled={rows.length === 0}
-              menu={{
-                items: [
-                  {
-                    key: 'txt',
-                    label: intl.formatMessage({ id: 'pages.system.logs.download.txt' }),
-                    onClick: downloadTxt,
-                  },
-                  {
-                    key: 'ndjson',
-                    label: intl.formatMessage({ id: 'pages.system.logs.download.ndjson' }),
-                    onClick: downloadNdjson,
-                  },
-                ],
-              }}
-            >
+              <Select
+                value={level}
+                onChange={setLevel}
+                options={levelOptions}
+                style={{ width: 150 }}
+                size="small"
+              />
+              <Select
+                value={moduleFilter}
+                onChange={setModuleFilter}
+                options={moduleOptions}
+                style={{ minWidth: 180 }}
+                size="small"
+                showSearch
+                optionFilterProp="label"
+                allowClear
+                onClear={() => setModuleFilter('')}
+                placeholder={intl.formatMessage({
+                  id: 'pages.system.logs.toolbar.modulePlaceholder',
+                })}
+              />
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onPressEnter={() => runRangeQuery()}
+                style={{ width: 240 }}
+                size="small"
+                allowClear
+                placeholder={intl.formatMessage({ id: 'pages.system.logs.toolbar.search' })}
+              />
+              <Button size="small" onClick={resetForm}>
+                {intl.formatMessage({ id: 'pages.system.logs.toolbar.reset' })}
+              </Button>
+              {/* Range picker only meaningful in static-query mode.
+                  Hidden in live tail so operators don't think the range
+                  still constrains the polling tick. */}
+              {!liveTail && (
+                <TimeRangePicker
+                  value={range}
+                  onChange={setRange}
+                  presets={['1h', '3h', '6h', '12h', '24h']}
+                />
+              )}
+              {/* Result-size picker. Drives both the backend ?limit= AND
+                  the live-tail in-memory cap, so toggling between modes
+                  doesn't change how many rows the operator sees. */}
+              <Select
+                value={limit}
+                onChange={setLimit}
+                options={LIMIT_OPTIONS.map((n) => ({
+                  value: n,
+                  label: `${intl.formatMessage({ id: 'pages.system.logs.toolbar.limit' })} ${n}`,
+                }))}
+                style={{ width: 110 }}
+                size="small"
+              />
+              <Tooltip
+                title={intl.formatMessage({ id: 'pages.system.logs.tooltip.liveTail' })}
+              >
+                <Space size={6} align="center">
+                  <Switch checked={liveTail} onChange={setLiveTail} size="small" />
+                  <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                    {intl.formatMessage({ id: 'pages.system.logs.toolbar.liveTail' })}
+                  </span>
+                </Space>
+              </Tooltip>
               <Button
                 size="small"
-                type="text"
-                icon={<DownloadOutlined />}
+                icon={<ReloadOutlined />}
+                onClick={() => runRangeQuery()}
+                loading={loading}
+                disabled={liveTail}
+              >
+                {intl.formatMessage({ id: 'pages.system.logs.toolbar.refresh' })}
+              </Button>
+              <Button
+                size="small"
+                icon={<ClearOutlined />}
+                onClick={clearRows}
                 disabled={rows.length === 0}
               >
-                {intl.formatMessage({ id: 'pages.system.logs.toolbar.download' })}
+                {intl.formatMessage({ id: 'pages.system.logs.toolbar.clear' })}
               </Button>
-            </Dropdown>
-            <span
-              style={{
-                marginLeft: 'auto',
-                fontSize: 12,
-                color: token.colorTextTertiary,
-              }}
-            >
-              {rows.length > 0 &&
-                intl.formatMessage(
-                  {
-                    id:
-                      rows.length === limit
-                        ? 'pages.system.logs.status.countTrimmed'
-                        : 'pages.system.logs.status.count',
-                  },
-                  { count: rows.length },
-                )}
-            </span>
-          </Space>
-        </Card>
+            </Space>
+          </Card>
+        )}
 
-        {/* ─── Result card — fills remaining height, internal scroll only ─── */}
+        {/* ─── Result card — fills remaining height, internal scroll only.
+            Mirrors /clusters/:id/logging: title carries the result count,
+            extra hosts Download + Fullscreen toggle. */}
         <Card
           size="small"
+          title={
+            <Space size={8}>
+              <Typography.Text strong>
+                {intl.formatMessage({ id: 'pages.system.logs.results.title' })}
+              </Typography.Text>
+              {rows.length > 0 && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {intl.formatMessage(
+                    {
+                      id:
+                        rows.length === limit
+                          ? 'pages.system.logs.status.countTrimmed'
+                          : 'pages.system.logs.status.count',
+                    },
+                    { count: rows.length },
+                  )}
+                </Typography.Text>
+              )}
+            </Space>
+          }
+          extra={
+            <Space size={4}>
+              <Dropdown
+                disabled={rows.length === 0}
+                menu={{
+                  items: [
+                    {
+                      key: 'txt',
+                      label: intl.formatMessage({ id: 'pages.system.logs.download.txt' }),
+                      onClick: downloadTxt,
+                    },
+                    {
+                      key: 'ndjson',
+                      label: intl.formatMessage({
+                        id: 'pages.system.logs.download.ndjson',
+                      }),
+                      onClick: downloadNdjson,
+                    },
+                  ],
+                }}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<DownloadOutlined />}
+                  disabled={rows.length === 0}
+                >
+                  {intl.formatMessage({ id: 'pages.system.logs.toolbar.download' })}
+                </Button>
+              </Dropdown>
+              <Tooltip
+                title={intl.formatMessage({
+                  id: fullscreen
+                    ? 'pages.system.logs.fullscreen.exit'
+                    : 'pages.system.logs.fullscreen.enter',
+                })}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  icon={
+                    fullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />
+                  }
+                  onClick={() => setFullscreen((v) => !v)}
+                />
+              </Tooltip>
+            </Space>
+          }
           styles={{
             body: {
               padding: 0,
