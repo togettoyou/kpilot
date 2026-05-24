@@ -244,7 +244,16 @@ export default [
       },
     ],
   },
+  // ─── 插件管理 — global Helm chart registry ────────────────────────────
+  {
+    path: '/plugins',
+    name: 'plugins',
+    icon: 'appstore',
+    component: './Plugins/index',
+  },
   // ─── 系统监控 — self-observability for KPilot server + workers ────────
+  // Sits at the rightmost menu position: it's an ops/diag tool used to
+  // troubleshoot the control plane itself, not a primary workflow tab.
   {
     path: '/system',
     name: 'system',
@@ -259,13 +268,6 @@ export default [
         component: './System/Detail/index',
       },
     ],
-  },
-  // ─── 插件管理 — global Helm chart registry ────────────────────────────
-  {
-    path: '/plugins',
-    name: 'plugins',
-    icon: 'appstore',
-    component: './Plugins/index',
   },
   {
     path: '/',

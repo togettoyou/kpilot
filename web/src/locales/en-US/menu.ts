@@ -5,8 +5,8 @@ export default {
   'menu.clusters': 'Clusters',
   'menu.compute': 'Compute Scheduling',
   'menu.models': 'Model Serving',
-  'menu.system': 'System',
   'menu.plugins': 'Plugins',
+  'menu.system': 'System',
 
   // Cluster detail sider — injected when a cluster is selected under
   // /clusters/:id/*. Locale keys auto-derive as menu.clusters.{name}.
