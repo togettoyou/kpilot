@@ -1,7 +1,8 @@
 import { history, useIntl } from '@umijs/max';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
-import { Badge, Button, Space, Tag, Tooltip } from 'antd';
+import { Badge, Button, Progress, Space, Tag, Tooltip, theme } from 'antd';
+import { usageColor } from '@/pages/Compute/Volcano/shared/utils';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -29,6 +30,7 @@ const REFRESH_INTERVAL_MS = 10_000;
 
 export default function SystemLandingPage() {
   const intl = useIntl();
+  const { token } = theme.useToken();
   const [nodes, setNodes] = useState<SystemNode[]>([]);
   const [envelopes, setEnvelopes] = useState<Record<string, SystemSnapshotEnvelope>>({});
   // prevEnvelopes is the previous poll's batch — we need two samples
@@ -196,9 +198,15 @@ export default function SystemLandingPage() {
         }
         return (
           <div style={{ lineHeight: 1.3 }}>
-            <div>{formatPercent(pct)}</div>
+            <Progress
+              percent={pct * 100}
+              size="small"
+              showInfo={false}
+              strokeColor={usageColor(pct, token)}
+              style={{ marginBottom: 2 }}
+            />
             <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #999)' }}>
-              {cores.toFixed(2)} / {cur.identity.num_cpu}{' '}
+              {formatPercent(pct)} · {cores.toFixed(2)} / {cur.identity.num_cpu}{' '}
               {intl.formatMessage({ id: 'system.kpi.coresUnit', defaultMessage: '核' })}
             </div>
           </div>
@@ -221,8 +229,15 @@ export default function SystemLandingPage() {
           : 0;
         return (
           <div style={{ lineHeight: 1.3 }}>
-            <div>{formatPercent(pct)}</div>
+            <Progress
+              percent={pct * 100}
+              size="small"
+              showInfo={false}
+              strokeColor={usageColor(pct, token)}
+              style={{ marginBottom: 2 }}
+            />
             <div style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #999)' }}>
+              {hasTotal && `${formatPercent(pct)} · `}
               {formatBytes(r.rss_bytes)}
               {hasTotal && ` / ${formatBytes(r.mem_total_bytes)}`}
             </div>
