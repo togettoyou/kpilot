@@ -147,14 +147,19 @@ export default function SystemDetailPage() {
   // pprof can't reach the node, charts won't refresh until the
   // worker reconnects and the poller catches up.
   //
-  // For the server node this can also briefly fire during a slow
-  // poll, but resolves on the next successful insert.
+  // Gated on isLive: in historical ranges (3h / 6h / 12h / 24h
+  // presets, or any absolute window) the latest loaded sample is
+  // OLDER THAN now BY DESIGN — that's the whole point of "look at
+  // yesterday". Firing the stale banner there is a false positive.
+  // The signal is only meaningful when the range is the live 1h
+  // preset, where we expect ring.tail to be within ~15s of now.
   const stale = useMemo(() => {
+    if (!isLive) return false;
     if (!lastAtRef.current) return false; // no data yet ≠ stale
     const ageMs = Date.now() - new Date(lastAtRef.current).getTime();
     return ageMs > POLL_INTERVAL_MS * 2;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick]);
+  }, [tick, isLive]);
 
   // Initial fetch: pull the chosen range so the chart paints with
   // full context immediately. Reruns on node OR range change —

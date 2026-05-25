@@ -50,12 +50,34 @@ function SystemChart({ title, unit, unitScale, series, height, decimals }: Props
     return out;
   }, [series, scale]);
 
+  // Span between earliest and latest data point in ms. Used to pick
+  // the x-axis tick format: ranges spanning > 24h need the date on
+  // each tick (otherwise "08:00" appears twice and you can't tell
+  // yesterday's 8am from today's). Sub-day ranges stay compact at
+  // hh:mm:ss so ticks fit without rotation.
+  const span = React.useMemo(() => {
+    if (flat.length < 2) return 0;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const p of flat) {
+      if (p.t < min) min = p.t;
+      if (p.t > max) max = p.t;
+    }
+    return max - min;
+  }, [flat]);
+  const showDateOnAxis = span > 24 * 3600 * 1000;
+
   const hasData = flat.length > 0;
   const h = height ?? 220;
 
   return (
     <Card size="small" title={title} style={{ height: '100%' }} styles={{ body: { padding: 12 } }}>
-      <div style={{ width: '100%', height: h, overflow: 'hidden' }}>
+      {/* overflow: visible so G2's tooltip (rendered inside this
+          wrapper div) isn't clipped at the card's content edge —
+          multi-series tooltips routinely extend above/right of the
+          hovered point. animate={false} on Line means no transient
+          chart-content bleed during resize, so visible is safe. */}
+      <div style={{ width: '100%', height: h, overflow: 'visible' }}>
         {hasData ? (
           <Line
             data={flat}
@@ -69,6 +91,11 @@ function SystemChart({ title, unit, unitScale, series, height, decimals }: Props
                   if (Number.isNaN(d.getTime())) return '';
                   const hh = String(d.getHours()).padStart(2, '0');
                   const mm = String(d.getMinutes()).padStart(2, '0');
+                  if (showDateOnAxis) {
+                    const M = String(d.getMonth() + 1).padStart(2, '0');
+                    const D = String(d.getDate()).padStart(2, '0');
+                    return `${M}-${D} ${hh}:${mm}`;
+                  }
                   const ss = String(d.getSeconds()).padStart(2, '0');
                   return `${hh}:${mm}:${ss}`;
                 },
@@ -81,9 +108,20 @@ function SystemChart({ title, unit, unitScale, series, height, decimals }: Props
             scale={{ y: { domainMin: 0 } }}
             legend={{ color: { itemMarker: 'circle' } }}
             tooltip={{
+              // Always full YYYY-MM-DD HH:MM:SS in the tooltip so the
+              // operator never has to wonder which day a point belongs
+              // to (especially when comparing today vs yesterday on the
+              // same chart).
               title: (datum: any) => {
                 const d = new Date(datum.t);
-                return d.toLocaleTimeString();
+                if (Number.isNaN(d.getTime())) return '';
+                const Y = d.getFullYear();
+                const M = String(d.getMonth() + 1).padStart(2, '0');
+                const D = String(d.getDate()).padStart(2, '0');
+                const hh = String(d.getHours()).padStart(2, '0');
+                const mm = String(d.getMinutes()).padStart(2, '0');
+                const ss = String(d.getSeconds()).padStart(2, '0');
+                return `${Y}-${M}-${D} ${hh}:${mm}:${ss}`;
               },
               items: [
                 {
