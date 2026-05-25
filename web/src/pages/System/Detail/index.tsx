@@ -397,7 +397,6 @@ export default function SystemDetailPage() {
           value={range}
           onChange={setRange}
           presets={['1h', '3h', '6h', '12h', '24h']}
-          maxDays={1}
         />
         <Tag color={paused ? 'default' : 'processing'}>
           {paused
