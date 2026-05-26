@@ -1,7 +1,9 @@
 import type { ProFormInstance } from '@ant-design/pro-components';
 import {
   DrawerForm,
+  ProFormDependency,
   ProFormDigit,
+  ProFormRadio,
   ProFormSelect,
   ProFormText,
   ProFormTextArea,
@@ -15,14 +17,17 @@ import type {
   ModelFamily,
   ModelPayload,
   ModelRuntime,
+  ModelSource,
 } from '@/services/kpilot/model';
 import {
   createModel,
   FAMILY_LABELS,
   MODEL_FAMILIES,
   MODEL_RUNTIMES,
+  MODEL_SOURCES,
   RUNTIME_DEFAULTS,
   RUNTIME_LABELS,
+  SOURCE_LABELS,
   updateModel,
 } from '@/services/kpilot/model';
 
@@ -47,7 +52,16 @@ interface FormValues {
   family: ModelFamily;
   runtime: ModelRuntime;
   image: string;
-  hugging_face_id?: string;
+  source: ModelSource;
+  // Per-source identifier — only one of these is meaningful based on
+  // `source` but we always carry all four in state so toggling the
+  // Segmented control preserves whatever the user already typed in
+  // an inactive field. Wire payload normalises to empty strings for
+  // the unused ones.
+  source_ref?: string;
+  hf_endpoint?: string;
+  oci_url?: string;
+  local_path?: string;
   // Multi-line "one flag per line" text in the UI; serialised back
   // to the JSON array string wire format on submit. Same shape the
   // deploy drawer uses for extra_args, so users see a consistent
@@ -133,6 +147,11 @@ const ModelDrawer: React.FC<Props> = ({
       recommended_gpu.model = values.gpu_model;
     }
 
+    // Normalise the per-source fields: only the one matching the
+    // selected source is sent with content; the others are blanked
+    // so the server doesn't store stale values from a previous edit
+    // where the user toggled source back and forth.
+    const src = values.source;
     const payload: ModelPayload = {
       name: values.name,
       display_name: values.display_name,
@@ -140,7 +159,14 @@ const ModelDrawer: React.FC<Props> = ({
       family: values.family,
       runtime: values.runtime,
       image: values.image,
-      hugging_face_id: values.hugging_face_id ?? '',
+      source: src,
+      source_ref:
+        src === 'huggingface' || src === 'modelscope'
+          ? (values.source_ref ?? '')
+          : '',
+      hf_endpoint: src === 'huggingface' ? (values.hf_endpoint ?? '') : '',
+      oci_url: src === 'oci' ? (values.oci_url ?? '') : '',
+      local_path: src === 'local_path' ? (values.local_path ?? '') : '',
       default_args: argsTextToJson(values.default_args_text),
       recommended_gpu:
         Object.keys(recommended_gpu).length > 0
@@ -202,11 +228,17 @@ const ModelDrawer: React.FC<Props> = ({
         display_name: isDuplicate
           ? `${model.display_name} (Copy)`
           : model.display_name,
-        description: model.description,
+        description: isDuplicate ? '' : model.description,
         family: isDuplicate && model.is_builtin ? 'custom' : model.family,
         runtime: model.runtime,
         image: model.image,
-        hugging_face_id: model.hugging_face_id,
+        // Default legacy rows with empty `source` to huggingface —
+        // matches the server-side default.
+        source: model.source || 'huggingface',
+        source_ref: model.source_ref,
+        hf_endpoint: model.hf_endpoint,
+        oci_url: model.oci_url,
+        local_path: model.local_path,
         default_args_text: argsJsonToText(model.default_args),
         ...parseGPU(model.recommended_gpu),
         license: model.license,
@@ -214,6 +246,7 @@ const ModelDrawer: React.FC<Props> = ({
     : {
         family: 'custom',
         runtime: 'vllm',
+        source: 'huggingface',
         // image + default_args pulled from the same RUNTIME_DEFAULTS
         // map the runtime auto-swap reads, so the initial open and a
         // subsequent runtime change land on identical templates.
@@ -249,10 +282,9 @@ const ModelDrawer: React.FC<Props> = ({
       }}
       onValuesChange={(changed) => {
         // Runtime swap rewrites image + default_args to the new
-        // runtime's template. Fires in every mode (create / edit /
-        // duplicate) because switching runtime is a deliberate user
-        // action — the previous "edit preserves" rule left the user
-        // staring at vLLM args after picking SGLang from the Select.
+        // runtime's template. Currently only vllm is supported, but
+        // the swap path is kept so adding a future runtime only
+        // needs an entry in RUNTIME_DEFAULTS.
         if (!('runtime' in changed) || !changed.runtime) return;
         const defaults = RUNTIME_DEFAULTS[changed.runtime as ModelRuntime];
         if (!defaults) return;
@@ -348,15 +380,131 @@ const ModelDrawer: React.FC<Props> = ({
         fieldProps={{ maxLength: 512 }}
       />
 
-      <ProFormText
-        name="hugging_face_id"
-        label={intl.formatMessage({ id: 'pages.models.registry.form.hf' })}
+      <Typography.Title level={5} style={{ marginBottom: 12, marginTop: 12 }}>
+        {intl.formatMessage({ id: 'pages.common.source' })}
+      </Typography.Title>
+
+      {/* Source picker — button-style radio reads cleaner than a
+          Select for a 4-way categorical with brand-name labels.
+          The dependent fields render conditionally so an operator
+          only sees the one that matters for their chosen source. */}
+      <ProFormRadio.Group
+        name="source"
+        label={intl.formatMessage({ id: 'pages.models.registry.form.source' })}
         tooltip={intl.formatMessage({
-          id: 'pages.models.registry.form.hf.help',
+          id: 'pages.models.registry.form.source.help',
         })}
-        rules={[{ max: 255 }]}
-        fieldProps={{ maxLength: 255 }}
+        radioType="button"
+        options={MODEL_SOURCES.map((s) => ({
+          label: SOURCE_LABELS[s],
+          value: s,
+        }))}
+        rules={[{ required: true }]}
       />
+
+      <ProFormDependency name={['source']}>
+        {(values) => {
+          // ProFormDependency types children as RenderChildren<unknown>;
+          // narrow here rather than annotate the param so the inner
+          // render function still type-checks against the parent's
+          // generic.
+          const source = (values?.source ?? 'huggingface') as ModelSource;
+          // huggingface / modelscope share the same SourceRef shape
+          // (a "org/repo" identifier on the hub). Label / tooltip /
+          // placeholder vary by hub so the user sees the right
+          // example string without guessing. HF also gets the
+          // optional mirror endpoint field.
+          if (source === 'huggingface') {
+            return (
+              <>
+                <ProFormText
+                  name="source_ref"
+                  label={intl.formatMessage({
+                    id: 'pages.models.registry.form.source_ref.hf',
+                  })}
+                  tooltip={intl.formatMessage({
+                    id: 'pages.models.registry.form.source_ref.hf.help',
+                  })}
+                  placeholder="Qwen/Qwen3-0.6B"
+                  rules={[{ required: true }, { max: 255 }]}
+                  fieldProps={{ maxLength: 255 }}
+                />
+                <ProFormText
+                  name="hf_endpoint"
+                  label={intl.formatMessage({
+                    id: 'pages.models.registry.form.hf_endpoint',
+                  })}
+                  tooltip={intl.formatMessage({
+                    id: 'pages.models.registry.form.hf_endpoint.help',
+                  })}
+                  placeholder="https://hf-mirror.com"
+                  rules={[{ max: 512 }]}
+                  fieldProps={{ maxLength: 512 }}
+                />
+              </>
+            );
+          }
+          if (source === 'modelscope') {
+            return (
+              <ProFormText
+                name="source_ref"
+                label={intl.formatMessage({
+                  id: 'pages.models.registry.form.source_ref.ms',
+                })}
+                tooltip={intl.formatMessage({
+                  id: 'pages.models.registry.form.source_ref.ms.help',
+                })}
+                placeholder="Qwen/Qwen3-0.6B"
+                rules={[{ required: true }, { max: 255 }]}
+                fieldProps={{ maxLength: 255 }}
+              />
+            );
+          }
+          if (source === 'local_path') {
+            return (
+              <ProFormText
+                name="local_path"
+                label={intl.formatMessage({
+                  id: 'pages.models.registry.form.local_path',
+                })}
+                tooltip={intl.formatMessage({
+                  id: 'pages.models.registry.form.local_path.help',
+                })}
+                placeholder="/models/qwen3-0.6b"
+                rules={[
+                  { required: true },
+                  { max: 512 },
+                  {
+                    // Mirrors the server-side localPathRe; UI
+                    // surfaces the constraint before submit so the
+                    // operator doesn't see a generic 400.
+                    pattern: /^\/[A-Za-z0-9._/-]+$/,
+                    message: intl.formatMessage({
+                      id: 'pages.models.registry.form.local_path.help',
+                    }),
+                  },
+                ]}
+                fieldProps={{ maxLength: 512 }}
+              />
+            );
+          }
+          // OCI
+          return (
+            <ProFormText
+              name="oci_url"
+              label={intl.formatMessage({
+                id: 'pages.models.registry.form.oci_url',
+              })}
+              tooltip={intl.formatMessage({
+                id: 'pages.models.registry.form.oci_url.help',
+              })}
+              placeholder="ghcr.io/myorg/qwen3-0.6b:v1"
+              rules={[{ required: true }, { max: 512 }]}
+              fieldProps={{ maxLength: 512 }}
+            />
+          );
+        }}
+      </ProFormDependency>
 
       <Typography.Title level={5} style={{ marginBottom: 12, marginTop: 12 }}>
         {intl.formatMessage({ id: 'pages.common.tuning' })}

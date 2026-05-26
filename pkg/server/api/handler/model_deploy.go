@@ -39,20 +39,21 @@ var modelDeployLog = kplog.L("model-list")
 var dnsLabelRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 const (
-	maxDeployInstanceLen  = 30          // model.Name is up to 63; instance up to 30 keeps the joined name within K8s' 63 label cap
-	maxDeployNamespaceLen = 63
-	maxDeployExtraArgsLen = 8 * 1024    // mirrors maxModelDefaultArgsLen — user's per-deploy override
-	maxDeployHFTokenLen   = 200         // HF tokens are typically ~40 chars; cap with headroom
-	maxDeployReplicas     = 32          // sanity ceiling — beyond this is a cluster scaling story, not P16
-	maxDeployGPUCount     = 16          // single Pod cap; multi-node would need a Job not a Deployment
-	maxDeployPVCSizeGiB   = 4096        // 4 TiB ceiling so a typo doesn't request 999999 GiB
-	maxDeployQtyLen       = 32          // K8s quantity strings ("4Gi", "500m", "2") are short; mirrors JobForm
-	maxDeployVGPUMemMiB   = 1 << 20     // 1 TiB in MiB — single-slot ceiling far past any real card
+	maxDeployInstanceLen        = 30          // model.Name is up to 63; instance up to 30 keeps the joined name within K8s' 63 label cap
+	maxDeployNamespaceLen       = 63
+	maxDeployExtraArgsLen       = 8 * 1024    // mirrors maxModelDefaultArgsLen — user's per-deploy override
+	maxDeployRegistryTokenLen   = 200         // HF / ModelScope tokens are typically ~40 chars; cap with headroom
+	maxDeployLocalPVCNameLen    = 63          // K8s PVC name = DNS-1123 label
+	maxDeployReplicas           = 32          // sanity ceiling — beyond this is a cluster scaling story, not P16
+	maxDeployGPUCount           = 16          // single Pod cap; multi-node would need a Job not a Deployment
+	maxDeployPVCSizeGiB         = 4096        // 4 TiB ceiling so a typo doesn't request 999999 GiB
+	maxDeployQtyLen             = 32          // K8s quantity strings ("4Gi", "500m", "2") are short; mirrors JobForm
+	maxDeployVGPUMemMiB         = 1 << 20     // 1 TiB in MiB — single-slot ceiling far past any real card
 )
 
 // deployRequest is the wire shape of POST /api/v1/models/:id/deploy.
 // Field names are snake_case to match the rest of the API. PVC has
-// its own nested shape so a future "share weights across deploys"
+// its own nested shape so a future "share model files across deploys"
 // option (RWX, claimName override) can land without changing the
 // top-level surface.
 type deployRequest struct {
@@ -75,9 +76,18 @@ type deployRequest struct {
 	// vgpu_cores is 0..100 percent of SMs per slot.
 	VGPUMemoryMiB int      `json:"vgpu_memory_mib"`
 	VGPUCores     int      `json:"vgpu_cores"`
-	HFToken       string   `json:"hf_token"`
-	ExtraArgs     []string `json:"extra_args"`
-	PVC           pvcReq   `json:"pvc"`
+	// RegistryToken is the auth token for the model source's hub:
+	//   source=huggingface → HF_TOKEN env (gated repos)
+	//   source=modelscope  → MODELSCOPE_API_TOKEN env (private repos)
+	//   source=local_path / oci → ignored
+	RegistryToken string `json:"registry_token"`
+	// LocalPVCName is the cluster-side pre-existing PVC to mount for
+	// source=local_path (required) or source=oci (optional cache).
+	// Ignored for source=huggingface / modelscope (those use the PVC
+	// sub-spec below).
+	LocalPVCName string   `json:"local_pvc_name"`
+	ExtraArgs    []string `json:"extra_args"`
+	PVC          pvcReq   `json:"pvc"`
 }
 
 type pvcReq struct {
@@ -111,8 +121,13 @@ func (r *deployRequest) validate() string {
 	if r.GPUType != "" && r.GPUType != "nvidia" && r.GPUType != "volcano" {
 		return CodeInvalidRequest
 	}
-	if len(r.HFToken) > maxDeployHFTokenLen {
+	if len(r.RegistryToken) > maxDeployRegistryTokenLen {
 		return CodeInvalidRequest
+	}
+	if r.LocalPVCName != "" {
+		if len(r.LocalPVCName) > maxDeployLocalPVCNameLen || !dnsLabelRe.MatchString(r.LocalPVCName) {
+			return CodeInvalidRequest
+		}
 	}
 	if r.PVC.Enabled {
 		if r.PVC.SizeGiB <= 0 || r.PVC.SizeGiB > maxDeployPVCSizeGiB {
@@ -224,7 +239,8 @@ func DeployModel(gw *gateway.GatewayServer) gin.HandlerFunc {
 			MemoryLimit:     req.MemoryLimit,
 			VGPUMemoryMiB:   req.VGPUMemoryMiB,
 			VGPUCores:       req.VGPUCores,
-			HFToken:         req.HFToken,
+			RegistryToken:   req.RegistryToken,
+			LocalPVCName:    req.LocalPVCName,
 			ExtraArgs:       req.ExtraArgs,
 			PVC: deploy.PVCSpec{
 				Enabled:          req.PVC.Enabled,
@@ -295,14 +311,14 @@ type modelInstance struct {
 	ModelFamily      string `json:"model_family,omitempty"`
 	ModelRuntime     string `json:"model_runtime,omitempty"`
 	// ModelField is the exact string the inference Service expects
-	// in `chat/completions` request body's `model` field. vLLM /
-	// SGLang / TGI start with `--model <HuggingFaceID>` (or the
-	// runtime's equivalent flag), so the served model name == the
-	// HF id. Falls back to deployment name when HF id is empty
-	// (custom rows without an HF source); orphan rows (catalog
-	// gone) also fall back to deployment name. Empty value would
-	// always 404 in vLLM — we keep this server-side so the chat
-	// page doesn't have to know about runtime quirks.
+	// in `chat/completions` request body's `model` field. vLLM
+	// serves under whatever it was launched with via `--model`:
+	// the HF / MS repo id for hub sources, the local path for
+	// local_path, or `/weights` (generator hard-coded) for OCI.
+	// Orphan rows (catalog deleted but cluster still has the
+	// Deployment) fall back to the deployment name. Empty value
+	// would always 404 in vLLM — we keep this server-side so the
+	// chat page doesn't have to know about source quirks.
 	ModelField string `json:"model_field"`
 
 	ClusterID         string    `json:"cluster_id"`
@@ -546,7 +562,17 @@ func listInstancesInCluster(
 					displayName = m.DisplayName
 					family = string(m.Family)
 					runtime = string(m.Runtime)
-					modelField = m.HuggingFaceID
+					// vLLM serves under the `--model` value: HF / MS repo
+					// id for those sources, the local path for local_path,
+					// or `/weights` (generator-hardcoded) for OCI.
+					switch m.Source {
+					case store.ModelSourceLocalPath:
+						modelField = m.LocalPath
+					case store.ModelSourceOCI:
+						modelField = "/weights"
+					default:
+						modelField = m.SourceRef
+					}
 				} else {
 					// Orphan: catalog row deleted but cluster still
 					// has the Deployment. Surface anyway so the user

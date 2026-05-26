@@ -62,7 +62,14 @@ interface FormValues {
   // state stays consistent across runtime toggles.
   vgpu_memory_mib?: number;
   vgpu_cores?: number;
-  hf_token: string;
+  // Registry auth token. Server picks the env name (HF_TOKEN /
+  // MODELSCOPE_API_TOKEN) based on the catalog row's source. Only
+  // visible for hub sources.
+  registry_token: string;
+  // Pre-existing PVC in the target namespace. Required for
+  // source=local_path; optional cache for source=oci. Hidden for
+  // hub sources (those use the generated PVC sub-spec below).
+  local_pvc_name: string;
   extra_args_text: string;
   pvc_enabled: boolean;
   pvc_size_gib: number;
@@ -146,7 +153,8 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
       memory_limit: '',
       vgpu_memory_mib: undefined,
       vgpu_cores: undefined,
-      hf_token: '',
+      registry_token: '',
+      local_pvc_name: '',
       extra_args_text: '',
       pvc_enabled: true,
       pvc_size_gib: pvcSizeForModel(model),
@@ -174,6 +182,13 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
     listClusters,
     { formatResult: (res) => res },
   );
+
+  // modelSource defaults to huggingface for legacy rows where the
+  // server hadn't set the field yet. Drives all the conditional
+  // visibility below.
+  const modelSource = model?.source || 'huggingface';
+  const isHubSource =
+    modelSource === 'huggingface' || modelSource === 'modelscope';
 
   const buildPayload = (values: FormValues): DeployPayload => {
     const extra_args = values.extra_args_text
@@ -205,10 +220,19 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
         useVolcano && values.vgpu_cores && values.vgpu_cores > 0
           ? values.vgpu_cores
           : undefined,
-      hf_token: values.hf_token,
+      // Token only meaningful for hub sources; drop any stale value
+      // from a previous (different-source) form session.
+      registry_token: isHubSource ? values.registry_token : '',
+      // LocalPVCName only meaningful for local_path / oci. Send
+      // empty string for hub sources to keep the server contract
+      // clean.
+      local_pvc_name: isHubSource ? '' : values.local_pvc_name.trim(),
       extra_args,
+      // Generated PVC sub-spec only meaningful for hub sources.
+      // Local/OCI use local_pvc_name above; the server ignores this
+      // sub-spec for them but we zero it out anyway for hygiene.
       pvc: {
-        enabled: values.pvc_enabled,
+        enabled: isHubSource ? values.pvc_enabled : false,
         size_gib: values.pvc_size_gib,
         storage_class_name: values.pvc_storage_class_name || undefined,
       },
@@ -663,77 +687,133 @@ const DeployDrawer: React.FC<Props> = ({ open, model, onClose }) => {
 
                 <Typography.Title level={5} style={{ marginTop: 16 }}>
                   {intl.formatMessage({
-                    id: 'pages.models.deploy.pvc.section',
+                    id: 'pages.models.deploy.weights.section',
                   })}
                 </Typography.Title>
 
-                <Alert
-                  type="warning"
-                  showIcon
-                  style={{ marginBottom: 12 }}
-                  message={intl.formatMessage({
-                    id: 'pages.models.deploy.pvc.help',
-                  })}
-                />
-
-                <Form.Item name="pvc_enabled" valuePropName="checked">
-                  <Checkbox>
-                    {intl.formatMessage({
-                      id: 'pages.models.deploy.pvc.enabled',
-                    })}
-                  </Checkbox>
-                </Form.Item>
-
-                <Space size="large">
-                  <Form.Item
-                    name="pvc_size_gib"
-                    label={intl.formatMessage({
-                      id: 'pages.models.deploy.pvc.size',
-                    })}
-                  >
-                    <InputNumber min={1} max={4096} />
-                  </Form.Item>
-
-                  <Form.Item
-                    name="pvc_storage_class_name"
-                    label={intl.formatMessage({
-                      id: 'pages.models.deploy.pvc.storageClass',
-                    })}
-                    style={{ minWidth: 240 }}
-                  >
-                    <Input
-                      placeholder={intl.formatMessage({
-                        id: 'pages.models.deploy.pvc.storageClass.placeholder',
+                {/* Weights wiring is source-dependent. Hub sources
+                    (HF / MS) generate a PVC at apply time; local /
+                    OCI consume a pre-existing PVC the operator
+                    provisioned out-of-band. Two branches: */}
+                {isHubSource ? (
+                  <>
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 12 }}
+                      message={intl.formatMessage({
+                        id: 'pages.models.deploy.pvc.help',
                       })}
-                      autoComplete="off"
+                    />
+                    <Form.Item name="pvc_enabled" valuePropName="checked">
+                      <Checkbox>
+                        {intl.formatMessage({
+                          id: 'pages.models.deploy.pvc.enabled',
+                        })}
+                      </Checkbox>
+                    </Form.Item>
+                    <Space size="large">
+                      <Form.Item
+                        name="pvc_size_gib"
+                        label={intl.formatMessage({
+                          id: 'pages.models.deploy.pvc.size',
+                        })}
+                      >
+                        <InputNumber min={1} max={4096} />
+                      </Form.Item>
+                      <Form.Item
+                        name="pvc_storage_class_name"
+                        label={intl.formatMessage({
+                          id: 'pages.models.deploy.pvc.storageClass',
+                        })}
+                        style={{ minWidth: 240 }}
+                      >
+                        <Input
+                          placeholder={intl.formatMessage({
+                            id: 'pages.models.deploy.pvc.storageClass.placeholder',
+                          })}
+                          autoComplete="off"
+                        />
+                      </Form.Item>
+                    </Space>
+                  </>
+                ) : (
+                  <>
+                    {/* local_path: PVC required; oci: PVC optional
+                        (falls back to emptyDir, re-pulled per
+                        restart). Single Form.Item; the alert
+                        explains the source-specific contract. */}
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 12 }}
+                      message={intl.formatMessage({
+                        id:
+                          modelSource === 'local_path'
+                            ? 'pages.models.deploy.localPVC.help.localPath'
+                            : 'pages.models.deploy.localPVC.help.oci',
+                      })}
+                    />
+                    <Form.Item
+                      name="local_pvc_name"
+                      label={intl.formatMessage({
+                        id: 'pages.models.deploy.localPVC.name',
+                      })}
+                      rules={[
+                        // Required for local_path; optional for OCI.
+                        ...(modelSource === 'local_path'
+                          ? [{ required: true }]
+                          : []),
+                        {
+                          validator: async (_: unknown, v: string) => {
+                            if (!v) return;
+                            if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(v)) {
+                              throw new Error('DNS-1123 label');
+                            }
+                            if (v.length > 63) throw new Error('max 63');
+                          },
+                        },
+                      ]}
+                    >
+                      <Input
+                        maxLength={63}
+                        placeholder="qwen3-weights"
+                        autoComplete="off"
+                      />
+                    </Form.Item>
+                  </>
+                )}
+
+                {/* Registry token only for hub sources. Label /
+                    tooltip i18n key swap by source so the operator
+                    sees "HuggingFace Token" vs "ModelScope Token"
+                    without the form needing two duplicate fields. */}
+                {isHubSource && (
+                  <Form.Item
+                    name="registry_token"
+                    label={intl.formatMessage({
+                      id:
+                        modelSource === 'modelscope'
+                          ? 'pages.models.deploy.registryToken.ms'
+                          : 'pages.models.deploy.registryToken.hf',
+                    })}
+                    tooltip={intl.formatMessage({
+                      id:
+                        modelSource === 'modelscope'
+                          ? 'pages.models.deploy.registryToken.ms.help'
+                          : 'pages.models.deploy.registryToken.hf.help',
+                    })}
+                    rules={[{ max: 200 }]}
+                  >
+                    <Input.Password
+                      maxLength={200}
+                      placeholder={
+                        modelSource === 'modelscope' ? 'ms-...' : 'hf_...'
+                      }
+                      autoComplete="new-password"
                     />
                   </Form.Item>
-                </Space>
-
-                {/* HF Token at the bottom — browsers pair a password
-                    field's autofill with the FIRST text input that
-                    appears before it in the form. Putting this last
-                    keeps the Cluster Select / Namespace / Instance
-                    inputs all "above" the password, so Chrome stops
-                    offering to fill saved usernames into them. The
-                    autoComplete="new-password" is the only value
-                    Chrome respects for "don't autofill". */}
-                <Form.Item
-                  name="hf_token"
-                  label={intl.formatMessage({
-                    id: 'pages.models.deploy.hfToken',
-                  })}
-                  tooltip={intl.formatMessage({
-                    id: 'pages.models.deploy.hfToken.help',
-                  })}
-                  rules={[{ max: 200 }]}
-                >
-                  <Input.Password
-                    maxLength={200}
-                    placeholder="hf_..."
-                    autoComplete="new-password"
-                  />
-                </Form.Item>
+                )}
               </Form>
             ),
           },

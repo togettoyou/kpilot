@@ -9,9 +9,13 @@
 //
 // Outputs (in apply order):
 //   - Namespace          (only if opts.CreateNamespace)
-//   - PVC                (only if opts.PVC.Enabled, RWO + Retain)
-//   - Secret             (only if opts.HFToken non-empty)
-//   - Deployment         (always)
+//   - PVC                (only if opts.PVC.Enabled AND source uses
+//                        generator-managed cache — huggingface /
+//                        modelscope. local_path / oci use opts.LocalPVCName
+//                        which must already exist.)
+//   - Secret             (only if opts.RegistryToken non-empty AND
+//                        source is huggingface / modelscope)
+//   - Deployment         (always; OCI source gets an ORAS initContainer)
 //   - Service            (always, ClusterIP, port 8000)
 //
 // Identity scheme is the same one [[doc:models.md]] describes:
@@ -28,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 
@@ -56,9 +61,9 @@ const (
 	GPUTypeVolcano GPUType = "volcano" // volcano.sh/vgpu-number: N (+ vgpu-memory if known)
 )
 
-// PVCSpec sub-options for the model-weights cache PVC. When
-// Enabled=false the Deployment uses emptyDir and re-downloads
-// weights every cold start — fine for the smallest test models,
+// PVCSpec sub-options for the model-files cache PVC. When
+// Enabled=false the Deployment uses emptyDir and re-downloads the
+// model every cold start — fine for the smallest test models,
 // painful for anything north of 10 GB.
 type PVCSpec struct {
 	Enabled          bool
@@ -97,10 +102,20 @@ type DeployOptions struct {
 	VGPUMemoryMiB int
 	VGPUCores     int
 
-	// HFToken, when non-empty, becomes a Secret + envFrom on the
-	// container so gated models (Llama 4, Mistral 7B etc) can pull
-	// from HuggingFace at startup.
-	HFToken string
+	// RegistryToken, when non-empty, becomes a Secret + envFrom on
+	// the container so gated models can be pulled at startup. The
+	// env key is source-dependent:
+	//   source=huggingface → HF_TOKEN
+	//   source=modelscope  → MODELSCOPE_API_TOKEN
+	//   source=local_path / oci → ignored (no Secret emitted)
+	RegistryToken string
+
+	// LocalPVCName is the cluster-side pre-existing PVC to mount
+	// when source=local_path (required) or source=oci (optional —
+	// when set, OCI pulls are persisted across pod restarts).
+	// Ignored for source=huggingface / modelscope (those use the
+	// PVC sub-spec below).
+	LocalPVCName string
 
 	// ExtraArgs append to the model's default_args list. Useful for
 	// per-deployment tweaks ("this instance gets --max-model-len
@@ -108,6 +123,9 @@ type DeployOptions struct {
 	// catalog row.
 	ExtraArgs []string
 
+	// PVC controls a generator-managed cache PVC. Only honored for
+	// source=huggingface / modelscope; the other sources use
+	// LocalPVCName above.
 	PVC PVCSpec
 }
 
@@ -124,15 +142,31 @@ type DeploymentBundle struct {
 }
 
 const (
-	// containerPort is what vLLM / SGLang / TGI all listen on by
-	// default in their official images. If a future runtime breaks
-	// this convention we can fold it into a per-runtime constant.
+	// containerPort is vLLM's default OpenAI-compatible HTTP port.
 	containerPort = 8000
 
-	// hfCacheMount is where vLLM expects HuggingFace weights cached.
+	// hfCacheMount is where vLLM expects the HuggingFace model cache.
 	// $HF_HOME overrides this but the PVC + Deployment env do the
 	// same thing more transparently.
 	hfCacheMount = "/root/.cache/huggingface"
+
+	// msCacheMount is where vLLM expects the ModelScope model cache
+	// when VLLM_USE_MODELSCOPE=True. $MODELSCOPE_CACHE overrides it.
+	msCacheMount = "/root/.cache/modelscope"
+
+	// ociWeightsMount is the fixed in-container path the ORAS
+	// initContainer pulls into; the main container reads the model
+	// from here via --model /weights. (The path itself is fixed to
+	// /weights for backward-compat with operators who might inspect
+	// the manifest — the directory name is opaque to vLLM.)
+	ociWeightsMount = "/weights"
+
+	// orasImage is the ORAS CLI image used by the OCI initContainer.
+	// Pinned to a specific release so a registry-side mutable tag
+	// can't change behavior under us. Operators on air-gapped
+	// networks may need to mirror this to their own registry — see
+	// docs/models.md.
+	orasImage = "ghcr.io/oras-project/oras:v1.2.0"
 )
 
 // dnsLabel matches DNS-1123 label rules (lower / digits / hyphen,
@@ -162,16 +196,47 @@ func BuildManifests(model *store.Model, opts DeployOptions) (*DeploymentBundle, 
 		return nil, fmt.Errorf("instance name must be a DNS-1123 label: %q", opts.Instance)
 	}
 
+	// Default source to huggingface so legacy callers (none in-tree,
+	// but conceivable for direct package consumers) don't get a
+	// confusing "unknown source: ''" error.
+	src := model.Source
+	if src == "" {
+		src = store.ModelSourceHuggingFace
+	}
+
+	// Per-source preconditions surface here as a 400 to the operator
+	// (handler validates the same things upstream; we re-check so a
+	// future direct caller can't bypass them).
+	switch src {
+	case store.ModelSourceHuggingFace, store.ModelSourceModelScope:
+		if model.SourceRef == "" {
+			return nil, fmt.Errorf("source=%s requires source_ref (the hub repo id)", src)
+		}
+	case store.ModelSourceLocalPath:
+		if model.LocalPath == "" {
+			return nil, fmt.Errorf("source=local_path requires model.local_path")
+		}
+		if opts.LocalPVCName == "" {
+			return nil, fmt.Errorf("source=local_path requires deploy option local_pvc_name (pre-existing PVC mounting the model files)")
+		}
+		// LocalPath must be at least /a/b — we mount the PVC at
+		// path.Dir(LocalPath), so the parent must be a real dir
+		// (not "/"). Reject root-level paths early so the
+		// generator's mount logic stays simple.
+		if path.Dir(model.LocalPath) == "/" || path.Dir(model.LocalPath) == "." {
+			return nil, fmt.Errorf("source=local_path requires model.local_path to be at least two segments (e.g. /models/qwen3)")
+		}
+	case store.ModelSourceOCI:
+		if model.OCIURL == "" {
+			return nil, fmt.Errorf("source=oci requires model.oci_url")
+		}
+	default:
+		return nil, fmt.Errorf("unknown source: %s", src)
+	}
+
 	name := deployName(model.Name, opts.Instance)
 	labels := buildLabels(model, opts.Instance, name)
 
-	// Container args = model.DefaultArgs (already JSON array of
-	// strings) merged with ExtraArgs + the runtime-specific model
-	// flag built from HuggingFaceID. The model-path flag is
-	// runtime-dependent (vLLM --model, SGLang --model-path, TGI
-	// --model-id); we inject it here so custom rows pointing at a
-	// local path can skip it (HuggingFaceID empty → no injection,
-	// user must encode the path themselves in default_args).
 	args, err := buildArgs(model, opts.ExtraArgs)
 	if err != nil {
 		return nil, fmt.Errorf("build args: %w", err)
@@ -188,8 +253,11 @@ func BuildManifests(model *store.Model, opts DeployOptions) (*DeploymentBundle, 
 		out = append(out, u)
 	}
 
-	if opts.PVC.Enabled {
-		pvc := buildPVC(name, opts.Namespace, labels, opts.PVC)
+	// Generator-managed PVC only for hub sources. local_path uses
+	// the user-supplied PVC (must already exist); OCI either uses
+	// opts.LocalPVCName for persistence or emptyDir for transient.
+	if opts.PVC.Enabled && (src == store.ModelSourceHuggingFace || src == store.ModelSourceModelScope) {
+		pvc := buildPVC(name, opts.Namespace, labels, opts.PVC, src)
 		u, err := toUnstructured(pvc)
 		if err != nil {
 			return nil, err
@@ -197,8 +265,11 @@ func BuildManifests(model *store.Model, opts DeployOptions) (*DeploymentBundle, 
 		out = append(out, u)
 	}
 
-	if opts.HFToken != "" {
-		secret := buildHFSecret(name, opts.Namespace, labels, opts.HFToken)
+	// Registry token Secret only meaningful for hub sources. The
+	// env key (HF_TOKEN vs MODELSCOPE_API_TOKEN) is set on the
+	// Secret data so envFrom transparently picks the right name.
+	if opts.RegistryToken != "" && (src == store.ModelSourceHuggingFace || src == store.ModelSourceModelScope) {
+		secret := buildRegistrySecret(name, opts.Namespace, labels, opts.RegistryToken, src)
 		u, err := toUnstructured(secret)
 		if err != nil {
 			return nil, err
@@ -206,7 +277,7 @@ func BuildManifests(model *store.Model, opts DeployOptions) (*DeploymentBundle, 
 		out = append(out, u)
 	}
 
-	dep := buildDeployment(model, opts, name, labels, args)
+	dep := buildDeployment(model, opts, name, labels, args, src)
 	u, err := toUnstructured(dep)
 	if err != nil {
 		return nil, err
@@ -279,11 +350,21 @@ func selectorLabels(modelName, fullName string) map[string]string {
 }
 
 // buildArgs joins default_args (JSON array string in the row) +
-// the runtime-specific model-path flag + the user's ExtraArgs.
-// Order: default first, then model-path, then user extras —
-// later args win on flag conflicts (vLLM late-wins) so
-// ExtraArgs can override defaults.
+// the source-specific `--model` value + the user's ExtraArgs.
+// Order: default first, then --model, then user extras — later
+// args win on flag conflicts (vLLM late-wins) so ExtraArgs can
+// override defaults.
+//
+// `--model` value per source:
+//
+//	huggingface → SourceRef (HF repo id)
+//	modelscope  → SourceRef (MS repo id)
+//	local_path  → LocalPath (in-container absolute path)
+//	oci         → ociWeightsMount ("/weights", initContainer fills it)
 func buildArgs(model *store.Model, extra []string) ([]string, error) {
+	if model.Runtime != store.ModelRuntimeVLLM {
+		return nil, fmt.Errorf("unsupported runtime: %s", model.Runtime)
+	}
 	out := []string{}
 	if model.DefaultArgs != "" {
 		var def []string
@@ -292,19 +373,17 @@ func buildArgs(model *store.Model, extra []string) ([]string, error) {
 		}
 		out = append(out, def...)
 	}
-	if model.HuggingFaceID != "" {
-		modelFlag := ""
-		switch model.Runtime {
-		case store.ModelRuntimeVLLM:
-			modelFlag = "--model"
-		case store.ModelRuntimeSGLang:
-			modelFlag = "--model-path"
-		case store.ModelRuntimeTGI:
-			modelFlag = "--model-id"
-		default:
-			return nil, fmt.Errorf("unknown runtime: %s", model.Runtime)
-		}
-		out = append(out, modelFlag, model.HuggingFaceID)
+	var modelArg string
+	switch model.Source {
+	case store.ModelSourceLocalPath:
+		modelArg = model.LocalPath
+	case store.ModelSourceOCI:
+		modelArg = ociWeightsMount
+	default: // huggingface, modelscope, "" (legacy)
+		modelArg = model.SourceRef
+	}
+	if modelArg != "" {
+		out = append(out, "--model", modelArg)
 	}
 	out = append(out, extra...)
 	return out, nil
@@ -322,11 +401,19 @@ func buildNamespace(ns string) *corev1.Namespace {
 	}
 }
 
-func buildPVC(name, ns string, labels map[string]string, spec PVCSpec) *corev1.PersistentVolumeClaim {
+// buildPVC emits the generator-managed model-file cache. The PVC
+// name suffix encodes the source so a future "share PVC across
+// instances of the same model" feature can key on it without
+// renaming live PVCs.
+func buildPVC(name, ns string, labels map[string]string, spec PVCSpec, src store.ModelSource) *corev1.PersistentVolumeClaim {
+	suffix := "-hf-cache"
+	if src == store.ModelSourceModelScope {
+		suffix = "-ms-cache"
+	}
 	pvc := &corev1.PersistentVolumeClaim{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "PersistentVolumeClaim"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name + "-hf-cache",
+			Name:      name + suffix,
 			Namespace: ns,
 			Labels:    labels,
 		},
@@ -346,17 +433,28 @@ func buildPVC(name, ns string, labels map[string]string, spec PVCSpec) *corev1.P
 	return pvc
 }
 
-func buildHFSecret(name, ns string, labels map[string]string, token string) *corev1.Secret {
+// buildRegistrySecret holds the auth token for the model source's
+// hub. The env key picked here flows through envFrom: HF's vLLM
+// integration reads HF_TOKEN; ModelScope's reads MODELSCOPE_API_TOKEN.
+// Wrong key = silent un-auth = 401 from the registry; matching by
+// source is the only reliable contract.
+func buildRegistrySecret(name, ns string, labels map[string]string, token string, src store.ModelSource) *corev1.Secret {
+	envKey := "HF_TOKEN"
+	suffix := "-hf"
+	if src == store.ModelSourceModelScope {
+		envKey = "MODELSCOPE_API_TOKEN"
+		suffix = "-ms"
+	}
 	return &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name + "-hf",
+			Name:      name + suffix,
 			Namespace: ns,
 			Labels:    labels,
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
-			"HF_TOKEN": token,
+			envKey: token,
 		},
 	}
 }
@@ -367,6 +465,7 @@ func buildDeployment(
 	name string,
 	labels map[string]string,
 	args []string,
+	src store.ModelSource,
 ) *appsv1.Deployment {
 	selector := selectorLabels(model.Name, name)
 
@@ -421,6 +520,23 @@ func buildDeployment(
 		limits[corev1.ResourceName("nvidia.com/gpu")] = gpuCount
 	}
 
+	// Env per source. HF_ENDPOINT (mirror) is huggingface-specific
+	// and only set when non-empty so the upstream default kicks in
+	// for users who left it blank.
+	env := []corev1.EnvVar{}
+	switch src {
+	case store.ModelSourceHuggingFace:
+		env = append(env, corev1.EnvVar{Name: "HF_HOME", Value: hfCacheMount})
+		if model.HFEndpoint != "" {
+			env = append(env, corev1.EnvVar{Name: "HF_ENDPOINT", Value: model.HFEndpoint})
+		}
+	case store.ModelSourceModelScope:
+		env = append(env,
+			corev1.EnvVar{Name: "VLLM_USE_MODELSCOPE", Value: "True"},
+			corev1.EnvVar{Name: "MODELSCOPE_CACHE", Value: msCacheMount},
+		)
+	}
+
 	container := corev1.Container{
 		Name:            "inference",
 		Image:           model.Image,
@@ -429,18 +545,15 @@ func buildDeployment(
 		Ports: []corev1.ContainerPort{
 			{Name: "http", ContainerPort: containerPort, Protocol: corev1.ProtocolTCP},
 		},
-		Env: []corev1.EnvVar{
-			{Name: "HF_HOME", Value: hfCacheMount},
-		},
+		Env: env,
 		Resources: corev1.ResourceRequirements{
 			Limits:   limits,
 			Requests: requests,
 		},
 		// Cold start can be many minutes (HF download for big
-		// models). Readiness probe targets /health which vLLM /
-		// SGLang both expose; TGI uses /health too. 5-minute
-		// failureThreshold gives 10×30s = 5min before marking
-		// not-ready, which is the floor for medium model
+		// models). Readiness probe targets vLLM's /health endpoint.
+		// 5-minute failureThreshold gives 10×30s = 5min before
+		// marking not-ready, which is the floor for medium model
 		// downloads.
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
@@ -455,42 +568,114 @@ func buildDeployment(
 		},
 	}
 
-	// HF token Secret → envFrom so any future secret-named keys
-	// (HF_HUB_TOKEN aliases etc) flow without touching the
-	// Deployment.
-	if opts.HFToken != "" {
+	// Registry token Secret → envFrom only for hub sources. Local
+	// path / OCI sources don't need auth (the model is already in
+	// the cluster or pulled via initContainer with its own auth).
+	if opts.RegistryToken != "" && (src == store.ModelSourceHuggingFace || src == store.ModelSourceModelScope) {
+		suffix := "-hf"
+		if src == store.ModelSourceModelScope {
+			suffix = "-ms"
+		}
 		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
 			SecretRef: &corev1.SecretEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: name + "-hf"},
+				LocalObjectReference: corev1.LocalObjectReference{Name: name + suffix},
 			},
 		})
 	}
 
-	// PVC mount when enabled, emptyDir otherwise. Either way the
-	// container sees a writable HF cache at /root/.cache/huggingface.
+	// Model-file volume layout differs per source:
+	//   huggingface: cache PVC (or emptyDir) → /root/.cache/huggingface
+	//   modelscope:  cache PVC (or emptyDir) → /root/.cache/modelscope
+	//   local_path:  pre-existing PVC → path.Dir(model.LocalPath), read-only
+	//   oci:         emptyDir or LocalPVCName → /weights, ORAS initContainer fills it
 	volumes := []corev1.Volume{}
-	if opts.PVC.Enabled {
+	var initContainers []corev1.Container
+
+	switch src {
+	case store.ModelSourceHuggingFace, store.ModelSourceModelScope:
+		mountPath := hfCacheMount
+		volSuffix := "-hf-cache"
+		if src == store.ModelSourceModelScope {
+			mountPath = msCacheMount
+			volSuffix = "-ms-cache"
+		}
 		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
-			Name:      "hf-cache",
-			MountPath: hfCacheMount,
+			Name:      "weights-cache",
+			MountPath: mountPath,
+		})
+		if opts.PVC.Enabled {
+			volumes = append(volumes, corev1.Volume{
+				Name: "weights-cache",
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: name + volSuffix,
+					},
+				},
+			})
+		} else {
+			volumes = append(volumes, corev1.Volume{
+				Name:         "weights-cache",
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			})
+		}
+
+	case store.ModelSourceLocalPath:
+		// Mount the operator-supplied PVC read-only at the parent
+		// directory of LocalPath. So LocalPath="/models/qwen3" →
+		// mount at "/models" and the operator's PVC must contain
+		// the model files at the relative subpath "qwen3/". RO so
+		// the inference container can't corrupt the shared model
+		// across other readers of the same PVC.
+		mountPath := path.Dir(model.LocalPath)
+		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+			Name:      "weights-local",
+			MountPath: mountPath,
+			ReadOnly:  true,
 		})
 		volumes = append(volumes, corev1.Volume{
-			Name: "hf-cache",
+			Name: "weights-local",
 			VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: name + "-hf-cache",
+					ClaimName: opts.LocalPVCName,
+					ReadOnly:  true,
 				},
 			},
 		})
-	} else {
+
+	case store.ModelSourceOCI:
+		// ORAS initContainer pulls the OCI artifact (the model files
+		// packaged as an OCI image) into /weights before the main
+		// container starts. emptyDir = re-pull on every Pod restart;
+		// LocalPVCName = persist across restarts.
 		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
-			Name:      "hf-cache",
-			MountPath: hfCacheMount,
+			Name:      "weights-oci",
+			MountPath: ociWeightsMount,
 		})
-		volumes = append(volumes, corev1.Volume{
-			Name: "hf-cache",
-			VolumeSource: corev1.VolumeSource{
+		ociVol := corev1.Volume{Name: "weights-oci"}
+		if opts.LocalPVCName != "" {
+			ociVol.VolumeSource = corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: opts.LocalPVCName,
+				},
+			}
+		} else {
+			ociVol.VolumeSource = corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			}
+		}
+		volumes = append(volumes, ociVol)
+		initContainers = append(initContainers, corev1.Container{
+			Name:    "oras-pull",
+			Image:   orasImage,
+			Command: []string{"oras"},
+			// `pull -o /weights` lays the artifact files directly
+			// under /weights. Operators wanting auth need to bake
+			// `.docker/config.json` into a Secret + projected volume
+			// — out of P-Source-2's MVP scope; document as a known
+			// limitation.
+			Args: []string{"pull", "-o", ociWeightsMount, model.OCIURL},
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "weights-oci", MountPath: ociWeightsMount},
 			},
 		})
 	}
@@ -515,9 +700,10 @@ func buildDeployment(
 	})
 
 	podSpec := corev1.PodSpec{
-		RestartPolicy: corev1.RestartPolicyAlways,
-		Containers:    []corev1.Container{container},
-		Volumes:       volumes,
+		RestartPolicy:  corev1.RestartPolicyAlways,
+		InitContainers: initContainers, // nil for non-OCI sources; K8s elides the field
+		Containers:     []corev1.Container{container},
+		Volumes:        volumes,
 	}
 	// Volcano vGPU requires the Volcano scheduler — the device plugin
 	// reads vgpu-memory / vgpu-cores assignments off Volcano-set pod

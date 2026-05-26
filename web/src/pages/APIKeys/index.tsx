@@ -161,7 +161,9 @@ const APIKeysPage: React.FC = () => {
   // string (sourced from the picked ModelInstance at submit-time).
   // We inline it into the curl usage example so the operator can copy
   // a ready-to-run command without a separate trip to look up what
-  // vLLM was started with (HuggingFaceID || deploy_name).
+  // vLLM was started with — server picks this per source (HF/MS
+  // repo id, local path, or "/weights" for OCI; deploy name as
+  // orphan fallback).
   const [resultData, setResultData] = useState<
     (CreateAPIKeyResponse & { modelField?: string }) | null
   >(null);

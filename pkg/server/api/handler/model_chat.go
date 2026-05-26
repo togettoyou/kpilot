@@ -10,10 +10,9 @@
 //   <method> http://<name>.<namespace>.svc.<cluster-domain>:8000/v1<subpath>
 //
 // through the worker tunnel via gateway.SendHTTPRequestStream. We
-// hardcode port 8000 because that's the only port the P16-A
+// hardcode port 8000 because that's the only port the deployment
 // generator exposes; the frontend doesn't need to discover it. The
-// /v1 prefix matches the OpenAI convention every supported runtime
-// (vLLM, SGLang, TGI) speaks.
+// /v1 prefix matches vLLM's OpenAI-compatible endpoint layout.
 //
 // Auth: JWT cookie (Auth middleware in router.go). This handler is
 // the cookie-authed counterpart to the Bearer-authed

@@ -171,28 +171,93 @@ const ModelDetailDrawer: React.FC<Props> = ({
         labelStyle={{ width: 180 }}
         items={[
           {
-            key: 'hf',
-            label: intl.formatMessage({ id: 'pages.models.registry.col.hf' }),
-            children: model.hugging_face_id ? (
-              <Space size={6}>
-                <a
-                  href={`https://huggingface.co/${model.hugging_face_id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ fontFamily: 'monospace', fontSize: 12 }}
-                >
-                  🤗 {model.hugging_face_id}
-                </a>
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<CopyOutlined />}
-                  onClick={() => copyToClipboard(model.hugging_face_id)}
-                />
-              </Space>
-            ) : (
-              <Text type="secondary">—</Text>
-            ),
+            key: 'source',
+            label: intl.formatMessage({
+              id: 'pages.models.registry.col.source',
+            }),
+            // Render the source-specific identifier with a hyperlink
+            // where it makes sense (HF / MS catalog pages exist;
+            // local path + OCI URL don't have public landing pages).
+            children: (() => {
+              const src = model.source || 'huggingface';
+              if (src === 'huggingface') {
+                const ref = model.source_ref;
+                if (!ref) return <Text type="secondary">—</Text>;
+                return (
+                  <Space size={6}>
+                    <a
+                      href={`https://huggingface.co/${ref}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontFamily: 'monospace', fontSize: 12 }}
+                    >
+                      🤗 {ref}
+                    </a>
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<CopyOutlined />}
+                      onClick={() => copyToClipboard(ref)}
+                    />
+                  </Space>
+                );
+              }
+              if (src === 'modelscope') {
+                const ref = model.source_ref;
+                if (!ref) return <Text type="secondary">—</Text>;
+                return (
+                  <Space size={6}>
+                    <a
+                      href={`https://www.modelscope.cn/models/${ref}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontFamily: 'monospace', fontSize: 12 }}
+                    >
+                      📦 {ref}
+                    </a>
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<CopyOutlined />}
+                      onClick={() => copyToClipboard(ref)}
+                    />
+                  </Space>
+                );
+              }
+              if (src === 'local_path') {
+                const path = model.local_path;
+                if (!path) return <Text type="secondary">—</Text>;
+                return (
+                  <Space size={6}>
+                    <Text code style={{ fontSize: 12 }}>
+                      📁 {path}
+                    </Text>
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<CopyOutlined />}
+                      onClick={() => copyToClipboard(path)}
+                    />
+                  </Space>
+                );
+              }
+              // oci
+              const url = model.oci_url;
+              if (!url) return <Text type="secondary">—</Text>;
+              return (
+                <Space size={6}>
+                  <Text code style={{ fontSize: 12 }}>
+                    🗂 {url}
+                  </Text>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<CopyOutlined />}
+                    onClick={() => copyToClipboard(url)}
+                  />
+                </Space>
+              );
+            })(),
           },
           {
             key: 'image',

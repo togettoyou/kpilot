@@ -22,6 +22,40 @@ interface Props {
   onDeploy: (m: Model) => void;
 }
 
+// SourceLine renders the "where does the model come from" line for
+// a catalog row. Visual is one of:
+//   🤗 Qwen/Qwen3-0.6B          (HuggingFace)
+//   📦 Qwen/Qwen3-0.6B          (ModelScope)
+//   📁 /models/qwen3-0.6b        (Local Path)
+//   🗂  ghcr.io/.../qwen:v1      (OCI)
+// Returns null when the source's primary field is empty so a
+// half-edited row doesn't render a bare prefix.
+const SourceLine: React.FC<{ model: Model }> = ({ model }) => {
+  const source = model.source || 'huggingface';
+  let prefix = '🤗';
+  let value = model.source_ref;
+  if (source === 'modelscope') {
+    prefix = '📦';
+    value = model.source_ref;
+  } else if (source === 'local_path') {
+    prefix = '📁';
+    value = model.local_path;
+  } else if (source === 'oci') {
+    prefix = '🗂';
+    value = model.oci_url;
+  }
+  if (!value) return null;
+  return (
+    <Text
+      type="secondary"
+      code
+      style={{ fontSize: 11, wordBreak: 'break-all' }}
+    >
+      {prefix} {value}
+    </Text>
+  );
+};
+
 // ModelCard renders one catalog entry in the family-grouped grid.
 // Clicking anywhere on the card body opens the read-only detail
 // drawer (View); the action toolbar at the bottom-right has explicit
@@ -132,16 +166,11 @@ const ModelCard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Body — HF id (when present) + description */}
-      {model.hugging_face_id && (
-        <Text
-          type="secondary"
-          code
-          style={{ fontSize: 11, wordBreak: 'break-all' }}
-        >
-          🤗 {model.hugging_face_id}
-        </Text>
-      )}
+      {/* Body — source identifier (the meaningful "where it comes
+          from" string for this catalog row) + description. Prefix
+          icon picks the most recognizable visual cue per source. */}
+      <SourceLine model={model} />
+
 
       {/* Description: 4-line preview, no hover-tooltip on overflow.
           Card click opens the read-only detail drawer where the

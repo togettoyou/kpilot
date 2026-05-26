@@ -145,16 +145,32 @@ type ClusterPlugin struct {
 }
 
 // ModelRuntime is the inference engine the model runs under. Drives
-// image selection + default args. All three speak OpenAI-compatible
-// HTTP at /v1/{chat/completions,completions,embeddings}; vLLM is the
-// default we ship presets for, sglang / tgi are listed so an admin
-// can add custom rows without us having to ship code for them later.
+// image selection + default args. The container speaks
+// OpenAI-compatible HTTP at /v1/{chat/completions,completions,embeddings}.
 type ModelRuntime string
 
 const (
-	ModelRuntimeVLLM   ModelRuntime = "vllm"
-	ModelRuntimeSGLang ModelRuntime = "sglang"
-	ModelRuntimeTGI    ModelRuntime = "tgi"
+	ModelRuntimeVLLM ModelRuntime = "vllm"
+)
+
+// ModelSource is where the model files physically come from. Drives
+// how the deploy generator wires env / args / volumes / initContainers.
+//
+//   - huggingface: vLLM downloads from huggingface.co (or HF_ENDPOINT
+//     mirror) on first start, optionally cached in a PVC.
+//   - modelscope:  vLLM downloads from modelscope.cn via
+//     VLLM_USE_MODELSCOPE=True; same cache pattern.
+//   - local_path:  the model already lives in a cluster-side PVC at
+//     LocalPath. No download, no token. Requires DeployOptions.LocalPVCName.
+//   - oci:         ORAS initContainer pulls the OCI artifact at OCIURL
+//     into /weights before the main container starts.
+type ModelSource string
+
+const (
+	ModelSourceHuggingFace ModelSource = "huggingface"
+	ModelSourceModelScope  ModelSource = "modelscope"
+	ModelSourceLocalPath   ModelSource = "local_path"
+	ModelSourceOCI         ModelSource = "oci"
 )
 
 // ModelFamily groups presets in the catalog UI. "custom" is the
@@ -211,16 +227,41 @@ type Model struct {
 	// seeded presets; admins can pin a specific tag here per row.
 	Image string `gorm:"type:varchar(512);not null" json:"image"`
 
-	// HuggingFace repo id ("Qwen/Qwen2.5-7B-Instruct"). Optional —
-	// custom rows pointing at a private model registry can leave it
-	// blank and pass the model path through DefaultArgs instead.
-	HuggingFaceID string `gorm:"type:varchar(255)" json:"hugging_face_id"`
+	// Source determines how the model files reach the container. See
+	// ModelSource docs for the per-source behavior matrix.
+	Source ModelSource `gorm:"type:varchar(32);not null;default:'huggingface'" json:"source"`
+
+	// SourceRef is the model identifier on the chosen source:
+	//   huggingface → HF repo id, e.g. "Qwen/Qwen3-0.6B"
+	//   modelscope  → MS repo id, often the same string
+	//   local_path / oci → unused (the path / URL lives in LocalPath / OCIURL)
+	// Required for HF + MS; optional for local_path / oci (then user must
+	// pass a path through DefaultArgs themselves).
+	SourceRef string `gorm:"type:varchar(255)" json:"source_ref"`
+
+	// HFEndpoint is an optional HuggingFace mirror URL. Only meaningful
+	// when Source=huggingface; the generator injects HF_ENDPOINT env
+	// when set. Empty = use the upstream huggingface.co default.
+	HFEndpoint string `gorm:"type:varchar(512)" json:"hf_endpoint"`
+
+	// OCIURL is the OCI artifact reference (e.g.
+	// "ghcr.io/myorg/qwen3-0.6b:v1"). Only meaningful when Source=oci;
+	// the generator emits an ORAS initContainer that pulls this into
+	// /weights before the main container starts.
+	OCIURL string `gorm:"type:varchar(512)" json:"oci_url"`
+
+	// LocalPath is the absolute path INSIDE the container where the
+	// model files live. Only meaningful when Source=local_path. The
+	// DeployOptions.LocalPVCName (set per deploy) supplies the PVC
+	// that gets mounted at LocalPath; this catalog row only fixes the
+	// in-container path so DefaultArgs can encode it once.
+	LocalPath string `gorm:"type:varchar(512)" json:"local_path"`
 
 	// JSON array of strings, e.g. ["--max-model-len", "32768",
 	// "--dtype", "auto"]. Caller passes them as the container's
-	// `args` field; vLLM/sglang/tgi all read positional flags this
-	// way. Text-typed in DB so we can extend the schema without
-	// migrations; validated as a JSON string-array in the handler.
+	// `args` field. Text-typed in DB so we can extend the schema
+	// without migrations; validated as a JSON string-array in the
+	// handler.
 	DefaultArgs string `gorm:"type:text" json:"default_args"`
 
 	// JSON object describing the recommended GPU shape so the

@@ -30,10 +30,14 @@
 | `display_name` | varchar(255) | 卡片 / 表格标题 |
 | `description` | varchar(500) | 简介 |
 | `family` | enum | `qwen` / `deepseek` / `llama` / `mistral` / `glm` / `yi` / `custom` —— 仅做 UI 分组 |
-| `runtime` | enum | `vllm` / `sglang` / `tgi` —— 三家都讲 OpenAI 兼容 HTTP；默认 ship vLLM 预设 |
+| `runtime` | enum | `vllm` —— 暂只支持 vLLM(OpenAI 兼容 HTTP);枚举留 enum 列方便后续加新 runtime |
 | `image` | varchar(512) | 完整镜像引用（含 tag）。vLLM 官方为 `vllm/vllm-openai:vX.Y.Z`（当前 seed 用 `v0.20.2`，2026-05 稳定版） |
-| `hugging_face_id` | varchar(255) | HF 仓库 id（如 `Qwen/Qwen2.5-7B-Instruct`）。部署时由它构造 `--model` flag |
-| `default_args` | text (JSON) | string 数组，如 `["--max-model-len","32768","--dtype","auto"]`；**不要在此放 `--model`**，部署时由 `hugging_face_id` 注入，保证 args 可复用 |
+| `source` | enum | `huggingface` / `modelscope` / `local_path` / `oci` —— 决定模型文件从哪里加载，详见下方 Source 矩阵 |
+| `source_ref` | varchar(255) | HF / ModelScope 仓库 id（如 `Qwen/Qwen2.5-7B-Instruct`）；`local_path` / `oci` 时忽略 |
+| `hf_endpoint` | varchar(512) | HF 镜像 URL（如 `https://hf-mirror.com`），仅 `source=huggingface` 时生效。留空走 huggingface.co 默认 |
+| `oci_url` | varchar(512) | OCI artifact 引用（如 `ghcr.io/myorg/qwen:v1`），仅 `source=oci` 时生效 |
+| `local_path` | varchar(512) | 容器内模型文件的绝对路径（如 `/models/qwen3-0.6b`），仅 `source=local_path` 时生效 |
+| `default_args` | text (JSON) | string 数组，如 `["--max-model-len","32768","--dtype","auto"]`；**不要在此放 `--model`**，部署时按 source 自动注入（HF/MS 用 `source_ref`，本地用 `local_path`，OCI 用固定的 `/weights`） |
 | `recommended_gpu` | text (JSON) | `{"count": N, "memoryGiB": M, "model": "T4\|A10\|A100\|H100\|any"}` —— 部署向导用它预填 resources.limits |
 | `license` | varchar(64) | 许可证 slug（apache-2.0 / llama3.1 / deepseek / …），仅展示 |
 | `is_builtin` | bool | true = seed 内置预设，handler 拒绝 PATCH/DELETE |
@@ -78,9 +82,31 @@ family 枚举包含 `qwen` / `deepseek` / `llama` / `mistral` / `glm` / `yi` / `
 
 ### 前端（`web/src/pages/ModelHub/`）
 
-- `index.tsx`：ProTable 全表浏览 —— 显示名 + 内部 name + family + runtime + image + HF id + 推荐 GPU + license + 操作列；family / runtime 列内置 filter
-- `ModelDrawer.tsx`：新建 + 编辑共用 DrawerForm —— 三段（基本信息 / 运行时 / 调优参数），客户端先解析 JSON 给出可读错误再 submit
+- `index.tsx`：家族分组卡片 catalog（Collapse + 搜索 + license / runtime 过滤）；搜索覆盖 name / display_name / source_ref / oci_url / local_path / description 所有 source 标识字段
+- `ModelDrawer.tsx`：新建 + 编辑共用 DrawerForm —— 四段（基本信息 / 运行时 / **模型来源** / 调优参数）；模型来源用 Segmented + ProFormDependency 动态切换字段（HF 多一个 HF endpoint，OCI 用 oci_url，本地用 local_path），客户端先做 JSON / 路径 / OCI ref 正则校验再 submit
+- `ModelCard.tsx` / `ModelDetailDrawer.tsx`：按 source 显示对应 identifier，前缀 🤗 / 📦 / 📁 / 🗂 分辨；HF / MS 还给出对应官方页面的超链接
 - 内置条目 Edit / Delete 按钮禁用 + tooltip 提示「内置不可改」
+
+### 模型来源（Source）矩阵
+
+`source` 字段控制模型文件从哪里加载，drives 部署生成器的 env / args / volume / initContainer 决策。
+
+| source | --model 值 | 加载方式 | 额外字段 | 部署期 PVC | Token 用途 |
+|---|---|---|---|---|---|
+| `huggingface` (默认) | `source_ref` | vLLM 启动时从 `HF_ENDPOINT`（或 huggingface.co）下载 | `hf_endpoint`（可选 mirror）| **生成 PVC**（pvc.enabled 控制）`/root/.cache/huggingface` | `registry_token` → `HF_TOKEN` env，gated 模型必填 |
+| `modelscope` | `source_ref` | vLLM 设置 `VLLM_USE_MODELSCOPE=True` 走 ModelScope 下载 | — | **生成 PVC** `/root/.cache/modelscope` | `registry_token` → `MODELSCOPE_API_TOKEN` env，私有仓库必填 |
+| `local_path` | `local_path` | 操作员预先把模型文件放到集群 PVC 里 | `local_path` 必填（容器内绝对路径） | **复用 PVC**（必填 `local_pvc_name`），read-only mount 在 `path.Dir(local_path)` | 不用 |
+| `oci` | `/weights`（固定） | initContainer `ghcr.io/oras-project/oras:v1.2.0` 跑 `oras pull -o /weights <oci_url>` | `oci_url` 必填 | **可选 PVC**（`local_pvc_name`）持久化，否则 emptyDir 每次重启重拉 | 不用（OCI registry auth 走 ORAS 自己的 `.docker/config.json`，目前 MVP 暂不支持 secret 注入） |
+
+`local_path` 的 PVC 挂载示例：catalog 行 `local_path = /models/qwen3`，部署传 `local_pvc_name = my-models-pvc`，则容器内：
+
+```
+PVC my-models-pvc   →   mount /models  (read-only)
+   存放模型文件      →   /models/qwen3/...
+vLLM 启动              →   --model /models/qwen3
+```
+
+PVC 内必须按 catalog 行声明的相对路径准备好模型文件。同一 PVC 可放多个模型（`/models/qwen3`, `/models/llama4`...），各 catalog 行只需 `local_path` 不同。
 
 ---
 
@@ -93,9 +119,9 @@ family 枚举包含 `qwen` / `deepseek` / `llama` / `mistral` / `glm` / `yi` / `
 按顺序 apply：
 
 1. **Namespace**（仅当 `create_namespace=true` 且不存在 —— 用 `app.kubernetes.io/managed-by=kpilot` 标记）
-2. **PersistentVolumeClaim**（仅当 `pvc.enabled=true` —— RWO, ReclaimPolicy=Retain, mount 到 `/root/.cache/huggingface`）
-3. **Secret**（仅当传了 `hf_token` —— `Opaque` 类型，键 `HF_TOKEN`，容器走 `envFrom` 拿）
-4. **Deployment**（vLLM/SGLang/TGI 容器 + GPU resources + dshm tmpfs 2 GiB + readiness probe）
+2. **PersistentVolumeClaim**（仅当 `pvc.enabled=true` **且 source 是 huggingface / modelscope** —— RWO, ReclaimPolicy=Retain, mount 到对应 cache 目录。`local_path` / `oci` 复用 `local_pvc_name` 指定的已有 PVC，不生成新 PVC）
+3. **Secret**（仅当 `registry_token` 非空 **且 source 是 hub 类**：HF 用 `HF_TOKEN`，MS 用 `MODELSCOPE_API_TOKEN`；容器走 `envFrom` 拿。`local_path` / `oci` 不生成 Secret）
+4. **Deployment**（vLLM 容器 + GPU resources + dshm tmpfs 2 GiB + readiness probe；source=oci 时多一个 `ghcr.io/oras-project/oras` initContainer 跑 `oras pull`）
 5. **Service**（ClusterIP, port 8000）
 
 ### Deployment.metadata.name 规则
@@ -132,7 +158,7 @@ labels:
   app.kubernetes.io/component: inference
   kpilot.io/model-id: "{id}"                     # 反查 catalog row
   kpilot.io/model-family: qwen | deepseek | ...
-  kpilot.io/model-runtime: vllm | sglang | tgi
+  kpilot.io/model-runtime: vllm
   kpilot.io/instance-suffix: ""                  # 空 = singleton
 ```
 
@@ -155,7 +181,7 @@ labels:
 ### 限制 / 已知边界
 
 - `replicas` ≤ 32 / `gpu_count` ≤ 16 / `pvc.size_gib` ≤ 4096（4 TiB） —— 防 typo
-- 不挂 PVC 时 vLLM 走 emptyDir，**容器重启会重新下载权重**（drawer 有 Warning 提示）
+- 不挂 PVC 时 vLLM 走 emptyDir，**容器重启会重新下载模型**（drawer 有 Warning 提示）
 - 冷启动慢：drawer 提示用户跳转到 `/clusters/:id/workloads/deployments` 看 Pod 起来
 - 暂未支持多节点 tensor-parallel（>1 Pod 协同）—— 单 Pod 多卡（tensor-parallel-size）够当前规模
 
@@ -188,7 +214,7 @@ labels:
 - 每个在线 cluster 起一个 goroutine，8s 超时单独 ctx；`list-full apps/v1 Deployment` + 上述 selector
 - 用 list-full 而不是 Table API —— 我们需要 `spec.replicas` + `status.{ready,unavailable}Replicas` + `spec.template.spec.containers[0].image`，Table 投影都把这些剥掉了
 - 每行 enrich：从 `kpilot.io/model-id` label 解析 ID → map lookup 拿 `ModelDisplayName / Family / Runtime / ModelField`；catalog 行被删了的孤立 deployment 保留显示（ModelID=0 + DisplayName 回退 deployment 名 + 前端打「孤立」Tag），仍能 Delete 清理
-- **`ModelField` = 推理后端能识别的模型名**：vLLM 启动用 `--model <HuggingFaceID>`，OpenAI 兼容 chat 请求 body 里的 `model` 字段必须**完全等于**这个值（vLLM 会用 `{"error":{"message":"The model X does not exist.","code":404}}` 拒绝任何其它值）。server 端按 `HuggingFaceID || deployment.name` 解析后随 instance 一并下发，前端 chat 页直接用，**不在前端做 fallback** —— 客户端猜运行时差异是早期 bug 源头
+- **`ModelField` = 推理后端能识别的模型名**：vLLM 启动用 `--model <X>` 把 `X` 注册成自己服务的模型名，OpenAI 兼容 chat 请求 body 里的 `model` 字段必须**完全等于**这个值（vLLM 会用 `{"error":{"message":"The model X does not exist.","code":404}}` 拒绝任何其它值）。server 按 source 解析（HF/MS → `source_ref`，本地 → `local_path`，OCI → `/weights`），orphan 行 fallback 到 deployment.name，随 instance 一并下发；前端 chat 页直接用，**不在前端做 fallback** —— 客户端猜 source 差异是早期 bug 源头
 - merge：每个 cluster 的命中扁平 append 到 `instances[]`；某个 cluster 出错（worker disconnect / RBAC 缺 apps/v1）落到 `errors[]`，前端按 `cluster_name + error` 渲染顶部黄色 Alert，partial result 仍然可用
 - 状态滚动：`Running`（replicas>0 且 ready>=replicas）/ `Failed`（unavailable>0 且 ready==0）/ `Progressing`（其余）—— 这层抽象避免前端反复 walk conditions
 
@@ -232,7 +258,7 @@ proto 字段 `string label_selector = 9`（`proto/pilot.proto`），worker 端 [
 - **关键 vLLM 协议细节**:request body 必须含 `stream_options: { include_usage: true }`,否则 vLLM `stream=true` **不发**最后那个携带 usage 的 chunk,onUsage 永不触发,tok/s footer 永远空。该 flag 之前漏了被发现
 - Enter 发送 / Shift+Enter 换行 / IME composition 期间不触发(中文输入正常)
 - 流式解 SSE:`services/kpilot/model.ts::streamChatCompletions` 用 fetch + ReadableStream + TextDecoder 按 `\n\n` 切事件,`data:` 行 JSON.parse `choices[0].delta.content` 触发 `onDelta`,`[DONE]` 或 `finish_reason` 触发 `onDone`,`usage` 触发 `onUsage`。**发送时预分配 assistant 气泡固定 React key**(否则反复 remount 丢帧),onDelta 走函数式 `setHistory((prev) => ...)` append 内容到 last 消息。"Stop" 按钮替换 "Send" 在 sending=true 时,调 `AbortController.abort()`
-- **`model` 字段直接用 server 下发的 `instance.model_field`**(= `HuggingFaceID || deployment.name`),**不在前端组合**。vLLM 启动用 `--model <HF id>`,请求里 `model` 字段必须严格匹配(否则 404 `does not exist`);早期前端发的是 `deployment.name`,命中这个错误
+- **`model` 字段直接用 server 下发的 `instance.model_field`**（server 按 source 解析,详见上一节）,**不在前端组合**。vLLM 启动用 `--model <X>`,请求里 `model` 字段必须严格匹配（否则 404 `does not exist`）;早期前端发的是 `deployment.name`,命中这个错误
 - **mount 时 scroll reset**:跟日志页 / GPU 监控页同款修复 —— 遍历 ancestor 把 scrollTop 清零,避免从其他可滚动页面切过来时残留 scrollTop 让 chat wrapper 出 viewport 之外
 
 **三页统一**：`PageContainer` 都设 `breadcrumbRender={false}` + `header.breadcrumb: undefined` 隐藏面包屑 —— 模型服务平台菜单是平的（catalog / deployments / chat 三个对等子项），面包屑只会重复信息。`ModelHub/index.tsx` 同时去掉了原来的「即将推出」roadmap Alert 与 subtitle 末尾「模型部署 / 调试 / 路由在后续版本落地」文案 —— 现在这些功能已经在了，标语过时反而误导用户。
@@ -393,7 +419,7 @@ curl -X POST http://localhost:8080/api/v1/api-keys \
 
 - **Defer `stream.Close()` 是 hard requirement**:yamux per-stream 4 MiB flow-control window 满了 worker write 会反压(不会卡其它 stream,跟 v1 单 sender 不同),但漏 Close 会让 worker 端 upstream HTTP request 等到自己 5min ctx 才超时撤销 —— 5min 内白白占着 upstream 连接 + worker goroutine。`writeStreamingResponse` 模板里同时 defer Close + 派 ctx watcher,照抄即可
 - **APIKey 计量限于累计 token + 请求数**,没有 quota / rate limit / 时间窗口拆分。第三方 SDK / curl 默认都能计量到 token(代理层自动注入 `stream_options.include_usage=true`,见上一节)
-- **`stream:false` 同源端点也走流式管道**:vLLM 把完整 JSON 一次 Body Write 出来,server 端 `io.Copy(c.Writer, stream.Body)` 一次性透传 —— SDK 用户感知不到。如果出现非 vLLM/SGLang/TGI 后端不支持 chunked 响应导致问题,可以在 handler 层基于 body 内容 sniff `stream:true/false` 决定走 `SendHTTPRequest`(buffered)还是 `SendHTTPRequestStream`(streaming);当前不做
+- **`stream:false` 同源端点也走流式管道**:vLLM 把完整 JSON 一次 Body Write 出来,server 端 `io.Copy(c.Writer, stream.Body)` 一次性透传 —— SDK 用户感知不到。如果后续接入不支持 chunked 响应的非 vLLM 后端导致问题,可以在 handler 层基于 body 内容 sniff `stream:true/false` 决定走 `SendHTTPRequest`(buffered)还是 `SendHTTPRequestStream`(streaming);当前不做
 - **`stream.Error` vs upstream 中途截断的语义区分**:`stream.Error != ""` 表示 worker 没拿到 upstream 响应(DNS / dial / 503 等),502 给 client;upstream Body.Read 中途返错(比如 LLM 容器 OOM 被 kill)时 HTTP 200 已发,server 端 io.Copy 返错,只能 log —— SDK 自己会感知 SSE 截断
 
 ---
@@ -401,4 +427,4 @@ curl -X POST http://localhost:8080/api/v1/api-keys \
 ## 命名 + 路径约定
 
 - ⚠️ **路径**：组件落在 `pages/ModelHub/` 而非 `pages/Models/`。Umi 的 plugin-model 自动扫描 `src/pages/**/models/**` 当 state-hook 文件，macOS 大小写不敏感 FS 上 `Models` 会命中 glob 触发 CaseSensitivePathsPlugin 报错。
-- ⚠️ **field 命名**：API 一律 snake_case（`display_name` / `hugging_face_id` / `default_args` / `recommended_gpu` / `is_builtin`）—— 与 GORM 列名 + 现有 Plugin/Cluster API 保持一致。前端 service 类型镜像同样字段名，不在传输层 camelCase 转换。
+- ⚠️ **field 命名**：API 一律 snake_case（`display_name` / `source` / `source_ref` / `hf_endpoint` / `oci_url` / `local_path` / `default_args` / `recommended_gpu` / `is_builtin`）—— 与 GORM 列名 + 现有 Plugin/Cluster API 保持一致。前端 service 类型镜像同样字段名，不在传输层 camelCase 转换。

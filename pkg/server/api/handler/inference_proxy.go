@@ -40,8 +40,8 @@
 // What this is NOT:
 //   - Not a routing layer (`model` field steering across deployments
 //     is P17).
-//   - Not an OpenAI-format adapter — vLLM / SGLang / TGI already
-//     serve the OpenAI shape, so we just transparently forward.
+//   - Not an OpenAI-format adapter — vLLM already serves the
+//     OpenAI shape, so we just transparently forward.
 //   - Not metered — we don't track tokens / requests against the
 //     APIKey beyond LastUsedAt timestamp. Quota is a follow-up.
 package handler
@@ -304,8 +304,8 @@ func ProxyInferenceOpenAI(gw *gateway.GatewayServer) gin.HandlerFunc {
 		}
 
 		// Force-enable stream_options.include_usage when the client
-		// asked for streaming. Without it, vLLM (and SGLang / TGI)
-		// omits the final usage chunk and our usageScanner never
+		// asked for streaming. Without it, vLLM omits the final
+		// usage chunk and our usageScanner never
 		// observes a `usage` block — APIKey token columns would stay
 		// 0 even on active keys. The KPilot playground sets this
 		// flag itself, but third-party SDKs (openai-python before

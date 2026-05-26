@@ -698,19 +698,27 @@ export default {
   'pages.models.deploy.resources.cpu.limit': 'CPU limit',
   'pages.models.deploy.resources.memory.request': 'Memory request',
   'pages.models.deploy.resources.memory.limit': 'Memory limit',
-  'pages.models.deploy.hfToken': 'HuggingFace Token（可选）',
-  'pages.models.deploy.hfToken.help':
-    '门控模型（Llama 4 等）从 HF 下载权重时必填；落 Secret，容器通过 envFrom 拿到 HF_TOKEN',
+  'pages.models.deploy.registryToken.hf': 'HuggingFace Token（可选）',
+  'pages.models.deploy.registryToken.hf.help':
+    '门控模型（Llama 4 等）从 HF 下载时必填；落 Secret，容器通过 envFrom 拿到 HF_TOKEN',
+  'pages.models.deploy.registryToken.ms': 'ModelScope Token（可选）',
+  'pages.models.deploy.registryToken.ms.help':
+    '私有 ModelScope 仓库需要；落 Secret，容器通过 envFrom 拿到 MODELSCOPE_API_TOKEN',
   'pages.models.deploy.extraArgs': '附加启动参数（可选）',
   'pages.models.deploy.extraArgs.help':
     '每行一个，会追加到模型的 default_args 之后；vLLM 同名 flag 后者覆盖前者，可用于覆盖默认',
-  'pages.models.deploy.pvc.section': '权重缓存 PVC',
+  'pages.models.deploy.weights.section': '模型来源',
   'pages.models.deploy.pvc.enabled': '启用 PVC 缓存',
   'pages.models.deploy.pvc.help':
-    '⚠️ 冷启动需要从 HuggingFace 下载完整模型权重（Qwen3-0.6B ~1.5 GB / Qwen3-32B ~65 GB / DeepSeek-R1 ~1.3 TB）。开启 PVC 后只下一次，重启不重下；关闭则每次 Pod 重启重新下载。',
+    '⚠️ 冷启动需要从 HuggingFace / ModelScope 下载完整模型文件（Qwen3-0.6B ~1.5 GB / Qwen3-32B ~65 GB / DeepSeek-R1 ~1.3 TB）。开启 PVC 后只下一次，重启不重下；关闭则每次 Pod 重启重新下载。',
   'pages.models.deploy.pvc.size': 'PVC 大小（GiB）',
   'pages.models.deploy.pvc.storageClass': 'StorageClass（可选）',
   'pages.models.deploy.pvc.storageClass.placeholder': '留空 = 集群默认',
+  'pages.models.deploy.localPVC.name': '已存在 PVC 名',
+  'pages.models.deploy.localPVC.help.localPath':
+    '该模型来源为「本地路径」：请填写目标 namespace 中已经存在的 PVC 名（read-only 挂载到 local_path 的父目录）。PVC 内需提前准备好模型文件。',
+  'pages.models.deploy.localPVC.help.oci':
+    '可选：填写已存在 PVC 名以持久化 ORAS 拉到的模型（Pod 重启不重拉）。留空则用 emptyDir（每次重启重新拉一次）。',
   'pages.models.deploy.action.deploy': '部署到集群',
   'pages.models.deploy.success': '已部署 {name} 到命名空间 {ns}',
   'pages.models.deploy.partial': '部分资源应用失败，请查看每条结果',
@@ -728,7 +736,7 @@ export default {
   'pages.models.registry.builtinHint': '内置模型不可编辑/删除',
   // detail drawer field labels (also used as Descriptions labels)
   'pages.models.registry.col.image': '镜像',
-  'pages.models.registry.col.hf': 'HuggingFace ID',
+  'pages.models.registry.col.source': '模型来源',
   'pages.models.registry.col.gpu': '推荐 GPU',
   // toolbar filters
   'pages.models.registry.filter.runtime': '运行时',
@@ -744,12 +752,27 @@ export default {
   'pages.models.registry.form.image': '容器镜像',
   'pages.models.registry.form.image.help':
     '完整镜像引用（含 tag）。vLLM 官方镜像为 vllm/vllm-openai:<version>',
-  'pages.models.registry.form.hf': 'HuggingFace 仓库 ID',
-  'pages.models.registry.form.hf.help':
-    '如 Qwen/Qwen2.5-7B-Instruct；留空可在 default_args 中传入本地模型路径',
+  'pages.models.registry.form.source': '模型来源',
+  'pages.models.registry.form.source.help':
+    '决定模型从哪里加载：HuggingFace / ModelScope 由 vLLM 启动时下载；Local Path 复用集群里已有的 PVC；OCI 通过 ORAS initContainer 拉 OCI artifact',
+  'pages.models.registry.form.source_ref.hf': 'HuggingFace 仓库 ID',
+  'pages.models.registry.form.source_ref.hf.help':
+    '如 Qwen/Qwen2.5-7B-Instruct；部署时自动拼成 vLLM 的 --model 参数',
+  'pages.models.registry.form.source_ref.ms': 'ModelScope 仓库 ID',
+  'pages.models.registry.form.source_ref.ms.help':
+    '如 Qwen/Qwen2.5-7B-Instruct；部署时设置 VLLM_USE_MODELSCOPE=True，vLLM 走 ModelScope 下载',
+  'pages.models.registry.form.hf_endpoint': 'HF 镜像地址（可选）',
+  'pages.models.registry.form.hf_endpoint.help':
+    '设置后注入 HF_ENDPOINT 环境变量。国内常用 https://hf-mirror.com；留空走 huggingface.co',
+  'pages.models.registry.form.oci_url': 'OCI artifact URL',
+  'pages.models.registry.form.oci_url.help':
+    '完整的 OCI 引用，如 ghcr.io/myorg/qwen3-0.6b:v1；部署时由 ORAS initContainer 拉到 /weights',
+  'pages.models.registry.form.local_path': '容器内模型路径',
+  'pages.models.registry.form.local_path.help':
+    '绝对路径，至少 /a/b 两层（如 /models/qwen3-0.6b）。部署时把指定 PVC 挂到该路径的父目录',
   'pages.models.registry.form.defaultArgs': '默认启动参数',
   'pages.models.registry.form.defaultArgs.help':
-    '每行一个参数（flag 与值各占一行）。不要在此处加 --model（部署时由 HuggingFace ID 自动注入）',
+    '每行一个参数（flag 与值各占一行）。不要在此处加 --model（部署时由 source / source_ref / local_path / oci_url 自动注入）',
   'pages.models.registry.form.recommendedGPU': '推荐 GPU',
   'pages.models.registry.form.recommendedGPU.help': '数量 × 显存 × 型号',
   'pages.models.registry.form.recommendedGPU.count': '数量',
@@ -771,6 +794,7 @@ export default {
   'pages.common.saved': '已保存',
   'pages.common.identity': '基本信息',
   'pages.common.runtime': '运行时配置',
+  'pages.common.source': '模型来源',
   'pages.common.tuning': '调优参数',
   'pages.common.loading': '加载中…',
   'pages.common.refresh': '刷新',

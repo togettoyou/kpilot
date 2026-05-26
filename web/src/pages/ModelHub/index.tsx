@@ -106,8 +106,11 @@ const ModelHubPage: React.FC = () => {
     let filtered = rows;
     if (q) {
       filtered = filtered.filter((m) => {
+        // Include every source-identifier field so search hits the
+        // user-visible identifier regardless of which source the row
+        // uses (HF id, MS id, OCI URL, or local path).
         const hay =
-          `${m.name} ${m.display_name} ${m.hugging_face_id} ${m.description}`.toLowerCase();
+          `${m.name} ${m.display_name} ${m.source_ref} ${m.oci_url} ${m.local_path} ${m.description}`.toLowerCase();
         return hay.includes(q);
       });
     }

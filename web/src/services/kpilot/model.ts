@@ -3,7 +3,7 @@ import { request } from '@umijs/max';
 // Closed enums mirror server-side validRuntimes / validFamilies. The
 // catalog Select on the frontend uses these arrays so the dropdown
 // + backend validator can't drift.
-export type ModelRuntime = 'vllm' | 'sglang' | 'tgi';
+export type ModelRuntime = 'vllm';
 export type ModelFamily =
   | 'qwen'
   | 'deepseek'
@@ -16,7 +16,7 @@ export type ModelFamily =
   | 'kimi'
   | 'custom';
 
-export const MODEL_RUNTIMES: ModelRuntime[] = ['vllm', 'sglang', 'tgi'];
+export const MODEL_RUNTIMES: ModelRuntime[] = ['vllm'];
 export const MODEL_FAMILIES: ModelFamily[] = [
   'qwen',
   'deepseek',
@@ -109,8 +109,6 @@ export const FAMILY_LABELS: Record<Exclude<ModelFamily, 'custom'>, string> =
 
 export const RUNTIME_LABELS: Record<ModelRuntime, string> = {
   vllm: 'vLLM',
-  sglang: 'SGLang',
-  tgi: 'TGI',
 };
 
 // RUNTIME_DEFAULTS — image + default_args templates per runtime. The
@@ -119,18 +117,12 @@ export const RUNTIME_LABELS: Record<ModelRuntime, string> = {
 // new mode — edit mode preserves whatever the row already has). Args
 // are JSON-encoded strings to match the wire format on the model.
 //
-// vLLM / SGLang / TGI all speak OpenAI-compatible HTTP, but their CLI
-// flags differ. None of these include the model-path flag (vLLM
-// `--model`, SGLang `--model-path`, TGI `--model-id`) — those get
-// injected at P16+ deploy time from `hugging_face_id` so a custom
-// row pointing at a local checkpoint can reuse the same tuning.
+// `--model` is NOT in defaultArgs — the deploy generator injects
+// the correct value at apply time based on source (source_ref for
+// HF/MS, local_path for local, "/weights" for OCI).
 //
 // Image versions cross-checked 2026-05:
 //   - vLLM v0.20.2 stable (vllm-project/vllm releases)
-//   - SGLang v0.4.10.post2-cu126 stable (lmsysorg/sglang docker hub)
-//   - TGI 3.3.5 latest; project is in maintenance mode as of 2025-12,
-//     supported here for legacy deployments but most teams now move
-//     to vLLM/SGLang
 export const RUNTIME_DEFAULTS: Record<
   ModelRuntime,
   { image: string; defaultArgs: string }
@@ -140,24 +132,44 @@ export const RUNTIME_DEFAULTS: Record<
     defaultArgs:
       '["--max-model-len","32768","--dtype","auto","--gpu-memory-utilization","0.9"]',
   },
-  sglang: {
-    image: 'lmsysorg/sglang:v0.4.10.post2-cu126',
-    defaultArgs:
-      '["--context-length","32768","--mem-fraction-static","0.9","--host","0.0.0.0","--port","30000"]',
-  },
-  tgi: {
-    image: 'ghcr.io/huggingface/text-generation-inference:3.3.5',
-    defaultArgs:
-      '["--max-input-length","4096","--max-total-tokens","8192","--num-shard","1"]',
-  },
 };
 
-// Model matches store.Model: hugging_face_id / default_args /
-// recommended_gpu are text-typed in DB but the frontend treats them
-// as JSON. default_args is JSON-encoded string[]; recommended_gpu is
-// a small JSON object — both parsed on demand by the UI (no
-// transparent shape transform in the service layer to keep this
-// thin).
+// ModelSource controls where the model files physically come from.
+// See the backend ModelSource doc for the per-source behavior matrix.
+// Each value implies which other Model fields are meaningful:
+//   huggingface: source_ref required, hf_endpoint optional
+//   modelscope:  source_ref required
+//   local_path:  local_path required; deploy needs local_pvc_name
+//   oci:         oci_url required; deploy may pass local_pvc_name to cache
+export type ModelSource = 'huggingface' | 'modelscope' | 'local_path' | 'oci';
+
+export const MODEL_SOURCES: ModelSource[] = [
+  'huggingface',
+  'modelscope',
+  'local_path',
+  'oci',
+];
+
+// SOURCE_LABELS are the brand-display strings — i18n covers the
+// helper text but the brand names themselves are not translated.
+export const SOURCE_LABELS: Record<ModelSource, string> = {
+  huggingface: 'HuggingFace',
+  modelscope: 'ModelScope',
+  local_path: 'Local Path',
+  oci: 'OCI Artifact',
+};
+
+// Model matches store.Model: default_args / recommended_gpu are
+// text-typed in DB but the frontend treats them as JSON.
+// default_args is JSON-encoded string[]; recommended_gpu is a small
+// JSON object — both parsed on demand by the UI (no transparent
+// shape transform in the service layer to keep this thin).
+//
+// Source + per-source fields:
+//   source determines which of (source_ref, hf_endpoint, oci_url,
+//   local_path) the deploy generator reads. UI conditionally renders
+//   those fields based on the active source selection in the drawer;
+//   the others stay in state as empty strings.
 export interface Model {
   id: number;
   name: string;
@@ -166,7 +178,11 @@ export interface Model {
   family: ModelFamily;
   runtime: ModelRuntime;
   image: string;
-  hugging_face_id: string;
+  source: ModelSource;
+  source_ref: string;    // HF / MS repo id; ignored for local_path / oci
+  hf_endpoint: string;   // HF mirror URL; only meaningful for source=huggingface
+  oci_url: string;       // OCI artifact ref; only meaningful for source=oci
+  local_path: string;    // in-container path; only meaningful for source=local_path
   default_args: string; // JSON: string[]
   recommended_gpu: string; // JSON: { count: number; memoryGiB: number; model: string }
   license: string;
@@ -237,7 +253,16 @@ export interface DeployPayload {
   // vgpu_memory_mib is per-slot MiB, vgpu_cores is 0..100 % of SMs.
   vgpu_memory_mib?: number;
   vgpu_cores?: number;
-  hf_token?: string;
+  // Registry auth token. Env key on the inference container varies
+  // by source: HF_TOKEN (huggingface) or MODELSCOPE_API_TOKEN
+  // (modelscope). Ignored for local_path / oci.
+  registry_token?: string;
+  // Pre-existing PVC name in the target namespace. Required when
+  // source=local_path (mounts read-only at path.Dir(local_path));
+  // optional for source=oci (persists the ORAS-pulled model across
+  // restarts). Ignored for huggingface / modelscope (those use the
+  // pvc sub-spec below).
+  local_pvc_name?: string;
   extra_args?: string[];
   pvc: DeployPVC;
 }
@@ -293,8 +318,9 @@ export interface ModelInstance {
   model_runtime?: string;
   // model_field is the exact string the inference Service expects
   // in the chat/completions request body's `model` field — server
-  // resolves it from `HuggingFaceID || deployment.name` so the
-  // chat page doesn't have to know about runtime quirks.
+  // resolves it per source (HF/MS repo id, local path, or
+  // "/weights" for OCI) so the chat page doesn't have to know about
+  // source quirks.
   model_field: string;
 
   cluster_id: string;
@@ -337,10 +363,10 @@ export function listDeployments(opts?: { modelId?: number }) {
 
 // chatCompletions targets the inference Service the deployment
 // generator created. Body shape is OpenAI-compat; we don't model
-// it here (frontend passes a free object) because vLLM / SGLang /
-// TGI each support slightly different extension fields. The
-// server proxy is fully buffered so stream:true still works but
-// yields a single end-of-turn payload; streaming UI lands in P16-C.
+// it here (frontend passes a free object) because vLLM supports
+// extension fields that don't map cleanly to a typed interface.
+// The server proxy is fully buffered so stream:true still works
+// but yields a single end-of-turn payload; streaming UI lands in P16-C.
 export interface ChatTarget {
   clusterId: string;
   namespace: string;

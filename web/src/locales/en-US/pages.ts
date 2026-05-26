@@ -715,19 +715,27 @@ export default {
   'pages.models.deploy.resources.cpu.limit': 'CPU limit',
   'pages.models.deploy.resources.memory.request': 'Memory request',
   'pages.models.deploy.resources.memory.limit': 'Memory limit',
-  'pages.models.deploy.hfToken': 'HuggingFace token (optional)',
-  'pages.models.deploy.hfToken.help':
-    'Required when pulling gated weights (Llama 4, etc). Stored as a Secret and surfaced to the container via envFrom as HF_TOKEN.',
+  'pages.models.deploy.registryToken.hf': 'HuggingFace token (optional)',
+  'pages.models.deploy.registryToken.hf.help':
+    'Required when pulling gated models (Llama 4, etc). Stored as a Secret and surfaced via envFrom as HF_TOKEN.',
+  'pages.models.deploy.registryToken.ms': 'ModelScope token (optional)',
+  'pages.models.deploy.registryToken.ms.help':
+    'Required when pulling private ModelScope repos. Stored as a Secret and surfaced via envFrom as MODELSCOPE_API_TOKEN.',
   'pages.models.deploy.extraArgs': 'Extra launch args (optional)',
   'pages.models.deploy.extraArgs.help':
     'One per line. Appended after the model defaults; later vLLM flags override earlier ones, so this can also override defaults.',
-  'pages.models.deploy.pvc.section': 'Weight-cache PVC',
+  'pages.models.deploy.weights.section': 'Model files',
   'pages.models.deploy.pvc.enabled': 'Enable PVC cache',
   'pages.models.deploy.pvc.help':
-    '⚠️ Cold start downloads the full model from HuggingFace (Qwen3-0.6B ~1.5 GB / Qwen3-32B ~65 GB / DeepSeek-R1 ~1.3 TB). With PVC enabled it downloads once and pod restarts reuse the cache; with it disabled every pod restart re-downloads.',
+    '⚠️ Cold start downloads the full model from HuggingFace / ModelScope (Qwen3-0.6B ~1.5 GB / Qwen3-32B ~65 GB / DeepSeek-R1 ~1.3 TB). With PVC enabled it downloads once and pod restarts reuse the cache; with it disabled every pod restart re-downloads.',
   'pages.models.deploy.pvc.size': 'PVC size (GiB)',
   'pages.models.deploy.pvc.storageClass': 'StorageClass (optional)',
   'pages.models.deploy.pvc.storageClass.placeholder': 'Empty = cluster default',
+  'pages.models.deploy.localPVC.name': 'Existing PVC name',
+  'pages.models.deploy.localPVC.help.localPath':
+    'This model uses source=local_path: enter the name of a PVC that already exists in the target namespace. It will be mounted read-only at the parent directory of local_path. The PVC must already contain the model files.',
+  'pages.models.deploy.localPVC.help.oci':
+    'Optional: enter an existing PVC name to persist the ORAS-pulled model across pod restarts. Leave blank to use emptyDir (re-pull on every restart).',
   'pages.models.deploy.action.deploy': 'Deploy to cluster',
   'pages.models.deploy.success': 'Deployed {name} to namespace {ns}',
   'pages.models.deploy.partial':
@@ -747,7 +755,7 @@ export default {
     'Built-in entries cannot be edited or deleted',
   // detail drawer field labels (also used as Descriptions labels)
   'pages.models.registry.col.image': 'Image',
-  'pages.models.registry.col.hf': 'HuggingFace ID',
+  'pages.models.registry.col.source': 'Model source',
   'pages.models.registry.col.gpu': 'Recommended GPU',
   // toolbar filters
   'pages.models.registry.filter.runtime': 'Runtime',
@@ -763,12 +771,27 @@ export default {
   'pages.models.registry.form.image': 'Container image',
   'pages.models.registry.form.image.help':
     'Full image reference including tag. The official vLLM image is vllm/vllm-openai:<version>',
-  'pages.models.registry.form.hf': 'HuggingFace repo ID',
-  'pages.models.registry.form.hf.help':
-    'e.g. Qwen/Qwen2.5-7B-Instruct. Leave blank to pass a local model path via default_args',
+  'pages.models.registry.form.source': 'Model source',
+  'pages.models.registry.form.source.help':
+    'Where the model loads from: HuggingFace / ModelScope have vLLM download on first start; Local Path reuses an existing PVC in the cluster; OCI pulls an OCI artifact via an ORAS initContainer.',
+  'pages.models.registry.form.source_ref.hf': 'HuggingFace repo ID',
+  'pages.models.registry.form.source_ref.hf.help':
+    'e.g. Qwen/Qwen2.5-7B-Instruct. Injected at deploy time as vLLM\'s --model flag.',
+  'pages.models.registry.form.source_ref.ms': 'ModelScope repo ID',
+  'pages.models.registry.form.source_ref.ms.help':
+    'e.g. Qwen/Qwen2.5-7B-Instruct. Deploy sets VLLM_USE_MODELSCOPE=True so vLLM downloads from ModelScope.',
+  'pages.models.registry.form.hf_endpoint': 'HF mirror endpoint (optional)',
+  'pages.models.registry.form.hf_endpoint.help':
+    'Sets the HF_ENDPOINT env var when non-empty. China teams typically use https://hf-mirror.com; leave blank for the upstream huggingface.co.',
+  'pages.models.registry.form.oci_url': 'OCI artifact URL',
+  'pages.models.registry.form.oci_url.help':
+    'Full OCI reference, e.g. ghcr.io/myorg/qwen3-0.6b:v1. An ORAS initContainer pulls it into /weights at pod start.',
+  'pages.models.registry.form.local_path': 'In-container model path',
+  'pages.models.registry.form.local_path.help':
+    'Absolute path with at least two segments, e.g. /models/qwen3-0.6b. The deploy-time PVC mounts at the parent directory.',
   'pages.models.registry.form.defaultArgs': 'Default args',
   'pages.models.registry.form.defaultArgs.help':
-    'One arg per line (flag + value each on its own line). Do NOT include --model here — the deployment generator injects it from the HuggingFace ID',
+    'One arg per line (flag + value each on its own line). Do NOT include --model here — the generator injects it from source / source_ref / local_path / oci_url at deploy time.',
   'pages.models.registry.form.recommendedGPU': 'Recommended GPU',
   'pages.models.registry.form.recommendedGPU.help': 'count × memory × model',
   'pages.models.registry.form.recommendedGPU.count': 'Count',
@@ -790,6 +813,7 @@ export default {
   'pages.common.saved': 'Saved',
   'pages.common.identity': 'Identity',
   'pages.common.runtime': 'Runtime',
+  'pages.common.source': 'Model source',
   'pages.common.tuning': 'Tuning',
   'pages.common.loading': 'Loading…',
   'pages.common.refresh': 'Refresh',
