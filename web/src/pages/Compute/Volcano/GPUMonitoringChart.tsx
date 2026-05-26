@@ -190,9 +190,14 @@ function MetricChartCard({
       styles={{ body: { padding: 16 } }}
       style={fullscreen ? { width: '100%' } : undefined}
     >
+      {/* overflow:visible so G2's tooltip (rendered inside this
+          wrapper) isn't clipped at the card edge — multi-series
+          tooltips routinely extend above/right of the hovered point.
+          Safe paired with animate={false} on Line: no transient
+          chart-content bleed during forceFit / resize. */}
       <div
         ref={wrapperRef}
-        style={{ height: plotHeight, overflow: 'hidden' }}
+        style={{ height: plotHeight, overflow: 'visible' }}
       >
         <Line
             data={flat}
@@ -235,6 +240,7 @@ function MetricChartCard({
             theme={dark ? 'classicDark' : 'classic'}
             interaction={{ tooltip: { shared: true } }}
             style={{ lineWidth: 1.5 }}
+            animate={false}
           />
       </div>
     </Card>

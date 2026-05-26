@@ -230,12 +230,15 @@ function MultiSeriesChart({
 
   return (
     <Card title={title} size="small" style={{ height: '100%' }} styles={{ body: { padding: 16 } }}>
-      {/* overflow:hidden is a belt-and-braces against G2 ever
-          rendering wider than the wrapper for one frame during the
-          forceFit transition — the SVG won't leak into the next Col. */}
+      {/* overflow:visible so G2's tooltip (rendered inside this
+          wrapper) isn't clipped at the card edge — multi-series
+          tooltips routinely extend above/right of the hovered point.
+          Safe paired with animate={false} on Line: no transient
+          chart-content bleed during the forceFit transition, so
+          the SVG can't leak into the next Col. */}
       <div
         ref={wrapperRef}
-        style={{ height: plotPx, overflow: 'hidden' }}
+        style={{ height: plotPx, overflow: 'visible' }}
       >
         {chartReady && (
         <Line
@@ -282,6 +285,7 @@ function MultiSeriesChart({
           theme={dark ? 'classicDark' : 'classic'}
           interaction={{ tooltip: { shared: true } }}
           style={{ lineWidth: 1.5 }}
+          animate={false}
         />
         )}
       </div>
